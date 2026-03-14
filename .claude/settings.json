@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(if [ -d build ])",
+      "Bash(then echo \"build exists\")",
+      "Bash(else echo \"no build dir\")",
+      "Bash(fi)"
+    ]
+  }
+}

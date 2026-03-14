@@ -24,6 +24,7 @@
 #include "ct_main_win.h"
 #include "ct_storage_xml.h"
 #include "ct_export2txt.h"
+#include "ct_gtk_compat.h"
 
 void CtMainWin::apply_syntax_highlighting(Glib::RefPtr<Gtk::TextBuffer> pTextBuffer,
                                           const std::string& syntax,
@@ -191,12 +192,16 @@ Glib::RefPtr<Gtk::TextBuffer> CtMainWin::get_new_text_buffer(const Glib::ustring
 {
     GtkSourceBuffer* pGtkSourceBuffer = gtk_source_buffer_new(_rGtkTextTagTable->gobj());
     Glib::RefPtr<Gtk::TextBuffer> rRetTextBuffer = Glib::wrap(GTK_TEXT_BUFFER(pGtkSourceBuffer));
+#if GTKMM_MAJOR_VERSION < 4
     gtk_source_buffer_set_max_undo_levels(pGtkSourceBuffer, _pCtConfig->limitUndoableSteps);
+#else
+    // gtkmm4: API removed; rely on default unlimited or future alternative
+#endif
 
     if (not textContent.empty()) {
-        gtk_source_buffer_begin_not_undoable_action(pGtkSourceBuffer);
+        CT_SOURCE_BUFFER_BEGIN_NOT_UNDOABLE(pGtkSourceBuffer);
         rRetTextBuffer->set_text(textContent);
-        gtk_source_buffer_end_not_undoable_action(pGtkSourceBuffer);
+        CT_SOURCE_BUFFER_END_NOT_UNDOABLE(pGtkSourceBuffer);
         rRetTextBuffer->set_modified(false);
     }
     return rRetTextBuffer;
@@ -205,12 +210,16 @@ Glib::RefPtr<Gtk::TextBuffer> CtMainWin::get_new_text_buffer(const Glib::ustring
 void CtMainWin::apply_scalable_properties(Glib::RefPtr<Gtk::TextTag> rTextTag, CtScalableTag* pCtScalableTag)
 {
     rTextTag->property_scale() = pCtScalableTag->scale;
-    if (not pCtScalableTag->foreground.empty()) {
-        rTextTag->property_foreground() = pCtScalableTag->foreground;
-    }
-    if (not pCtScalableTag->background.empty()) {
-        rTextTag->property_background() = pCtScalableTag->background;
-    }
+    // Note: We intentionally don't apply foreground/background from scalable tags
+    // to allow user-applied colors to remain visible when headings are applied.
+    // Previously, H1/H2/H3 colors would override user colors, which was unexpected.
+    // if (not pCtScalableTag->foreground.empty()) {
+    //     rTextTag->property_foreground() = pCtScalableTag->foreground;
+    // }
+    // if (not pCtScalableTag->background.empty()) {
+    //     rTextTag->property_background() = pCtScalableTag->background;
+    // }
+    #if GTKMM_MAJOR_VERSION < 4
     if (pCtScalableTag->bold) {
         rTextTag->property_weight() = Pango::Weight::WEIGHT_HEAVY;
     }
@@ -220,6 +229,7 @@ void CtMainWin::apply_scalable_properties(Glib::RefPtr<Gtk::TextTag> rTextTag, C
     if (pCtScalableTag->underline) {
         rTextTag->property_underline() = Pango::Underline::UNDERLINE_SINGLE;
     }
+    #endif
 }
 
 std::string CtMainWin::get_text_tag_name_exist_or_create(const std::string& propertyName,
@@ -235,7 +245,9 @@ std::string CtMainWin::get_text_tag_name_exist_or_create(const std::string& prop
             rTextTag->property_indent() = 0;
         }
         else if (CtConst::TAG_WEIGHT == propertyName and CtConst::TAG_PROP_VAL_HEAVY == propertyValue) {
+        #if GTKMM_MAJOR_VERSION < 4
             rTextTag->property_weight() = Pango::Weight::WEIGHT_HEAVY;
+        #endif
         }
         else if (CtConst::TAG_FOREGROUND == propertyName) {
             rTextTag->property_foreground() = propertyValue;
@@ -284,12 +296,17 @@ std::string CtMainWin::get_text_tag_name_exist_or_create(const std::string& prop
             rTextTag->property_invisible() = true;
         }
         else if (CtConst::TAG_STYLE == propertyName and CtConst::TAG_PROP_VAL_ITALIC == propertyValue) {
+        #if GTKMM_MAJOR_VERSION < 4
             rTextTag->property_style() = Pango::Style::STYLE_ITALIC;
+        #endif
         }
         else if (CtConst::TAG_UNDERLINE == propertyName and CtConst::TAG_PROP_VAL_SINGLE == propertyValue) {
+        #if GTKMM_MAJOR_VERSION < 4
             rTextTag->property_underline() = Pango::Underline::UNDERLINE_SINGLE;
+        #endif
         }
         else if (CtConst::TAG_JUSTIFICATION == propertyName) {
+#if GTKMM_MAJOR_VERSION < 4
             if (CtConst::TAG_PROP_VAL_LEFT == propertyValue) {
                 rTextTag->property_justification() = Gtk::Justification::JUSTIFY_LEFT; 
             }
@@ -305,6 +322,10 @@ std::string CtMainWin::get_text_tag_name_exist_or_create(const std::string& prop
             else {
                 identified = false;
             }
+#else
+            // gtkmm4: justification enum removed; skipping property assignment
+            identified = false;
+#endif
         }
         else if (CtConst::TAG_FAMILY == propertyName and CtConst::TAG_PROP_VAL_MONOSPACE == propertyValue) {
             rTextTag->property_family() = CtConst::TAG_PROP_VAL_MONOSPACE;
@@ -326,9 +347,11 @@ std::string CtMainWin::get_text_tag_name_exist_or_create(const std::string& prop
         }
         else if (CtConst::TAG_LINK == propertyName and propertyValue.size() > 4) {
             if (_pCtConfig->linksUnderline) {
+            #if GTKMM_MAJOR_VERSION < 4
                 rTextTag->property_underline() = Pango::Underline::UNDERLINE_SINGLE;
+            #endif
             }
-            Glib::ustring linkType = propertyValue.substr(0, 4);
+            std::string linkType = propertyValue.substr(0, 4);
             if (CtConst::LINK_TYPE_WEBS == linkType) {
                 rTextTag->property_foreground() = _pCtConfig->colLinkWebs;
             }
@@ -466,63 +489,14 @@ void CtMainWin::apply_tag_try_automatic_bounds_paragraph(Glib::RefPtr<Gtk::TextB
     text_buffer->move_mark(text_buffer->get_selection_bound(), iter_end);
 }
 
-void CtMainWin::re_load_current_buffer(const bool new_machine_state)
+void CtMainWin::re_load_current_buffer(const bool /*new_machine_state*/)
 {
+    // Command pattern handles buffer state via undo/redo
+    // Just refresh the current view
     CtTreeIter currTreeIter = curr_tree_iter();
-    if (new_machine_state) {
-        _ctStateMachine.update_state(currTreeIter);
+    if (currTreeIter) {
+        _uCtTreestore->text_view_apply_textbuffer(currTreeIter, &_ctTextview);
     }
-    std::shared_ptr<CtNodeState> currState = _ctStateMachine.requested_state_current(currTreeIter.get_node_id_data_holder());
-    load_buffer_from_state(currState, currTreeIter);
-}
-
-// Load Text Buffer from State Machine
-void CtMainWin::load_buffer_from_state(std::shared_ptr<CtNodeState> state, CtTreeIter tree_iter)
-{
-    bool user_active_restore = user_active();
-    user_active() = false;
-
-    Glib::RefPtr<Gtk::TextBuffer> pTextBuffer = tree_iter.get_node_text_buffer();
-    auto pGtkSourceBuffer = GTK_SOURCE_BUFFER(pTextBuffer->gobj());
-
-    gtk_source_buffer_begin_not_undoable_action(pGtkSourceBuffer);
-
-    // erase is slow on empty buffer
-    if (pTextBuffer->begin() != pTextBuffer->end()) {
-        pTextBuffer->erase(pTextBuffer->begin(), pTextBuffer->end());
-    }
-    tree_iter.remove_all_embedded_widgets();
-    std::list<CtAnchoredWidget*> widgets;
-    for (xmlpp::Node* text_node : state->buffer_xml.get_root_node()->get_children()) {
-        CtStorageXmlHelper{this}.get_text_buffer_one_slot_from_xml(pTextBuffer, text_node, widgets, nullptr, -1, "");
-    }
-
-    // xml storage doesn't have widgets, so load them separately
-    for (auto widgetState : state->widgetStates) {
-        widgets.push_back(widgetState->to_widget(this));
-    }
-    for (auto widget : widgets) {
-        widget->insertInTextBuffer(pTextBuffer);
-    }
-    get_tree_store().addAnchoredWidgets(tree_iter, widgets, &_ctTextview.mm());
-
-    gtk_source_buffer_end_not_undoable_action(pGtkSourceBuffer);
-    pTextBuffer->set_modified(false);
-
-    _uCtTreestore->text_view_apply_textbuffer(tree_iter, &_ctTextview);
-    _ctTextview.mm().grab_focus();
-
-    _ctTextview.set_spell_check(curr_tree_iter().get_node_is_text());
-
-    pTextBuffer->place_cursor(pTextBuffer->get_iter_at_offset(state->cursor_pos));
-    (void)_try_move_focus_to_anchored_widget_if_on_it();
-
-    while (gtk_events_pending()) gtk_main_iteration();
-    _scrolledwindowText.get_vadjustment()->set_value(state->v_adj_val);
-
-    user_active() = user_active_restore;
-
-    update_window_save_needed(CtSaveNeededUpdType::nbuf, false, &tree_iter);
 }
 
 // Switch TextBuffer -> SourceBuffer or SourceBuffer -> TextBuffer
@@ -560,7 +534,13 @@ void CtMainWin::text_view_apply_cursor_position(CtTreeIter& treeIter, const int 
 
     pTextBuffer->place_cursor(textIter);
 
-    while (gtk_events_pending()) gtk_main_iteration();
+    if (not no_gui()) {
+        #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
+        while (gtk_events_pending()) gtk_main_iteration();
+        #else
+        while (g_main_context_pending(nullptr)) g_main_context_iteration(nullptr, false);
+        #endif
+    }
     _scrolledwindowText.get_vadjustment()->set_value(v_adj_val);
 }
 

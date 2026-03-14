@@ -13,3 +13,6 @@ build
 *.mo
 .vscode/settings.json
 .flatpak-builder
+build_output*.txt
+Testing/Temporary/
+tests/data_данные/.test_*

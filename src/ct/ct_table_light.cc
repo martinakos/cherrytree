@@ -28,6 +28,7 @@
 #include "ct_storage_xml.h"
 #include "ct_logging.h"
 #include "ct_misc_utils.h"
+#include "ct_command_bridge.h"
 
 /*static*/void CtTableLight::_free_matrix(CtTableMatrix& tableMatrix)
 {
@@ -134,6 +135,11 @@ void CtTableLight::_on_cell_renderer_editing_started(Gtk::CellEditable* editable
         CtTreeIter currTreeIter = _pCtMainWin->curr_tree_iter();
         if (currTreeIter) {
             _pEditingCellEntry->set_editable(not currTreeIter.get_node_read_only());
+            // Begin widget edit tracking when a cell becomes editable
+            auto* bridge = _pCtMainWin->get_command_bridge();
+            if (bridge && bridge->isActive()) {
+                bridge->beginWidgetEdit(currTreeIter.get_node_id(), this, std::stoi(path.raw()), (int)column);
+            }
         }
         _currentRow = std::stoi(path.raw());
         _currentColumn = column;
@@ -149,6 +155,11 @@ bool CtTableLight::_on_entry_focus_out_event(GdkEventFocus*/*gdk_event*/, Gtk::E
         _on_cell_renderer_text_edited(path, pEntry->get_text(), column);
     }
     _pEditingCellEntry = nullptr;
+    // Flush widget edit after cell data has been committed to the table model
+    auto* bridge = _pCtMainWin->get_command_bridge();
+    if (bridge && bridge->isActive()) {
+        bridge->endWidgetEdit();
+    }
     return false;
 }
 
@@ -197,12 +208,20 @@ void CtTableLight::_populate_xml_rows_cells(xmlpp::Element* p_table_node) const
 
 std::shared_ptr<CtAnchoredWidgetState> CtTableLight::get_state()
 {
-    return std::shared_ptr<CtAnchoredWidgetState>(new CtAnchoredWidgetState_TableLight{this});
+    // Command pattern uses XML snapshots instead of widget state objects
+    return nullptr;
 }
 
 void CtTableLight::row_add(const size_t afterRowIdx, const std::vector<Glib::ustring>* pNewRow/*= nullptr*/)
 {
+    #if GTKMM_MAJOR_VERSION >= 4
+    auto children = _pListStore->children();
+    auto const_iter = children.begin();
+    for (size_t r = 0; r < afterRowIdx && const_iter; ++r) ++const_iter;
+    Gtk::TreeModel::iterator afterIter = const_iter ? _pListStore->get_iter(_pListStore->get_path(const_iter)) : Gtk::TreeModel::iterator{};
+    #else
     Gtk::TreeModel::iterator afterIter = _pListStore->get_iter(Gtk::TreePath{std::to_string(afterRowIdx)});
+    #endif
     Gtk::TreeModel::iterator newIter;
     if (afterIter) {
         newIter = _pListStore->insert_after(afterIter);
@@ -227,17 +246,25 @@ void CtTableLight::row_delete(const size_t rowIdx)
     if (1u == get_num_rows() or rowIdx >= get_num_rows()) {
         return;
     }
+    #if GTKMM_MAJOR_VERSION >= 4
+    auto children = _pListStore->children();
+    auto const_iter = children.begin();
+    for (size_t r = 0; r < rowIdx && const_iter; ++r) ++const_iter;
+    Gtk::TreeModel::iterator treeIter = const_iter ? _pListStore->get_iter(_pListStore->get_path(const_iter)) : Gtk::TreeModel::iterator{};
+    #else
+    #if GTKMM_MAJOR_VERSION >= 4
+    auto children = _pListStore->children();
+    auto const_iter = children.begin();
+    for (size_t r = 0; r < rowIdx && const_iter; ++r) ++const_iter;
+    Gtk::TreeModel::iterator treeIter = const_iter ? _pListStore->get_iter(_pListStore->get_path(const_iter)) : Gtk::TreeModel::iterator{};
+    #else
     Gtk::TreePath treePath{std::to_string(rowIdx)};
     Gtk::TreeModel::iterator treeIter = _pListStore->get_iter(treePath);
+    #endif
+    #endif
     if (not treeIter) {
         return;
     }
-    //const CtTableLightColumns& cols = get_columns();
-    //spdlog::debug("rm row {} [{},{},{},{}]", treePath.to_string().raw(),
-    //    treeIter->get_value(cols.columnsText.at(0)),
-    //    treeIter->get_value(cols.columnsText.at(1)),
-    //    treeIter->get_value(cols.columnsText.at(2)),
-    //    treeIter->get_value(cols.columnsText.at(3)));
     exit_cell_edit();
     (void)_pListStore->erase(treeIter);
     if (_currentRow == get_num_rows()) {
@@ -245,7 +272,14 @@ void CtTableLight::row_delete(const size_t rowIdx)
     }
     if (0u == rowIdx) {
         // we deleted the header
+        #if GTKMM_MAJOR_VERSION >= 4
+        auto children2 = _pListStore->children();
+        auto const_iter2 = children2.begin();
+        // header is first row
+        Gtk::TreeModel::iterator treeIterHeader = const_iter2 ? _pListStore->get_iter(_pListStore->get_path(const_iter2)) : Gtk::TreeModel::iterator{};
+        #else
         Gtk::TreeModel::iterator treeIterHeader = _pListStore->get_iter(treePath);
+        #endif
         if (treeIterHeader) {
             (*treeIterHeader)[_pColumns->columnWeight] = CtTreeIter::get_pango_weight_from_is_bold(true);
         }
@@ -259,9 +293,25 @@ void CtTableLight::row_move_up(const size_t rowIdx, const bool from_move_down)
         return;
     }
     const size_t rowIdxUp = rowIdx - 1u;
+    #if GTKMM_MAJOR_VERSION >= 4
+    auto children = _pListStore->children();
+    auto const_iter = children.begin();
+    for (size_t r = 0; r < rowIdx && const_iter; ++r) ++const_iter;
+    Gtk::TreeModel::iterator treeIter = const_iter ? _pListStore->get_iter(_pListStore->get_path(const_iter)) : Gtk::TreeModel::iterator{};
+    auto const_iter_up = children.begin();
+    for (size_t r = 0; r < rowIdxUp && const_iter_up; ++r) ++const_iter_up;
+    Gtk::TreeModel::iterator treeIterUp = const_iter_up ? _pListStore->get_iter(_pListStore->get_path(const_iter_up)) : Gtk::TreeModel::iterator{};
+    #else
     Gtk::TreePath treePath{std::to_string(rowIdx)};
     Gtk::TreeModel::iterator treeIter = _pListStore->get_iter(treePath);
+    #endif
+    #if GTKMM_MAJOR_VERSION >= 4
+    auto const_iter_up = children.begin();
+    for (size_t r = 0; r < rowIdxUp && const_iter_up; ++r) ++const_iter_up;
+    Gtk::TreeModel::iterator treeIterUp = const_iter_up ? _pListStore->get_iter(_pListStore->get_path(const_iter_up)) : Gtk::TreeModel::iterator{};
+    #else
     Gtk::TreeModel::iterator treeIterUp = _pListStore->get_iter(Gtk::TreePath{std::to_string(rowIdxUp)});
+    #endif
     if (not treeIter or not treeIterUp) {
         return;
     }
@@ -463,19 +513,39 @@ void CtTableLight::grab_focus() const
 {
     const size_t currRow = current_row();
     const size_t currCol = current_column();
-    //spdlog::debug("focus ({},{})", currRow, currCol);
     for (int i = 0; i < 2; ++i) {
         _pCtMainWin->get_text_view().mm().grab_focus();
+        #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
         while (gtk_events_pending()) gtk_main_iteration();
         _pManagedTreeView->set_cursor(Gtk::TreePath{std::to_string(currRow)},
                                       *_pManagedTreeView->get_column(currCol),
                                       0 != i/*start_editing*/);
+        #else
+        while (g_main_context_pending(nullptr)) g_main_context_iteration(nullptr, false);
+        auto children = _pListStore->children();
+        auto const_iter = children.begin();
+        for (size_t r = 0; r < currRow && const_iter; ++r) ++const_iter;
+        if (const_iter) {
+            auto iter = _pListStore->get_iter(_pListStore->get_path(const_iter));
+            _pManagedTreeView->get_selection()->select(iter);
+        }
+        #endif
     }
 }
 
 void CtTableLight::exit_cell_edit() const
 {
+    #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     _pManagedTreeView->set_cursor(Gtk::TreePath{std::to_string(current_row())});
+    #else
+    auto children = _pListStore->children();
+    auto const_iter = children.begin();
+    for (size_t r = 0; r < current_row() && const_iter; ++r) ++const_iter;
+    if (const_iter) {
+        auto iter = _pListStore->get_iter(_pListStore->get_path(const_iter));
+        _pManagedTreeView->get_selection()->select(iter);
+    }
+    #endif
 }
 
 void CtTableLight::set_selection_at_offset_n_delta(const int offset, const int delta) const
@@ -568,17 +638,14 @@ void CtTableLight::_on_treeview_event_after(GdkEvent* event)
         const int event_x = (int)event->button.x;
         const int event_y = (int)event->button.y;
         if (_pManagedTreeView->get_path_at_pos(event_x, event_y, path_at_click, pCol_at_click, cell_x, cell_y)) {
-            //spdlog::debug("click x={} y={}", event_x, event_y);
             const size_t numColumns = get_num_columns();
             size_t selCol{0u};
             for (int c = numColumns - 1; c >= 0; --c) {
                 Gtk::TreeViewColumn* pColumn = _pManagedTreeView->get_column(c);
                 Gdk::Rectangle rect;
                 _pManagedTreeView->get_cell_area(path_at_click, *pColumn, rect);
-                //spdlog::debug("cell {} x: {}", c, rect.get_x());
                 if (event_x >= rect.get_x()) {
                     selCol = c;
-                    //spdlog::debug("focus ({},{}) x={} y={}", path_at_click.to_string().raw(), selCol, event_x, event_y);
                     break;
                 }
             }

@@ -51,11 +51,15 @@ class CtMainWin;
 class CtAnchoredWidgetState;
 class CtStorageCache;
 
+#if GTKMM_MAJOR_VERSION >= 4
+class CtAnchoredWidget : public Gtk::Frame
+#else
 class CtAnchoredWidget : public Gtk::EventBox
+#endif
 {
 public:
     CtAnchoredWidget(CtMainWin* pCtMainWin, const int charOffset, const std::string& justification);
-    ~CtAnchoredWidget() override {}
+    ~CtAnchoredWidget() override { _idleConnection.disconnect(); }
 
     void insertInTextBuffer(Glib::RefPtr<Gtk::TextBuffer> pTextBuffer);
     Glib::RefPtr<Gtk::TextChildAnchor> getTextChildAnchor() { return _rTextChildAnchor; }
@@ -76,11 +80,7 @@ public:
     const std::string& getJustification() const { return _justification; }
 
     bool get_hidden() const { return _hidden; }
-    void set_hidden(const bool hidden) {
-        _hidden = hidden;
-        if (hidden) hide();
-        else show();
-    }
+    void set_hidden(const bool hidden);
 
     bool operator<(const CtAnchoredWidget &other) { return getOffset() < other.getOffset(); }
     bool operator>(const CtAnchoredWidget &other) { return getOffset() > other.getOffset(); }
@@ -98,6 +98,7 @@ protected:
     Glib::RefPtr<Gtk::TextChildAnchor> _rTextChildAnchor;
     Gtk::Allocation _lastAllocation;
     bool _hidden{false};
+    sigc::connection _idleConnection;
 };
 
 class CtAnchWidgLink : public CtAnchoredWidget
@@ -156,10 +157,12 @@ public:
 
 private:
     CtConfig* const _pCtConfig;
+    sigc::connection _tooltipConnection;
 };
 
 class CtApp;
 
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
 class CtStatusIcon
 {
 public:
@@ -174,6 +177,7 @@ private:
     Glib::RefPtr<Gtk::StatusIcon> _rStatusIcon;
     std::unique_ptr<Gtk::Menu> _uStatusIconMenu;
 };
+#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
 
 class CtTreeIter;
 class CtStorageEntity

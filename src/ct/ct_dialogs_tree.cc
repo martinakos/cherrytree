@@ -30,13 +30,19 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
                                  CtNodeData& nodeData,
                                  const std::set<Glib::ustring>& tags_set)
 {
+#if GTKMM_MAJOR_VERSION >= 4
+    // GTK4 stub: not implemented
+    (void)title; (void)pCtMainWin; (void)nodeData; (void)tags_set;
+    return false;
+#else
     CtConfig* pCtConfig = pCtMainWin->get_ct_config();
     Gtk::Dialog dialog = Gtk::Dialog{title,
                                      *pCtMainWin,
                                      Gtk::DialogFlags::DIALOG_MODAL | Gtk::DialogFlags::DIALOG_DESTROY_WITH_PARENT};
-    dialog.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_REJECT);
-    dialog.add_button(Gtk::Stock::OK, Gtk::RESPONSE_ACCEPT);
-    dialog.set_default_response(Gtk::RESPONSE_ACCEPT);
+
+    (void)CtMiscUtil::dialog_add_button(&dialog, _("Cancel"), Gtk::RESPONSE_REJECT, "ct_cancel");
+    (void)CtMiscUtil::dialog_add_button(&dialog, _("OK"), Gtk::RESPONSE_ACCEPT, "ct_done", true/*isDefault*/);
+
     dialog.set_default_size(300, -1);
     dialog.set_position(Gtk::WindowPosition::WIN_POS_CENTER_ON_PARENT);
     auto name_entry = Gtk::manage(new Gtk::Entry);
@@ -126,7 +132,7 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
 
     auto excl_label = Gtk::manage(new Gtk::Label{_("Exclude from Searches")});
     auto excl_hbox = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 2/*spacing*/});
-    excl_hbox->set_margin_left(5);
+    excl_hbox->set_margin_start(5);
     auto excl_me_checkbutton = Gtk::manage(new Gtk::CheckButton{_("This Node")});
     excl_me_checkbutton->set_active(nodeData.excludeMeFromSearch);
     auto excl_ch_checkbutton = Gtk::manage(new Gtk::CheckButton{_("The Subnodes")});
@@ -156,7 +162,8 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
     }
     auto id_label = Gtk::manage(new Gtk::Label{id_str});
     id_label->set_xalign(0.0);
-    id_label->set_padding(3/*xpad*/, 0/*ypad*/);
+    id_label->set_margin_start(3);
+    id_label->set_margin_end(3);
 
     Gtk::Box* pContentArea = dialog.get_content_area();
     pContentArea->set_spacing(5);
@@ -220,7 +227,7 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
     fg_checkbutton->signal_toggled().connect([fg_colorbutton, fg_checkbutton](){
         fg_colorbutton->set_sensitive(fg_checkbutton->get_active());
     });
-    fg_colorbutton->signal_pressed().connect([pCtMainWin, fg_colorbutton](){
+    fg_colorbutton->signal_clicked().connect([pCtMainWin, fg_colorbutton](){
         Glib::ustring ret_colour = fg_colorbutton->get_rgba().to_string();
         CtDialogs::CtPickDlgState res{CtDialogs::CtPickDlgState::CALL_AGAIN};
         while (CtDialogs::CtPickDlgState::CALL_AGAIN == res) {
@@ -313,13 +320,14 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
     }
     nodeData.isBold = is_bold_checkbutton->get_active();
     if (fg_checkbutton->get_active()) {
-        nodeData.foregroundRgb24 = CtRgbUtil::get_rgb24str_from_str_any(fg_colorbutton->get_color().to_string());
+        nodeData.foregroundRgb24 = CtRgbUtil::get_rgb24str_from_str_any(fg_colorbutton->get_rgba().to_string());
         pCtConfig->currColour_nn = nodeData.foregroundRgb24;
     }
     else {
         nodeData.foregroundRgb24.clear();
     }
     return true;
+#endif
 }
 
 Gtk::TreeModel::iterator CtDialogs::choose_node_dialog(CtMainWin* pCtMainWin,
@@ -328,11 +336,18 @@ Gtk::TreeModel::iterator CtDialogs::choose_node_dialog(CtMainWin* pCtMainWin,
                                             CtTreeStore* pCtTreeStore,
                                             Gtk::TreeModel::iterator sel_tree_iter)
 {
+#if GTKMM_MAJOR_VERSION >= 4
+    // GTK4 stub: not implemented
+    (void)pCtMainWin; (void)parentTreeView; (void)title; (void)pCtTreeStore; (void)sel_tree_iter;
+    return Gtk::TreeModel::iterator{};
+#else
     Gtk::Dialog dialog{title,
                        *pCtMainWin,
                        Gtk::DialogFlags::DIALOG_MODAL | Gtk::DialogFlags::DIALOG_DESTROY_WITH_PARENT};
-    dialog.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_REJECT);
-    dialog.add_button(Gtk::Stock::OK, Gtk::RESPONSE_ACCEPT);
+
+    (void)CtMiscUtil::dialog_add_button(&dialog, _("Cancel"), Gtk::RESPONSE_REJECT, "ct_cancel");
+    (void)CtMiscUtil::dialog_add_button(&dialog, _("OK"), Gtk::RESPONSE_ACCEPT, "ct_done");
+
     dialog.set_position(Gtk::WindowPosition::WIN_POS_CENTER_ON_PARENT);
     dialog.set_default_size(600, 500);
     Gtk::TreeView treeview_2{pCtTreeStore->get_store()};
@@ -407,9 +422,11 @@ Gtk::TreeModel::iterator CtDialogs::choose_node_dialog(CtMainWin* pCtMainWin,
     }
 
     return dialog.run() == Gtk::RESPONSE_ACCEPT ? treeview_2.get_selection()->get_selected() : Gtk::TreeModel::iterator{};
+#endif
 }
 
 // Dialog to select between the Selected Node/Selected Node + Subnodes/All Tree
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
 CtExporting CtDialogs::selnode_selnodeandsub_alltree_dialog(Gtk::Window& parent,
                                                             bool also_selection,
                                                             bool* last_include_node_name,
@@ -421,9 +438,10 @@ CtExporting CtDialogs::selnode_selnodeandsub_alltree_dialog(Gtk::Window& parent,
                        parent,
                        Gtk::DialogFlags::DIALOG_MODAL | Gtk::DialogFlags::DIALOG_DESTROY_WITH_PARENT};
     dialog.set_transient_for(parent);
-    dialog.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_REJECT);
-    dialog.add_button(Gtk::Stock::OK, Gtk::RESPONSE_ACCEPT);
-    dialog.set_default_response(Gtk::RESPONSE_ACCEPT);
+
+    (void)CtMiscUtil::dialog_add_button(&dialog, _("Cancel"), Gtk::RESPONSE_REJECT, "ct_cancel");
+    (void)CtMiscUtil::dialog_add_button(&dialog, _("OK"), Gtk::RESPONSE_ACCEPT, "ct_done", true/*isDefault*/);
+
     dialog.set_position(Gtk::WindowPosition::WIN_POS_CENTER_ON_PARENT);
 
     auto radiobutton_selection = Gtk::RadioButton{_("Selected Text Only")};
@@ -442,14 +460,14 @@ CtExporting CtDialogs::selnode_selnodeandsub_alltree_dialog(Gtk::Window& parent,
     content_area->pack_start(radiobutton_selnodeandsub);
     content_area->pack_start(radiobutton_alltree);
 
-    auto separator_item_1 = Gtk::HSeparator();
+    auto separator_item_1 = Gtk::Separator();
     auto checkbutton_node_name = Gtk::CheckButton(_("Include Node Name"));
     if (last_include_node_name != nullptr) {
         checkbutton_node_name.set_active(*last_include_node_name);
         content_area->pack_start(separator_item_1);
         content_area->pack_start(checkbutton_node_name);
     }
-    auto separator_item_2 = Gtk::HSeparator();
+    auto separator_item_2 = Gtk::Separator();
     auto checkbutton_index_in_page = Gtk::CheckButton(_("Links Tree in Every Page"));
     if (last_index_in_page != nullptr) {
         checkbutton_index_in_page.set_active(*last_index_in_page);
@@ -480,3 +498,15 @@ CtExporting CtDialogs::selnode_selnodeandsub_alltree_dialog(Gtk::Window& parent,
     if (radiobutton_alltree.get_active()) return CtExporting::ALL_TREE;
     return CtExporting::SELECTED_TEXT;
 }
+#else
+CtExporting CtDialogs::selnode_selnodeandsub_alltree_dialog(Gtk::Window& parent,
+                                                            bool also_selection,
+                                                            bool* last_include_node_name,
+                                                            bool* last_new_node_page,
+                                                            bool* last_index_in_page,
+                                                            bool* last_single_file)
+{
+    (void)parent; (void)also_selection; (void)last_include_node_name; (void)last_new_node_page; (void)last_index_in_page; (void)last_single_file;
+    return CtExporting::NONESAVE;
+}
+#endif

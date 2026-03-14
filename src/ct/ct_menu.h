@@ -1,7 +1,7 @@
 /*
  * ct_menu.h
  *
- * Copyright 2009-2024
+ * Copyright 2009-2025
  * Giuseppe Penone <giuspen@gmail.com>
  * Evgenii Gurianov <https://github.com/txe>
  *
@@ -25,7 +25,12 @@
 
 #include <string>
 #include <libxml++/libxml++.h>
+#include <sigc++/sigc++.h>
+#include <sigc++/signal.h>
 #include <gtkmm.h>
+#include <functional>
+#include <memory>
+#include <unordered_map>
 #include "ct_types.h"
 
 class CtConfig;
@@ -40,10 +45,40 @@ struct CtMenuAction
     std::string name;
     std::string built_in_shortcut;
     std::string desc;
-    sigc::slot<void> run_action;
+    std::function<void()> run_action;
 
-    sigc::signal<void, bool> signal_set_sensitive = sigc::signal<void, bool>();
-    sigc::signal<void, bool> signal_set_visible = sigc::signal<void, bool>();
+    // Sensitivity/visibility update hooks
+#if GTKMM_MAJOR_VERSION >= 4
+    std::function<void(bool)> signal_set_sensitive;
+    std::function<void(bool)> signal_set_visible;
+#else
+    // GTK3 keeps real signals for menu items/toolbuttons
+    std::shared_ptr<sigc::signal<void, bool>> signal_set_sensitive;
+    std::shared_ptr<sigc::signal<void, bool>> signal_set_visible;
+#endif
+
+    CtMenuAction();
+
+    // Template constructor accepting const char* or std::string for string parameters
+    template<typename RunT>
+    CtMenuAction(std::string_view category_, std::string_view id_, std::string_view image_, 
+                 std::string_view name_, std::string_view built_in_shortcut_, std::string_view desc_, RunT run)
+     : category(category_)
+     , id(id_)
+     , image(image_)
+     , name(name_)
+     , built_in_shortcut(built_in_shortcut_)
+     , desc(desc_)
+     , run_action([run]() mutable { run(); })
+    {
+#if GTKMM_MAJOR_VERSION >= 4
+        signal_set_sensitive = nullptr;
+        signal_set_visible = nullptr;
+#else
+        signal_set_sensitive = std::make_shared<sigc::signal<void, bool>>();
+        signal_set_visible = std::make_shared<sigc::signal<void, bool>>();
+#endif
+    }
 
     const std::string& get_shortcut(CtConfig* pCtConfig) const;
     bool is_shortcut_overridden(CtConfig* pCtConfig) const;
@@ -64,20 +99,41 @@ public:
     enum POPUP_MENU_TYPE {Node, Text, Code, Link, Codebox, Image, Latex, Anchor, EmbFile, Terminal, PopupMenuNum};
 
 public:
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
    static Gtk::MenuItem* create_menu_item(Gtk::Menu* pMenu, const char* name, const char* image, const char* desc);
+#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
 
 public:
     void init_actions(CtActions* pActions);
 
     CtMenuAction*  find_action(const std::string& id);
     const std::list<CtMenuAction>& get_actions() { return _actions; }
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     Glib::RefPtr<Gtk::AccelGroup> get_accel_group() { return _pAccelGroup; }
 
     static Gtk::MenuItem*   find_menu_item(Gtk::MenuShell* menuShell, std::string name);
     static Gtk::AccelLabel* get_accel_label(Gtk::MenuItem* item);
 
-    std::vector<Gtk::Toolbar*> build_toolbars(Gtk::MenuToolButton*& pRecentDocsMenuToolButton, Gtk::ToolButton*& pToolButtonSave);
+    std::vector<Gtk::Toolbar*> build_toolbars(Gtk::MenuToolButton*& pRecentDocsMenuToolButton, Gtk::ToolButton*& pToolButtonSave,
+                                               Gtk::MenuToolButton*& pUndoMenuToolButton, Gtk::MenuToolButton*& pRedoMenuToolButton);
     Gtk::MenuBar*              build_menubar();
+#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
+#if GTKMM_MAJOR_VERSION >= 4
+    // GTK4 alternatives: Toolbar as boxes of buttons; Menu via Popover with buttons
+    std::vector<Gtk::Box*>     build_toolbars4(Gtk::MenuButton*& pRecentDocsMenuButton, Gtk::Button*& pButtonSave);
+    Gtk::MenuButton*           build_menubutton4();
+    Gtk::MenuButton*           build_menubutton_model4(); // hierarchical Gio::MenuModel based
+    void                       refresh_shortcuts_gtk4();
+    void                       populate_recent_docs_menu4(Gtk::MenuButton* recentBtn, const CtRecentDocsFilepaths& recentDocsFilepaths);
+    Gtk::MenuButton*           build_bookmarks_button4(std::list<std::tuple<gint64, Glib::ustring, const char*>>& bookmarks,
+                                                       std::function<void(gint64)> bookmark_action,
+                                                       const bool isTopMenu);
+private:
+    Gtk::Popover*              _build_actions_popover();
+    // Map action id -> widget used in GTK4 (button) for sensitivity/visibility updates
+    std::unordered_map<std::string, Gtk::Widget*> _gtk4ActionWidgets;
+    static std::string         _shortcut_display(const std::string& accel);
+#endif /* GTKMM_MAJOR_VERSION >= 4 */
     Gtk::Menu*                 build_bookmarks_menu(std::list<std::tuple<gint64, Glib::ustring, const char*>>& bookmarks,
                                                     sigc::slot<void, gint64>& bookmark_action,
                                                     const bool isTopMenu);
@@ -90,6 +146,7 @@ public:
     void                       build_popup_menu_table_cell(Gtk::Menu* pMenu, const bool first_row, const bool first_col, const bool last_row, const bool last_col);
 
 private:
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     void                    _walk_menu_xml(Gtk::MenuShell* pMenuShell, const char* document, const char* xpath);
     void                    _walk_menu_xml(Gtk::MenuShell* pMenuShell, xmlpp::Node* pNode);
     Gtk::Menu*              _add_menu_submenu(Gtk::MenuShell* pMenuShell, const char* id, const char* name, const char* image);
@@ -109,6 +166,10 @@ private:
                                                 const bool use_underline = true);
     static void             _add_menu_item_image_or_label(Gtk::MenuItem* pMenuItem, const char* image, Gtk::AccelLabel* label);
     Gtk::SeparatorMenuItem* _add_menu_separator(Gtk::MenuShell* pMenuShell);
+#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
+#if GTKMM_MAJOR_VERSION >= 4
+    // Future: Gio::Menu integration with app actions
+#endif /* GTKMM_MAJOR_VERSION >= 4 */
 
     std::vector<std::string> _get_ui_str_toolbars();
     const char*              _get_ui_str_menu();
@@ -125,7 +186,9 @@ private:
     CtConfig*                     const _pCtConfig;
     std::list<CtMenuAction>       _actions;
     Glib::RefPtr<Gtk::Builder>    _rGtkBuilder;
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     Glib::RefPtr<Gtk::AccelGroup> _pAccelGroup;
+#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
     Gtk::Menu*                    _popupMenus[POPUP_MENU_TYPE::PopupMenuNum] = {};
     std::list<sigc::connection>   _curr_bookm_submenu_sigc_conn;
 };

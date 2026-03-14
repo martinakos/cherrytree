@@ -26,6 +26,7 @@
 #include "spdlog/spdlog.h"
 #include <glibconfig.h>
 
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
 gint64 CtDialogs::dialog_selnode(CtMainWin* pCtMainWin, const Glib::ustring& entryStr)
 {
     // based on plotinus
@@ -96,7 +97,8 @@ gint64 CtDialogs::dialog_selnode(CtMainWin* pCtMainWin, const Glib::ustring& ent
     tree_view.signal_realize().connect([&](){
         auto style_context = tree_view.get_style_context();
         auto text_color = style_context->get_color(Gtk::StateFlags::STATE_FLAG_NORMAL);
-        auto selection_color = style_context->get_background_color(Gtk::StateFlags::STATE_FLAG_SELECTED | Gtk::StateFlags::STATE_FLAG_FOCUSED);
+        Gdk::RGBA selection_color;
+        style_context->lookup_color("background-color", selection_color);
         text_color.set_alpha(0.4);
 
         auto append_column = [&](std::function<Glib::ustring(const Gtk::TreeModel::iterator& iter)> markup_function,
@@ -252,3 +254,11 @@ gint64 CtDialogs::dialog_selnode(CtMainWin* pCtMainWin, const Glib::ustring& ent
         return resulted_iter->get_value(columns.id);
     return -1;
 }
+#else
+gint64 CtDialogs::dialog_selnode(CtMainWin* pCtMainWin, const Glib::ustring& entryStr)
+{
+    (void)pCtMainWin; (void)entryStr;
+    // GTK4 stub: dialog not yet ported
+    return -1;
+}
+#endif

@@ -22,6 +22,7 @@
  */
 
 #include "ct_actions.h"
+#include "ct_command_bridge.h"
 #include <gtkmm/dialog.h>
 #include <glibmm/base64.h>
 #include "ct_dialogs.h"
@@ -152,42 +153,126 @@ void CtActions::_remove_text_formatting(const bool dismiss_link)
 void CtActions::apply_tag_foreground()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+
+    // End current text edit session and create format command
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        spdlog::debug("Format change (foreground): ending text edit session and capturing format change");
+        pBridge->endTextEditSession();
+        pBridge->beginFormatChange(_pCtMainWin->curr_tree_iter().get_node_id(), "foreground");
+    }
+
     apply_tag(CtConst::TAG_FOREGROUND);
+
+    // Complete format change and begin new text session
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endFormatChange();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
 }
 
 // The Background Color Chooser Button was Pressed
 void CtActions::apply_tag_background()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+
+    // End current text edit session and create format command
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        spdlog::debug("Format change (background): ending text edit session and capturing format change");
+        pBridge->endTextEditSession();
+        pBridge->beginFormatChange(_pCtMainWin->curr_tree_iter().get_node_id(), "background");
+    }
+
     apply_tag(CtConst::TAG_BACKGROUND);
+
+    // Complete format change and begin new text session
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endFormatChange();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
 }
 
 // The Bold Button was Pressed
 void CtActions::apply_tag_bold()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+
+    // End current text edit session and create format command
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        spdlog::debug("Format change (bold): ending text edit session and capturing format change");
+        pBridge->endTextEditSession();
+        pBridge->beginFormatChange(_pCtMainWin->curr_tree_iter().get_node_id(), "bold");
+    }
+
     apply_tag(CtConst::TAG_WEIGHT, CtConst::TAG_PROP_VAL_HEAVY);
+
+    // Complete format change and begin new text session
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endFormatChange();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
 }
 
 // The Italic Button was Pressed
 void CtActions::apply_tag_italic()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        spdlog::debug("Format change (italic): ending text edit session and capturing format change");
+        pBridge->endTextEditSession();
+        pBridge->beginFormatChange(_pCtMainWin->curr_tree_iter().get_node_id(), "italic");
+    }
+
     apply_tag(CtConst::TAG_STYLE, CtConst::TAG_PROP_VAL_ITALIC);
+
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endFormatChange();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
 }
 
 // The Underline Button was Pressed
 void CtActions::apply_tag_underline()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        spdlog::debug("Format change (underline): ending text edit session and capturing format change");
+        pBridge->endTextEditSession();
+        pBridge->beginFormatChange(_pCtMainWin->curr_tree_iter().get_node_id(), "underline");
+    }
+
     apply_tag(CtConst::TAG_UNDERLINE, CtConst::TAG_PROP_VAL_SINGLE);
+
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endFormatChange();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
 }
 
 // The Strikethrough Button was Pressed
 void CtActions::apply_tag_strikethrough()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        spdlog::debug("Format change (strikethrough): ending text edit session and capturing format change");
+        pBridge->endTextEditSession();
+        pBridge->beginFormatChange(_pCtMainWin->curr_tree_iter().get_node_id(), "strikethrough");
+    }
+
     apply_tag(CtConst::TAG_STRIKETHROUGH, CtConst::TAG_PROP_VAL_TRUE);
+
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endFormatChange();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
 }
 
 //The Indent button was pressed
@@ -197,9 +282,20 @@ void CtActions::apply_tag_indent()
     CtTextRange range = CtList{_pCtConfig, _curr_buffer()}.get_paragraph_iters();
     if (not range.iter_start) return;
 
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        pBridge->beginFormatChange(_pCtMainWin->curr_tree_iter().get_node_id(), "indent");
+    }
+
     //Each time we increase indent, we'll add this much margin to the text
     int newMargin = _find_previous_indent_margin() + 1;
     apply_tag(CtConst::TAG_INDENT, std::to_string(newMargin), range.iter_start, range.iter_end);
+
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endFormatChange();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
 }
 
 //The 'unindent' button was pressed
@@ -209,6 +305,12 @@ void CtActions::reduce_tag_indent()
     CtTextRange range = CtList{_pCtConfig, _curr_buffer()}.get_paragraph_iters();
     if (not range.iter_start) return;
 
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        pBridge->beginFormatChange(_pCtMainWin->curr_tree_iter().get_node_id(), "unindent");
+    }
+
     int newMargin = _find_previous_indent_margin() -1;
     if (newMargin < 1) {
         // just remove prev indent tag
@@ -216,6 +318,11 @@ void CtActions::reduce_tag_indent()
     }
     else {
         apply_tag(CtConst::TAG_INDENT, std::to_string(newMargin), range.iter_start, range.iter_end);
+    }
+
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endFormatChange();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
     }
 }
 
@@ -239,35 +346,100 @@ void CtActions::_apply_tag_hN(const char* tagPropScaleVal)
     if (not _is_curr_node_not_read_only_or_error()) return;
     CtTextRange range = CtList{_pCtConfig, _curr_buffer()}.get_paragraph_iters();
     if (not range.iter_start) return;
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        spdlog::debug("Format change ({}): ending text edit session and capturing format change", tagPropScaleVal);
+        pBridge->endTextEditSession();
+        pBridge->beginFormatChange(_pCtMainWin->curr_tree_iter().get_node_id(), tagPropScaleVal);
+    }
+
     apply_tag(CtConst::TAG_SCALE, tagPropScaleVal, range.iter_start, range.iter_end);
+
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endFormatChange();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
 }
 
 // The Small Button was Pressed
 void CtActions::apply_tag_small()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        spdlog::debug("Format change (small): ending text edit session and capturing format change");
+        pBridge->endTextEditSession();
+        pBridge->beginFormatChange(_pCtMainWin->curr_tree_iter().get_node_id(), "small");
+    }
+
     apply_tag(CtConst::TAG_SCALE, CtConst::TAG_PROP_VAL_SMALL);
+
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endFormatChange();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
 }
 
 // The Superscript Button was Pressed
 void CtActions::apply_tag_superscript()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        spdlog::debug("Format change (superscript): ending text edit session and capturing format change");
+        pBridge->endTextEditSession();
+        pBridge->beginFormatChange(_pCtMainWin->curr_tree_iter().get_node_id(), "superscript");
+    }
+
     apply_tag(CtConst::TAG_SCALE, CtConst::TAG_PROP_VAL_SUP);
+
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endFormatChange();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
 }
 
 // The Subscript Button was Pressed
 void CtActions::apply_tag_subscript()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        spdlog::debug("Format change (subscript): ending text edit session and capturing format change");
+        pBridge->endTextEditSession();
+        pBridge->beginFormatChange(_pCtMainWin->curr_tree_iter().get_node_id(), "subscript");
+    }
+
     apply_tag(CtConst::TAG_SCALE, CtConst::TAG_PROP_VAL_SUB);
+
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endFormatChange();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
 }
 
 // The Monospace Button was Pressed
 void CtActions::apply_tag_monospace()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        spdlog::debug("Format change (monospace): ending text edit session and capturing format change");
+        pBridge->endTextEditSession();
+        pBridge->beginFormatChange(_pCtMainWin->curr_tree_iter().get_node_id(), "monospace");
+    }
+
     apply_tag(CtConst::TAG_FAMILY, CtConst::TAG_PROP_VAL_MONOSPACE);
+
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endFormatChange();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
 }
 
 // Handler of the Bulleted List
@@ -303,7 +475,19 @@ void CtActions::apply_tag_justify_left()
     if (not _is_curr_node_not_read_only_or_error()) return;
     CtTextRange range = CtList{_pCtConfig, _curr_buffer()}.get_paragraph_iters();
     if (not range.iter_start) return;
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        pBridge->beginFormatChange(_pCtMainWin->curr_tree_iter().get_node_id(), "justify_left");
+    }
+
     apply_tag(CtConst::TAG_JUSTIFICATION, CtConst::TAG_PROP_VAL_LEFT, range.iter_start, range.iter_end);
+
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endFormatChange();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
 }
 
 // The Justify Center Button was Pressed
@@ -312,7 +496,19 @@ void CtActions::apply_tag_justify_center()
     if (not _is_curr_node_not_read_only_or_error()) return;
     CtTextRange range = CtList{_pCtConfig, _curr_buffer()}.get_paragraph_iters();
     if (not range.iter_start) return;
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        pBridge->beginFormatChange(_pCtMainWin->curr_tree_iter().get_node_id(), "justify_center");
+    }
+
     apply_tag(CtConst::TAG_JUSTIFICATION, CtConst::TAG_PROP_VAL_CENTER, range.iter_start, range.iter_end);
+
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endFormatChange();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
 }
 
 // The Justify Right Button was Pressed
@@ -321,7 +517,19 @@ void CtActions::apply_tag_justify_right()
     if (not _is_curr_node_not_read_only_or_error()) return;
     CtTextRange range = CtList{_pCtConfig, _curr_buffer()}.get_paragraph_iters();
     if (not range.iter_start) return;
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        pBridge->beginFormatChange(_pCtMainWin->curr_tree_iter().get_node_id(), "justify_right");
+    }
+
     apply_tag(CtConst::TAG_JUSTIFICATION, CtConst::TAG_PROP_VAL_RIGHT, range.iter_start, range.iter_end);
+
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endFormatChange();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
 }
 
 // The Justify Fill Button was Pressed
@@ -330,7 +538,19 @@ void CtActions::apply_tag_justify_fill()
     if (not _is_curr_node_not_read_only_or_error()) return;
     CtTextRange range = CtList{_pCtConfig, _curr_buffer()}.get_paragraph_iters();
     if (not range.iter_start) return;
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        pBridge->beginFormatChange(_pCtMainWin->curr_tree_iter().get_node_id(), "justify_fill");
+    }
+
     apply_tag(CtConst::TAG_JUSTIFICATION, CtConst::TAG_PROP_VAL_FILL, range.iter_start, range.iter_end);
+
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endFormatChange();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
 }
 
 void CtActions::apply_tag(const Glib::ustring& tag_property,

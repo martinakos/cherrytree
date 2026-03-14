@@ -128,8 +128,7 @@ private:
                    CtMainWin* pWinToCopyFrom = nullptr);
     Gtk::TreeModel::iterator _node_add_with_data(Gtk::TreeModel::iterator curr_iter,
                                       CtNodeData& nodeData,
-                                      const bool add_as_child,
-                                      std::shared_ptr<CtNodeState> node_state);
+                                      const bool add_as_child);
 
 public:
     Gtk::TreeModel::iterator node_child_exist_or_create(Gtk::TreeModel::iterator parentIter,
@@ -298,7 +297,11 @@ public:
     void more_nodes_on_node_name_header();
     void less_nodes_on_node_name_header();
     void toggle_fullscreen();
+
+#if GTKMM_MAJOR_VERSION < 4
     void toggle_always_on_top();
+#endif /* GTKMM_MAJOR_VERSION < 4 */
+
     void disable_menubar_in_titlebar() { _menubar_in_titlebar_set(false); }
     void enable_menubar_in_titlebar() { _menubar_in_titlebar_set(true); }
 

@@ -27,28 +27,31 @@
 #include "ct_image.h"
 #include "ct_logging.h"
 #include "ct_storage_control.h"
+#include "ct_gtk_compat.h"
+#include "ct_command_bridge.h"
 #include <gtkmm/dialog.h>
 
 // Step Back for the Current Node, if Possible
 void CtActions::requested_step_back()
 {
     CtTreeIter currTreeIter = _pCtMainWin->curr_tree_iter();
-    if (not currTreeIter) return;
-    if (not _is_curr_node_not_read_only_or_error()) return;
-
-    if (currTreeIter.get_node_is_rich_text()) {
-        auto step_back = _pCtMainWin->get_state_machine().requested_state_previous(currTreeIter.get_node_id_data_holder());
-        if (step_back) {
-            _pCtMainWin->load_buffer_from_state(step_back, currTreeIter);
-        }
+    if (not currTreeIter) {
+        spdlog::debug("Undo: No current tree iter, returning");
+        return;
     }
-    else {
-        Glib::RefPtr<Gtk::TextBuffer> pTextBuffer = currTreeIter.get_node_text_buffer();
-        auto pGtkSourceBuffer = GTK_SOURCE_BUFFER(pTextBuffer->gobj());
-        if (gtk_source_buffer_can_undo(pGtkSourceBuffer)) {
-            gtk_source_buffer_undo(pGtkSourceBuffer);
-            _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf);
-        }
+    if (not _is_curr_node_not_read_only_or_error()) {
+        spdlog::debug("Undo: Current node is read-only or error");
+        return;
+    }
+
+    // Command pattern handles all undo/redo (Phase 5: state machine removed)
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->canUndo()) {
+        pBridge->undo();
+        _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf);
+        // Note: Menu updates happen on-demand via signal_show_menu()
+    } else {
+        spdlog::debug("Undo: No undo available (canUndo=false)");
     }
 }
 
@@ -59,19 +62,12 @@ void CtActions::requested_step_ahead()
     if (not currTreeIter) return;
     if (not _is_curr_node_not_read_only_or_error()) return;
 
-    if (currTreeIter.get_node_is_rich_text()) {
-        auto step_ahead = _pCtMainWin->get_state_machine().requested_state_subsequent(currTreeIter.get_node_id_data_holder());
-        if (step_ahead) {
-            _pCtMainWin->load_buffer_from_state(step_ahead, currTreeIter);
-        }
-    }
-    else {
-        Glib::RefPtr<Gtk::TextBuffer> pTextBuffer = currTreeIter.get_node_text_buffer();
-        auto pGtkSourceBuffer = GTK_SOURCE_BUFFER(pTextBuffer->gobj());
-        if (gtk_source_buffer_can_redo(pGtkSourceBuffer)) {
-            gtk_source_buffer_redo(pGtkSourceBuffer);
-            _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf);
-        }
+    // Command pattern handles all undo/redo (Phase 5: state machine removed)
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->canRedo()) {
+        pBridge->redo();
+        _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf);
+        // Note: Menu updates happen on-demand via signal_show_menu()
     }
 }
 
@@ -101,7 +97,7 @@ void CtActions::image_insert()
         rPixbuf = Gdk::Pixbuf::create_from_file(filename);
     }
     catch (Glib::Error& error) {
-        spdlog::error("{} {}", __FUNCTION__, error.what().raw());
+        spdlog::error("{} {}", __FUNCTION__, std::string(error.what()));
     }
     if (rPixbuf)
         _image_edit_dialog(rPixbuf, _curr_buffer()->get_insert()->get_iter(), nullptr/*pIterBound*/);
@@ -156,17 +152,40 @@ void CtActions::table_insert()
             }
         }
     }
-    CtTableCommon* pCtTable{nullptr};
-    if (is_light) {
-        pCtTable = new CtTableLight{_pCtMainWin, tbl_matrix, col_width, charOffset, "", CtTableColWidths{}};
-    }
-    else {
-        pCtTable = new CtTableHeavy{_pCtMainWin, tbl_matrix, col_width, charOffset, "", CtTableColWidths{}};
-    }
-    pCtTable->insertInTextBuffer(_curr_buffer());
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
 
-    _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
-        {pCtTable}, &_pCtMainWin->get_text_view().mm());
+        CtTableCommon* pCtTable{nullptr};
+        if (is_light) {
+            pCtTable = new CtTableLight{_pCtMainWin, tbl_matrix, col_width, charOffset, "", CtTableColWidths{}};
+        }
+        else {
+            pCtTable = new CtTableHeavy{_pCtMainWin, tbl_matrix, col_width, charOffset, "", CtTableColWidths{}};
+        }
+        pCtTable->insertInTextBuffer(_curr_buffer());
+        _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
+            {pCtTable}, &_pCtMainWin->get_text_view().mm());
+
+        gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+        auto desc = extractWidgetDesc(pCtTable, charOffset);
+        auto cmd = std::make_unique<InsertWidgetDeltaCommand>(
+            pBridge->getDocumentModel(), nodeId, charOffset, desc, "Insert table");
+        pBridge->addCommandToStack(std::move(cmd));
+        auto node = pBridge->getDocumentModel()->getNodeById(nodeId);
+        if (node) node->getContent().insertWidget(charOffset, desc);
+    } else {
+        CtTableCommon* pCtTable{nullptr};
+        if (is_light) {
+            pCtTable = new CtTableLight{_pCtMainWin, tbl_matrix, col_width, charOffset, "", CtTableColWidths{}};
+        }
+        else {
+            pCtTable = new CtTableHeavy{_pCtMainWin, tbl_matrix, col_width, charOffset, "", CtTableColWidths{}};
+        }
+        pCtTable->insertInTextBuffer(_curr_buffer());
+        _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
+            {pCtTable}, &_pCtMainWin->get_text_view().mm());
+    }
     //pCtTable->get_text_view().mm().grab_focus();
 }
 
@@ -189,22 +208,52 @@ void CtActions::codebox_insert()
     }
     Gtk::TextIter iter_insert = _curr_buffer()->get_insert()->get_iter();
 
-    CtCodebox* pCtCodebox = new CtCodebox{_pCtMainWin,
-                                          textContent,
-                                          _pCtConfig->codeboxSynHighl,
-                                          (int)_pCtConfig->codeboxWidth,
-                                          (int)_pCtConfig->codeboxHeight,
-                                          iter_insert.get_offset(),
-                                          justification,
-                                          _pCtConfig->codeboxWidthPixels,
-                                          _pCtConfig->codeboxMatchBra,
-                                          _pCtConfig->codeboxLineNum};
-    pCtCodebox->insertInTextBuffer(_curr_buffer());
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
 
-    _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
-                                                     {pCtCodebox},
-                                                     &_pCtMainWin->get_text_view().mm());
-    pCtCodebox->get_text_view().mm().grab_focus();
+        const int charOffset = iter_insert.get_offset();
+        CtCodebox* pCtCodebox = new CtCodebox{_pCtMainWin,
+                                              textContent,
+                                              _pCtConfig->codeboxSynHighl,
+                                              (int)_pCtConfig->codeboxWidth,
+                                              (int)_pCtConfig->codeboxHeight,
+                                              charOffset,
+                                              justification,
+                                              _pCtConfig->codeboxWidthPixels,
+                                              _pCtConfig->codeboxMatchBra,
+                                              _pCtConfig->codeboxLineNum};
+        pCtCodebox->insertInTextBuffer(_curr_buffer());
+        _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
+                                                         {pCtCodebox},
+                                                         &_pCtMainWin->get_text_view().mm());
+
+        gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+        auto desc = extractWidgetDesc(pCtCodebox, charOffset);
+        auto cmd = std::make_unique<InsertWidgetDeltaCommand>(
+            pBridge->getDocumentModel(), nodeId, charOffset, desc, "Insert codebox");
+        pBridge->addCommandToStack(std::move(cmd));
+        auto node = pBridge->getDocumentModel()->getNodeById(nodeId);
+        if (node) node->getContent().insertWidget(charOffset, desc);
+        pCtCodebox->get_text_view().mm().grab_focus();
+    } else {
+        CtCodebox* pCtCodebox = new CtCodebox{_pCtMainWin,
+                                              textContent,
+                                              _pCtConfig->codeboxSynHighl,
+                                              (int)_pCtConfig->codeboxWidth,
+                                              (int)_pCtConfig->codeboxHeight,
+                                              iter_insert.get_offset(),
+                                              justification,
+                                              _pCtConfig->codeboxWidthPixels,
+                                              _pCtConfig->codeboxMatchBra,
+                                              _pCtConfig->codeboxLineNum};
+        pCtCodebox->insertInTextBuffer(_curr_buffer());
+
+        _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
+                                                         {pCtCodebox},
+                                                         &_pCtMainWin->get_text_view().mm());
+        pCtCodebox->get_text_view().mm().grab_focus();
+    }
 }
 
 void CtActions::embfile_insert_path(const std::string& filepath)
@@ -247,19 +296,30 @@ void CtActions::embfile_insert_path(const std::string& filepath)
         blob = Glib::file_get_contents(filepath);
     }
 
+    const int charOffset = _curr_buffer()->get_insert()->get_iter().get_offset();
     CtAnchoredWidget* pAnchoredWidget = new CtImageEmbFile{_pCtMainWin,
                                                            name,
                                                            blob,
                                                            std::time(nullptr),
-                                                           _curr_buffer()->get_insert()->get_iter().get_offset(),
+                                                           charOffset,
                                                            "",
                                                            CtImageEmbFile::get_next_unique_id(),
                                                            embfilePath};
     pAnchoredWidget->insertInTextBuffer(_curr_buffer());
-
     _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
                                                      {pAnchoredWidget},
                                                      &_pCtMainWin->get_text_view().mm());
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive() && !pBridge->isSuppressingTextEdits()) {
+        gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+        auto desc = extractWidgetDesc(pAnchoredWidget, charOffset);
+        auto cmd = std::make_unique<InsertWidgetDeltaCommand>(
+            pBridge->getDocumentModel(), nodeId, charOffset, desc, "Insert embedded file");
+        pBridge->addCommandToStack(std::move(cmd));
+        auto node = pBridge->getDocumentModel()->getNodeById(nodeId);
+        if (node) node->getContent().insertWidget(charOffset, desc);
+    }
 }
 
 void CtActions::embfile_insert()
@@ -648,7 +708,7 @@ void CtActions::text_row_delete()
     CtTextRange range = CtList{_pCtConfig, proof.text_view->get_buffer()}.get_paragraph_iters();
     if (not range.iter_end.forward_char() and !range.iter_start.backward_char()) return;
     proof.text_view->get_buffer()->erase(range.iter_start, range.iter_end);
-    _pCtMainWin->get_state_machine().update_state();
+
 }
 
 // Duplicates the Whole Row or a Selection
@@ -712,7 +772,7 @@ void CtActions::text_row_selection_duplicate()
             }
         }
     }
-    _pCtMainWin->get_state_machine().update_state();
+
 }
 
 void CtActions::headers_toc_expand()
@@ -842,7 +902,7 @@ void CtActions::text_row_up()
         // selection
         proof.text_view->set_selection_at_offset_n_delta(destination_offset, diff_offsets-1);
     }
-    _pCtMainWin->get_state_machine().update_state();
+
 }
 
 // Moves Down the Current Row/Selected Rows
@@ -934,7 +994,7 @@ void CtActions::text_row_down()
         else
             proof.text_view->set_selection_at_offset_n_delta(destination_offset+1, diff_offsets-2);
     }
-    _pCtMainWin->get_state_machine().update_state();
+
 }
 
 void CtActions::replace_tabs_with_spaces()
@@ -1042,6 +1102,17 @@ void CtActions::image_insert_latex(Gtk::TextIter iter_insert,
     _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
                                                      {pAnchoredWidget},
                                                      &_pCtMainWin->get_text_view().mm());
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive() && !pBridge->isSuppressingTextEdits()) {
+        gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+        auto desc = extractWidgetDesc(pAnchoredWidget, charOffset);
+        auto cmd = std::make_unique<InsertWidgetDeltaCommand>(
+            pBridge->getDocumentModel(), nodeId, charOffset, desc, "Insert LaTeX");
+        pBridge->addCommandToStack(std::move(cmd));
+        auto node = pBridge->getDocumentModel()->getNodeById(nodeId);
+        if (node) node->getContent().insertWidget(charOffset, desc);
+    }
 }
 
 // Insert/Edit Image Dialog
@@ -1052,13 +1123,44 @@ void CtActions::_image_edit_dialog(Glib::RefPtr<Gdk::Pixbuf> rPixbuf,
     Glib::RefPtr<Gdk::Pixbuf> ret_pixbuf = CtDialogs::image_handle_dialog(*_pCtMainWin, rPixbuf);
     if (not ret_pixbuf) return;
     Glib::ustring image_justification;
+
+    // For image edits, use ModifyWidgetDeltaCommand (old desc → new desc)
     if (pIterBound) { // only in case of modify
-        image_justification = CtTextIterUtil::get_text_iter_alignment(insert_iter, _pCtMainWin);
-        int image_offset = insert_iter.get_offset();
-        _curr_buffer()->erase(insert_iter, *pIterBound);
-        insert_iter = _curr_buffer()->get_iter_at_offset(image_offset);
+        auto pBridge = _pCtMainWin->get_command_bridge();
+        if (pBridge && pBridge->isActive()) {
+            pBridge->endTextEditSession();
+
+            image_justification = CtTextIterUtil::get_text_iter_alignment(insert_iter, _pCtMainWin);
+            const int image_offset = insert_iter.get_offset();
+
+            // Capture old descriptor from model before modifying anything
+            gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+            auto oldDesc = pBridge->getDocumentModel()->getNodeById(nodeId)
+                ->getContent().getWidgetDescAt(image_offset);
+
+            // Delete old image and insert new one in the buffer
+            _curr_buffer()->erase(insert_iter, *pIterBound);
+            insert_iter = _curr_buffer()->get_iter_at_offset(image_offset);
+            CtAnchoredWidget* pAnchoredWidget = new CtImagePng{_pCtMainWin, ret_pixbuf, ""/*link*/, image_offset, image_justification};
+            pAnchoredWidget->insertInTextBuffer(_curr_buffer());
+            _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
+                                                             {pAnchoredWidget},
+                                                             &_pCtMainWin->get_text_view().mm());
+
+            auto newDesc = extractWidgetDesc(pAnchoredWidget, image_offset);
+            pBridge->commitWidgetModification(nodeId, image_offset, oldDesc, newDesc, "Edit image");
+        } else {
+            // Fallback: command bridge not active
+            image_justification = CtTextIterUtil::get_text_iter_alignment(insert_iter, _pCtMainWin);
+            int image_offset = insert_iter.get_offset();
+            _curr_buffer()->erase(insert_iter, *pIterBound);
+            insert_iter = _curr_buffer()->get_iter_at_offset(image_offset);
+            image_insert_png(insert_iter, ret_pixbuf, ""/*link*/, image_justification);
+        }
+    } else {
+        // New image insertion - use the normal path
+        image_insert_png(insert_iter, ret_pixbuf, ""/*link*/, image_justification);
     }
-    image_insert_png(insert_iter, ret_pixbuf, ""/*link*/, image_justification);
 }
 
 void CtActions::image_insert_png(Gtk::TextIter iter_insert,
@@ -1067,12 +1169,40 @@ void CtActions::image_insert_png(Gtk::TextIter iter_insert,
                                  const Glib::ustring& image_justification)
 {
     if (not rPixbuf) return;
-    const int charOffset = iter_insert.get_offset();
-    CtAnchoredWidget* pAnchoredWidget = new CtImagePng{_pCtMainWin, rPixbuf, link, charOffset, image_justification};
-    pAnchoredWidget->insertInTextBuffer(_curr_buffer());
-    _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
-                                                     {pAnchoredWidget},
-                                                     &_pCtMainWin->get_text_view().mm());
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+
+        const int charOffset = iter_insert.get_offset();
+        CtAnchoredWidget* pAnchoredWidget = new CtImagePng{_pCtMainWin, rPixbuf, link, charOffset, image_justification};
+        pAnchoredWidget->insertInTextBuffer(_curr_buffer());
+        _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
+                                                         {pAnchoredWidget},
+                                                         &_pCtMainWin->get_text_view().mm());
+
+        // Only create a command if NOT inside a paste/cut operation
+        if (!pBridge->isSuppressingTextEdits()) {
+            gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+            auto desc = extractWidgetDesc(pAnchoredWidget, charOffset);
+            auto cmd = std::make_unique<InsertWidgetDeltaCommand>(
+                pBridge->getDocumentModel(), nodeId, charOffset, desc,
+                "Insert image", charOffset, charOffset + 1);
+            pBridge->addCommandToStack(std::move(cmd));
+            auto node = pBridge->getDocumentModel()->getNodeById(nodeId);
+            if (node) node->getContent().insertWidget(charOffset, desc);
+        } else {
+            spdlog::debug("Image insertion during paste/cut - not creating separate command");
+        }
+    } else {
+        // Fallback: command bridge not active
+        const int charOffset = iter_insert.get_offset();
+        CtAnchoredWidget* pAnchoredWidget = new CtImagePng{_pCtMainWin, rPixbuf, link, charOffset, image_justification};
+        pAnchoredWidget->insertInTextBuffer(_curr_buffer());
+        _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
+                                                         {pAnchoredWidget},
+                                                         &_pCtMainWin->get_text_view().mm());
+    }
 }
 
 void CtActions::image_insert_anchor(Gtk::TextIter iter_insert,
@@ -1083,10 +1213,20 @@ void CtActions::image_insert_anchor(Gtk::TextIter iter_insert,
     const int charOffset = iter_insert.get_offset();
     CtAnchoredWidget* pAnchoredWidget = new CtImageAnchor{_pCtMainWin, name, expCollState, charOffset, image_justification};
     pAnchoredWidget->insertInTextBuffer(_curr_buffer());
-
     _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
                                                      {pAnchoredWidget},
                                                      &_pCtMainWin->get_text_view().mm());
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive() && !pBridge->isSuppressingTextEdits()) {
+        gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+        auto desc = extractWidgetDesc(pAnchoredWidget, charOffset);
+        auto cmd = std::make_unique<InsertWidgetDeltaCommand>(
+            pBridge->getDocumentModel(), nodeId, charOffset, desc, "Insert anchor");
+        pBridge->addCommandToStack(std::move(cmd));
+        auto node = pBridge->getDocumentModel()->getNodeById(nodeId);
+        if (node) node->getContent().insertWidget(charOffset, desc);
+    }
 }
 
 // Change the Case of the Selected Text/the Underlying Word"""

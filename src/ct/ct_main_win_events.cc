@@ -24,6 +24,7 @@
 #include "ct_main_win.h"
 #include "ct_actions.h"
 #include "ct_list.h"
+#include "ct_command_bridge.h"
 
 void CtMainWin::_on_treeview_cursor_changed()
 {
@@ -45,7 +46,9 @@ void CtMainWin::_on_treeview_cursor_changed()
         if (pTextBuffer->get_modified()) {
             _fileSaveNeeded = true;
             pTextBuffer->set_modified(false);
-            _ctStateMachine.update_state(_prevTreeIter);
+
+            // Command pattern is now always active (Phase 5: state machine removed)
+            _pCtCommandBridge->endTextEditSession();
         }
         const int scr = round(_scrolledwindowText.get_vadjustment()->get_value());
         const int cur = pTextBuffer->property_cursor_position();
@@ -64,7 +67,10 @@ void CtMainWin::_on_treeview_cursor_changed()
     }
     _uCtTreestore->text_view_apply_textbuffer(treeIter, &_ctTextview);
 
-    if (user_active()) {
+    // Begin new edit session for command bridge (always active now)
+    _pCtCommandBridge->beginTextEditSession(nodeId);
+
+    if (user_active() && !_pCtCommandBridge->isInUndoRedo()) {
         auto mapScrIter = _nodesVScrollPos.find(nodeIdDataHolder);
         auto mapCurIter = _nodesCursorPos.find(nodeIdDataHolder);
         if (mapScrIter != _nodesVScrollPos.end() and
@@ -86,21 +92,53 @@ void CtMainWin::_on_treeview_cursor_changed()
         window_header_update_ghost_icon(treeIter.get_node_is_excluded_from_search() or treeIter.get_node_children_are_excluded_from_search());
         window_header_update_bookmark_icon(is_bookmarked);
         update_selected_node_statusbar_info();
-    }
 
-    _ctStateMachine.node_selected_changed(nodeIdDataHolder);
+        // Track visited nodes for navigation history
+        if (not _visitedNodes.empty() && _visitedNodesIdx < _visitedNodes.size()) {
+            // If we're not at the end of history, truncate forward history
+            size_t last_index = _visitedNodes.size() - 1;
+            if (_visitedNodesIdx != last_index) {
+                _visitedNodes.erase(_visitedNodes.begin() + _visitedNodesIdx + 1, _visitedNodes.end());
+            }
+        }
+
+        // Remove this node if it's already in history (avoid duplicates)
+        for (auto it = _visitedNodes.begin(); it != _visitedNodes.end(); ) {
+            if (*it == nodeId) {
+                it = _visitedNodes.erase(it);
+            } else {
+                ++it;
+            }
+        }
+
+        // Add current node to history
+        _visitedNodes.push_back(nodeId);
+        _visitedNodesIdx = _visitedNodes.size() - 1;
+
+        // Limit history size to 50 nodes
+        while (_visitedNodes.size() > 50) {
+            _visitedNodes.pop_front();
+            if (_visitedNodesIdx > 0) _visitedNodesIdx--;
+        }
+    }
 
     _prevTreeIter = treeIter;
 }
 
+// GTK3 event handlers (not used in GTK4)
+#if GTKMM_MAJOR_VERSION < 4
 bool CtMainWin::_on_treeview_button_release_event(GdkEventButton* event)
 {
     if (event->button == 3) {
-        _uCtMenu->get_popup_menu(CtMenu::POPUP_MENU_TYPE::Node)->popup(event->button, event->time);
+        _uCtMenu->get_popup_menu(CtMenu::POPUP_MENU_TYPE::Node)->popup_at_pointer((GdkEvent*)event);
         return true;
     }
     return false;
 }
+
+#if GTKMM_MAJOR_VERSION >= 4
+// GTK4: treeview button release handled by controllers; no legacy handler
+#endif
 
 bool CtMainWin::_on_window_key_press_event(GdkEventKey* event)
 {
@@ -155,6 +193,10 @@ void CtMainWin::_on_treeview_event_after(GdkEvent* event)
         }
     }
 }
+
+#if GTKMM_MAJOR_VERSION >= 4
+// GTK4: treeview event-after moved to controllers; no legacy handler
+#endif
 
 void CtMainWin::_on_treeview_row_activated(const Gtk::TreeModel::Path& path, Gtk::TreeViewColumn*)
 {
@@ -251,7 +293,8 @@ bool CtMainWin::_on_treeview_key_press_event(GdkEventKey* event)
             return true;
         }
         if (GDK_KEY_Menu == event->keyval) {
-            _uCtMenu->get_popup_menu(CtMenu::POPUP_MENU_TYPE::Node)->popup(0, event->time);
+            auto* pMenu = _uCtMenu->get_popup_menu(CtMenu::POPUP_MENU_TYPE::Node);
+            pMenu->popup_at_widget(_uCtTreeview.get(), Gdk::GRAVITY_SOUTH_WEST, Gdk::GRAVITY_NORTH_WEST, (GdkEvent*)event);
             return true;
         }
         if (GDK_KEY_Tab == event->keyval or GDK_KEY_ISO_Left_Tab == event->keyval) {
@@ -276,7 +319,11 @@ bool CtMainWin::_on_treeview_key_press_event(GdkEventKey* event)
 
 bool CtMainWin::_on_treeview_popup_menu()
 {
-    _uCtMenu->get_popup_menu(CtMenu::POPUP_MENU_TYPE::Node)->popup(0, 0);
+    auto* pMenu = _uCtMenu->get_popup_menu(CtMenu::POPUP_MENU_TYPE::Node);
+    g_autoptr(GdkEvent) pEvent = gtk_get_current_event();
+    if (pEvent) {
+        pMenu->popup_at_pointer(pEvent);
+    }
     return true;
 }
 
@@ -290,8 +337,10 @@ bool CtMainWin::_on_treeview_scroll_event(GdkEventScroll* event)
         _zoom_tree(event->delta_y < 0);
     return true;
 }
+#endif /* GTKMM_MAJOR_VERSION < 4 */
 
 // Extend the Default Right-Click Menu
+#if GTKMM_MAJOR_VERSION < 4
 void CtMainWin::_on_textview_populate_popup(Gtk::Menu* menu)
 {
     if (curr_tree_iter().get_node_syntax_highlighting() == CtConst::RICH_TEXT_ID) {
@@ -332,8 +381,10 @@ void CtMainWin::_on_textview_populate_popup(Gtk::Menu* menu)
         _uCtActions->getCtMainWin()->get_ct_menu().build_popup_menu(menu, CtMenu::POPUP_MENU_TYPE::Code);
     }
 }
+#endif
 
 // Update the cursor image if the pointer moved
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
 bool CtMainWin::_on_textview_motion_notify_event(GdkEventMotion* event)
 {
     Gtk::TextView& textView = _ctTextview.mm();
@@ -343,7 +394,7 @@ bool CtMainWin::_on_textview_motion_notify_event(GdkEventMotion* event)
     //textView.reset_cursor_blink();
     CtTreeIter ctTreeIter = curr_tree_iter();
     if (ctTreeIter.get_node_is_code()) {
-        textView.get_window(Gtk::TEXT_WINDOW_TEXT)->set_cursor(Gdk::Cursor::create(Gdk::XTERM));
+        textView.get_window(Gtk::TEXT_WINDOW_TEXT)->set_cursor(Gdk::Cursor::create(textView.get_display(), Gdk::XTERM));
         return false;
     }
     int x, y;
@@ -351,7 +402,9 @@ bool CtMainWin::_on_textview_motion_notify_event(GdkEventMotion* event)
     _ctTextview.cursor_and_tooltips_handler(x, y);
     return false;
 }
+#endif
 
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
 // Update the cursor image if the window becomes visible (e.g. when a window covering it got iconified)
 bool CtMainWin::_on_textview_visibility_notify_event(GdkEventVisibility*)
 {
@@ -361,7 +414,7 @@ bool CtMainWin::_on_textview_visibility_notify_event(GdkEventVisibility*)
     }
     const auto syntax_highl = ct_tree_iter.get_node_syntax_highlighting();
     if (CtConst::RICH_TEXT_ID != syntax_highl and CtConst::PLAIN_TEXT_ID != syntax_highl) {
-        _ctTextview.mm().get_window(Gtk::TEXT_WINDOW_TEXT)->set_cursor(Gdk::Cursor::create(Gdk::XTERM));
+        _ctTextview.mm().get_window(Gtk::TEXT_WINDOW_TEXT)->set_cursor(Gdk::Cursor::create(_ctTextview.mm().get_display(), Gdk::XTERM));
         return false;
     }
     int x, y, bx, by;
@@ -371,7 +424,9 @@ bool CtMainWin::_on_textview_visibility_notify_event(GdkEventVisibility*)
     _ctTextview.cursor_and_tooltips_handler(bx, by);
     return false;
 }
+#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
 
+#if GTKMM_MAJOR_VERSION < 4
 bool CtMainWin::_on_window_configure_event(GdkEventConfigure*/*configure_event*/)
 {
     auto f_update_configs = [this](){
@@ -391,6 +446,7 @@ bool CtMainWin::_on_window_configure_event(GdkEventConfigure*/*configure_event*/
     }
     return false;
 }
+#endif
 
 void CtMainWin::_on_textview_size_allocate(Gtk::Allocation& allocation)
 {
@@ -415,6 +471,7 @@ void CtMainWin::_on_textview_size_allocate(Gtk::Allocation& allocation)
     }
 }
 
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
 bool CtMainWin::_on_textview_event(GdkEvent* event)
 {
     if (event->type != GDK_KEY_PRESS)
@@ -437,7 +494,20 @@ bool CtMainWin::_on_textview_event(GdkEvent* event)
             cursor_key_press() = iter_insert.get_offset();
         else
             cursor_key_press() = -1;
-        // print "self.cursor_key_press", self.cursor_key_press
+        // End the current session BEFORE the newline is inserted
+        // so "one" and the newline become separate undo entries
+        if (_ctTextview.mm().has_focus() && _pCtCommandBridge && _pCtCommandBridge->isActive()) {
+            _pCtCommandBridge->endTextEditSession();
+            _pCtCommandBridge->beginTextEditSession(curr_tree_iter().get_node_id());
+        }
+    }
+    else if (GDK_KEY_BackSpace == event->key.keyval or GDK_KEY_Delete == event->key.keyval) {
+        // End the current session BEFORE deletion so typed text and deletion
+        // become separate undo entries
+        if (_ctTextview.mm().has_focus() && _pCtCommandBridge && _pCtCommandBridge->isActive()) {
+            _pCtCommandBridge->endTextEditSession();
+            _pCtCommandBridge->beginTextEditSession(curr_tree_iter().get_node_id());
+        }
     }
     else if (GDK_KEY_Menu == event->key.keyval) {
         if (curr_tree_iter().get_node_syntax_highlighting() == CtConst::RICH_TEXT_ID) {
@@ -451,13 +521,15 @@ bool CtMainWin::_on_textview_event(GdkEvent* event)
             if (CtImageAnchor* anchor = dynamic_cast<CtImageAnchor*>(widgets.front())) {
                 _uCtActions->curr_anchor_anchor = anchor;
                 _uCtActions->object_set_selection(anchor);
-                _uCtMenu->get_popup_menu(CtMenu::POPUP_MENU_TYPE::Anchor)->popup(3, event->button.time);
+                auto* pMenu = _uCtMenu->get_popup_menu(CtMenu::POPUP_MENU_TYPE::Anchor);
+                pMenu->popup_at_widget(&_ctTextview.mm(), Gdk::GRAVITY_SOUTH_WEST, Gdk::GRAVITY_NORTH_WEST, (GdkEvent*)event);
             }
             else if (CtImagePng* image = dynamic_cast<CtImagePng*>(widgets.front())) {
                 _uCtActions->curr_image_anchor = image;
                 _uCtActions->object_set_selection(image);
-                _uCtMenu->find_action("img_link_dismiss")->signal_set_visible.emit(not image->get_link().empty());
-                _uCtMenu->get_popup_menu(CtMenu::POPUP_MENU_TYPE::Image)->popup(3, event->button.time);
+                _uCtMenu->find_action("img_link_dismiss")->signal_set_visible->emit(not image->get_link().empty());
+                auto* pMenu = _uCtMenu->get_popup_menu(CtMenu::POPUP_MENU_TYPE::Image);
+                pMenu->popup_at_widget(&_ctTextview.mm(), Gdk::GRAVITY_SOUTH_WEST, Gdk::GRAVITY_NORTH_WEST, (GdkEvent*)event);
             }
             return true;
         }
@@ -500,8 +572,23 @@ bool CtMainWin::_on_textview_event(GdkEvent* event)
                 CtListInfo list_info = CtList{_pCtConfig, curr_buffer}.get_paragraph_list_info(iter_insert);
                 if (list_info and list_info.type == CtListType::Todo) {
                     if (_uCtActions->_is_curr_node_not_read_only_or_error()) {
+                        // End current text edit session and create format command
+                        auto pBridge = get_command_bridge();
+                        if (pBridge && pBridge->isActive()) {
+                            spdlog::debug("Format change (todo check/uncheck): ending text edit session and capturing format change");
+                            pBridge->endTextEditSession();
+                            pBridge->beginFormatChange(curr_tree_iter().get_node_id(), "todo_toggle");
+                        }
+
                         auto iter_start_list = curr_buffer->get_iter_at_offset(list_info.startoffs + 3*list_info.level);
                         CtList{_pCtConfig, curr_buffer}.todo_list_rotate_status(iter_start_list);
+
+                        // Complete format change and begin new text session
+                        if (pBridge && pBridge->isActive()) {
+                            pBridge->endFormatChange();
+                            pBridge->beginTextEditSession(curr_tree_iter().get_node_id());
+                        }
+
                         return true;
                     }
                 }
@@ -522,8 +609,10 @@ bool CtMainWin::_on_textview_event(GdkEvent* event)
     }
     return false;
 }
+#endif
 
 // Called after every event on the SourceView
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
 void CtMainWin::_on_textview_event_after(GdkEvent* event)
 {
     if (event->type == GDK_2BUTTON_PRESS and (1 == event->button.button or 2 == event->button.button)) {
@@ -541,14 +630,47 @@ void CtMainWin::_on_textview_event_after(GdkEvent* event)
         }
     }
     else if (event->type == GDK_KEY_RELEASE) {
-        if (GDK_KEY_Return == event->key.keyval or GDK_KEY_KP_Enter == event->key.keyval or event->key.keyval == GDK_KEY_space) {
+        if ((GDK_KEY_Return == event->key.keyval or GDK_KEY_KP_Enter == event->key.keyval) &&
+            _ctTextview.mm().has_focus()) {
+            // End session after newline to finalize it as its own command
+            if (_pCtCommandBridge && _pCtCommandBridge->isActive()) {
+                spdlog::debug("Key release (enter): ending text edit session after newline");
+                _pCtCommandBridge->endTextEditSession();
+                // Begin a new session for the next line
+                _pCtCommandBridge->beginTextEditSession(curr_tree_iter().get_node_id());
+            }
+
             if (_pCtConfig->wordCountOn) {
                 update_selected_node_statusbar_info();
             }
         }
+        else if (event->key.keyval == GDK_KEY_space && _ctTextview.mm().has_focus()) {
+            // End session after space - the space is included in the session with the word
+            // but won't be shown in the description (unless multiple consecutive spaces)
+            if (_pCtCommandBridge && _pCtCommandBridge->isActive()) {
+                spdlog::debug("Key release (space): ending text edit session after word+space");
+                _pCtCommandBridge->endTextEditSession();
+                _pCtCommandBridge->beginTextEditSession(curr_tree_iter().get_node_id());
+            }
+
+            if (_pCtConfig->wordCountOn) {
+                update_selected_node_statusbar_info();
+            }
+        }
+        else if ((GDK_KEY_BackSpace == event->key.keyval or GDK_KEY_Delete == event->key.keyval) &&
+            _ctTextview.mm().has_focus()) {
+            // End session after delete to finalize it as its own command
+            if (_pCtCommandBridge && _pCtCommandBridge->isActive()) {
+                spdlog::debug("Key release (backspace/delete): ending text edit session after deletion");
+                _pCtCommandBridge->endTextEditSession();
+                _pCtCommandBridge->beginTextEditSession(curr_tree_iter().get_node_id());
+            }
+        }
     }
 }
+#endif
 
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
 bool CtMainWin::_on_textview_scroll_event(GdkEventScroll* event)
 {
     if (!(event->state & GDK_CONTROL_MASK))
@@ -559,7 +681,10 @@ bool CtMainWin::_on_textview_scroll_event(GdkEventScroll* event)
         _ctTextview.zoom_text(event->delta_y < 0, curr_tree_iter().get_node_syntax_highlighting());
     return true;
 }
+#endif
 
+// GTK3 Drag & Drop for TreeView
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
 bool CtMainWin::_on_treeview_drag_motion(const Glib::RefPtr<Gdk::DragContext>& /*context*/,
                                          int x,
                                          int y,
@@ -623,7 +748,6 @@ void CtMainWin::_on_treeview_drag_data_received(const Glib::RefPtr<Gdk::DragCont
     if (treeDropPos == Gtk::TREE_VIEW_DROP_BEFORE) {
         auto prev_iter = drop_iter;
         --prev_iter;
-        // note: prev_iter could be None, use drop_iter to retrieve the parent
         _uCtActions->node_move_after(drag_iter, drop_iter.parent(), prev_iter, true/*set_first*/);
     }
     else if (treeDropPos == Gtk::TREE_VIEW_DROP_AFTER) {
@@ -645,3 +769,30 @@ void CtMainWin::_on_treeview_drag_data_get(const Glib::RefPtr<Gdk::DragContext>&
         selection_data.set("UTF8_STRING", 8, (const guint8*)treePathStr.c_str(), (int)treePathStr.size());
     }
 }
+#else
+// GTK4 stubs for future TreeView Drag & Drop migration
+void CtMainWin::_setup_treeview_drag_and_drop_gtk4()
+{
+    // DragSource for moving nodes within tree
+    _treeDragSource4 = Gtk::DragSource::create();
+    _treeDragSource4->set_actions(Gdk::DragAction::MOVE);
+    _treeDragSource4->signal_drag_begin().connect(sigc::mem_fun(*this, &CtMainWin::_on_treeview_drag_source_prepare_gtk4));
+    _uCtTreeview->add_controller(_treeDragSource4);
+
+    // DropTarget for receiving node path strings
+    _treeDropTarget4 = Gtk::DropTarget::create(G_VALUE_TYPE(Glib::Value<Glib::ustring>().gobj()), Gdk::DragAction::MOVE);
+    _treeDropTarget4->signal_drop().connect(sigc::mem_fun(*this, &CtMainWin::_on_treeview_drop_target_drop_gtk4), false);
+    _uCtTreeview->add_controller(_treeDropTarget4);
+}
+
+void CtMainWin::_on_treeview_drag_source_prepare_gtk4(const Glib::RefPtr<Gdk::Drag>& /*drag*/)
+{
+    // Placeholder: selection path will be provided via content provider in future implementation
+}
+
+bool CtMainWin::_on_treeview_drop_target_drop_gtk4(const Glib::ValueBase& /*value*/, double /*x*/, double /*y*/)
+{
+    // Placeholder: implement node move logic using path string extracted from value
+    return false;
+}
+#endif

@@ -90,6 +90,12 @@ void CtAnchoredWidget::updateJustification(const Gtk::TextIter& textIter)
     updateJustification(CtTextIterUtil::get_text_iter_alignment(textIter, _pCtMainWin));
 }
 
+void CtAnchoredWidget::set_hidden(const bool hidden)
+{
+    _hidden = hidden;
+    set_visible(!hidden);
+}
+
 void CtAnchoredWidget::insertInTextBuffer(Glib::RefPtr<Gtk::TextBuffer> pTextBuffer)
 {
     _rTextChildAnchor = pTextBuffer->create_child_anchor(pTextBuffer->get_iter_at_offset(_charOffset));
@@ -117,10 +123,12 @@ void CtAnchoredWidget::_on_frame_size_allocate(Gtk::Allocation& allocation)
     if (not needWorkaround) {
         return;
     }
-    Glib::signal_idle().connect_once([&](){
+    _idleConnection.disconnect();
+    _idleConnection = Glib::signal_idle().connect([this](){
         CtTextView& textView = _pCtMainWin->get_text_view();
         textView.mm().set_wrap_mode(_pCtMainWin->get_ct_config()->lineWrapping ? Gtk::WrapMode::WRAP_NONE : Gtk::WrapMode::WRAP_WORD_CHAR);
         textView.mm().set_wrap_mode(_pCtMainWin->get_ct_config()->lineWrapping ? Gtk::WrapMode::WRAP_WORD_CHAR : Gtk::WrapMode::WRAP_NONE);
+        return false; // run once
     });
 }
 
@@ -136,8 +144,31 @@ CtTreeView::CtTreeView(CtConfig* pCtConfig)
 
 void CtTreeView::set_tooltips_enable(const bool on)
 {
-    if (on) set_tooltip_column(1); // node name
-    else set_tooltip_column(-1);
+    // Do NOT use set_tooltip_column() here — it internally calls
+    // gtk_tooltip_set_markup(), which fails on node names containing '&', '<', etc.
+    // Instead, use a custom query-tooltip handler with set_text() (plain text).
+    set_has_tooltip(on);
+    if (on) {
+        _tooltipConnection = signal_query_tooltip().connect(
+            [this](int x, int y, bool keyboard_tip, const Glib::RefPtr<Gtk::Tooltip>& tooltip) -> bool {
+                Gtk::TreeModel::iterator iter;
+                if (not get_tooltip_context_iter(x, y, keyboard_tip, iter)) {
+                    return false;
+                }
+                gchar* name = nullptr;
+                gtk_tree_model_get(get_model()->gobj(), const_cast<GtkTreeIter*>(iter->gobj()),
+                                   1/*colNodeName*/, &name, -1);
+                if (name) {
+                    tooltip->set_text(name);
+                    g_free(name);
+                    return true;
+                }
+                return false;
+            });
+    }
+    else {
+        _tooltipConnection.disconnect();
+    }
 }
 
 void CtTreeView::set_cursor_safe(const Gtk::TreeModel::iterator& treeIter)
@@ -163,12 +194,15 @@ void CtTreeView::set_tree_node_name_wrap_width(const bool wrap_enabled, const in
     }
 }
 
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
 CtStatusIcon::CtStatusIcon(CtApp& ctApp, CtConfig* pCtConfig)
  : _ctApp{ctApp}
  , _pCtConfig{pCtConfig}
 {
 }
+#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
 
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
 Gtk::StatusIcon* CtStatusIcon::get()
 {
     if (not _rStatusIcon) {
@@ -199,10 +233,13 @@ Gtk::StatusIcon* CtStatusIcon::get()
     }
     return _rStatusIcon.get();
 }
+#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
 
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
 void CtStatusIcon::ensure_menu_hidden()
 {
     if (_uStatusIconMenu) {
         _uStatusIconMenu->hide();
     }
 }
+#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */

@@ -28,7 +28,15 @@
 
 CtColumnEdit::CtColumnEdit(Gtk::TextView& textView)
  : _textView{textView}
+ , _isDestroying{std::make_shared<std::atomic<bool>>(false)}
 {
+}
+
+CtColumnEdit::~CtColumnEdit()
+{
+    // Signal to any pending idle callbacks that this object is being destroyed
+    // They will check this flag and bail out safely
+    *_isDestroying = true;
 }
 
 Gdk::Point CtColumnEdit::_get_point(const Gtk::TextIter& textIter)
@@ -201,7 +209,6 @@ void CtColumnEdit::paste(const std::string& column_txt)
         if (col_row.empty()) {
             break;
         }
-        //spdlog::debug("{}", col_row);
         iterInsert = pTextBuffer->get_iter_at_line_offset(insert_y, insert_x);
         if (not iterInsert or iterInsert.get_line_offset() != insert_x or iterInsert.get_line() != insert_y) {
             Gtk::TextIter iterLineCurrX = pTextBuffer->get_iter_at_line_offset(insert_y, 0);
@@ -209,7 +216,7 @@ void CtColumnEdit::paste(const std::string& column_txt)
                 pTextBuffer->insert(pTextBuffer->end(), CtConst::CHAR_NEWLINE);
                 iterLineCurrX = pTextBuffer->get_iter_at_line_offset(insert_y, 0);
                 if (not iterLineCurrX or iterLineCurrX.get_line() != insert_y) {
-                    spdlog::error("!! iter ({},0)", insert_y);
+                    spdlog::error("Failed to get iterator at line ({},0)", insert_y);
                     return;
                 }
             }
@@ -221,7 +228,7 @@ void CtColumnEdit::paste(const std::string& column_txt)
                     pTextBuffer->insert(pTextBuffer->get_iter_at_line_offset(insert_y, 0), CtConst::CHAR_SPACE);
                     iterLineCurrX = pTextBuffer->get_iter_at_line_offset(insert_y, curr_x);
                     if (not iterLineCurrX or iterLineCurrX.get_line_offset() != curr_x) {
-                        spdlog::error("!! iter ({},{})", insert_y, curr_x);
+                        spdlog::error("Failed to get iterator at line ({},{})", insert_y, curr_x);
                         return;
                     }
                 }
@@ -255,10 +262,10 @@ void CtColumnEdit::_edit_insert_delete(const bool isInsert)
                                  cursorPlace != expCursor )
                             {
                                 unexpected = true;
-                                spdlog::debug("!! ins point {},{} vs {},{}",
+                                spdlog::debug("Insert point mismatch {},{} vs {},{}",
                                     _lastInsertedPoint.get_x(), _lastInsertedPoint.get_y(),
                                     iterStartPoint.get_x(), iterStartPoint.get_y());
-                                spdlog::debug("!! cursor {},{} vs {},{}",
+                                spdlog::debug("Cursor mismatch {},{} vs {},{}",
                                     cursorPlace.get_x(), cursorPlace.get_y(),
                                     expCursor.get_x(), expCursor.get_y());
                             }
@@ -274,10 +281,10 @@ void CtColumnEdit::_edit_insert_delete(const bool isInsert)
                                  cursorPlace != iterStartPoint )
                             {
                                 unexpected = true;
-                                spdlog::debug("!! del point {},{} vs {},{}",
+                                spdlog::debug("Delete point mismatch {},{} vs {},{}",
                                     _lastRemovedPoint.get_x(), _lastRemovedPoint.get_y(),
                                     iterStartPoint.get_x(), iterStartPoint.get_y());
-                                spdlog::debug("!! cursor {},{} vs {},{}",
+                                spdlog::debug("Cursor mismatch {},{} vs {},{}",
                                     cursorPlace.get_x(), cursorPlace.get_y(),
                                     iterStartPoint.get_x(), iterStartPoint.get_y());
                             }
@@ -365,7 +372,13 @@ void CtColumnEdit::column_mode_off()
 
 void CtColumnEdit::text_inserted(const Gtk::TextIter& pos, const Glib::ustring& text)
 {
-    Glib::signal_idle().connect_once([&](){
+    // Capture the destruction flag by value (shared_ptr) so it outlives this object
+    auto isDestroying = _isDestroying;
+    Glib::signal_idle().connect_once([this, isDestroying](){
+        // Check if object was destroyed before this callback ran
+        if (*isDestroying) {
+            return;
+        }
         const Gdk::Point cursorPlace = _get_cursor_place();
         if (_newCursorRowColCallback) {
             _newCursorRowColCallback(cursorPlace.get_y()+1, cursorPlace.get_x());
@@ -373,7 +386,7 @@ void CtColumnEdit::text_inserted(const Gtk::TextIter& pos, const Glib::ustring& 
         else {
             spdlog::debug("{} {},{}", __FUNCTION__, cursorPlace.get_y()+1, cursorPlace.get_x());
         }
-    });  
+    });
     if (CtColEditState::Off == _state or _myOwnInsertDelete) {
         return;
     }
@@ -382,7 +395,11 @@ void CtColumnEdit::text_inserted(const Gtk::TextIter& pos, const Glib::ustring& 
         _lastInsertedText = text;
         _lastInsertedPoint = _get_point(pos);
     }
-    Glib::signal_idle().connect_once([&](){
+    Glib::signal_idle().connect_once([this, isDestroying](){
+        // Check if object was destroyed before this callback ran
+        if (*isDestroying) {
+            return;
+        }
         if (CtColEditState::PrEdit == _state) {
             _predit_to_edit();
         }
@@ -392,7 +409,13 @@ void CtColumnEdit::text_inserted(const Gtk::TextIter& pos, const Glib::ustring& 
 
 void CtColumnEdit::text_removed(const Gtk::TextIter& range_start, const Gtk::TextIter& range_end)
 {
-    Glib::signal_idle().connect_once([&](){
+    // Capture the destruction flag by value (shared_ptr) so it outlives this object
+    auto isDestroying = _isDestroying;
+    Glib::signal_idle().connect_once([this, isDestroying](){
+        // Check if object was destroyed before this callback ran
+        if (*isDestroying) {
+            return;
+        }
         const Gdk::Point cursorPlace = _get_cursor_place();
         if (_newCursorRowColCallback) {
             _newCursorRowColCallback(cursorPlace.get_y()+1, cursorPlace.get_x());
@@ -419,10 +442,8 @@ void CtColumnEdit::text_removed(const Gtk::TextIter& range_start, const Gtk::Tex
         _lastRemovedPoint = _get_point(range_start);
         _lastRemovedDeltaOffset = _lastRemovedText.size();
         if (range_end.get_line_offset() == firstStartMarkIter.get_line_offset()) {
-            //spdlog::debug("positive, backspace");
         }
         else if (range_start.get_line_offset() == firstStartMarkIter.get_line_offset()) {
-            //spdlog::debug("negative, delete front");
             _lastRemovedDeltaOffset *= -1;
         }
         else if (CtColEditState::PrEdit == _state and _marksEnd.size() > 0 and _marksEnd.front()) {
@@ -432,25 +453,27 @@ void CtColumnEdit::text_removed(const Gtk::TextIter& range_start, const Gtk::Tex
                 return;
             }
             if (range_end.get_line_offset() == firstEndMarkIter.get_line_offset()) {
-                //spdlog::debug("positive, backspace");
-            }
+                }
             else if (range_start.get_line_offset() == firstEndMarkIter.get_line_offset()) {
-                //spdlog::debug("negative, delete front");
-                _lastRemovedDeltaOffset *= -1;
+                    _lastRemovedDeltaOffset *= -1;
             }
             else {
-                spdlog::debug("!! unexp");
+                spdlog::debug("Unexpected condition in column edit");
                 column_mode_off();
                 return;
             }
         }
         else {
-            spdlog::debug("!! unexp");
+            spdlog::debug("Unexpected condition in column edit");
             column_mode_off();
             return;
         }
     }
-    Glib::signal_idle().connect_once([&](){
+    Glib::signal_idle().connect_once([this, isDestroying](){
+        // Check if object was destroyed before this callback ran
+        if (*isDestroying) {
+            return;
+        }
         if (CtColEditState::PrEdit == _state) {
             _predit_to_edit();
             std::lock_guard<std::mutex> lock(_mutexLastInOut);

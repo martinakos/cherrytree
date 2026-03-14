@@ -25,6 +25,7 @@
 #include "ct_main_win.h"
 #include "ct_text_view.h"
 
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
 Glib::ustring CtDialogs::latex_handle_dialog(CtMainWin* pCtMainWin,
                                              const Glib::ustring& latex_text)
 {
@@ -39,9 +40,10 @@ Glib::ustring CtDialogs::latex_handle_dialog(CtMainWin* pCtMainWin,
     Gtk::Dialog dialog{_("Latex Text"),
                        *pCtMainWin,
                        Gtk::DialogFlags::DIALOG_MODAL | Gtk::DialogFlags::DIALOG_DESTROY_WITH_PARENT};
-    dialog.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_REJECT);
-    dialog.add_button(Gtk::Stock::OK, Gtk::RESPONSE_ACCEPT);
-    dialog.set_default_response(Gtk::RESPONSE_ACCEPT);
+
+    (void)CtMiscUtil::dialog_add_button(&dialog, _("Cancel"), Gtk::RESPONSE_REJECT, "ct_cancel");
+    (void)CtMiscUtil::dialog_add_button(&dialog, _("OK"), Gtk::RESPONSE_ACCEPT, "ct_done", true/*isDefault*/);
+
     dialog.set_position(Gtk::WindowPosition::WIN_POS_CENTER_ON_PARENT);
     dialog.set_default_size(400, 250);
     Gtk::Box* pContentArea = dialog.get_content_area();
@@ -247,9 +249,10 @@ Glib::RefPtr<Gdk::Pixbuf> CtDialogs::image_handle_dialog(Gtk::Window& parent_win
     Gtk::Dialog dialog{_("Image Properties"),
                        parent_win,
                        Gtk::DialogFlags::DIALOG_MODAL | Gtk::DialogFlags::DIALOG_DESTROY_WITH_PARENT};
-    dialog.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_REJECT);
-    dialog.add_button(Gtk::Stock::OK, Gtk::RESPONSE_ACCEPT);
-    dialog.set_default_response(Gtk::RESPONSE_ACCEPT);
+
+    (void)CtMiscUtil::dialog_add_button(&dialog, _("Cancel"), Gtk::RESPONSE_REJECT, "ct_cancel");
+    (void)CtMiscUtil::dialog_add_button(&dialog, _("OK"), Gtk::RESPONSE_ACCEPT, "ct_done", true/*isDefault*/);
+
     dialog.set_position(Gtk::WindowPosition::WIN_POS_CENTER_ON_PARENT);
     dialog.set_default_size(600, 500);
     Gtk::Button button_rotate_90_ccw;
@@ -406,8 +409,10 @@ bool CtDialogs::codeboxhandle_dialog(CtMainWin* pCtMainWin,
     Gtk::Dialog dialog{title,
                        *pCtMainWin,
                        Gtk::DialogFlags::DIALOG_MODAL | Gtk::DialogFlags::DIALOG_DESTROY_WITH_PARENT};
-    dialog.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_REJECT);
-    dialog.add_button(Gtk::Stock::OK, Gtk::RESPONSE_ACCEPT);
+
+    (void)CtMiscUtil::dialog_add_button(&dialog, _("Cancel"), Gtk::RESPONSE_REJECT, "ct_cancel");
+    (void)CtMiscUtil::dialog_add_button(&dialog, _("OK"), Gtk::RESPONSE_ACCEPT, "ct_done");
+
     dialog.set_default_size(300, -1);
     dialog.set_position(Gtk::WIN_POS_CENTER_ON_PARENT);
 
@@ -465,14 +470,12 @@ bool CtDialogs::codeboxhandle_dialog(CtMainWin* pCtMainWin,
     Gtk::Box vbox_size{Gtk::ORIENTATION_VERTICAL};
     vbox_size.pack_start(hbox_width);
     vbox_size.pack_start(hbox_height);
-    Gtk::Alignment size_align;
-    size_align.set_padding(0, 6, 6, 6);
-    size_align.add(vbox_size);
+    CtMiscUtil::set_widget_margins(vbox_size, 0, 6, 6, 6);
 
     Gtk::Frame size_frame{Glib::ustring("<b>")+_("Size")+"</b>"};
     dynamic_cast<Gtk::Label*>(size_frame.get_label_widget())->set_use_markup(true);
     size_frame.set_shadow_type(Gtk::SHADOW_NONE);
-    size_frame.add(size_align);
+    size_frame.add(vbox_size);
 
     Gtk::CheckButton checkbutton_codebox_linenumbers{_("Show Line Numbers")};
     checkbutton_codebox_linenumbers.set_active(pConfig->codeboxLineNum);
@@ -481,14 +484,12 @@ bool CtDialogs::codeboxhandle_dialog(CtMainWin* pCtMainWin,
     Gtk::Box vbox_options{Gtk::ORIENTATION_VERTICAL};
     vbox_options.pack_start(checkbutton_codebox_linenumbers);
     vbox_options.pack_start(checkbutton_codebox_matchbrackets);
-    Gtk::Alignment opt_align;
-    opt_align.set_padding(6, 6, 6, 6);
-    opt_align.add(vbox_options);
+    CtMiscUtil::set_widget_margins(vbox_options, 6, 6, 6, 6);
 
     Gtk::Frame options_frame{Glib::ustring("<b>")+_("Options")+"</b>"};
     dynamic_cast<Gtk::Label*>(options_frame.get_label_widget())->set_use_markup(true);
     options_frame.set_shadow_type(Gtk::SHADOW_NONE);
-    options_frame.add(opt_align);
+    options_frame.add(vbox_options);
 
     Gtk::Box* pContentArea = dialog.get_content_area();
     pContentArea->set_spacing(5);
@@ -589,16 +590,17 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
                        *pCtMainWin,
                        Gtk::DialogFlags::DIALOG_MODAL | Gtk::DialogFlags::DIALOG_DESTROY_WITH_PARENT};
     dialog.set_transient_for(*pCtMainWin);
-    dialog.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_REJECT);
-    dialog.add_button(Gtk::Stock::OK, Gtk::RESPONSE_ACCEPT);
-    dialog.set_default_response(Gtk::RESPONSE_ACCEPT);
+
+    (void)CtMiscUtil::dialog_add_button(&dialog, _("Cancel"), Gtk::RESPONSE_REJECT, "ct_cancel");
+    (void)CtMiscUtil::dialog_add_button(&dialog, _("OK"), Gtk::RESPONSE_ACCEPT, "ct_done", true/*isDefault*/);
+
     dialog.set_position(Gtk::WindowPosition::WIN_POS_CENTER_ON_PARENT);
     dialog.set_default_size(300, -1);
 
     auto pCtConfig = pCtMainWin->get_ct_config();
     auto label_rows = Gtk::Label{_("Rows")};
     label_rows.set_halign(Gtk::Align::ALIGN_START);
-    label_rows.set_margin_left(10);
+    label_rows.set_margin_start(10);
     auto adj_rows = Gtk::Adjustment::create(pCtConfig->tableRows, 1, 10000, 1);
     auto spinbutton_rows = Gtk::SpinButton{adj_rows};
     spinbutton_rows.set_value(pCtConfig->tableRows);
@@ -691,3 +693,35 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
     }
     return TableHandleResp::Cancel;
 }
+#else
+// GTK4 minimal fallbacks to satisfy build; functionality to be implemented.
+Glib::ustring CtDialogs::latex_handle_dialog(CtMainWin* pCtMainWin,
+                                             const Glib::ustring& latex_text)
+{
+    (void)pCtMainWin;
+    return latex_text;
+}
+
+Glib::RefPtr<Gdk::Pixbuf> CtDialogs::image_handle_dialog(Gtk::Window& parent_win,
+                                                         Glib::RefPtr<Gdk::Pixbuf> rOriginalPixbuf)
+{
+    (void)parent_win;
+    return rOriginalPixbuf;
+}
+
+bool CtDialogs::codeboxhandle_dialog(CtMainWin* pCtMainWin,
+                                     const Glib::ustring& title)
+{
+    (void)pCtMainWin; (void)title;
+    return false;
+}
+
+CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
+                                                          const Glib::ustring& title,
+                                                          const bool is_insert,
+                                                          bool& is_light)
+{
+    (void)pCtMainWin; (void)title; (void)is_insert; (void)is_light;
+    return TableHandleResp::Cancel;
+}
+#endif
