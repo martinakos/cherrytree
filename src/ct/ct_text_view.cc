@@ -21,11 +21,13 @@
  * MA 02110-1301, USA.
  */
 
+#include <sigc++/sigc++.h>
 #include "ct_main_win.h"
 #include "ct_text_view.h"
 #include "ct_actions.h"
 #include "ct_list.h"
 #include "ct_clipboard.h"
+#include "ct_command_bridge.h"
 
 std::unordered_map<std::string, GspellChecker*> CtTextView::_static_spell_checkers;
 
@@ -99,6 +101,7 @@ CtTextView::CtTextView(CtMainWin* pCtMainWin)
         return false; /*propagate event*/
     }, false);
 
+    #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     std::vector<Gtk::TargetEntry> dest_targets;
     dest_targets.push_back(Gtk::TargetEntry(CtConst::TARGET_URI_LIST));
     dest_targets.push_back(Gtk::TargetEntry(CtConst::TARGET_GTK_TEXT_BUFFER_CONTENTS, Gtk::TARGET_SAME_APP, 0));
@@ -108,6 +111,9 @@ CtTextView::CtTextView(CtMainWin* pCtMainWin)
     _pTextView->signal_drag_data_received().connect(sigc::mem_fun(*this, &CtTextView::_on_drag_data_received), false);
     _pTextView->signal_drag_begin().connect(sigc::mem_fun(*this, &CtTextView::_on_drag_begin), false);
     _pTextView->signal_drag_end().connect(sigc::mem_fun(*this, &CtTextView::_on_drag_end), false);
+    #else
+    _setup_drag_and_drop_gtk4();
+    #endif
     _columnEdit.register_on_off_callback([this](const bool col_edit_on){
         _set_highlight_current_line_enabled(not col_edit_on);
         spdlog::debug("colMode {}", col_edit_on);
@@ -275,7 +281,6 @@ void CtTextView::list_change_level(Gtk::TextIter iter_insert, const CtListInfo& 
                 int idx_offset = idx_old - curr_level % (int)_pCtConfig->charsListbul.size();
                 bull_idx = (next_level + idx_offset) % (int)_pCtConfig->charsListbul.size();
                 if (bull_idx < 0) bull_idx += _pCtConfig->charsListbul.size();
-                //spdlog::debug("idx_old={}, idx_offset={}, bull_idx={}", idx_old, idx_offset, bull_idx);
             }
             replace_text(_pCtConfig->charsListbul[(size_t)bull_idx], bull_offset, bull_offset+1);
         }
@@ -346,7 +351,6 @@ void CtTextView::for_event_after_double_click_button12(GdkEvent* event)
     // the issue: get_iter_at_position always gives iter, so we have to check if iter is valid
     Gdk::Rectangle iter_rect;
     _pTextView->get_iter_location(text_iter, iter_rect);
-    //spdlog::debug("x={} recx={} recw={}", x, iter_rect.get_x(), iter_rect.get_width());
     if ( (iter_rect.get_width() >= 0/*LTR*/ and iter_rect.get_x() <= x and x <= (iter_rect.get_x() + iter_rect.get_width())) or
          (iter_rect.get_width() < 0/*RTL*/ and (iter_rect.get_x() + iter_rect.get_width()) <= x and x <= iter_rect.get_x()) )
     {
@@ -432,8 +436,7 @@ void CtTextView::for_event_after_button_press(GdkEvent* event)
         // the issue: get_iter_at_position always gives iter, so we have to check if iter is valid
         Gdk::Rectangle iter_rect;
         _pTextView->get_iter_location(text_iter, iter_rect);
-        //spdlog::debug("x={} recx={} recw={}", x, iter_rect.get_x(), iter_rect.get_width());
-        if ( (iter_rect.get_width() >= 0/*LTR*/ and iter_rect.get_x() <= x and x <= (iter_rect.get_x() + iter_rect.get_width())) or
+            if ( (iter_rect.get_width() >= 0/*LTR*/ and iter_rect.get_x() <= x and x <= (iter_rect.get_x() + iter_rect.get_width())) or
              (iter_rect.get_width() < 0/*RTL*/ and (iter_rect.get_x() + iter_rect.get_width()) <= x and x <= iter_rect.get_x()) )
         {
             auto tags = text_iter.get_tags();
@@ -449,8 +452,22 @@ void CtTextView::for_event_after_button_press(GdkEvent* event)
             }
             if (CtList{_pCtConfig, text_buffer}.is_list_todo_beginning(text_iter)) {
                 if (_pCtMainWin->get_ct_actions()->_is_curr_node_not_read_only_or_error()) {
+                    // End current text edit session and create format command
+                    auto pBridge = _pCtMainWin->get_command_bridge();
+                    if (pBridge && pBridge->isActive()) {
+                        spdlog::debug("Format change (todo check/uncheck): ending text edit session and capturing format change");
+                        pBridge->endTextEditSession();
+                        pBridge->beginFormatChange(_pCtMainWin->curr_tree_iter().get_node_id(), "todo_toggle");
+                    }
+
                     CtList{_pCtConfig, text_buffer}.todo_list_rotate_status(text_iter);
                     _todoRotateTime = event->button.time; // to prevent triple click
+
+                    // Complete format change and begin new text session
+                    if (pBridge && pBridge->isActive()) {
+                        pBridge->endFormatChange();
+                        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+                    }
                 }
             }
         }
@@ -722,7 +739,7 @@ void CtTextView::cursor_and_tooltips_handler(int x, int y)
          (iter_rect.get_width() < 0/*RTL*/ and (iter_rect.get_x() + iter_rect.get_width()) <= x and x <= iter_rect.get_x()) )
     {
         if (CtList{_pCtConfig, get_buffer()}.is_list_todo_beginning(text_iter)) {
-            _pTextView->get_window(Gtk::TEXT_WINDOW_TEXT)->set_cursor(Gdk::Cursor::create(Gdk::HAND2)); // Gdk::X_CURSOR doesn't work on Win
+            _pTextView->get_window(Gtk::TEXT_WINDOW_TEXT)->set_cursor(Gdk::Cursor::create(_pTextView->get_display(), Gdk::HAND2)); // Gdk::X_CURSOR doesn't work on Win
             _pTextView->set_tooltip_text("");
             return;
         }
@@ -768,7 +785,7 @@ void CtTextView::cursor_and_tooltips_handler(int x, int y)
         _pCtMainWin->hovering_link_iter_offset() = hovering_link_iter_offset;
     }
     if (_pCtMainWin->hovering_link_iter_offset() >= 0) {
-        _pTextView->get_window(Gtk::TEXT_WINDOW_TEXT)->set_cursor(Gdk::Cursor::create(Gdk::HAND2));
+        _pTextView->get_window(Gtk::TEXT_WINDOW_TEXT)->set_cursor(Gdk::Cursor::create(_pTextView->get_display(), Gdk::HAND2));
         if (tooltip.size() > (size_t)CtConst::MAX_TOOLTIP_LINK_CHARS) {
             tooltip = tooltip.substr(0, (size_t)CtConst::MAX_TOOLTIP_LINK_CHARS) + "...";
         }
@@ -782,7 +799,10 @@ void CtTextView::cursor_and_tooltips_handler(int x, int y)
 void CtTextView::cursor_and_tooltips_reset()
 {
     _pCtMainWin->hovering_link_iter_offset() = -1;
-    _pTextView->get_window(Gtk::TEXT_WINDOW_TEXT)->set_cursor(Gdk::Cursor::create(Gdk::XTERM));
+    auto pWindow = _pTextView->get_window(Gtk::TEXT_WINDOW_TEXT);
+    if (pWindow) {
+        pWindow->set_cursor(Gdk::Cursor::create(_pTextView->get_display(), Gdk::XTERM));
+    }
     _pTextView->set_tooltip_text("");
 }
 
@@ -883,7 +903,11 @@ void CtTextView::zoom_text(const std::optional<bool> is_increase, const std::str
         else {
             _pCtConfig->codeFont = CtFontUtil::get_font_str(CtFontUtil::get_font_family(_pCtConfig->codeFont), size_new);
         }
+#if GTKMM_MAJOR_VERSION >= 4
+        _pCtMainWin->signal_app_apply_for_each_window->emit([](CtMainWin* win) { win->update_theme(); });
+#else
         _pCtMainWin->signal_app_apply_for_each_window([](CtMainWin* win) { win->update_theme(); });
+#endif
     }
 }
 
@@ -1128,13 +1152,11 @@ void CtTextView::_special_char_replace(Glib::ustring special_char, Gtk::TextIter
     return gspell_checker;
 }
 
+// GTK3 Drag & Drop implementation
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
 bool CtTextView::_on_drag_drop(const Glib::RefPtr<Gdk::DragContext>& context, int, int, guint time)
 {
-    // Tell GTK that the drop was successful and it can now request the data.
     context->drop_finish(true, time);
-
-    // IMPORTANT: Return true to indicate that we have accepted the drop.
-    // This will trigger the drag_data_received signal.
     return true;
 }
 
@@ -1149,14 +1171,10 @@ void CtTextView::_on_drag_data_received(const Glib::RefPtr<Gdk::DragContext>& pC
     auto text_buffer = get_buffer();
 
     int xb, yb;
-    // Use Gtk::TEXT_WINDOW_WIDGET to convert from widget-relative coordinates (x, y)
-    // to buffer-relative coordinates (xb, yb). This correctly handles gutters.
     _pTextView->window_to_buffer_coords(Gtk::TEXT_WINDOW_WIDGET, x, y, xb, yb);
     Gtk::TextIter drop_iter;
     int trailing;
     _pTextView->get_iter_at_position(drop_iter, trailing, xb, yb);
-    // If the drop position (xb, yb) is on the trailing edge of a character,
-    // we must advance the iterator to the *next* character's position.
     if (trailing > 0) {
         drop_iter.forward_char();
     }
@@ -1164,20 +1182,12 @@ void CtTextView::_on_drag_data_received(const Glib::RefPtr<Gdk::DragContext>& pC
     spdlog::debug("targets: {}", str::join(pContext->list_targets(), ", "));
 
     if (_is_internal_drag && vec::exists(pContext->list_targets(), CtConst::TARGET_GTK_TEXT_BUFFER_CONTENTS)) {
-
         const bool is_move = (dragAction == Gdk::ACTION_MOVE);
-        CtClipboard clipboard_logic_provider{_pCtMainWin}; // We use it for its logic, not its clipboard access.
-
-        // Get iterators for the original source selection
+        CtClipboard clipboard_logic_provider{_pCtMainWin};
         Gtk::TextIter drag_start_iter = text_buffer->get_iter_at_offset(_drag_start_offset);
         Gtk::TextIter drag_end_iter = text_buffer->get_iter_at_offset(_drag_end_offset);
-
-        // 1. Serialize the selected rich text content directly to an in-memory string.
-        //    This uses your complex logic WITHOUT touching the system clipboard.
         Glib::ustring serialized_rich_text = clipboard_logic_provider.rich_text_get_from_text_buffer_selection(
             _pCtMainWin->curr_tree_iter(), text_buffer, drag_start_iter, drag_end_iter);
-
-        // 2. Handle the 'move' case by deleting the source text manually.
         int drop_offset = drop_iter.get_offset();
         if (is_move) {
             if (drop_offset > _drag_start_offset) {
@@ -1185,25 +1195,17 @@ void CtTextView::_on_drag_data_received(const Glib::RefPtr<Gdk::DragContext>& pC
             }
             text_buffer->erase(drag_start_iter, drag_end_iter);
         }
-
-        // 3. Place the cursor at the final drop location.
         Gtk::TextIter insert_iter = text_buffer->get_iter_at_offset(drop_offset);
         text_buffer->place_cursor(insert_iter);
-
-        // 4. Deserialize the in-memory string and insert the rich content at the cursor.
-        //    Again, this uses your logic without involving clipboard signals or async operations.
         clipboard_logic_provider.from_xml_string_to_buffer(text_buffer, serialized_rich_text, nullptr);
-
         spdlog::debug("drop {} from {} to {}", is_move ? "move" : "copy", _drag_start_offset, drop_offset);
-
-        // 5. Finish the DND operation successfully. We pass 'false' for delete because we handled it.
         pContext->drag_finish(true, false, time);
         g_signal_stop_emission_by_name(G_OBJECT(gobj()), "drag-data-received");
     }
     else if (vec::exists(pContext->list_targets(), CtConst::TARGET_URI_LIST)) {
         text_buffer->place_cursor(drop_iter);
         CtClipboard{_pCtMainWin}.on_received_to_uri_list(selection_data, _pTextView, false/*forcePlain*/, true/*fromDragNDrop*/);
-        pContext->drag_finish(true, false, time); // Pass false here too for safety
+        pContext->drag_finish(true, false, time);
         g_signal_stop_emission_by_name(G_OBJECT(gobj()), "drag-data-received");
     }
 }
@@ -1212,7 +1214,6 @@ void CtTextView::_on_drag_begin(const Glib::RefPtr<Gdk::DragContext>& /*context*
 {
     auto text_buffer = get_buffer();
     if (text_buffer and text_buffer->get_has_selection()) {
-        // The selection is still valid here. Store its bounds.
         Gtk::TextBuffer::iterator drag_start_iter, drag_end_iter;
         text_buffer->get_selection_bounds(drag_start_iter, drag_end_iter);
         _drag_start_offset = drag_start_iter.get_offset();
@@ -1225,3 +1226,82 @@ void CtTextView::_on_drag_end(const Glib::RefPtr<Gdk::DragContext>& /*context*/)
 {
     _is_internal_drag = false;
 }
+#else
+// GTK4 preliminary scaffolding for DragSource/DropTarget
+void CtTextView::_setup_drag_and_drop_gtk4()
+{
+    // DragSource: allow moving selected rich text within the buffer
+    _dragSource4 = Gtk::DragSource::create();
+    _dragSource4->set_actions(Gdk::ACTION_MOVE | Gdk::ACTION_COPY);
+    _dragSource4->signal_drag_begin().connect(sigc::mem_fun(*this, &CtTextView::_on_drag_source_prepare_gtk4));
+    add_controller(_dragSource4);
+
+    // DropTarget: accept plain text and uri list for external drops, plus internal rich text (string)
+    _dropTarget4 = Gtk::DropTarget::create(G_VALUE_TYPE(Glib::Value<Glib::ustring>().gobj()), Gdk::ACTION_MOVE | Gdk::ACTION_COPY);
+    _dropTarget4->signal_drop().connect(sigc::mem_fun(*this, &CtTextView::_on_drop_target_drop_gtk4));
+    add_controller(_dropTarget4);
+}
+
+void CtTextView::_on_drag_source_prepare_gtk4(Gdk::Drag& /*drag*/)
+{
+    auto text_buffer = get_buffer();
+    if (!(text_buffer && text_buffer->get_has_selection())) {
+        _is_internal_drag4 = false;
+        return;
+    }
+    Gtk::TextBuffer::iterator drag_start_iter, drag_end_iter;
+    text_buffer->get_selection_bounds(drag_start_iter, drag_end_iter);
+    _drag_start_offset4 = drag_start_iter.get_offset();
+    _drag_end_offset4 = drag_end_iter.get_offset();
+    _is_internal_drag4 = true;
+    CtClipboard clipboard_logic_provider{_pCtMainWin};
+    _drag_serialized_rich_text4 = clipboard_logic_provider.rich_text_get_from_text_buffer_selection(
+        _pCtMainWin->curr_tree_iter(), text_buffer, drag_start_iter, drag_end_iter);
+}
+
+void CtTextView::_on_drop_target_drop_gtk4(const Glib::ValueBase& value, double x, double y)
+{
+    auto text_buffer = get_buffer();
+    if (!text_buffer) return;
+
+    Gtk::TextIter drop_iter; int trailing; int xb, yb;
+    _pTextView->window_to_buffer_coords(Gtk::TEXT_WINDOW_WIDGET, (int)x, (int)y, xb, yb);
+    _pTextView->get_iter_at_position(drop_iter, trailing, xb, yb);
+    if (trailing > 0) drop_iter.forward_char();
+    text_buffer->place_cursor(drop_iter);
+
+    // Internal rich text move/copy
+    if (_is_internal_drag4 && !_drag_serialized_rich_text4.empty()) {
+        const bool is_move = true; // gtk4 path: treat as move for now
+        int drop_offset = drop_iter.get_offset();
+        if (is_move && drop_offset > _drag_start_offset4) {
+            drop_offset -= (_drag_end_offset4 - _drag_start_offset4);
+        }
+        Gtk::TextIter drag_start_iter = text_buffer->get_iter_at_offset(_drag_start_offset4);
+        Gtk::TextIter drag_end_iter = text_buffer->get_iter_at_offset(_drag_end_offset4);
+        if (is_move) text_buffer->erase(drag_start_iter, drag_end_iter);
+        Gtk::TextIter insert_iter = text_buffer->get_iter_at_offset(drop_offset);
+        text_buffer->place_cursor(insert_iter);
+        CtClipboard clipboard_logic_provider{_pCtMainWin};
+        clipboard_logic_provider.from_xml_string_to_buffer(text_buffer, _drag_serialized_rich_text4, nullptr);
+        _is_internal_drag4 = false;
+        _drag_serialized_rich_text4.clear();
+        return;
+    }
+
+    // External plain text / URI list simplified handling
+    if (G_VALUE_HOLDS(value.gobj(), G_TYPE_STRING)) {
+        Glib::ustring data;
+        Glib::Value<Glib::ustring> valStr;
+        valStr.init(value.gobj()->g_type);
+        valStr = value;
+        data = valStr.get();
+        if (data.find("\n") != Glib::ustring::npos && data.find("://") != Glib::ustring::npos) {
+            // Treat as uri-list (newline separated)
+            CtClipboard{_pCtMainWin}.on_received_to_uri_list_gtk4(data, _pTextView, false, true);
+        } else {
+            text_buffer->insert_at_cursor(data);
+        }
+    }
+}
+#endif

@@ -30,6 +30,25 @@ bool CtDialogs::link_handle_dialog(CtMainWin& ctMainWin,
                                    Gtk::TreeModel::iterator sel_tree_iter,
                                    CtLinkEntry& link_entry)
 {
+#if GTK_MAJOR_VERSION >= 4
+    // GTK4 minimal stub: keep current values and validate selection
+    if (CtLinkType::None == link_entry.type) {
+        link_entry.type = CtLinkType::Webs;
+    }
+    CtTreeStore& ctTreestore = ctMainWin.get_tree_store();
+    if (!sel_tree_iter) {
+        sel_tree_iter = ctTreestore.get_iter_first();
+    }
+    if (sel_tree_iter) {
+        link_entry.node_id = ctTreestore.to_ct_tree_iter(sel_tree_iter).get_node_id();
+    }
+    // Trim existing fields as the GTK3 path would do on accept
+    link_entry.webs = str::trim(link_entry.webs);
+    link_entry.file = str::trim(link_entry.file);
+    link_entry.fold = str::trim(link_entry.fold);
+    link_entry.anch = str::trim(link_entry.anch);
+    return true;
+#else
     if (CtLinkType::None == link_entry.type) {
         link_entry.type = CtLinkType::Webs;
     }
@@ -37,9 +56,10 @@ bool CtDialogs::link_handle_dialog(CtMainWin& ctMainWin,
     Gtk::Dialog dialog{title,
                        ctMainWin,
                        Gtk::DialogFlags::DIALOG_MODAL | Gtk::DialogFlags::DIALOG_DESTROY_WITH_PARENT};
-    dialog.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_REJECT)->set_always_show_image(true);
-    dialog.add_button(Gtk::Stock::OK, Gtk::RESPONSE_ACCEPT)->set_always_show_image(true);
-    dialog.set_default_response(Gtk::RESPONSE_ACCEPT);
+
+    (void)CtMiscUtil::dialog_add_button(&dialog, _("Cancel"), Gtk::RESPONSE_REJECT, "ct_cancel");
+    (void)CtMiscUtil::dialog_add_button(&dialog, _("OK"), Gtk::RESPONSE_ACCEPT, "ct_done", true/*isDefault*/);
+
     dialog.set_position(Gtk::WindowPosition::WIN_POS_CENTER_ON_PARENT);
     dialog.set_default_size(700, 500);
 
@@ -374,6 +394,9 @@ bool CtDialogs::link_handle_dialog(CtMainWin& ctMainWin,
     link_entry.file = str::trim(entry_file.get_text());
     link_entry.fold = str::trim(entry_folder.get_text());
     link_entry.anch = str::trim(entry_anchor.get_text());
-    link_entry.node_id = ctTreestore.to_ct_tree_iter(sel_tree_iter).get_node_id();
+    if (sel_tree_iter) {
+        link_entry.node_id = ctTreestore.to_ct_tree_iter(sel_tree_iter).get_node_id();
+    }
     return true;
+#endif
 }

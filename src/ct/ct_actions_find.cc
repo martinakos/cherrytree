@@ -128,10 +128,28 @@ void CtActions::find_in_selected_node_ok_clicked()
     }
 }
 
+static int _count_nodes(const Gtk::TreeNodeChildren& children);
+
+#if GTKMM_MAJOR_VERSION >= 4
+// gtkmm4: TreeNodeConstChildren exists and is returned from const node's children()
+static int _count_nodes_const(const Gtk::TreeNodeConstChildren& children)
+{
+    int count{1};
+    for (auto& child : children) { count += _count_nodes_const(child.children()); }
+    return count;
+}
+#endif
+
 static int _count_nodes(const Gtk::TreeNodeChildren& children)
 {
     int count{1};
-    for (auto& child : children) { count += _count_nodes(child.children()); }
+    for (const auto& child : children) {
+        #if GTKMM_MAJOR_VERSION >= 4
+        count += _count_nodes(static_cast<const Gtk::TreeNodeChildren&>(child.children()));
+        #else
+        count += _count_nodes(child.children());
+        #endif
+    }
     return count;
 }
 
@@ -208,7 +226,17 @@ void CtActions::find_in_multiple_nodes_ok_clicked()
         ctStatusBar.progressBar.show();
         ctStatusBar.stopButton.show();
         ctStatusBar.set_progress_stop(false);
+#if GTKMM_MAJOR_VERSION < 4
+        #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
         while (gtk_events_pending()) gtk_main_iteration();
+        #else
+        while (g_main_context_pending(nullptr)) g_main_context_iteration(nullptr, false);
+        #endif
+#else
+        // GTK4 event loop processing
+        auto app_context = Glib::MainContext::get_default();
+        while (app_context->pending()) app_context->iteration(false);
+#endif
     }
     std::time_t search_start_time = std::time(nullptr);
     while (node_iter) {
@@ -499,8 +527,8 @@ bool CtActions::_parse_node_name_n_tags_iter(CtTreeIter& node_iter,
                                           0, 0, 0/*line_num*/, line_content, CtAnchWidgType::None, 0, 0, 0);
         }
         if (_s_state.replace_active and not node_iter.get_node_read_only()) {
-            std::string replacer_text = _s_options.str_replace;
-            node_name = re_pattern->replace(node_name, 0, replacer_text, static_cast<Glib::RegexMatchFlags>(0));
+            Glib::ustring replacer_text = _s_options.str_replace;
+            node_name = re_pattern->replace(node_name.c_str(), -1, 0, replacer_text, static_cast<Glib::RegexMatchFlags>(0));
             node_iter.set_node_name(node_name);
             node_iter.pending_edit_db_node_prop();
         }
@@ -629,10 +657,17 @@ Glib::RefPtr<Glib::Regex> CtActions::_create_re_pattern(Glib::ustring pattern)
             pattern = "\\b" + pattern;
     }
     try {
-        if (_s_options.match_case) // CASE SENSITIVE
-            return Glib::Regex::create(pattern, Glib::RegexCompileFlags::REGEX_MULTILINE);
+#if GTKMM_MAJOR_VERSION < 4
+        if (_s_options.match_case)
+            return Glib::Regex::create(Glib::ustring{"(?m)"} + pattern);
         else
-            return Glib::Regex::create(pattern, Glib::RegexCompileFlags::REGEX_MULTILINE | Glib::RegexCompileFlags::REGEX_CASELESS);
+            return Glib::Regex::create(Glib::ustring{"(?mi)"} + pattern);
+#else
+        if (_s_options.match_case)
+            return Glib::Regex::create(pattern, Glib::Regex::CompileFlags::MULTILINE);
+        else
+            return Glib::Regex::create(pattern, Glib::Regex::CompileFlags::MULTILINE | Glib::Regex::CompileFlags::CASELESS);
+#endif
     }
     catch (Glib::RegexError& e) {
         CtDialogs::error_dialog(str::xml_escape(e.what()), *_pCtMainWin);
@@ -803,7 +838,6 @@ bool CtActions::_find_pattern(CtTreeIter tree_iter,
         _pCtMainWin->get_ct_actions()->apply_tag(CtConst::TAG_LINK, property_value);
         endOffset = startOffset + replacer_text.size();
         _s_state.replace_subsequent = true;
-        _pCtMainWin->get_state_machine().update_state(tree_iter);
         tree_iter.pending_edit_db_node_buff();
         return true;
     };
@@ -826,7 +860,6 @@ bool CtActions::_find_pattern(CtTreeIter tree_iter,
         pImagePng->set_link(CtMiscUtil::get_link_property_from_entry(link_entry));
         endOffset = startOffset + replacer_text.size();
         _s_state.replace_subsequent = true;
-        _pCtMainWin->get_state_machine().update_state(tree_iter);
         tree_iter.pending_edit_db_node_buff();
         return true;
     };
@@ -849,7 +882,6 @@ bool CtActions::_find_pattern(CtTreeIter tree_iter,
         pTableLight->set_cell_text(rowIdxColIdx.first, rowIdxColIdx.second, out_cell_text);
         endOffset = startOffset + replacer_text.size();
         _s_state.replace_subsequent = true;
-        _pCtMainWin->get_state_machine().update_state(tree_iter);
         tree_iter.pending_edit_db_node_buff();
         return true;
     };
@@ -908,7 +940,6 @@ bool CtActions::_find_pattern(CtTreeIter tree_iter,
         }
         endOffset = startOffset + replacer_text.size();
         _s_state.replace_subsequent = true;
-        _pCtMainWin->get_state_machine().update_state(tree_iter);
         tree_iter.pending_edit_db_node_buff();
         return true;
     };
@@ -1509,5 +1540,15 @@ void CtActions::_update_all_matches_progress()
         _s_state.latest_matches = _s_state.matches_num;
         _pCtMainWin->get_status_bar().progressBar.set_text(std::to_string(_s_state.matches_num));
     }
+#if GTKMM_MAJOR_VERSION < 4
+    #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     while (gtk_events_pending()) gtk_main_iteration();
+    #else
+    while (g_main_context_pending(nullptr)) g_main_context_iteration(nullptr, false);
+    #endif
+#else
+    // GTK4 event loop processing
+    auto app_context = Glib::MainContext::get_default();
+    while (app_context->pending()) app_context->iteration(false);
+#endif
 }

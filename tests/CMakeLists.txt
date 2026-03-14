@@ -71,6 +71,7 @@ package_add_test(run_tests_no_x
   tests_filesystem.cpp
   tests_imports.cpp
   tests_misc_utils.cpp
+  tests_node_content.cpp
   tests_tmp_n_p7zip.cpp
   tests_types.cpp
   tests_lists.cpp
@@ -85,6 +86,8 @@ package_add_test(run_tests_with_x_1
 package_add_test(run_tests_with_x_2
   tests_main.cpp
   tests_read_write.cpp
+  tests_command_undo_redo.cpp
+  tests_command_gui_simulation.cpp
   ../src/ct/icons.gresource.cc
 )
 

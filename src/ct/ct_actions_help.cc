@@ -51,7 +51,12 @@ void CtActions::online_donate()
 
 void CtActions::dialog_about()
 {
+#if GTKMM_MAJOR_VERSION >= 4
+    auto paintable = _pCtMainWin->get_icon_theme()->lookup_icon(Glib::ustring{CtConst::APP_NAME}, 128, 1, Gtk::TextDirection::NONE, Gtk::IconLookupFlags{});
+    CtDialogs::dialog_about(*_pCtMainWin, paintable);
+#else
     CtDialogs::dialog_about(*_pCtMainWin, _pCtMainWin->get_icon_theme()->load_icon(CtConst::APP_NAME, 128));
+#endif
 }
 
 void CtActions::folder_cfg_open()
@@ -63,7 +68,11 @@ void CtActions::check_for_newer_version()
 {
     auto& statusbar = _pCtMainWin->get_status_bar();
     statusbar.update_status(_("Checking for Newer Version..."));
+    #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     while (gtk_events_pending()) gtk_main_iteration();
+    #else
+    while (g_main_context_pending(nullptr)) g_main_context_iteration(nullptr, false);
+    #endif
 
     std::string latest_debian_changelog_from_server = fs::download_file("https://raw.githubusercontent.com/giuspen/cherrytree/master/debian/changelog");
     std::size_t openp = latest_debian_changelog_from_server.find("(");
@@ -72,7 +81,7 @@ void CtActions::check_for_newer_version()
         statusbar.update_status(_("Failed to Retrieve Latest Version Information - Try Again Later."));
         return;
     }
-    std::string latest_version_from_server = latest_debian_changelog_from_server.substr(openp + 1, closep - openp - 1);
+    Glib::ustring latest_version_from_server = latest_debian_changelog_from_server.substr(openp + 1, closep - openp - 1);
     auto re = Glib::Regex::create("(\\d+)\\.(\\d+)\\.(\\d+)-\\d+");
     Glib::MatchInfo match;
     if (not re->match(latest_version_from_server, match)) {
