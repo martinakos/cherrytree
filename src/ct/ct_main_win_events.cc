@@ -24,6 +24,7 @@
 #include "ct_main_win.h"
 #include "ct_actions.h"
 #include "ct_list.h"
+#include "ct_command_bridge.h"
 
 void CtMainWin::_on_treeview_cursor_changed()
 {
@@ -45,7 +46,9 @@ void CtMainWin::_on_treeview_cursor_changed()
         if (pTextBuffer->get_modified()) {
             _fileSaveNeeded = true;
             pTextBuffer->set_modified(false);
-            _ctStateMachine.update_state(_prevTreeIter);
+
+            // Command pattern is now always active (Phase 5: state machine removed)
+            _pCtCommandBridge->endTextEditSession();
         }
         const int scr = round(_scrolledwindowText.get_vadjustment()->get_value());
         const int cur = pTextBuffer->property_cursor_position();
@@ -64,7 +67,10 @@ void CtMainWin::_on_treeview_cursor_changed()
     }
     _uCtTreestore->text_view_apply_textbuffer(treeIter, &_ctTextview);
 
-    if (user_active()) {
+    // Begin new edit session for command bridge (always active now)
+    _pCtCommandBridge->beginTextEditSession(nodeId);
+
+    if (user_active() && !_pCtCommandBridge->isInUndoRedo()) {
         auto mapScrIter = _nodesVScrollPos.find(nodeIdDataHolder);
         auto mapCurIter = _nodesCursorPos.find(nodeIdDataHolder);
         if (mapScrIter != _nodesVScrollPos.end() and
@@ -86,9 +92,35 @@ void CtMainWin::_on_treeview_cursor_changed()
         window_header_update_ghost_icon(treeIter.get_node_is_excluded_from_search() or treeIter.get_node_children_are_excluded_from_search());
         window_header_update_bookmark_icon(is_bookmarked);
         update_selected_node_statusbar_info();
-    }
 
-    _ctStateMachine.node_selected_changed(nodeIdDataHolder);
+        // Track visited nodes for navigation history
+        if (not _visitedNodes.empty() && _visitedNodesIdx < _visitedNodes.size()) {
+            // If we're not at the end of history, truncate forward history
+            size_t last_index = _visitedNodes.size() - 1;
+            if (_visitedNodesIdx != last_index) {
+                _visitedNodes.erase(_visitedNodes.begin() + _visitedNodesIdx + 1, _visitedNodes.end());
+            }
+        }
+
+        // Remove this node if it's already in history (avoid duplicates)
+        for (auto it = _visitedNodes.begin(); it != _visitedNodes.end(); ) {
+            if (*it == nodeId) {
+                it = _visitedNodes.erase(it);
+            } else {
+                ++it;
+            }
+        }
+
+        // Add current node to history
+        _visitedNodes.push_back(nodeId);
+        _visitedNodesIdx = _visitedNodes.size() - 1;
+
+        // Limit history size to 50 nodes
+        while (_visitedNodes.size() > 50) {
+            _visitedNodes.pop_front();
+            if (_visitedNodesIdx > 0) _visitedNodesIdx--;
+        }
+    }
 
     _prevTreeIter = treeIter;
 }
@@ -528,7 +560,20 @@ bool CtMainWin::_on_textview_event(GdkEvent* event)
             cursor_key_press() = iter_insert.get_offset();
         else
             cursor_key_press() = -1;
-        // print "self.cursor_key_press", self.cursor_key_press
+        // End the current session BEFORE the newline is inserted
+        // so "one" and the newline become separate undo entries
+        if (_ctTextview.mm().has_focus() && _pCtCommandBridge && _pCtCommandBridge->isActive()) {
+            _pCtCommandBridge->endTextEditSession();
+            _pCtCommandBridge->beginTextEditSession(curr_tree_iter().get_node_id());
+        }
+    }
+    else if (GDK_KEY_BackSpace == event->key.keyval or GDK_KEY_Delete == event->key.keyval) {
+        // End the current session BEFORE deletion so typed text and deletion
+        // become separate undo entries
+        if (_ctTextview.mm().has_focus() && _pCtCommandBridge && _pCtCommandBridge->isActive()) {
+            _pCtCommandBridge->endTextEditSession();
+            _pCtCommandBridge->beginTextEditSession(curr_tree_iter().get_node_id());
+        }
     }
     else if (GDK_KEY_Menu == event->key.keyval) {
         if (curr_tree_iter().get_node_syntax_highlighting() == CtConst::RICH_TEXT_ID) {
@@ -599,8 +644,23 @@ bool CtMainWin::_on_textview_event(GdkEvent* event)
                 CtListInfo list_info = CtList{_pCtConfig, curr_buffer}.get_paragraph_list_info(iter_insert);
                 if (list_info and list_info.type == CtListType::Todo) {
                     if (_uCtActions->_is_curr_node_not_read_only_or_error()) {
+                        // End current text edit session and create format command
+                        auto pBridge = get_command_bridge();
+                        if (pBridge && pBridge->isActive()) {
+                            spdlog::debug("Format change (todo check/uncheck): ending text edit session and capturing format change");
+                            pBridge->endTextEditSession();
+                            pBridge->beginFormatChange(curr_tree_iter().get_node_id(), "todo_toggle");
+                        }
+
                         auto iter_start_list = curr_buffer->get_iter_at_offset(list_info.startoffs + 3*list_info.level);
                         CtList{_pCtConfig, curr_buffer}.todo_list_rotate_status(iter_start_list);
+
+                        // Complete format change and begin new text session
+                        if (pBridge && pBridge->isActive()) {
+                            pBridge->endFormatChange();
+                            pBridge->beginTextEditSession(curr_tree_iter().get_node_id());
+                        }
+
                         return true;
                     }
                 }
@@ -647,6 +707,14 @@ void CtMainWin::_on_textview_event_after(GdkEvent* event)
         }
     }
     else if (event->type == GDK_KEY_RELEASE) {
+        if ((GDK_KEY_Return == event->key.keyval or GDK_KEY_KP_Enter == event->key.keyval) &&
+            _ctTextview.mm().has_focus()) {
+            if (_pCtCommandBridge && _pCtCommandBridge->isActive()) {
+                spdlog::debug("Key release (enter): ending text edit session after newline");
+                _pCtCommandBridge->endTextEditSession();
+                _pCtCommandBridge->beginTextEditSession(curr_tree_iter().get_node_id());
+            }
+        }
         if (_pCtConfig->wordCountOn) {
             Gtk::TextIter iter_sel_start;
             Gtk::TextIter iter_sel_end;
@@ -657,6 +725,28 @@ void CtMainWin::_on_textview_event_after(GdkEvent* event)
                 event->key.keyval == GDK_KEY_space)
             {
                 update_selected_node_statusbar_info();
+            }
+        }
+        else if (event->key.keyval == GDK_KEY_space && _ctTextview.mm().has_focus()) {
+            // End session after space - the space is included in the session with the word
+            // but won't be shown in the description (unless multiple consecutive spaces)
+            if (_pCtCommandBridge && _pCtCommandBridge->isActive()) {
+                spdlog::debug("Key release (space): ending text edit session after word+space");
+                _pCtCommandBridge->endTextEditSession();
+                _pCtCommandBridge->beginTextEditSession(curr_tree_iter().get_node_id());
+            }
+
+            if (_pCtConfig->wordCountOn) {
+                update_selected_node_statusbar_info();
+            }
+        }
+        else if ((GDK_KEY_BackSpace == event->key.keyval or GDK_KEY_Delete == event->key.keyval) &&
+            _ctTextview.mm().has_focus()) {
+            // End session after delete to finalize it as its own command
+            if (_pCtCommandBridge && _pCtCommandBridge->isActive()) {
+                spdlog::debug("Key release (backspace/delete): ending text edit session after deletion");
+                _pCtCommandBridge->endTextEditSession();
+                _pCtCommandBridge->beginTextEditSession(curr_tree_iter().get_node_id());
             }
         }
     }
@@ -755,7 +845,6 @@ void CtMainWin::_on_treeview_drag_data_received(const Glib::RefPtr<Gdk::DragCont
     if (treeDropPos == Gtk::TREE_VIEW_DROP_BEFORE) {
         auto prev_iter = drop_iter;
         --prev_iter;
-        // note: prev_iter could be None, use drop_iter to retrieve the parent
         _uCtActions->node_move_after(drag_iter, drop_iter.parent(), prev_iter, true/*set_first*/, keep_focus);
     }
     else if (treeDropPos == Gtk::TREE_VIEW_DROP_AFTER) {

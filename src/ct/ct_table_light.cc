@@ -28,6 +28,7 @@
 #include "ct_storage_xml.h"
 #include "ct_logging.h"
 #include "ct_misc_utils.h"
+#include "ct_command_bridge.h"
 
 /*static*/void CtTableLight::_free_matrix(CtTableMatrix& tableMatrix)
 {
@@ -153,6 +154,11 @@ void CtTableLight::_on_cell_renderer_editing_started(Gtk::CellEditable* editable
         CtTreeIter currTreeIter = _pCtMainWin->curr_tree_iter();
         if (currTreeIter) {
             _pEditingCellEntry->set_editable(not currTreeIter.get_node_read_only());
+            // Begin widget edit tracking when a cell becomes editable
+            auto* bridge = _pCtMainWin->get_command_bridge();
+            if (bridge && bridge->isActive()) {
+                bridge->beginWidgetEdit(currTreeIter.get_node_id(), this, std::stoi(path.raw()), (int)column);
+            }
         }
         _currentRow = std::stoi(path.raw());
         _currentColumn = column;
@@ -176,6 +182,11 @@ bool CtTableLight::_on_entry_focus_out_event(GdkEventFocus*/*gdk_event*/, Gtk::E
         _on_cell_renderer_text_edited(path, pEntry->get_text(), column);
     }
     _pEditingCellEntry = nullptr;
+    // Flush widget edit after cell data has been committed to the table model
+    auto* bridge = _pCtMainWin->get_command_bridge();
+    if (bridge && bridge->isActive()) {
+        bridge->endWidgetEdit();
+    }
     return false;
 }
 #endif
@@ -226,7 +237,8 @@ void CtTableLight::_populate_xml_rows_cells(xmlpp::Element* p_table_node) const
 
 std::shared_ptr<CtAnchoredWidgetState> CtTableLight::get_state()
 {
-    return std::shared_ptr<CtAnchoredWidgetState>(new CtAnchoredWidgetState_TableLight{this});
+    // Command pattern uses XML snapshots instead of widget state objects
+    return nullptr;
 }
 
 void CtTableLight::row_add(const size_t afterRowIdx, const std::vector<Glib::ustring>* pNewRow/*= nullptr*/)
@@ -275,12 +287,6 @@ void CtTableLight::row_delete(const size_t rowIdx)
     if (not treeIter) {
         return;
     }
-    //const CtTableLightColumns& cols = get_columns();
-    //spdlog::debug("rm row {} [{},{},{},{}]", treePath.to_string().raw(),
-    //    treeIter->get_value(cols.columnsText.at(0)),
-    //    treeIter->get_value(cols.columnsText.at(1)),
-    //    treeIter->get_value(cols.columnsText.at(2)),
-    //    treeIter->get_value(cols.columnsText.at(3)));
     exit_cell_edit();
     (void)_pListStore->erase(treeIter);
     if (_currentRow == get_num_rows()) {
@@ -522,7 +528,6 @@ void CtTableLight::grab_focus() const
 {
     const size_t currRow = current_row();
     const size_t currCol = current_column();
-    //spdlog::debug("focus ({},{})", currRow, currCol);
     for (int i = 0; i < 2; ++i) {
         _pCtMainWin->get_text_view().mm().grab_focus();
         #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
@@ -659,17 +664,14 @@ void CtTableLight::_on_treeview_event_after(GdkEvent* event)
         const int event_x = (int)event->button.x;
         const int event_y = (int)event->button.y;
         if (_pManagedTreeView->get_path_at_pos(event_x, event_y, path_at_click, pCol_at_click, cell_x, cell_y)) {
-            //spdlog::debug("click x={} y={}", event_x, event_y);
             const size_t numColumns = get_num_columns();
             size_t selCol{0u};
             for (int c = numColumns - 1; c >= 0; --c) {
                 Gtk::TreeViewColumn* pColumn = _pManagedTreeView->get_column(c);
                 Gdk::Rectangle rect;
                 _pManagedTreeView->get_cell_area(path_at_click, *pColumn, rect);
-                //spdlog::debug("cell {} x: {}", c, rect.get_x());
                 if (event_x >= rect.get_x()) {
                     selCol = c;
-                    //spdlog::debug("focus ({},{}) x={} y={}", path_at_click.to_string().raw(), selCol, event_x, event_y);
                     break;
                 }
             }

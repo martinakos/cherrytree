@@ -114,7 +114,8 @@ public:
     static Gtk::MenuItem*   find_menu_item(Gtk::MenuShell* menuShell, std::string name);
     static Gtk::AccelLabel* get_accel_label(Gtk::MenuItem* item);
 
-    std::vector<Gtk::Toolbar*> build_toolbars(Gtk::MenuToolButton*& pRecentDocsMenuToolButton, Gtk::ToolButton*& pToolButtonSave);
+    std::vector<Gtk::Toolbar*> build_toolbars(Gtk::MenuToolButton*& pRecentDocsMenuToolButton, Gtk::ToolButton*& pToolButtonSave,
+                                               Gtk::MenuToolButton*& pUndoMenuToolButton, Gtk::MenuToolButton*& pRedoMenuToolButton);
     Gtk::MenuBar*              build_menubar();
 #endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
 #if GTKMM_MAJOR_VERSION >= 4

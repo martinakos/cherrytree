@@ -28,6 +28,7 @@
 #include "ct_export2html.h"
 #include "ct_storage_xml.h"
 #include "ct_logging.h"
+#include "ct_gtk_compat.h"
 #include <optional>
 
 // GtkSourceView 5 removed begin/end_not_undoable_action
@@ -55,7 +56,7 @@ static std::optional<Gtk::TreeModel::iterator> select_parent_dialog(CtMainWin* p
     if (!pCtMainWin->curr_tree_iter()) {
         return Gtk::TreeModel::iterator{};
     }
-    Gtk::Dialog dialog{_("Who is the Parent?"),
+    Gtk::Dialog dialog{"Who is the Parent?",
                        *pCtMainWin,
                        Gtk::DialogFlags::DIALOG_MODAL | Gtk::DialogFlags::DIALOG_DESTROY_WITH_PARENT};
     dialog.set_transient_for(*pCtMainWin);
@@ -66,8 +67,8 @@ static std::optional<Gtk::TreeModel::iterator> select_parent_dialog(CtMainWin* p
     dialog.set_position(Gtk::WindowPosition::WIN_POS_CENTER_ON_PARENT);
     dialog.set_default_size(350, -1);
 
-    Gtk::RadioButton radiobutton_root{_("The Tree Root")};
-    Gtk::RadioButton radiobutton_curr_node{_("The Selected Node")};
+    Gtk::RadioButton radiobutton_root{"The Tree Root"};
+    Gtk::RadioButton radiobutton_curr_node{"The Selected Node"};
     radiobutton_curr_node.join_group(radiobutton_root);
     auto pContentArea = dialog.get_content_area();
     pContentArea->pack_start(radiobutton_root);

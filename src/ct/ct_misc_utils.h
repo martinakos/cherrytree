@@ -26,13 +26,12 @@
 #include "ct_types.h"
 #include "ct_logging.h"
 #include <algorithm>
-#include <gtkmm/button.h>
-#include <gtkmm/dialog.h>
-#include <gtkmm/entry.h>
-#include <gtkmm/treeiter.h>
-#include <gtkmm/treestore.h>
+#include <gtkmm.h>
 #include <gtksourceview/gtksource.h>
 #include <numeric>
+
+// Ensure GTK_SOURCE_CHECK_VERSION is available
+#include <gtksourceview/gtksourceversion.h>
 
 /*
  * Compatibility shim: gtkmm4 removed the BuiltinIconSize enum that existed in
@@ -210,8 +209,6 @@ bool node_siblings_sort(Glib::RefPtr<TreeOrListStore> model,
     auto less_than = [&f_need_swap, &initial_iters](const size_t left_idx, const size_t right_idx)->bool {
         Gtk::TreeModel::iterator left_iter = initial_iters.at(left_idx);
         Gtk::TreeModel::iterator right_iter = initial_iters.at(right_idx);
-        // f_need_swap(left, right) means left should go after right.
-        // Therefore right should go after left is equivalent to left < right.
         return f_need_swap(right_iter, left_iter);
     };
 
@@ -550,10 +547,10 @@ inline Glib::ustring trim(Glib::ustring s)
 template<typename ...Args>
 std::string format(const std::string& in_str, const Args&... args)
 {
-    // Use fmt::runtime to indicate the format string is not a compile-time constant.
+    // Use FMT_RUNTIME to indicate the format string is not a compile-time constant.
     // This avoids fmt's consteval/constexpr format-string checks which fail when
     // passing a non-constexpr c_str() from a temporary std::string.
-    return fmt::format(fmt::runtime(str::replace(in_str, "%s", "{}")), args...);
+    return fmt::format(FMT_RUNTIME(str::replace(in_str, "%s", "{}")), args...);
 }
 
 template<class STRING>

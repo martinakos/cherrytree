@@ -840,7 +840,6 @@ bool CtActions::_find_pattern(CtTreeIter tree_iter,
         _pCtMainWin->get_ct_actions()->apply_tag(CtConst::TAG_LINK, property_value);
         endOffset = startOffset + replacer_text.size();
         _s_state.replace_subsequent = true;
-        _pCtMainWin->get_state_machine().update_state(tree_iter);
         tree_iter.pending_edit_db_node_buff();
         return true;
     };
@@ -863,7 +862,6 @@ bool CtActions::_find_pattern(CtTreeIter tree_iter,
         pImagePng->set_link(CtMiscUtil::get_link_property_from_entry(link_entry));
         endOffset = startOffset + replacer_text.size();
         _s_state.replace_subsequent = true;
-        _pCtMainWin->get_state_machine().update_state(tree_iter);
         tree_iter.pending_edit_db_node_buff();
         return true;
     };
@@ -886,7 +884,6 @@ bool CtActions::_find_pattern(CtTreeIter tree_iter,
         pTableLight->set_cell_text(rowIdxColIdx.first, rowIdxColIdx.second, out_cell_text);
         endOffset = startOffset + replacer_text.size();
         _s_state.replace_subsequent = true;
-        _pCtMainWin->get_state_machine().update_state(tree_iter);
         tree_iter.pending_edit_db_node_buff();
         return true;
     };
@@ -945,7 +942,6 @@ bool CtActions::_find_pattern(CtTreeIter tree_iter,
         }
         endOffset = startOffset + replacer_text.size();
         _s_state.replace_subsequent = true;
-        _pCtMainWin->get_state_machine().update_state(tree_iter);
         tree_iter.pending_edit_db_node_buff();
         return true;
     };

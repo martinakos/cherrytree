@@ -30,7 +30,14 @@ set(CT_SHARED_FILES
   ct_app.cc
   ct_clipboard.cc
   ct_codebox.cc
+  ct_command.cc
+  ct_command_bridge.cc
   ct_config.cc
+  ct_document_model.cc
+  ct_node_content.cc
+  ct_buffer_converter.cc
+  ct_text_commands.cc
+  ct_widget_commands.cc
   ct_dialogs.cc
   ct_dialogs_anch_widg.cc
   ct_dialogs_cmd_palette.cc
@@ -65,7 +72,6 @@ set(CT_SHARED_FILES
   ct_pref_dlg_theme.cc
   ct_pref_dlg_toolbar.cc
   ct_pref_dlg_tree.cc
-  ct_state_machine.cc
   ct_storage_control.cc
   ct_storage_sqlite.cc
   ct_storage_xml.cc

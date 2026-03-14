@@ -34,6 +34,8 @@
 #include <cstdlib>
 #include "ct_logging.h"
 #include "ct_list.h"
+#include "ct_command_bridge.h"
+#include "ct_widget_commands.h"
 #ifndef _WIN32
 #include <sys/wait.h> // WEXITSTATUS __FreeBSD__ (#1550)
 #endif // !_WIN32
@@ -787,7 +789,22 @@ void CtActions::table_column_add()
 {
     if (not _is_there_anch_widg_selection_or_error('t')) return;
     if (not _is_curr_node_not_read_only_or_error()) return;
-    curr_table_anchor->column_add(curr_table_anchor->current_column());
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+        int widgetOffset = curr_table_anchor->getOffset();
+        auto oldDesc = pBridge->getDocumentModel()->getNodeById(nodeId)->getContent().getWidgetDescAt(widgetOffset);
+
+        curr_table_anchor->column_add(curr_table_anchor->current_column());
+
+        auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
+        pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Add table column");
+    }
+    else {
+        curr_table_anchor->column_add(curr_table_anchor->current_column());
+    }
     _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
 }
 
@@ -802,16 +819,48 @@ void CtActions::table_column_cut()
 void CtActions::table_column_copy()
 {
     if (not _is_there_anch_widg_selection_or_error('t')) return;
-    auto table_state = std::dynamic_pointer_cast<CtAnchoredWidgetState_TableCommon>(curr_table_anchor->get_state());
-    std::vector<std::vector<Glib::ustring>> new_rows;
-    const size_t num_rows = curr_table_anchor->get_num_rows();
+
+    // Extract current column into a new single-column table
+    std::vector<std::vector<Glib::ustring>> string_rows;
+    curr_table_anchor->write_strings_matrix(string_rows);
+
     const size_t curr_col = curr_table_anchor->current_column();
-    for (size_t r = 0u; r < num_rows; ++r) {
-        new_rows.push_back(std::vector<Glib::ustring>{});
-        new_rows.back().push_back(table_state->rows.at(r).at(curr_col));
+    const size_t num_rows = string_rows.size();
+
+    // Build single-column matrix with current column
+    std::vector<std::vector<Glib::ustring>> new_rows;
+    for (size_t r = 0; r < num_rows; ++r) {
+        new_rows.push_back(std::vector<Glib::ustring>{string_rows[r][curr_col]});
     }
-    table_state->rows = std::move(new_rows);
-    auto new_table = dynamic_cast<CtTableCommon*>(table_state->to_widget(_pCtMainWin));
+
+    // Create CtTableMatrix from string matrix
+    const bool is_light = curr_table_anchor->get_is_light();
+    CtTableMatrix tbl_matrix;
+    void* pCell{nullptr};
+    for (const auto& row : new_rows) {
+        CtTableRow tbl_row;
+        for (const auto& cell : row) {
+            if (is_light) {
+                pCell = new Glib::ustring{cell};
+            }
+            else {
+                pCell = new CtTextCell{_pCtMainWin, cell, CtConst::TABLE_CELL_TEXT_ID};
+            }
+            tbl_row.emplace_back(pCell);
+        }
+        tbl_matrix.emplace_back(tbl_row);
+    }
+
+    // Create temporary table and copy to clipboard
+    CtTableColWidths col_widths{curr_table_anchor->get_col_width()};
+    CtTableCommon* new_table = is_light ?
+        static_cast<CtTableCommon*>(new CtTableLight{
+            _pCtMainWin, tbl_matrix, curr_table_anchor->get_col_width_default(),
+            0/*charOffset*/, CtConst::TAG_PROP_VAL_LEFT, col_widths}) :
+        static_cast<CtTableCommon*>(new CtTableHeavy{
+            _pCtMainWin, tbl_matrix, curr_table_anchor->get_col_width_default(),
+            0/*charOffset*/, CtConst::TAG_PROP_VAL_LEFT, col_widths});
+
     CtClipboard{_pCtMainWin}.table_column_to_clipboard(new_table);
     delete new_table;
 }
@@ -829,7 +878,22 @@ void CtActions::table_column_delete()
 {
     if (not _is_there_anch_widg_selection_or_error('t')) return;
     if (not _is_curr_node_not_read_only_or_error()) return;
-    curr_table_anchor->column_delete(curr_table_anchor->current_column());
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+        int widgetOffset = curr_table_anchor->getOffset();
+        auto oldDesc = pBridge->getDocumentModel()->getNodeById(nodeId)->getContent().getWidgetDescAt(widgetOffset);
+
+        curr_table_anchor->column_delete(curr_table_anchor->current_column());
+
+        auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
+        pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Delete table column");
+    }
+    else {
+        curr_table_anchor->column_delete(curr_table_anchor->current_column());
+    }
     _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
 }
 
@@ -837,7 +901,22 @@ void CtActions::table_column_left()
 {
     if (not _is_there_anch_widg_selection_or_error('t')) return;
     if (not _is_curr_node_not_read_only_or_error()) return;
-    curr_table_anchor->column_move_left(curr_table_anchor->current_column(), false/*from_move_right*/);
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+        int widgetOffset = curr_table_anchor->getOffset();
+        auto oldDesc = pBridge->getDocumentModel()->getNodeById(nodeId)->getContent().getWidgetDescAt(widgetOffset);
+
+        curr_table_anchor->column_move_left(curr_table_anchor->current_column(), false/*from_move_right*/);
+
+        auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
+        pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Move table column left");
+    }
+    else {
+        curr_table_anchor->column_move_left(curr_table_anchor->current_column(), false/*from_move_right*/);
+    }
     _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
 }
 
@@ -845,7 +924,22 @@ void CtActions::table_column_right()
 {
     if (not _is_there_anch_widg_selection_or_error('t')) return;
     if (not _is_curr_node_not_read_only_or_error()) return;
-    curr_table_anchor->column_move_right(curr_table_anchor->current_column());
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+        int widgetOffset = curr_table_anchor->getOffset();
+        auto oldDesc = pBridge->getDocumentModel()->getNodeById(nodeId)->getContent().getWidgetDescAt(widgetOffset);
+
+        curr_table_anchor->column_move_right(curr_table_anchor->current_column());
+
+        auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
+        pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Move table column right");
+    }
+    else {
+        curr_table_anchor->column_move_right(curr_table_anchor->current_column());
+    }
     _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
 }
 
@@ -853,7 +947,22 @@ void CtActions::table_column_increase_width()
 {
     if (not _is_there_anch_widg_selection_or_error('t')) return;
     if (_pCtMainWin->curr_tree_iter().get_node_read_only()) return;
-    curr_table_anchor->set_col_width(curr_table_anchor->get_col_width() + CtCodebox::CB_WIDTH_HEIGHT_STEP_PIX);
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+        int widgetOffset = curr_table_anchor->getOffset();
+        auto oldDesc = pBridge->getDocumentModel()->getNodeById(nodeId)->getContent().getWidgetDescAt(widgetOffset);
+
+        curr_table_anchor->set_col_width(curr_table_anchor->get_col_width() + CtCodebox::CB_WIDTH_HEIGHT_STEP_PIX);
+
+        auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
+        pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Increase table column width");
+    }
+    else {
+        curr_table_anchor->set_col_width(curr_table_anchor->get_col_width() + CtCodebox::CB_WIDTH_HEIGHT_STEP_PIX);
+    }
     _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
 }
 
@@ -862,7 +971,21 @@ void CtActions::table_column_decrease_width()
     if (not _is_there_anch_widg_selection_or_error('t')) return;
     if (_pCtMainWin->curr_tree_iter().get_node_read_only()) return;
     if (curr_table_anchor->get_col_width() - CtCodebox::CB_WIDTH_HEIGHT_STEP_PIX >= CtCodebox::CB_WIDTH_LIMIT_MIN) {
-        curr_table_anchor->set_col_width(curr_table_anchor->get_col_width() - CtCodebox::CB_WIDTH_HEIGHT_STEP_PIX);
+        auto pBridge = _pCtMainWin->get_command_bridge();
+        if (pBridge && pBridge->isActive()) {
+            pBridge->endTextEditSession();
+            gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+            int widgetOffset = curr_table_anchor->getOffset();
+            auto oldDesc = pBridge->getDocumentModel()->getNodeById(nodeId)->getContent().getWidgetDescAt(widgetOffset);
+
+            curr_table_anchor->set_col_width(curr_table_anchor->get_col_width() - CtCodebox::CB_WIDTH_HEIGHT_STEP_PIX);
+
+            auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
+            pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Decrease table column width");
+        }
+        else {
+            curr_table_anchor->set_col_width(curr_table_anchor->get_col_width() - CtCodebox::CB_WIDTH_HEIGHT_STEP_PIX);
+        }
         _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
     }
 }
@@ -871,7 +994,22 @@ void CtActions::table_row_add()
 {
     if (not _is_there_anch_widg_selection_or_error('t')) return;
     if (not _is_curr_node_not_read_only_or_error()) return;
-    curr_table_anchor->row_add(curr_table_anchor->current_row());
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+        int widgetOffset = curr_table_anchor->getOffset();
+        auto oldDesc = pBridge->getDocumentModel()->getNodeById(nodeId)->getContent().getWidgetDescAt(widgetOffset);
+
+        curr_table_anchor->row_add(curr_table_anchor->current_row());
+
+        auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
+        pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Add table row");
+    }
+    else {
+        curr_table_anchor->row_add(curr_table_anchor->current_row());
+    }
     _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
 }
 
@@ -886,14 +1024,46 @@ void CtActions::table_row_cut()
 void CtActions::table_row_copy()
 {
     if (not _is_there_anch_widg_selection_or_error('t')) return;
-    auto table_state = std::dynamic_pointer_cast<CtAnchoredWidgetState_TableCommon>(curr_table_anchor->get_state());
-    // remove rows after current
-    while (table_state->rows.size() > curr_table_anchor->current_row() + 1)
-        table_state->rows.pop_back();
-    // remove rows before current but after header
-    while (table_state->rows.size() > 2)
-        table_state->rows.erase(table_state->rows.begin() + 1);
-    auto new_table = dynamic_cast<CtTableCommon*>(table_state->to_widget(_pCtMainWin));
+
+    // Extract header + current row into a new two-row table
+    std::vector<std::vector<Glib::ustring>> string_rows;
+    curr_table_anchor->write_strings_matrix(string_rows);
+
+    const size_t curr_row = curr_table_anchor->current_row();
+
+    // Build matrix with header row (row 0) and current row
+    std::vector<std::vector<Glib::ustring>> new_rows;
+    new_rows.push_back(string_rows[0]); // Header row
+    new_rows.push_back(string_rows[curr_row]); // Current row
+
+    // Create CtTableMatrix from string matrix
+    const bool is_light = curr_table_anchor->get_is_light();
+    CtTableMatrix tbl_matrix;
+    void* pCell{nullptr};
+    for (const auto& row : new_rows) {
+        CtTableRow tbl_row;
+        for (const auto& cell : row) {
+            if (is_light) {
+                pCell = new Glib::ustring{cell};
+            }
+            else {
+                pCell = new CtTextCell{_pCtMainWin, cell, CtConst::TABLE_CELL_TEXT_ID};
+            }
+            tbl_row.emplace_back(pCell);
+        }
+        tbl_matrix.emplace_back(tbl_row);
+    }
+
+    // Create temporary table and copy to clipboard
+    CtTableColWidths col_widths = curr_table_anchor->get_col_widths();
+    CtTableCommon* new_table = is_light ?
+        static_cast<CtTableCommon*>(new CtTableLight{
+            _pCtMainWin, tbl_matrix, curr_table_anchor->get_col_width_default(),
+            0/*charOffset*/, CtConst::TAG_PROP_VAL_LEFT, col_widths}) :
+        static_cast<CtTableCommon*>(new CtTableHeavy{
+            _pCtMainWin, tbl_matrix, curr_table_anchor->get_col_width_default(),
+            0/*charOffset*/, CtConst::TAG_PROP_VAL_LEFT, col_widths});
+
     CtClipboard{_pCtMainWin}.table_row_to_clipboard(new_table);
     delete new_table;
 }
@@ -911,7 +1081,22 @@ void CtActions::table_row_delete()
 {
     if (not _is_there_anch_widg_selection_or_error('t')) return;
     if (not _is_curr_node_not_read_only_or_error()) return;
-    curr_table_anchor->row_delete(curr_table_anchor->current_row());
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+        int widgetOffset = curr_table_anchor->getOffset();
+        auto oldDesc = pBridge->getDocumentModel()->getNodeById(nodeId)->getContent().getWidgetDescAt(widgetOffset);
+
+        curr_table_anchor->row_delete(curr_table_anchor->current_row());
+
+        auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
+        pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Delete table row");
+    }
+    else {
+        curr_table_anchor->row_delete(curr_table_anchor->current_row());
+    }
     _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
 }
 
@@ -919,7 +1104,22 @@ void CtActions::table_row_up()
 {
     if (not _is_there_anch_widg_selection_or_error('t')) return;
     if (not _is_curr_node_not_read_only_or_error()) return;
-    curr_table_anchor->row_move_up(curr_table_anchor->current_row(), false/*from_move_down*/);
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+        int widgetOffset = curr_table_anchor->getOffset();
+        auto oldDesc = pBridge->getDocumentModel()->getNodeById(nodeId)->getContent().getWidgetDescAt(widgetOffset);
+
+        curr_table_anchor->row_move_up(curr_table_anchor->current_row(), false/*from_move_down*/);
+
+        auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
+        pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Move table row up");
+    }
+    else {
+        curr_table_anchor->row_move_up(curr_table_anchor->current_row(), false/*from_move_down*/);
+    }
     _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
 }
 
@@ -927,7 +1127,22 @@ void CtActions::table_row_down()
 {
     if (not _is_there_anch_widg_selection_or_error('t')) return;
     if (not _is_curr_node_not_read_only_or_error()) return;
-    curr_table_anchor->row_move_down(curr_table_anchor->current_row());
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+        int widgetOffset = curr_table_anchor->getOffset();
+        auto oldDesc = pBridge->getDocumentModel()->getNodeById(nodeId)->getContent().getWidgetDescAt(widgetOffset);
+
+        curr_table_anchor->row_move_down(curr_table_anchor->current_row());
+
+        auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
+        pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Move table row down");
+    }
+    else {
+        curr_table_anchor->row_move_down(curr_table_anchor->current_row());
+    }
     _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
 }
 
@@ -935,8 +1150,24 @@ void CtActions::table_rows_sort_descending()
 {
     if (not _is_there_anch_widg_selection_or_error('t')) return;
     if (not _is_curr_node_not_read_only_or_error()) return;
-    if (curr_table_anchor->row_sort_desc()) {
-        _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+        int widgetOffset = curr_table_anchor->getOffset();
+        auto oldDesc = pBridge->getDocumentModel()->getNodeById(nodeId)->getContent().getWidgetDescAt(widgetOffset);
+
+        if (curr_table_anchor->row_sort_desc()) {
+            auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
+            pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Sort table rows descending");
+            _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
+        }
+    }
+    else {
+        if (curr_table_anchor->row_sort_desc()) {
+            _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
+        }
     }
 }
 
@@ -944,8 +1175,24 @@ void CtActions::table_rows_sort_ascending()
 {
     if (not _is_there_anch_widg_selection_or_error('t')) return;
     if (not _is_curr_node_not_read_only_or_error()) return;
-    if (curr_table_anchor->row_sort_asc()) {
-        _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+        int widgetOffset = curr_table_anchor->getOffset();
+        auto oldDesc = pBridge->getDocumentModel()->getNodeById(nodeId)->getContent().getWidgetDescAt(widgetOffset);
+
+        if (curr_table_anchor->row_sort_asc()) {
+            auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
+            pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Sort table rows ascending");
+            _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
+        }
+    }
+    else {
+        if (curr_table_anchor->row_sort_asc()) {
+            _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
+        }
     }
 }
 
@@ -963,14 +1210,49 @@ void CtActions::table_edit_properties()
     }
     curr_table_anchor->set_col_width_default(_pCtConfig->tableColWidthDefault);
     if (was_light != is_light) {
-        std::shared_ptr<CtAnchoredWidgetState_TableCommon> pStateCommon = curr_table_anchor->get_state_common();
+        // Convert between light and heavy table types
+        // Extract table data as strings
+        std::vector<std::vector<Glib::ustring>> string_rows;
+        curr_table_anchor->write_strings_matrix(string_rows);
+
+        // Get table properties
+        CtTableColWidths col_widths = curr_table_anchor->get_col_widths();
+        const int col_width_default = curr_table_anchor->get_col_width_default();
+        const int char_offset = curr_table_anchor->getOffset();
+        const std::string justification = curr_table_anchor->getJustification();
+
+        // Build new CtTableMatrix with target type
+        CtTableMatrix tbl_matrix;
+        void* pCell{nullptr};
+        for (const auto& row : string_rows) {
+            CtTableRow tbl_row;
+            for (const auto& cell : row) {
+                if (is_light) {
+                    pCell = new Glib::ustring{cell};
+                }
+                else {
+                    pCell = new CtTextCell{_pCtMainWin, cell, CtConst::TABLE_CELL_TEXT_ID};
+                }
+                tbl_row.emplace_back(pCell);
+            }
+            tbl_matrix.emplace_back(tbl_row);
+        }
+
+        // Delete old table from buffer
         table_delete();
-        auto pCtTable = is_light ? static_cast<CtTableCommon*>(pStateCommon->to_widget_light(_pCtMainWin)) :
-            static_cast<CtTableCommon*>(pStateCommon->to_widget_heavy(_pCtMainWin));
+
+        // Create and insert new table
+        CtTableCommon* pCtTable = is_light ?
+            static_cast<CtTableCommon*>(new CtTableLight{
+                _pCtMainWin, tbl_matrix, col_width_default, char_offset, justification, col_widths}) :
+            static_cast<CtTableCommon*>(new CtTableHeavy{
+                _pCtMainWin, tbl_matrix, col_width_default, char_offset, justification, col_widths});
+
         pCtTable->insertInTextBuffer(_curr_buffer());
-        _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
-                                                         {pCtTable},
-                                                         &_pCtMainWin->get_text_view().mm());
+        _pCtMainWin->get_tree_store().addAnchoredWidgets(
+            _pCtMainWin->curr_tree_iter(),
+            {pCtTable},
+            &_pCtMainWin->get_text_view().mm());
         curr_table_anchor = pCtTable;
     }
     else {

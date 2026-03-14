@@ -50,3 +50,11 @@
 #undef DOUBLE_CLICK
 #endif
 #endif
+
+// Compatibility macro for fmt::runtime (introduced in fmt 8.0)
+// For older versions, the format string can be passed directly
+#if FMT_VERSION >= 80000
+#    define FMT_RUNTIME(format_string) fmt::runtime(format_string)
+#else
+#    define FMT_RUNTIME(format_string) format_string
+#endif

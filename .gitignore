@@ -17,3 +17,6 @@ build_output*.txt
 Screenshot_*.png
 .claude
 cmake_test_discovery_*.json
+build_output*.txt
+Testing/Temporary/
+tests/data_данные/.test_*

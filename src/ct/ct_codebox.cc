@@ -28,6 +28,7 @@
 #include "ct_actions.h"
 #include "ct_storage_sqlite.h"
 #include "ct_logging.h"
+#include "ct_command_bridge.h"
 
 const constexpr int MIN_SCROLL_HEIGHT = 47;
 
@@ -44,14 +45,14 @@ CtTextCell::CtTextCell(CtMainWin* pCtMainWin,
     _rTextBuffer->signal_insert().connect([pCtMainWin, this](const Gtk::TextIter& pos, const Glib::ustring& text, int /*bytes*/) {
         if (pCtMainWin->user_active() and not _ctTextview.column_edit_get_own_insert_delete_active()) {
             _ctTextview.column_edit_text_inserted(pos, text);
-            pCtMainWin->get_state_machine().text_variation(pCtMainWin->curr_tree_iter().get_node_id_data_holder(), text);
+            // Command pattern handles text variation tracking via edit sessions
             pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf);
         }
     }, false);
     _rTextBuffer->signal_erase().connect([pCtMainWin, this](const Gtk::TextIter& range_start, const Gtk::TextIter& range_end) {
         if (pCtMainWin->user_active() and not _ctTextview.column_edit_get_own_insert_delete_active()) {
             _ctTextview.column_edit_text_removed(range_start, range_end);
-            pCtMainWin->get_state_machine().text_variation(pCtMainWin->curr_tree_iter().get_node_id_data_holder(), range_start.get_text(range_end));
+            // Command pattern handles text variation tracking via edit sessions
             pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf);
         }
     }, false);
@@ -190,6 +191,27 @@ CtCodebox::CtCodebox(CtMainWin* pCtMainWin,
         }
         if (event->type != GDK_2BUTTON_PRESS and event->type != GDK_3BUTTON_PRESS) {
             _pCtMainWin->get_ct_actions()->object_set_selection(this);
+        }
+        return false;
+    });
+    _ctTextview.mm().signal_focus_in_event().connect([this](GdkEventFocus*) -> bool {
+        if (_pCtMainWin->user_active()) {
+            auto* bridge = _pCtMainWin->get_command_bridge();
+            if (bridge && bridge->isActive()) {
+                CtTreeIter currTreeIter = _pCtMainWin->curr_tree_iter();
+                if (currTreeIter) {
+                    bridge->beginWidgetEdit(currTreeIter.get_node_id(), this);
+                }
+            }
+        }
+        return false;
+    });
+    _ctTextview.mm().signal_focus_out_event().connect([this](GdkEventFocus*) -> bool {
+        if (_pCtMainWin->user_active()) {
+            auto* bridge = _pCtMainWin->get_command_bridge();
+            if (bridge && bridge->isActive()) {
+                bridge->endWidgetEdit();
+            }
         }
         return false;
     });
@@ -358,7 +380,8 @@ bool CtCodebox::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offset_a
 
 std::shared_ptr<CtAnchoredWidgetState> CtCodebox::get_state()
 {
-    return std::shared_ptr<CtAnchoredWidgetState>(new CtAnchoredWidgetState_Codebox(this));
+    // Command pattern uses XML snapshots instead of widget state objects
+    return nullptr;
 }
 
 void CtCodebox::set_show_line_numbers(const bool showLineNumbers)

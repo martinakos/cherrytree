@@ -26,6 +26,7 @@
 #include "ct_storage_control.h"
 #include "ct_main_win.h"
 #include "ct_logging.h"
+#include "ct_gtk_compat.h"
 #include <unistd.h>
 #include <optional>
 

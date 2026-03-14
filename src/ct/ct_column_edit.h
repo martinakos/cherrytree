@@ -37,6 +37,7 @@ public:
     using StateOnOffCallback = std::function<void(const bool)>;
     using NewCursorRowColCallback = std::function<void(const int, const int)>;
     CtColumnEdit(Gtk::TextView& textView);
+    ~CtColumnEdit();
 
     CtColEditState get_state() const { return _state; }
     void register_on_off_callback(StateOnOffCallback stateOnOffCallback) { _stateOnOffCallback = stateOnOffCallback; }
@@ -87,6 +88,8 @@ private:
     std::atomic<bool> _ctrlDown{false};
     std::atomic<bool> _altDown{false};
     std::atomic<bool> _myOwnInsertDelete{false};
+    // Shared flag to safely signal destruction to pending idle callbacks
+    std::shared_ptr<std::atomic<bool>> _isDestroying;
     #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     Gdk::Point _pointStart{-1,-1};
     Gdk::Point _pointEnd{-1,-1};

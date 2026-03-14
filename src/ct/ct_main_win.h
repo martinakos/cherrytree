@@ -27,6 +27,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <optional>
+#include <deque>
 
 #include <glibmm/i18n.h>
 #include <memory>
@@ -43,7 +44,6 @@
 #include "ct_table.h"
 #include "ct_image.h"
 #include "ct_export2pdf.h"
-#include "ct_state_machine.h"
 
 struct CtStatusBar
 {
@@ -127,7 +127,6 @@ public:
     void update_window_save_needed(const CtSaveNeededUpdType update_type = CtSaveNeededUpdType::None,
                                    const bool new_machine_state = false,
                                    const CtTreeIter* give_tree_iter = nullptr);
-    void load_buffer_from_state(std::shared_ptr<CtNodeState> state, CtTreeIter tree_iter);
     void re_load_current_buffer(const bool new_machine_state = false);
     void switch_buffer_text_source(Glib::RefPtr<Gtk::TextBuffer> text_buffer, CtTreeIter tree_iter, const std::string& new_syntax, const std::string& old_syntax);
     void update_window_save_not_needed();
@@ -152,7 +151,7 @@ public:
     CtActions*                        get_ct_actions()  { return _uCtActions.get(); }
     CtTmp*                            get_ct_tmp()      { return _pCtTmp; }
     Gtk::IconTheme*                   get_icon_theme()  { return _pGtkIconTheme; }
-    CtStateMachine&                   get_state_machine() { return _ctStateMachine; }
+    class CtCommandBridge*            get_command_bridge() { return _pCtCommandBridge.get(); }
     Glib::RefPtr<Gtk::TextTagTable>&  get_text_tag_table() { return _rGtkTextTagTable; }
     Glib::RefPtr<Gtk::CssProvider>&   get_css_provider()   { return _rGtkCssProvider; }
     GtkSourceLanguageManager*         get_language_manager() { return _pGtkSourceLanguageManager; }
@@ -207,6 +206,7 @@ public:
     void menu_set_items_recent_documents();
     void menu_set_visible_exit_app(bool visible);
     void menu_rebuild_toolbars(bool new_toolbar);
+    void menu_update_undo_redo_menus();
 #if GTKMM_MAJOR_VERSION >= 4
     void init_app_actions_gtk4();
 #endif /* GTKMM_MAJOR_VERSION >= 4 */
@@ -369,6 +369,9 @@ private:
     Gtk::MenuItem*               _pRecentDocsSubmenu{nullptr};
     Gtk::MenuToolButton*         _pRecentDocsMenuToolButton{nullptr};
     Gtk::ToolButton*             _pSaveToolButton{nullptr};
+    Gtk::MenuToolButton*         _pUndoMenuToolButton{nullptr};
+    Gtk::MenuToolButton*         _pRedoMenuToolButton{nullptr};
+    bool                         _updatingUndoRedoMenus{false};
     #endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
     #if GTKMM_MAJOR_VERSION >= 4
     Gtk::MenuButton*             _pMenuButton4{nullptr};          // fallback hamburger (hidden when PopoverMenuBar active)
@@ -382,7 +385,7 @@ private:
     std::unique_ptr<CtTreeStore> _uCtTreestore;
     std::unique_ptr<CtTreeView>  _uCtTreeview;
     CtTextView                   _ctTextview;
-    CtStateMachine               _ctStateMachine;
+    std::unique_ptr<class CtCommandBridge> _pCtCommandBridge;
     std::unique_ptr<CtPairCodeboxMainWin> _uCtPairCodeboxMainWin;
 
     Glib::RefPtr<Gtk::CssProvider> _css_provider_theme;
@@ -409,6 +412,13 @@ private:
     std::unordered_set<gint64> _treeExpandedNodeIds;
     std::unordered_map<gint64, int> _nodesCursorPos;
     std::unordered_map<gint64, int> _nodesVScrollPos;
+
+public:
+    // Navigation history (back/forward buttons) - public for friend class CtCommandBridge
+    std::deque<gint64>  _visitedNodes;
+    size_t              _visitedNodesIdx{0};
+
+private:
 
 #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     std::string         _startOnSystray_delayedFilepath;

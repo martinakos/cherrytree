@@ -24,6 +24,7 @@
 #include "ct_main_win.h"
 #include "ct_storage_xml.h"
 #include "ct_export2txt.h"
+#include "ct_gtk_compat.h"
 
 // GtkSourceView 5 removed begin/end_not_undoable_action
 #if GTK_SOURCE_CHECK_VERSION(5, 0, 0)
@@ -218,12 +219,15 @@ Glib::RefPtr<Gtk::TextBuffer> CtMainWin::get_new_text_buffer(const Glib::ustring
 void CtMainWin::apply_scalable_properties(Glib::RefPtr<Gtk::TextTag> rTextTag, CtScalableTag* pCtScalableTag)
 {
     rTextTag->property_scale() = pCtScalableTag->scale;
-    if (not pCtScalableTag->foreground.empty()) {
-        rTextTag->property_foreground() = pCtScalableTag->foreground;
-    }
-    if (not pCtScalableTag->background.empty()) {
-        rTextTag->property_background() = pCtScalableTag->background;
-    }
+    // Note: We intentionally don't apply foreground/background from scalable tags
+    // to allow user-applied colors to remain visible when headings are applied.
+    // Previously, H1/H2/H3 colors would override user colors, which was unexpected.
+    // if (not pCtScalableTag->foreground.empty()) {
+    //     rTextTag->property_foreground() = pCtScalableTag->foreground;
+    // }
+    // if (not pCtScalableTag->background.empty()) {
+    //     rTextTag->property_background() = pCtScalableTag->background;
+    // }
     #if GTKMM_MAJOR_VERSION < 4
     if (pCtScalableTag->bold) {
         rTextTag->property_weight() = Pango::Weight::WEIGHT_HEAVY;
@@ -494,69 +498,14 @@ void CtMainWin::apply_tag_try_automatic_bounds_paragraph(Glib::RefPtr<Gtk::TextB
     text_buffer->move_mark(text_buffer->get_selection_bound(), iter_end);
 }
 
-void CtMainWin::re_load_current_buffer(const bool new_machine_state)
+void CtMainWin::re_load_current_buffer(const bool /*new_machine_state*/)
 {
+    // Command pattern handles buffer state via undo/redo
+    // Just refresh the current view
     CtTreeIter currTreeIter = curr_tree_iter();
-    if (new_machine_state) {
-        _ctStateMachine.update_state(currTreeIter);
+    if (currTreeIter) {
+        _uCtTreestore->text_view_apply_textbuffer(currTreeIter, &_ctTextview);
     }
-    std::shared_ptr<CtNodeState> currState = _ctStateMachine.requested_state_current(currTreeIter.get_node_id_data_holder());
-    load_buffer_from_state(currState, currTreeIter);
-}
-
-// Load Text Buffer from State Machine
-void CtMainWin::load_buffer_from_state(std::shared_ptr<CtNodeState> state, CtTreeIter tree_iter)
-{
-    bool user_active_restore = user_active();
-    user_active() = false;
-
-    Glib::RefPtr<Gtk::TextBuffer> pTextBuffer = tree_iter.get_node_text_buffer();
-    #if !GTK_SOURCE_CHECK_VERSION(5, 0, 0)
-    auto pGtkSourceBuffer = GTK_SOURCE_BUFFER(pTextBuffer->gobj());
-    #endif
-
-    CT_SOURCE_BUFFER_BEGIN_NOT_UNDOABLE(pGtkSourceBuffer);
-
-    // erase is slow on empty buffer
-    if (pTextBuffer->begin() != pTextBuffer->end()) {
-        pTextBuffer->erase(pTextBuffer->begin(), pTextBuffer->end());
-    }
-    tree_iter.remove_all_embedded_widgets();
-    std::list<CtAnchoredWidget*> widgets;
-    for (xmlpp::Node* text_node : state->buffer_xml.get_root_node()->get_children()) {
-        CtStorageXmlHelper{this}.get_text_buffer_one_slot_from_xml(pTextBuffer, text_node, widgets, nullptr, -1, "");
-    }
-
-    // xml storage doesn't have widgets, so load them separately
-    for (auto widgetState : state->widgetStates) {
-        widgets.push_back(widgetState->to_widget(this));
-    }
-    for (auto widget : widgets) {
-        widget->insertInTextBuffer(pTextBuffer);
-    }
-    get_tree_store().addAnchoredWidgets(tree_iter, widgets, &_ctTextview.mm());
-
-    CT_SOURCE_BUFFER_END_NOT_UNDOABLE(pGtkSourceBuffer);
-    pTextBuffer->set_modified(false);
-
-    _uCtTreestore->text_view_apply_textbuffer(tree_iter, &_ctTextview);
-    _ctTextview.mm().grab_focus();
-
-    _ctTextview.set_spell_check(curr_tree_iter().get_node_is_text());
-
-    pTextBuffer->place_cursor(pTextBuffer->get_iter_at_offset(state->cursor_pos));
-    (void)_try_move_focus_to_anchored_widget_if_on_it();
-
-    #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
-    while (gtk_events_pending()) gtk_main_iteration();
-    #else
-    while (g_main_context_pending(nullptr)) g_main_context_iteration(nullptr, false);
-    #endif
-    _scrolledwindowText.get_vadjustment()->set_value(state->v_adj_val);
-
-    user_active() = user_active_restore;
-
-    update_window_save_needed(CtSaveNeededUpdType::nbuf, false, &tree_iter);
 }
 
 // Switch TextBuffer -> SourceBuffer or SourceBuffer -> TextBuffer

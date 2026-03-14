@@ -128,8 +128,7 @@ private:
                    CtMainWin* pWinToCopyFrom = nullptr);
     Gtk::TreeModel::iterator _node_add_with_data(Gtk::TreeModel::iterator curr_iter,
                                       CtNodeData& nodeData,
-                                      const bool add_as_child,
-                                      std::shared_ptr<CtNodeState> node_state);
+                                      const bool add_as_child);
 
 public:
     Gtk::TreeModel::iterator node_child_exist_or_create(Gtk::TreeModel::iterator parentIter,

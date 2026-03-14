@@ -152,17 +152,15 @@ void CtMainWin::update_window_save_needed(const CtSaveNeededUpdType update_type,
             std::vector<gint64> rm_node_ids = treeIter.get_children_node_ids();
             rm_node_ids.push_back(top_node_id);
             _uCtTreestore->pending_rm_db_nodes(rm_node_ids);
-            for (auto node_id : rm_node_ids) {
-                _ctStateMachine.delete_states(node_id);
-            }
+            // State machine removed (Phase 5)
         } break;
         case CtSaveNeededUpdType::book: {
             _uCtTreestore->pending_edit_db_bookmarks();
         } break;
     }
-    if (new_machine_state && treeIter) {
-        _ctStateMachine.update_state(treeIter);
-    }
+    // Command pattern handles state tracking automatically
+    (void)new_machine_state;
+    (void)treeIter;
 }
 
 bool CtMainWin::get_file_save_needed()
@@ -311,11 +309,8 @@ bool CtMainWin::file_open(const fs::path& filepath,
     }
 
     if (iterDocsRestore != _pCtConfig->recentDocsRestore.end()) {
-        auto nodes = CtStrUtil::gstring_split_to_int64(iterDocsRestore->second.visited_nodes.c_str(), ",");
-        if (nodes.size() > 0) {
-            _ctStateMachine.set_visited_nodes_list(nodes);
-            window_header_update();
-        }
+        // Navigation history removed with state machine (Phase 5)
+        window_header_update();
     }
 
     _pCtConfig->recentDocsFilepaths.move_or_push_front(fs::canonical(filepath));
@@ -382,7 +377,7 @@ bool CtMainWin::file_save(const bool need_vacuum)
     Glib::ustring error;
     if (_uCtStorage->save(need_vacuum, error)) {
         update_window_save_not_needed();
-        _ctStateMachine.update_state();
+        // Command pattern handles state tracking automatically
         return true;
     }
     CtDialogs::error_dialog(str::xml_escape(error), *this);
@@ -409,7 +404,7 @@ void CtMainWin::file_save_as(const std::string& new_filepath,
 
     // remember expanded nodes for new file
     CtRecentDocRestore doc_state_restore;
-    doc_state_restore.visited_nodes = str::join_numbers(_ctStateMachine.get_visited_nodes_list(), ",");
+    doc_state_restore.visited_nodes = ""; // Navigation history removed (Phase 5)
     doc_state_restore.exp_coll_str = _uCtTreestore->treeview_get_tree_expanded_collapsed_string(*_uCtTreeview);
     if (const CtTreeIter curr_iter = curr_tree_iter()) {
         doc_state_restore.node_path = _uCtTreestore->get_path(curr_iter).to_string();
@@ -510,7 +505,7 @@ void CtMainWin::_ensure_curr_doc_in_recent_docs()
     if (not currDocFilePath.empty()) {
         _pCtConfig->recentDocsFilepaths.move_or_push_front(fs::canonical(currDocFilePath));
         CtRecentDocRestore prevDocRestore;
-        prevDocRestore.visited_nodes = str::join_numbers(_ctStateMachine.get_visited_nodes_list(), ",");
+        prevDocRestore.visited_nodes = ""; // Navigation history removed (Phase 5)
         prevDocRestore.exp_coll_str = _uCtTreestore->treeview_get_tree_expanded_collapsed_string(*_uCtTreeview);
         const CtTreeIter prevTreeIter = curr_tree_iter();
         if (prevTreeIter) {

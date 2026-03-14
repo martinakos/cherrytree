@@ -196,7 +196,8 @@ bool CtImagePng::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offset_
 
 std::shared_ptr<CtAnchoredWidgetState> CtImagePng::get_state()
 {
-    return std::shared_ptr<CtAnchoredWidgetState>(new CtAnchoredWidgetState_ImagePng{this});
+    // Command pattern uses XML snapshots instead of widget state objects
+    return nullptr;
 }
 
 void CtImagePng::update_label_widget()
@@ -326,7 +327,8 @@ bool CtImageAnchor::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offs
 
 std::shared_ptr<CtAnchoredWidgetState> CtImageAnchor::get_state()
 {
-    return std::shared_ptr<CtAnchoredWidgetState>(new CtAnchoredWidgetState_Anchor{this});
+    // Command pattern uses XML snapshots instead of widget state objects
+    return nullptr;
 }
 
 void CtImageAnchor::toggle_exp_coll_state()
@@ -476,7 +478,8 @@ bool CtImageLatex::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offse
 
 std::shared_ptr<CtAnchoredWidgetState> CtImageLatex::get_state()
 {
-    return std::shared_ptr<CtAnchoredWidgetState>(new CtAnchoredWidgetState_Latex{this});
+    // Command pattern uses XML snapshots instead of widget state objects
+    return nullptr;
 }
 
 void CtImageLatex::update_tooltip()
@@ -970,7 +973,8 @@ bool CtImageEmbFile::to_sqlite(sqlite3* pDb, const gint64 node_id, const int off
 
 std::shared_ptr<CtAnchoredWidgetState> CtImageEmbFile::get_state()
 {
-    return std::shared_ptr<CtAnchoredWidgetState>(new CtAnchoredWidgetState_EmbFile{this});
+    // Command pattern uses XML snapshots instead of widget state objects
+    return nullptr;
 }
 
 void CtImageEmbFile::update_label_widget()

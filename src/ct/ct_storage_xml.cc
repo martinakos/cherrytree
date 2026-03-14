@@ -33,6 +33,7 @@
 #include "ct_storage_control.h"
 #include "ct_storage_multifile.h"
 #include "ct_logging.h"
+#include "ct_gtk_compat.h"
 
 // GtkSourceView 5 removed begin/end_not_undoable_action
 #if GTK_SOURCE_CHECK_VERSION(5, 0, 0)

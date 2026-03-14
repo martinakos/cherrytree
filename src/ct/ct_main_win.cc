@@ -28,11 +28,13 @@
 #include <sigc++/signal.h>
 #include <sigc++/functors/slot.h>
 #endif
+#include <chrono>
 #include "ct_main_win.h"
 #include "ct_actions.h"
 #include "ct_storage_control.h"
 #include "ct_clipboard.h"
 #include "ct_dialogs.h"
+#include "ct_command_bridge.h"
 
 #if GTKMM_MAJOR_VERSION >= 4
 void CtMainWin::init_app_actions_gtk4()
@@ -127,7 +129,6 @@ CtMainWin::CtMainWin(bool                            no_gui,
  , _pCtStatusIcon{pCtStatusIcon}
 #endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
  , _ctTextview{this}
- , _ctStateMachine{this}
 {
 #if GTKMM_MAJOR_VERSION >= 4
     // Initialize GTK4 signal callback arrays
@@ -150,6 +151,11 @@ CtMainWin::CtMainWin(bool                            no_gui,
     _pSaveMenuAction = _uCtMenu->find_action("ct_save");
     _uCtPrint.reset(new CtPrint{this});
     _uCtStorage.reset(CtStorageControl::create_dummy_storage(this));
+
+    // Initialize command bridge - now ACTIVE BY DEFAULT per Phase 5 of migration plan
+    _pCtCommandBridge.reset(new CtCommandBridge{this});
+    _pCtCommandBridge->setActive(true);
+    spdlog::info("Command pattern active (Phase 5: migration complete)");
 
     _scrolledwindowTree.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
     _scrolledwindowTree.get_style_context()->add_class("ct-tree-scroll-panel");
@@ -207,7 +213,7 @@ CtMainWin::CtMainWin(bool                            no_gui,
     _pRecentDocsSubmenu = CtMenu::find_menu_item(_pMenuBar, "RecentDocsSubMenu");
     _pMenuBar->show_all();
     add_accel_group(_uCtMenu->get_accel_group());
-    _pToolbars = _uCtMenu->build_toolbars(_pRecentDocsMenuToolButton, _pSaveToolButton);
+    _pToolbars = _uCtMenu->build_toolbars(_pRecentDocsMenuToolButton, _pSaveToolButton, _pUndoMenuToolButton, _pRedoMenuToolButton);
 #else
     // GTK4: build full menu bar via Gio::Menu + Gtk::PopoverMenuBar
     _pPopoverMenuBar4 = _uCtMenu->build_popover_menubar4();
@@ -247,6 +253,20 @@ CtMainWin::CtMainWin(bool                            no_gui,
 #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     for (auto pToolbar : _pToolbars) {
         _vboxMain.pack_start(*pToolbar, false, false);
+    }
+    // Initialize undo/redo dropdown menus
+    menu_update_undo_redo_menus();
+
+    // Connect signals to update menus right before they're shown
+    if (_pUndoMenuToolButton) {
+        _pUndoMenuToolButton->signal_show_menu().connect([this](){
+            menu_update_undo_redo_menus();
+        });
+    }
+    if (_pRedoMenuToolButton) {
+        _pRedoMenuToolButton->signal_show_menu().connect([this](){
+            menu_update_undo_redo_menus();
+        });
     }
 #else
     Gtk::MenuButton* recentBtn{}; Gtk::Button* saveBtn{};
@@ -1010,9 +1030,9 @@ void CtMainWin::window_header_update()
 #else
         std::vector<Gtk::Widget*> buttons = _ctWinHeader.buttonBox.get_children();
 #endif
-        const std::vector<gint64>& nodes = _ctStateMachine.get_visited_nodes_list();
+        // Populate recent nodes from navigation history
         _ctWinHeader.button_to_node_id.clear();
-        for (auto iter = nodes.rbegin(); iter != nodes.rend(); ++iter) {
+        for (auto iter = _visitedNodes.rbegin(); iter != _visitedNodes.rend(); ++iter) {
             if (*iter == curr_node_id) continue;
             if (CtTreeIter ct_tree_iter = ctTreestore.get_node_from_node_id(*iter)) {
                 Glib::ustring name = "<span font_desc=\"" + _pCtConfig->treeFont + "\">" + str::xml_escape(ct_tree_iter.get_node_name()) + "</span>";
@@ -1216,10 +1236,9 @@ void CtMainWin::maybe_show_start_dialog()
 
 void CtMainWin::menu_set_bookmark_menu_items()
 {
-    #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
-
     _resolve_bookmarks_submenus();
 
+    #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     std::list<std::tuple<gint64, Glib::ustring, const char*>> bookmarks;
     for (const gint64& node_id : _uCtTreestore->bookmarks_get()) {
         CtTreeIter ct_tree_iter = _uCtTreestore->get_node_from_node_id(node_id);
@@ -1301,6 +1320,103 @@ void CtMainWin::menu_set_items_recent_documents()
     #endif
 }
 
+void CtMainWin::menu_update_undo_redo_menus()
+{
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
+    auto start = std::chrono::high_resolution_clock::now();
+    // Prevent recursion when signal handlers trigger menu updates
+    if (_updatingUndoRedoMenus) return;
+    _updatingUndoRedoMenus = true;
+
+    auto pBridge = get_command_bridge();
+    if (!pBridge) {
+        _updatingUndoRedoMenus = false;
+        return;
+    }
+
+    // Update undo menu
+    if (_pUndoMenuToolButton) {
+        _pUndoMenuToolButton->set_arrow_tooltip_text(_("Undo Multiple Actions"));
+        Gtk::Menu* pOldMenu = _pUndoMenuToolButton->get_menu();
+        if (pOldMenu) {
+            delete pOldMenu;
+        }
+
+        auto* pUndoMenu = new Gtk::Menu();  // Not managed - MenuToolButton takes ownership
+        auto undoDescriptions = pBridge->getUndoStackDescriptions();
+
+        if (undoDescriptions.empty()) {
+            auto* pMenuItem = Gtk::manage(new Gtk::MenuItem(_("No actions to undo")));
+            pMenuItem->set_sensitive(false);
+            pUndoMenu->append(*pMenuItem);
+        } else {
+            size_t count = 0;
+            for (const auto& desc : undoDescriptions) {
+                count++;
+                auto* pMenuItem = Gtk::manage(new Gtk::MenuItem(desc));
+                pMenuItem->signal_activate().connect([this, count](){
+                    auto pBridge = get_command_bridge();
+                    if (pBridge) {
+                        pBridge->undo(count);
+                    }
+                });
+                pUndoMenu->append(*pMenuItem);
+
+                // Limit to 20 items to avoid excessive menu length
+                if (count >= 20) break;
+            }
+        }
+
+        pUndoMenu->show_all();
+        _pUndoMenuToolButton->set_menu(*pUndoMenu);
+    }
+
+    // Update redo menu
+    if (_pRedoMenuToolButton) {
+        _pRedoMenuToolButton->set_arrow_tooltip_text(_("Redo Multiple Actions"));
+        Gtk::Menu* pOldMenu = _pRedoMenuToolButton->get_menu();
+        if (pOldMenu) {
+            delete pOldMenu;
+        }
+
+        auto* pRedoMenu = new Gtk::Menu();  // Not managed - MenuToolButton takes ownership
+        auto redoDescriptions = pBridge->getRedoStackDescriptions();
+
+        if (redoDescriptions.empty()) {
+            auto* pMenuItem = Gtk::manage(new Gtk::MenuItem(_("No actions to redo")));
+            pMenuItem->set_sensitive(false);
+            pRedoMenu->append(*pMenuItem);
+        } else {
+            size_t count = 0;
+            for (const auto& desc : redoDescriptions) {
+                count++;
+                auto* pMenuItem = Gtk::manage(new Gtk::MenuItem(desc));
+                pMenuItem->signal_activate().connect([this, count](){
+                    auto pBridge = get_command_bridge();
+                    if (pBridge) {
+                        pBridge->redo(count);
+                    }
+                });
+                pRedoMenu->append(*pMenuItem);
+
+                // Limit to 20 items to avoid excessive menu length
+                if (count >= 20) break;
+            }
+        }
+
+        pRedoMenu->show_all();
+        _pRedoMenuToolButton->set_menu(*pRedoMenu);
+    }
+
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+    if (duration > 10) {
+        spdlog::warn("CtMainWin: menu_update_undo_redo_menus took {}ms", duration);
+    }
+    _updatingUndoRedoMenus = false;
+#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
+}
+
 void CtMainWin::menu_set_visible_exit_app(bool visible)
 {
 #if GTKMM_MAJOR_VERSION < 4
@@ -1323,7 +1439,7 @@ void CtMainWin::menu_rebuild_toolbars(bool new_toolbar)
         for (auto pToolbar : _pToolbars) {
             _vboxMain.remove(*pToolbar);
         }
-        _pToolbars = _uCtMenu->build_toolbars(_pRecentDocsMenuToolButton, _pSaveToolButton);
+        _pToolbars = _uCtMenu->build_toolbars(_pRecentDocsMenuToolButton, _pSaveToolButton, _pUndoMenuToolButton, _pRedoMenuToolButton);
         for (auto toolbar = _pToolbars.rbegin(); toolbar != _pToolbars.rend(); ++toolbar) {
             _vboxMain.pack_start(*(*toolbar), false, false);
             if (not _pCtConfig->menubarInTitlebar) {
@@ -1454,9 +1570,10 @@ void CtMainWin::reset()
     auto on_scope_exit = scope_guard([&](void*) { user_active() = true; });
     user_active() = false;
 
-    _ctStateMachine.reset();
+    // State machine removed (Phase 5)
 
     _uCtStorage.reset(CtStorageControl::create_dummy_storage(this));
+    _pCtCommandBridge->resetForNewDocument();
 
     _reset_CtTreestore_CtTreeview();
 

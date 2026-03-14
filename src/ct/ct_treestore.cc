@@ -719,8 +719,7 @@ std::list<CtAnchoredWidget*> CtTreeIter::get_anchored_widgets(const int start_of
                             auto pCtAnchoredWidget = new CtAnchWidgLink{_pCtMainWin, curr_iter.get_offset(), link_entry,
                                                                         CtTextIterUtil::get_text_iter_alignment(curr_iter, _pCtMainWin)};
                             retAnchoredWidgetsList.push_back(pCtAnchoredWidget);
-                            //spdlog::debug("{} +{}", __FUNCTION__, link_entry.get_target_searchable().c_str());
-                        }
+                                                }
                     }
                 }
             }
@@ -1036,15 +1035,10 @@ void CtTreeStore::text_view_apply_textbuffer(CtTreeIter& treeIter, CtTextView* p
     );
     if (treeIter.get_node_is_rich_text()) {
         const auto nodeIdDataHolder = treeIter.get_node_id_data_holder();
+        // Command pattern handles scroll position tracking via edit sessions
         _curr_node_sigc_conn.push_back(
             _pCtMainWin->getScrolledwindowText().get_vadjustment()->signal_value_changed().connect([this, nodeIdDataHolder](){
-                _pCtMainWin->get_state_machine().update_curr_state_v_adj_val(nodeIdDataHolder);
-#if GTKMM_MAJOR_VERSION >= 4
-                CtTreeIter currTreeIter = _pCtMainWin->curr_tree_iter();
-                if (currTreeIter && currTreeIter.get_node_id_data_holder() == nodeIdDataHolder) {
-                    _pCtMainWin->get_text_view().mm().queue_draw();
-                }
-#endif
+                // Scroll position tracking removed with state machine
             })
         );
     }
@@ -1291,7 +1285,7 @@ void CtTreeStore::_on_textbuffer_insert(const Gtk::TextBuffer::iterator& pos, co
         _pCtMainWin->get_text_view().column_edit_text_inserted(pos, text);
         CtTreeIter currTreeIter = _pCtMainWin->curr_tree_iter();
         if (currTreeIter and currTreeIter.get_node_is_rich_text()) {
-            _pCtMainWin->get_state_machine().text_variation(currTreeIter.get_node_id_data_holder(), text);
+            // Command pattern handles text variation tracking via edit sessions
         }
     }
 }
@@ -1302,7 +1296,7 @@ void CtTreeStore::_on_textbuffer_erase(const Gtk::TextBuffer::iterator& range_st
        _pCtMainWin->get_text_view().column_edit_text_removed(range_start, range_end);
         CtTreeIter currTreeIter = _pCtMainWin->curr_tree_iter();
         if (currTreeIter and currTreeIter.get_node_is_rich_text()) {
-            _pCtMainWin->get_state_machine().text_variation(currTreeIter.get_node_id_data_holder(), range_start.get_text(range_end));
+            // Command pattern handles text variation tracking via edit sessions
         }
     }
 }
@@ -1313,7 +1307,7 @@ void CtTreeStore::_on_textbuffer_mark_set(const Gtk::TextIter& /*iter*/, const G
         if (rMark->get_name() == "insert") {
             const auto currTreeIter = _pCtMainWin->curr_tree_iter();
             if (currTreeIter and currTreeIter.get_node_is_rich_text()) {
-                _pCtMainWin->get_state_machine().update_curr_state_cursor_pos(currTreeIter.get_node_id_data_holder());
+                // Command pattern handles cursor position tracking via edit sessions
             }
             _pCtMainWin->get_text_view().column_edit_selection_update();
         }
@@ -1346,7 +1340,7 @@ void CtTreeStore::addAnchoredWidgets(CtTreeIter ctTreeIter,
         if (pChildAnchor) {
             const auto anchorWidgets = pChildAnchor->get_widgets();
             const bool hasThisWidget = std::find(anchorWidgets.begin(), anchorWidgets.end(), pCtAnchoredWidget) != anchorWidgets.end();
-            if (not hasThisWidget) {
+            if (pTextView && not hasThisWidget) {
                 pTextView->add_child_at_anchor(*pCtAnchoredWidget, pChildAnchor);
                 pCtAnchoredWidget->apply_width_height(pTextView->get_allocation().get_width());
                 pCtAnchoredWidget->apply_syntax_highlighting(false/*forceReApply*/);

@@ -687,7 +687,9 @@ bool CtDialogs::link_handle_dialog(CtMainWin& ctMainWin,
     link_entry.file = str::trim(entry_file.get_text());
     link_entry.fold = str::trim(entry_folder.get_text());
     link_entry.anch = str::trim(entry_anchor.get_text());
-    link_entry.node_id = ctTreestore.to_ct_tree_iter(sel_tree_iter).get_node_id();
+    if (sel_tree_iter) {
+        link_entry.node_id = ctTreestore.to_ct_tree_iter(sel_tree_iter).get_node_id();
+    }
     return true;
 #endif
 }

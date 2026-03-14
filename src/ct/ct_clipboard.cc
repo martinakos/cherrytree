@@ -31,6 +31,8 @@
 #include "ct_misc_utils.h"
 #include "ct_actions.h"
 #include "ct_storage_xml.h"
+#include "ct_text_commands.h"
+#include "ct_command_bridge.h"
 #include <gio/gio.h> // to get mime type
 #include <glibmm/regex.h>
 #include "ct_logging.h"
@@ -38,6 +40,18 @@
 
 bool CtClipboard::_static_force_plain_text{false};
 bool CtClipboard::_static_from_column_edit{false};
+
+// Quick scan for widget element names in CherryTree XML.
+// Used to decide whether the delta paste path is safe (text-only) or
+// the XML snapshot path is needed (widget anchors present).
+// False positives are safe (falls back to XML); false negatives are not.
+static bool xmlContainsWidgets(const Glib::ustring& xml) {
+    return xml.find("<encoded_png") != Glib::ustring::npos ||
+           xml.find("<table")       != Glib::ustring::npos ||
+           xml.find("<codebox")     != Glib::ustring::npos ||
+           xml.find("<embfile")     != Glib::ustring::npos ||
+           xml.find("<latex")       != Glib::ustring::npos;
+}
 
 CtClipboard::CtClipboard(CtMainWin* pCtMainWin)
  : _pCtMainWin{pCtMainWin}
@@ -86,7 +100,21 @@ void CtClipboard::_cut_clipboard(Gtk::TextView* pTextView, CtCodebox* pCodebox)
             }
             _selection_to_clipboard(text_buffer, pTextView, iter_sel_start, iter_sel_end, num_chars, pCodebox);
             if (_pCtMainWin->get_ct_actions()->_is_curr_node_not_read_only_or_error()) {
+                // Begin cut operation for command tracking
+                auto pBridge = _pCtMainWin->get_command_bridge();
+                if (pBridge && pBridge->isActive()) {
+                    pBridge->endTextEditSession();  // Save any pending text as its own undo command
+                    pBridge->beginCut(_pCtMainWin->curr_tree_iter().get_node_id());
+                }
+
                 text_buffer->erase_selection(true, pTextView->get_editable());
+
+                // End cut operation for command tracking
+                if (pBridge && pBridge->isActive()) {
+                    pBridge->endCut();
+                    pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+                }
+
                 pTextView->grab_focus();
             }
         }
@@ -287,7 +315,7 @@ void CtClipboard::node_link_to_clipboard(CtTreeIter node)
 {
     CtClipboardData* clip_data = new CtClipboardData{};
     std::string tml = R"XML(<?xml version="1.0" encoding="UTF-8"?><root><slot><rich_text link="node {}">{}</rich_text></slot></root>)XML";
-    clip_data->rich_text = fmt::format(fmt::runtime(tml), node.get_node_id(), str::xml_escape(node.get_node_name()));
+    clip_data->rich_text = fmt::format(FMT_RUNTIME(tml), node.get_node_id(), str::xml_escape(node.get_node_name()));
     clip_data->plain_text = fmt::format("{} - {}", node.get_cherrytree_filepath(), CtMiscUtil::get_node_hierarchical_name(node, " / ", false/*for_filename*/).c_str());
 
     _set_clipboard_data({CtConst::TARGET_CTD_RICH_TEXT, CtConst::TARGET_CTD_PLAIN_TEXT}, clip_data);
@@ -297,7 +325,7 @@ void CtClipboard::anchor_link_to_clipboard(CtTreeIter node, const Glib::ustring&
 {
     CtClipboardData* clip_data = new CtClipboardData{};
     std::string tml = R"XML(<?xml version="1.0" encoding="UTF-8"?><root><slot><rich_text link="node {} {}">{}</rich_text></slot></root>)XML";
-    clip_data->rich_text = fmt::format(fmt::runtime(tml), node.get_node_id(), str::xml_escape(anchor_name), str::xml_escape(anchor_name));
+    clip_data->rich_text = fmt::format(FMT_RUNTIME(tml), node.get_node_id(), str::xml_escape(anchor_name), str::xml_escape(anchor_name));
     clip_data->plain_text = fmt::format("{} - {} - {}", node.get_cherrytree_filepath(), CtMiscUtil::get_node_hierarchical_name(node, " / ", false/*for_filename*/).c_str(), anchor_name.raw());
 
     _set_clipboard_data({CtConst::TARGET_CTD_RICH_TEXT, CtConst::TARGET_CTD_PLAIN_TEXT}, clip_data);
@@ -359,11 +387,19 @@ void CtClipboard::from_xml_string_to_buffer(Glib::RefPtr<Gtk::TextBuffer> text_b
         throw std::invalid_argument("rich text from clipboard error");
     }
 
-    auto on_scope_exit = scope_guard([&](void*) {
-        _pCtMainWin->get_state_machine().not_undoable_timeslot_set(false);
-        _pCtMainWin->get_state_machine().update_state();
-    });
-    _pCtMainWin->get_state_machine().not_undoable_timeslot_set(true);
+    // End any active text edit session before pasting content, unless the
+    // caller already owns a paste session (delta path) — in that case the
+    // session must remain open to capture the buffer signals below.
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive() && !pBridge->isSuppressingTextEdits()) {
+        pBridge->endTextEditSession();
+    }
+
+    // Capture state before paste (only needed for the XML snapshot path).
+    Glib::ustring oldXml;
+    if (pBridge && pBridge->isActive() && !pBridge->isSuppressingTextEdits()) {
+        oldXml = pBridge->getCurrentBufferXml();
+    }
 
     std::list<CtAnchoredWidget*> widgets;
     for (xmlpp::Node* slot_node: parser.get_document()->get_root_node()->get_children()) {
@@ -390,6 +426,28 @@ void CtClipboard::from_xml_string_to_buffer(Glib::RefPtr<Gtk::TextBuffer> text_b
     }
     else if (pPasteHadWidgets) {
         *pPasteHadWidgets = false;
+    }
+
+    // Only create a command if we're not already inside a paste/cut/format operation
+    // (those callers create their own command with the proper description)
+    if (pBridge && pBridge->isActive() && !pBridge->isSuppressingTextEdits()) {
+        Glib::ustring newXml = pBridge->getCurrentBufferXml();
+        if (oldXml != newXml) {
+            gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+            auto cmd = std::make_unique<TextEditCommand>(
+                pBridge->getDocumentModel(),
+                nodeId,
+                oldXml,
+                newXml
+            );
+            pBridge->addCommandToStack(std::move(cmd));
+
+            // Update model XML without triggering observer (content already in buffer)
+            auto node = pBridge->getDocumentModel()->getNodeById(nodeId);
+            if (node) {
+                node->setContentXml(newXml);
+            }
+        }
     }
 }
 
@@ -615,6 +673,15 @@ void CtClipboard::on_received_to_plain_text(const Gtk::SelectionData& selection_
             return;
         }
     }
+
+    // Begin paste operation for command tracking.
+    // Plain text never inserts widget anchors, so use the lightweight delta path.
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();  // Save any pending text as its own undo command
+        pBridge->beginPaste(_pCtMainWin->curr_tree_iter().get_node_id(), false/*pasteContainsWidgets*/);
+    }
+
     auto curr_buffer = pTextView->get_buffer();
     Gtk::TextIter iter_insert = curr_buffer->get_insert()->get_iter();
     const int start_offset = iter_insert.get_offset();
@@ -653,6 +720,13 @@ void CtClipboard::on_received_to_plain_text(const Gtk::SelectionData& selection_
             }
         }
     }
+
+    // End paste operation for command tracking
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endPaste();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
+
     pTextView->scroll_to(curr_buffer->get_insert());
 }
 #endif
@@ -716,8 +790,27 @@ void CtClipboard::on_received_to_rich_text(const Gtk::SelectionData& selection_d
         spdlog::error("? no clipboard rich text");
         return;
     }
+
+    // Begin paste operation for command tracking.
+    // If the clipboard XML has no widget anchors, use the lightweight session
+    // (delta) path.  Widget-containing pastes must keep the XML snapshot path
+    // because InsertTextCommand only captures text, not widget anchors.
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();  // Save any pending text as its own undo command
+        const bool hasWidgets = xmlContainsWidgets(rich_text);
+        pBridge->beginPaste(_pCtMainWin->curr_tree_iter().get_node_id(), hasWidgets);
+    }
+
     bool pasteHadWidgets{false};
     from_xml_string_to_buffer(pTextView->get_buffer(), rich_text, &pasteHadWidgets);
+
+    // End paste operation for command tracking
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endPaste();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
+
     pTextView->scroll_to(pTextView->get_buffer()->get_insert());
 }
 #endif
@@ -737,7 +830,20 @@ void CtClipboard::on_received_to_codebox(const Gtk::SelectionData& selection_dat
         return;
     }
 
+    // Begin paste operation for command tracking
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        pBridge->beginPaste(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
+
     _xml_to_codebox(xml_text, pTextView);
+
+    // End paste operation for command tracking
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endPaste();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
 }
 #endif
 
@@ -765,6 +871,13 @@ void CtClipboard::on_received_to_table(const Gtk::SelectionData& selection_data,
     {
         spdlog::error("table from clipboard error");
         return;
+    }
+
+    // Begin paste operation for command tracking
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        pBridge->beginPaste(_pCtMainWin->curr_tree_iter().get_node_id());
     }
 
     if (parentTable) {
@@ -832,10 +945,16 @@ void CtClipboard::on_received_to_table(const Gtk::SelectionData& selection_data,
             _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
                                                              widgets,
                                                              &_pCtMainWin->get_text_view().mm());
-            _pCtMainWin->get_state_machine().update_state();
+            // Command pattern handles state tracking automatically
         }
 
         pTextView->scroll_to(pTextView->get_buffer()->get_insert());
+    }
+
+    // End paste operation for command tracking
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endPaste();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
     }
 }
 #endif
@@ -879,15 +998,33 @@ void CtClipboard::on_received_to_html(const Gtk::SelectionData& selection_data, 
     html_content = str::sanitize_bad_symbols(html_content);
 
     try {
-        CtHtml2Xml parser(_pCtMainWin->get_ct_config());
-        parser.feed(html_content);
+        // Convert HTML to CherryTree XML first so we can inspect it for widgets
+        // before deciding which paste path to use.
+        CtHtml2Xml htmlParser{_pCtMainWin->get_ct_config()};
+        htmlParser.feed(html_content);
+        const Glib::ustring xmlStr = htmlParser.to_string();
+
+        // Begin paste operation for command tracking.
+        // Use the lightweight session (delta) path when the resulting XML has no
+        // widget anchors; fall back to XML snapshot for widget-containing content.
+        auto pBridge = _pCtMainWin->get_command_bridge();
+        if (pBridge && pBridge->isActive()) {
+            pBridge->endTextEditSession();  // Save any pending text as its own undo command
+            const bool hasWidgets = xmlContainsWidgets(xmlStr);
+            pBridge->beginPaste(_pCtMainWin->curr_tree_iter().get_node_id(), hasWidgets);
+        }
+
         bool pasteHadWidgets{false};
-        from_xml_string_to_buffer(pTextView->get_buffer(), parser.to_string(), &pasteHadWidgets);
+        from_xml_string_to_buffer(pTextView->get_buffer(), xmlStr, &pasteHadWidgets);
         pTextView->scroll_to(pTextView->get_buffer()->get_insert());
+
+        if (pBridge && pBridge->isActive()) {
+            pBridge->endPaste();
+            pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+        }
     }
     catch (const std::exception& ex) {
         spdlog::warn("html clipboard parse failed for target '{}': {}", selection_data.get_target(), ex.what());
-        // Fallback to plain text if rich HTML conversion fails.
         auto win = _pCtMainWin;
         Gtk::Clipboard::get()->request_contents(CtConst::TARGET_CTD_PLAIN_TEXT,
             [win, pTextView](const Gtk::SelectionData& s) {
@@ -920,8 +1057,22 @@ void CtClipboard::on_received_to_image(const Gtk::SelectionData& selection_data,
         rPixbuf = Gtk::Clipboard::get()->wait_for_image();
     }
     if (rPixbuf) {
+        // Begin paste operation for command tracking
+        auto pBridge = _pCtMainWin->get_command_bridge();
+        if (pBridge && pBridge->isActive()) {
+            pBridge->endTextEditSession();  // Save any pending text as its own undo command
+            pBridge->beginPaste(_pCtMainWin->curr_tree_iter().get_node_id());
+        }
+
         Glib::ustring link = "";
         _pCtMainWin->get_ct_actions()->image_insert_png(pTextView->get_buffer()->get_insert()->get_iter(), rPixbuf->copy(), link, "");
+
+        // End paste operation for command tracking
+        if (pBridge && pBridge->isActive()) {
+            pBridge->endPaste();
+            pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+        }
+
         pTextView->scroll_to(pTextView->get_buffer()->get_insert());
     }
     else {
@@ -984,6 +1135,13 @@ void CtClipboard::on_received_to_cf_hdrop(const Gtk::SelectionData& selection_da
         current_path_ptr += wpath.length() + 1;
     }
 
+    // Begin paste operation for command tracking
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        pBridge->beginPaste(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
+
     std::string syntax_highlighting;
     if (auto pCtTextView = dynamic_cast<CtTextView*>(pTextView)) {
         syntax_highlighting = pCtTextView->get_syntax_highlighting();
@@ -1000,6 +1158,13 @@ void CtClipboard::on_received_to_cf_hdrop(const Gtk::SelectionData& selection_da
     else {
         _uri_or_filepath_list_into_rich_text(file_paths, pTextView);
     }
+
+    // End paste operation for command tracking
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endPaste();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
+
     pTextView->scroll_to(pTextBuffer->get_insert());
 }
 #endif
@@ -1024,7 +1189,6 @@ void CtClipboard::_uri_or_filepath_list_into_rich_text(const std::vector<Glib::u
                 file_path = Glib::filename_from_uri(element);
             }
             catch (const Glib::Error& ex) {
-                //spdlog::warn("Error converting URI: {}", ex.what().raw());
                 file_path = element;
             }
             if (fs::is_file_image(file_path)) {
@@ -1051,22 +1215,6 @@ void CtClipboard::_uri_or_filepath_list_into_rich_text(const std::vector<Glib::u
                 spdlog::debug("'{}' not dir or file", file_path);
             }
         }
-#if 0
-        else {
-            if (Glib::file_test(element, Glib::FILE_TEST_IS_DIR)) {
-                property_value = "fold " + Glib::Base64::encode(element);
-            }
-            else if (Glib::file_test(element, Glib::FILE_TEST_IS_REGULAR)) {
-                if (subsequent_insert) {
-                    pTextBuffer->insert(pTextBuffer->get_insert()->get_iter(), CtConst::CHAR_NEWLINE);
-                }
-                _pCtMainWin->get_ct_actions()->embfile_insert_path(element);
-            }
-            else {
-                spdlog::debug("'{}' not dir or file", element.raw());
-            }
-        }
-#endif
         if (not property_value.empty()) {
             if (subsequent_insert) {
                 pTextBuffer->insert(pTextBuffer->get_insert()->get_iter(), CtConst::CHAR_NEWLINE);
@@ -1090,13 +1238,18 @@ void CtClipboard::on_received_to_uri_list(const Gtk::SelectionData& selection_da
                                           const bool/*fromDragNDrop = false*/)
 {
     std::string uri_content = selection_data.get_text(); // returns UTF-8 string if text type recognised and could be converted to UTF-8; empty otherwise
-    //spdlog::debug("1: '{}'", uri_content);
     if (uri_content.empty()) {
         uri_content = selection_data.get_data_as_string();
-        //spdlog::debug("2: '{}'", uri_content);
         CtStrUtil::convert_if_not_utf8(uri_content, false/*sanitise*/);
     }
     uri_content = str::sanitize_bad_symbols(uri_content);
+
+    // Begin paste operation for command tracking
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        pBridge->beginPaste(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
 
     std::string syntax_highlighting;
     if (auto pCtTextView = dynamic_cast<CtTextView*>(pTextView)) {
@@ -1111,7 +1264,6 @@ void CtClipboard::on_received_to_uri_list(const Gtk::SelectionData& selection_da
     }
     else {
         std::vector<Glib::ustring> uri_list = selection_data.get_uris();
-        //spdlog::debug("3: {}", uri_list.size());
         if (uri_list.empty() and not uri_content.empty()) {
 #ifdef __APPLE__
             std::string::size_type startOffset{0};
@@ -1140,6 +1292,13 @@ void CtClipboard::on_received_to_uri_list(const Gtk::SelectionData& selection_da
         }
         _uri_or_filepath_list_into_rich_text(uri_list, pTextView);
     }
+
+    // End paste operation for command tracking
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endPaste();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
+
     pTextView->scroll_to(pTextBuffer->get_insert());
 }
 #endif
@@ -1244,7 +1403,7 @@ void CtClipboard::_xml_to_codebox(const Glib::ustring &xml_text, Gtk::TextView* 
         _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
                                                          widgets,
                                                          &_pCtMainWin->get_text_view().mm());
-        _pCtMainWin->get_state_machine().update_state();
+        // Command pattern handles state tracking automatically
     }
     pTextView->scroll_to(pTextView->get_buffer()->get_insert());
 }
@@ -1266,15 +1425,15 @@ std::string Win32HtmlFormat::encode(std::string html_in)
             "<HTML><HEAD>{}</HEAD><BODY><!--StartFragment-->{}<!--EndFragment--></BODY></HTML>";
 
     std::string head = "", source = CtConst::APP_NAME + std::string(CtConst::CT_VERSION);
-    std::string html = fmt::format(fmt::runtime(DEFAULT_HTML_BODY), head, html_in);
+    std::string html = fmt::format(FMT_RUNTIME(DEFAULT_HTML_BODY), head, html_in);
     std::string::size_type fragmentStart = html.find(html_in);
     std::string::size_type fragmentEnd = fragmentStart + html_in.size();
 
     // How long is the prefix going to be?
-    std::string dummyPrefix = fmt::format(fmt::runtime(MARKER_BLOCK_OUTPUT), 0, 0, 0, 0, 0, 0, source);
+    std::string dummyPrefix = fmt::format(FMT_RUNTIME(MARKER_BLOCK_OUTPUT), 0, 0, 0, 0, 0, 0, source);
     std::string::size_type lenPrefix = dummyPrefix.size();
 
-    std::string prefix = fmt::format(fmt::runtime(MARKER_BLOCK_OUTPUT),
+    std::string prefix = fmt::format(FMT_RUNTIME(MARKER_BLOCK_OUTPUT),
                 lenPrefix, html.size() + lenPrefix,
                 fragmentStart + lenPrefix, fragmentEnd + lenPrefix,
                 fragmentStart + lenPrefix, fragmentEnd + lenPrefix,

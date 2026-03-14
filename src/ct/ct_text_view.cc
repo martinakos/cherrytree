@@ -27,6 +27,7 @@
 #include "ct_actions.h"
 #include "ct_list.h"
 #include "ct_clipboard.h"
+#include "ct_command_bridge.h"
 
 #ifdef HAVE_GSPELL
 std::unordered_map<std::string, GspellChecker*> CtTextView::_static_spell_checkers;
@@ -318,7 +319,6 @@ void CtTextView::for_event_after_double_click_button12(GdkEvent* event)
     // the issue: get_iter_at_position always gives iter, so we have to check if iter is valid
     Gdk::Rectangle iter_rect;
     _pTextView->get_iter_location(text_iter, iter_rect);
-    //spdlog::debug("x={} recx={} recw={}", x, iter_rect.get_x(), iter_rect.get_width());
     if ( (iter_rect.get_width() >= 0/*LTR*/ and iter_rect.get_x() <= x and x <= (iter_rect.get_x() + iter_rect.get_width())) or
          (iter_rect.get_width() < 0/*RTL*/ and (iter_rect.get_x() + iter_rect.get_width()) <= x and x <= iter_rect.get_x()) )
     {
@@ -453,8 +453,7 @@ void CtTextView::for_event_after_button_press(GdkEvent* event)
         // the issue: get_iter_at_position always gives iter, so we have to check if iter is valid
         Gdk::Rectangle iter_rect;
         _pTextView->get_iter_location(text_iter, iter_rect);
-        //spdlog::debug("x={} recx={} recw={}", x, iter_rect.get_x(), iter_rect.get_width());
-        if ( (iter_rect.get_width() >= 0/*LTR*/ and iter_rect.get_x() <= x and x <= (iter_rect.get_x() + iter_rect.get_width())) or
+            if ( (iter_rect.get_width() >= 0/*LTR*/ and iter_rect.get_x() <= x and x <= (iter_rect.get_x() + iter_rect.get_width())) or
              (iter_rect.get_width() < 0/*RTL*/ and (iter_rect.get_x() + iter_rect.get_width()) <= x and x <= iter_rect.get_x()) )
         {
             auto tags = text_iter.get_tags();
@@ -470,8 +469,22 @@ void CtTextView::for_event_after_button_press(GdkEvent* event)
             }
             if (CtList{_pCtConfig, text_buffer}.is_list_todo_beginning(text_iter)) {
                 if (_pCtMainWin->get_ct_actions()->_is_curr_node_not_read_only_or_error()) {
+                    // End current text edit session and create format command
+                    auto pBridge = _pCtMainWin->get_command_bridge();
+                    if (pBridge && pBridge->isActive()) {
+                        spdlog::debug("Format change (todo check/uncheck): ending text edit session and capturing format change");
+                        pBridge->endTextEditSession();
+                        pBridge->beginFormatChange(_pCtMainWin->curr_tree_iter().get_node_id(), "todo_toggle");
+                    }
+
                     CtList{_pCtConfig, text_buffer}.todo_list_rotate_status(text_iter);
                     _todoRotateTime = event->button.time; // to prevent triple click
+
+                    // Complete format change and begin new text session
+                    if (pBridge && pBridge->isActive()) {
+                        pBridge->endFormatChange();
+                        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+                    }
                 }
             }
         }
@@ -806,7 +819,10 @@ void CtTextView::cursor_and_tooltips_reset()
 {
     _pCtMainWin->hovering_link_iter_offset() = -1;
 #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
-    _pTextView->get_window(Gtk::TEXT_WINDOW_TEXT)->set_cursor(Gdk::Cursor::create(_pTextView->get_display(), Gdk::XTERM));
+    auto pWindow = _pTextView->get_window(Gtk::TEXT_WINDOW_TEXT);
+    if (pWindow) {
+        pWindow->set_cursor(Gdk::Cursor::create(_pTextView->get_display(), Gdk::XTERM));
+    }
 #endif
     _pTextView->set_tooltip_text("");
 }
@@ -913,7 +929,11 @@ void CtTextView::zoom_text(const std::optional<bool> is_increase, const std::str
         else {
             _pCtConfig->codeFont = CtFontUtil::get_font_str(CtFontUtil::get_font_family(_pCtConfig->codeFont), size_new);
         }
+#if GTKMM_MAJOR_VERSION >= 4
+        _pCtMainWin->signal_app_apply_for_each_window->emit([](CtMainWin* win) { win->update_theme(); });
+#else
         _pCtMainWin->signal_app_apply_for_each_window([](CtMainWin* win) { win->update_theme(); });
+#endif
     }
 #endif
 }
