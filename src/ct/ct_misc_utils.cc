@@ -224,10 +224,37 @@ Gtk::BuiltinIconSize CtMiscUtil::getIconSize(int size)
     }
 }
 
+void CtMiscUtil::set_widget_margins(Gtk::Widget& widget, int top, int bottom, int left, int right)
+{
+    if (top >= 0) widget.set_margin_top(top);
+    if (bottom >= 0) widget.set_margin_bottom(bottom);
+    if (left >= 0) widget.set_margin_start(left);
+    if (right >= 0) widget.set_margin_end(right);
+}
+
+Gtk::Button* CtMiscUtil::dialog_add_button(Gtk::Dialog* pDialog, const char* text, Gtk::ResponseType responseType, const char* stockId, const bool isDefault/*= false*/)
+{
+    Gtk::Button* retButton = pDialog->add_button(text, responseType);
+    retButton->set_image_from_icon_name(stockId);
+#if GTKMM_MAJOR_VERSION < 4
+    retButton->set_always_show_image(true);
+#endif
+    if (isDefault) {
+#if GTKMM_MAJOR_VERSION < 4
+        retButton->grab_default();
+#endif
+    }
+    return retButton;
+}
+
 CtLinkEntry CtMiscUtil::get_link_entry_from_property(const Glib::ustring& link)
 {
     CtLinkEntry link_entry{};
+#if GTKMM_MAJOR_VERSION >= 4
+    std::vector<std::string> link_vec = str::split(std::string(link), " ");
+#else
     std::vector<Glib::ustring> link_vec = str::split(link, " ");
+#endif
     if (link_vec.empty()) return link_entry;
     if (CtConst::LINK_TYPE_WEBS == link_vec[0]) {
         link_entry.type = CtLinkType::Webs;
@@ -598,7 +625,11 @@ bool CtTextIterUtil::rich_text_attributes_update(const Gtk::TextIter& text_iter,
                                                  CtCurrAttributesMap& delta_attributes)
 {
     delta_attributes.clear();
+#if GTKMM_MAJOR_VERSION >= 4
+    auto toggled_off = text_iter.get_toggled_tags(false/*toggled_on*/);
+#else
     std::vector<Glib::RefPtr<const Gtk::TextTag>> toggled_off = text_iter.get_toggled_tags(false/*toggled_on*/);
+#endif
     for (const auto& r_curr_tag : toggled_off) {
         const Glib::ustring tag_name = r_curr_tag->property_name();
         if (tag_name.empty() or CtConst::GTKSPELLCHECK_TAG_NAME == tag_name) {
@@ -617,7 +648,11 @@ bool CtTextIterUtil::rich_text_attributes_update(const Gtk::TextIter& text_iter,
         else if (str::startswith(tag_name, CtConst::TAG_LINK_PREFIX)) delta_attributes[CtConst::TAG_LINK].clear();
         else if (str::startswith(tag_name, CtConst::TAG_FAMILY_PREFIX)) delta_attributes[CtConst::TAG_FAMILY].clear();
     }
+#if GTKMM_MAJOR_VERSION >= 4
+    auto toggled_on = text_iter.get_toggled_tags(true/*toggled_on*/);
+#else
     std::vector<Glib::RefPtr<const Gtk::TextTag>> toggled_on = text_iter.get_toggled_tags(true/*toggled_on*/);
+#endif
     for (const auto& r_curr_tag : toggled_on) {
         const Glib::ustring tag_name = r_curr_tag->property_name();
         if (tag_name.empty() or CtConst::GTKSPELLCHECK_TAG_NAME == tag_name) {
@@ -725,7 +760,17 @@ bool CtTextIterUtil::extend_selection_if_collapsed_text(Gtk::TextIter& iter_sel_
                         if (iter_tmp.forward_to_tag_toggle(pTextTagInvis)) {
                             const auto toggled_on = iter_tmp.get_toggled_tags(true/*toggled_on*/);
                             for (const auto& pCurrTag : toggled_on) {
+#if GTKMM_MAJOR_VERSION >= 4
+                                if (
+#if GTKMM_MAJOR_VERSION >= 4
+                                    pCurrTag->property_name().get_value() == Glib::ustring(tagNameInvis)
+#else
+                                    pCurrTag->property_name() == tagNameInvis
+#endif
+                                ) {
+#else
                                 if (pCurrTag->property_name() == tagNameInvis) {
+#endif
                                     // found the start as expected, now we need to move to the end
                                     (void)iter_tmp.forward_to_tag_toggle(pTextTagInvis);
                                     iter_sel_end = iter_tmp;
@@ -957,9 +1002,9 @@ int CtStrUtil::is_header_anchor_name(const Glib::ustring& anchorName)
     return 0;
 }
 
-bool CtStrUtil::is_256sum(const char* in_string)
+bool CtStrUtil::is_256sum(const Glib::ustring& in_string)
 {
-    if (64 == strlen(in_string)) {
+    if (64 == in_string.size()) {
         static Glib::RefPtr<Glib::Regex> pRegExp256sum = Glib::Regex::create("^[0-9a-f]+$");
         return pRegExp256sum->match(in_string);
     }
@@ -1092,7 +1137,11 @@ Glib::ustring CtStrUtil::highlight_words(const Glib::ustring& text,
     // Build a regular expression of the form "(word1|word2|...)", matching any of the words.
     // The outer parentheses also define a capturing group, which is important (see below).
     Glib::ustring pattern = "(" + str::join(words, "|") + ")";
+#if GTKMM_MAJOR_VERSION >= 4
+    auto regex = Glib::Regex::create(pattern.c_str(), Glib::Regex::CompileFlags::CASELESS);
+#else
     auto regex = Glib::Regex::create(pattern.c_str(), Glib::RegexCompileFlags::REGEX_CASELESS);
+#endif
 
     Glib::ustring builder;
     // Regex.split also returns capturing group matches from the "delimiter",
@@ -1225,7 +1274,11 @@ static bool _g_file_load_into_source_buffer(GFile* pGFile, GtkSourceBuffer* pGtk
                                       &operationStatus/*user_data*/);
     while (0 == operationStatus) {
         g_usleep(10000); // wait 10 msec
+        #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
         while (gtk_events_pending()) gtk_main_iteration();
+        #else
+        while (g_main_context_pending(nullptr)) g_main_context_iteration(nullptr, false);
+        #endif
     }
     g_object_unref(pGtkSourceFileLoader);
     g_object_unref(pGtkSourceFile);
@@ -1351,11 +1404,20 @@ guint32 CtRgbUtil::get_rgb24int_from_rgb24str(const char* rgb24Str)
 
 char* CtRgbUtil::set_rgb24str_from_str_any(const char* rgbStrAny, char* rgb24StrOut)
 {
+    if (g_str_has_prefix(rgbStrAny, "rgb")) {
+        Gdk::RGBA rgba{rgbStrAny};
+        guint16 r = rgba.get_red_u();
+        guint16 g = rgba.get_green_u();
+        guint16 b = rgba.get_blue_u();
+        r >>= 8;
+        g >>= 8;
+        b >>= 8;
+        sprintf(rgb24StrOut, "#%.2x%.2x%.2x", r, g, b);
+        return rgb24StrOut;
+    }
     const char* scanStart = g_str_has_prefix(rgbStrAny, "#") ? rgbStrAny + 1 : rgbStrAny;
-    switch(strlen(scanStart))
-    {
-        case 12:
-        {
+    switch (strlen(scanStart)) {
+        case 12: {
             guint16 r = (guint16)CtStrUtil::guint32_from_hex_chars(scanStart, 4);
             guint16 g = (guint16)CtStrUtil::guint32_from_hex_chars(scanStart+4, 4);
             guint16 b = (guint16)CtStrUtil::guint32_from_hex_chars(scanStart+8, 4);
@@ -1363,14 +1425,13 @@ char* CtRgbUtil::set_rgb24str_from_str_any(const char* rgbStrAny, char* rgb24Str
             g >>= 8;
             b >>= 8;
             sprintf(rgb24StrOut, "#%.2x%.2x%.2x", r, g, b);
-        }
-        break;
-        case 6:
+        } break;
+        case 6: {
             sprintf(rgb24StrOut, "#%s", scanStart);
-        break;
-        case 3:
+        } break;
+        case 3: {
             sprintf(rgb24StrOut, "#%c%c%c%c%c%c", scanStart[0], scanStart[0], scanStart[1], scanStart[1], scanStart[2], scanStart[2]);
-        break;
+        } break;
         default:
             spdlog::error("!! set_rgb24str_from_str_any {}", rgbStrAny);
             sprintf(rgb24StrOut, "#");

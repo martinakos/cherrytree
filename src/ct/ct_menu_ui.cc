@@ -36,9 +36,11 @@ std::vector<std::string> CtMenu::_get_ui_str_toolbars()
             }
             else {
                 const bool isOpenRecent{*element == CtConst::CHAR_STAR};
+                const bool isUndoRedo{*element == "act_undo" or *element == "act_redo"};
                 CtMenuAction const* pAction = isOpenRecent ? find_action("ct_open_file") : find_action(*element);
                 if (pAction) {
                     if (isOpenRecent) str_buff += "<child><object class='GtkMenuToolButton' id='RecentDocs'>";
+                    else if (isUndoRedo) str_buff += "<child><object class='GtkMenuToolButton' id='" + *element + "'>";
                     else str_buff += "<child><object class='GtkToolButton' id='" + *element + "'>";
                     str_buff += "<property name='action-name'>win." + pAction->id + "</property>"; // 'win.' is a default action group in Window
                     str_buff += "<property name='icon-name'>" + pAction->image + "</property>";

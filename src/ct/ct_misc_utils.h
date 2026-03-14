@@ -26,10 +26,137 @@
 #include "ct_types.h"
 #include "ct_logging.h"
 #include <algorithm>
-#include <gtkmm/treeiter.h>
-#include <gtkmm/treestore.h>
+#include <gtkmm.h>
 #include <gtksourceview/gtksource.h>
 #include <numeric>
+
+// Ensure GTK_SOURCE_CHECK_VERSION is available
+#include <gtksourceview/gtksourceversion.h>
+
+/*
+ * Compatibility shim: gtkmm4 removed the BuiltinIconSize enum that existed in
+ * gtkmm3. Multiple places in the codebase use Gtk::BuiltinIconSize. To allow
+ * building the same source against gtkmm4 while keeping gtkmm3 support, we
+ * declare a minimal enum with the same names under the Gtk namespace when
+ * compiling against gtkmm4.
+ */
+#if GTKMM_MAJOR_VERSION >= 4
+namespace Gtk {
+    enum BuiltinIconSize {
+        ICON_SIZE_MENU,
+        ICON_SIZE_SMALL_TOOLBAR,
+        ICON_SIZE_LARGE_TOOLBAR,
+        ICON_SIZE_DND,
+        ICON_SIZE_DIALOG
+    };
+}
+
+/*
+ * Compatibility shim: gtkmm4 removed Gdk::Point. Some code uses this for
+ * storing x,y coordinates. We provide a simple struct replacement.
+ */
+namespace Gdk {
+    struct Point {
+        int x;
+        int y;
+        Point() : x(0), y(0) {}
+        Point(int x_, int y_) : x(x_), y(y_) {}
+        bool operator==(const Point& other) const { return x == other.x && y == other.y; }
+        bool operator!=(const Point& other) const { return !(*this == other); }
+    };
+}
+
+/*
+ * Compatibility shim: gtkmm4 changed Gtk::ORIENTATION_HORIZONTAL from an enum
+ * value to Gtk::Orientation::HORIZONTAL. For code compatibility, we provide
+ * global constants with the old-style enum value names.
+ */
+namespace Gtk {
+    // In gtkmm4, use Gtk::Orientation::HORIZONTAL directly.
+    // These inline constants help with porting code that uses Gtk::ORIENTATION_HORIZONTAL syntax.
+    inline constexpr Gtk::Orientation ORIENTATION_HORIZONTAL = Gtk::Orientation::HORIZONTAL;
+    inline constexpr Gtk::Orientation ORIENTATION_VERTICAL = Gtk::Orientation::VERTICAL;
+}
+
+/*
+ * Compatibility shim: gtkmm4 removed Gtk::EventBox. EventBox was used to
+ * catch events for widgets that couldn't normally do so. In gtkmm4, we use
+ * a regular Gtk::Widget or Gtk::Box with an event controller instead.
+ * For header file declarations, we create a type alias.
+ */
+namespace Gtk {
+    using EventBox = Gtk::Box;
+}
+
+/*
+ * Compatibility shim: gtkmm4 removed Gtk::ButtonBox. ButtonBox was a
+ * convenience container for arranging buttons. In gtkmm4, use Gtk::Box with
+ * Gtk::Box::set_spacing() and manual layout instead. For compatibility, alias it.
+ */
+namespace Gtk {
+    using ButtonBox = Gtk::Box;
+}
+
+/*
+ * Compatibility shim: gtkmm4 changed Glib::FILE_TEST_* enum values to
+ * Glib::FileTest::* scoped enum values. Provide compatibility aliases.
+ */
+namespace Glib {
+    inline constexpr Glib::FileTest FILE_TEST_EXISTS = Glib::FileTest::EXISTS;
+    inline constexpr Glib::FileTest FILE_TEST_IS_REGULAR = Glib::FileTest::IS_REGULAR;
+    inline constexpr Glib::FileTest FILE_TEST_IS_SYMLINK = Glib::FileTest::IS_SYMLINK;
+    inline constexpr Glib::FileTest FILE_TEST_IS_DIR = Glib::FileTest::IS_DIR;
+    inline constexpr Glib::FileTest FILE_TEST_IS_EXECUTABLE = Glib::FileTest::IS_EXECUTABLE;
+}
+
+/*
+ * Compatibility shim: gtkmm4 changed Gtk::POLICY_* enum values to
+ * Gtk::PolicyType::* scoped enum values. Provide compatibility aliases.
+ */
+namespace Gtk {
+    inline constexpr Gtk::PolicyType POLICY_ALWAYS = Gtk::PolicyType::ALWAYS;
+    inline constexpr Gtk::PolicyType POLICY_AUTOMATIC = Gtk::PolicyType::AUTOMATIC;
+    inline constexpr Gtk::PolicyType POLICY_NEVER = Gtk::PolicyType::NEVER;
+    inline constexpr Gtk::PolicyType POLICY_EXTERNAL = Gtk::PolicyType::EXTERNAL;
+}
+
+/*
+ * Compatibility shim: gtkmm4 replaced C-style GdkEvent* union types with
+ * proper C++ event classes in the Gdk namespace. We provide typedef aliases
+ * for the old C-style event types.
+ * 
+ * IMPORTANT: In gtkmm4, event handlers receive events by const reference,
+ * not by pointer. This means function signatures using these types need to be
+ * adjusted for gtkmm4. The typedefs below are for declaration purposes only.
+ * Actual implementations will need conditional compilation for proper event handling.
+ */
+#if GTKMM_MAJOR_VERSION >= 4
+// Forward declare as opaque types for gtkmm4 compatibility
+struct GdkEventButton;
+struct GdkEventKey;
+struct GdkEventFocus;
+struct GdkEventConfigure;
+struct GdkEventScroll;
+#endif
+
+/*
+ * Compatibility shim: gtkmm4 moved EntryIconPosition from Gtk namespace.
+ */
+#if GTKMM_MAJOR_VERSION >= 4
+namespace Gtk {
+    using EntryIconPosition = Gtk::Entry::IconPosition;
+}
+
+/*
+ * Compatibility shim: gtkmm4 changed Glib regex flags from global enums to
+ * scoped enums within the Regex class. Provide compatibility type aliases.
+ */
+namespace Glib {
+    using RegexCompileFlags = Glib::Regex::CompileFlags;
+    using RegexMatchFlags = Glib::Regex::MatchFlags;
+}
+#endif
+#endif /*GTKMM_MAJOR_VERSION >= 4*/
 
 class CtConfig;
 class CtTreeIter;
@@ -78,8 +205,6 @@ bool node_siblings_sort(Glib::RefPtr<TreeOrListStore> model,
     auto less_than = [&f_need_swap, &initial_iters](const size_t left_idx, const size_t right_idx)->bool {
         Gtk::TreeModel::iterator left_iter = initial_iters.at(left_idx);
         Gtk::TreeModel::iterator right_iter = initial_iters.at(right_idx);
-        // f_need_swap(left, right) means left should go after right.
-        // Therefore right should go after left is equivalent to left < right.
         return f_need_swap(right_iter, left_iter);
     };
 
@@ -129,6 +254,9 @@ std::string get_node_hierarchical_name(const CtTreeIter tree_iter, const char* s
 std::string clean_from_chars_not_for_filename(std::string filename);
 
 Gtk::BuiltinIconSize getIconSize(int size);
+
+void set_widget_margins(Gtk::Widget& widget, int top, int bottom, int left, int right);
+Gtk::Button* dialog_add_button(Gtk::Dialog* pDialog, const char* text, Gtk::ResponseType response, const char* stock_id, const bool isDefault = false);
 
 CtLinkEntry get_link_entry_from_property(const Glib::ustring& link);
 Glib::ustring get_link_property_from_entry(const CtLinkEntry& link_entry);
@@ -226,7 +354,7 @@ bool is_str_true(const Glib::ustring& inStr);
 
 int is_header_anchor_name(const Glib::ustring& anchorName);
 
-bool is_256sum(const char* in_string);
+bool is_256sum(const Glib::ustring& in_string);
 
 gint64 gint64_from_gstring(const gchar* inGstring, bool hexPrefix=false);
 
@@ -402,7 +530,10 @@ inline Glib::ustring trim(Glib::ustring s)
 template<typename ...Args>
 std::string format(const std::string& in_str, const Args&... args)
 {
-    return fmt::format(str::replace(in_str, "%s", "{}").c_str(), args...);
+    // Use FMT_RUNTIME to indicate the format string is not a compile-time constant.
+    // This avoids fmt's consteval/constexpr format-string checks which fail when
+    // passing a non-constexpr c_str() from a temporary std::string.
+    return fmt::format(FMT_RUNTIME(str::replace(in_str, "%s", "{}")), args...);
 }
 
 template<class STRING>

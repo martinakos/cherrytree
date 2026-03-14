@@ -190,7 +190,7 @@ static bool _move_dir_with_fallback(const fs::path& dir_from, const fs::path& di
             return first_backup_dir;
         }
         catch (Glib::Error& ex) {
-            spdlog::error("failed to create backup directory: {}, \n{}", first_backup_dir, ex.what().raw());
+            spdlog::error("failed to create backup directory: {}, \n{}", first_backup_dir, std::string(ex.what()));
             return "";
         }
     };
@@ -225,7 +225,11 @@ static bool _move_dir_with_fallback(const fs::path& dir_from, const fs::path& di
 {
     auto on_scope_exit = scope_guard([&](void*) { pCtMainWin->get_status_bar().pop(); });
     pCtMainWin->get_status_bar().push(_("Writing to Disk..."));
+    #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     while (gtk_events_pending()) gtk_main_iteration();
+    #else
+    while (g_main_context_pending(nullptr)) g_main_context_iteration(nullptr, false);
+    #endif
 
     fs::path extracted_file_path = file_path;
 
@@ -362,7 +366,11 @@ bool CtStorageControl::save(bool need_vacuum, Glib::ustring& error)
 {
     _mod_time = 0;
     _pCtMainWin->get_status_bar().push(_("Writing to Disk..."));
+    #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     while (gtk_events_pending()) gtk_main_iteration();
+    #else
+    while (g_main_context_pending(nullptr)) g_main_context_iteration(nullptr, false);
+    #endif
 
     // backup system
     // before writing make a main backup as file.ext!
@@ -497,10 +505,12 @@ fs::path CtStorageControl::get_embedded_filepath(const CtTreeIter& ct_tree_iter,
     while (true) {
         if (password.empty()) {
             CtDialogTextEntry dialogTextEntry(title, true/*forPassword*/, pCtMainWin);
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
             auto on_scope_exit = scope_guard([pCtMainWin](void*) {
                 pCtMainWin->set_systray_can_hide(true);
             });
             pCtMainWin->set_systray_can_hide(false);
+#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
             if (Gtk::RESPONSE_OK != dialogTextEntry.run()) {
                 // no password, user cancels operation, return empty path
                 return fs::path{};

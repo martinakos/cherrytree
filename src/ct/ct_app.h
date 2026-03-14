@@ -1,7 +1,7 @@
 /*
  * ct_app.h
  *
- * Copyright 2009-2024
+ * Copyright 2009-2025
  * Giuseppe Penone <giuspen@gmail.com>
  * Evgenii Gurianov <https://github.com/txe>
  *
@@ -36,13 +36,19 @@ class CtMainWin;
 class CtApp : public Gtk::Application
 {
 protected:
+#if GTKMM_MAJOR_VERSION >= 4
+    CtApp(const Glib::ustring application_id_postfix = Glib::ustring{}, Gio::Application::Flags flags = Gio::Application::Flags::NONE);
+#else
     CtApp(const Glib::ustring application_id_postfix = Glib::ustring{}, Gio::ApplicationFlags flags = Gio::APPLICATION_FLAGS_NONE);
+#endif
     ~CtApp() override;
 
 public:
     static Glib::RefPtr<CtApp> create(const Glib::ustring application_id_postfix = Glib::ustring{});
     void                       close_all_windows(const bool fromKillCallback);
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     void                       systray_show_hide_windows();
+#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
 
 protected:
     CtConfig* const _pCtConfig;
@@ -51,7 +57,9 @@ protected:
     Glib::RefPtr<Gtk::TextTagTable> _rTextTagTable;
     Glib::RefPtr<Gtk::CssProvider> _rCssProvider;
     GtkSourceLanguageManager* _pGtkSourceLanguageManager{nullptr};
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     std::unique_ptr<CtStatusIcon> _uCtStatusIcon;
+#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
 
 protected:
     Glib::ustring _node_to_focus;

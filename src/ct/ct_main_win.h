@@ -23,12 +23,18 @@
 
 #pragma once
 
+#include <sigc++/sigc++.h>
 #include <unordered_map>
 #include <unordered_set>
 #include <optional>
+#include <deque>
 
 #include <glibmm/i18n.h>
+#include <memory>
 #include <gtkmm.h>
+#include <sigc++/sigc++.h>
+#include <sigc++/signal.h>
+#include <sigc++/functors/slot.h>
 #include <gtksourceview/gtksource.h>
 #include "ct_treestore.h"
 #include "ct_misc_utils.h"
@@ -38,7 +44,6 @@
 #include "ct_table.h"
 #include "ct_image.h"
 #include "ct_export2pdf.h"
-#include "ct_state_machine.h"
 
 struct CtStatusBar
 {
@@ -93,8 +98,10 @@ public:
         Gtk::IconTheme*          pGtkIconTheme,
         Glib::RefPtr<Gtk::TextTagTable> rGtkTextTagTable,
         Glib::RefPtr<Gtk::CssProvider> rGtkCssProvider,
-        GtkSourceLanguageManager* pGtkSourceLanguageManager,
-        CtStatusIcon*            pCtStatusIcon
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
+        CtStatusIcon*            pCtStatusIcon,
+#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
+        GtkSourceLanguageManager* pGtkSourceLanguageManager
     );
     virtual ~CtMainWin();
 
@@ -120,7 +127,6 @@ public:
     void update_window_save_needed(const CtSaveNeededUpdType update_type = CtSaveNeededUpdType::None,
                                    const bool new_machine_state = false,
                                    const CtTreeIter* give_tree_iter = nullptr);
-    void load_buffer_from_state(std::shared_ptr<CtNodeState> state, CtTreeIter tree_iter);
     void re_load_current_buffer(const bool new_machine_state = false);
     void switch_buffer_text_source(Glib::RefPtr<Gtk::TextBuffer> text_buffer, CtTreeIter tree_iter, const std::string& new_syntax, const std::string& old_syntax);
     void update_window_save_not_needed();
@@ -145,11 +151,15 @@ public:
     CtActions*                        get_ct_actions()  { return _uCtActions.get(); }
     CtTmp*                            get_ct_tmp()      { return _pCtTmp; }
     Gtk::IconTheme*                   get_icon_theme()  { return _pGtkIconTheme; }
-    CtStateMachine&                   get_state_machine() { return _ctStateMachine; }
+    class CtCommandBridge*            get_command_bridge() { return _pCtCommandBridge.get(); }
     Glib::RefPtr<Gtk::TextTagTable>&  get_text_tag_table() { return _rGtkTextTagTable; }
     Glib::RefPtr<Gtk::CssProvider>&   get_css_provider()   { return _rGtkCssProvider; }
     GtkSourceLanguageManager*         get_language_manager() { return _pGtkSourceLanguageManager; }
+
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     Gtk::StatusIcon*                  get_status_icon() { return _pCtStatusIcon->get(); }
+#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
+
     Gtk::ScrolledWindow&              getScrolledwindowText() { return _scrolledwindowText; }
 
     bool&         user_active()      { return _userActive; } // use as a function, because it's easier to put breakpoint
@@ -196,17 +206,27 @@ public:
     void menu_set_items_recent_documents();
     void menu_set_visible_exit_app(bool visible);
     void menu_rebuild_toolbars(bool new_toolbar);
+    void menu_update_undo_redo_menus();
+#if GTKMM_MAJOR_VERSION >= 4
+    void init_app_actions_gtk4();
+#endif /* GTKMM_MAJOR_VERSION >= 4 */
 
     void config_switch_tree_side();
 
+    #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     void show_hide_toolbars(bool visible)   { for (auto pToolbar : _pToolbars) pToolbar->property_visible() = visible; }
     void show_hide_menubar(bool visible)    {
         if (visible) _pScrolledWindowMenuBar->set_policy(Gtk::POLICY_NEVER, Gtk::POLICY_NEVER);
         else _pScrolledWindowMenuBar->set_policy(Gtk::POLICY_EXTERNAL, Gtk::POLICY_EXTERNAL);
     }
+    void set_toolbars_icon_size(int size)   { for (auto pToolbar: _pToolbars) pToolbar->property_icon_size() = CtMiscUtil::getIconSize(size); }
+    #else
+    void show_hide_toolbars(bool visible)   { for (auto pToolbar : _gtk4Toolbars) pToolbar->property_visible() = visible; }
+    void show_hide_menubar(bool visible)    { if (_pMenuButton4) _pMenuButton4->property_visible() = visible; }
+    void set_toolbars_icon_size(int /*size*/) { /* GTK4 uses default icon sizes */ }
+    #endif
     void show_hide_statusbar(bool visible)  { _ctStatusBar.hbox.property_visible() = visible; }
     void show_hide_tree_lines(bool visible) { _uCtTreeview->set_enable_tree_lines(visible); }
-    void set_toolbars_icon_size(int size)   { for (auto pToolbar: _pToolbars) pToolbar->property_icon_size() = CtMiscUtil::getIconSize(size); }
     void show_hide_tree_view(bool visible)  { _scrolledwindowTree.property_visible() = visible; }
 
     Gtk::Widget* get_vte()        { return _pVte; }
@@ -220,35 +240,54 @@ public:
 
     void resetPrevTreeIter()                { _prevTreeIter = CtTreeIter(); }
 
+#if GTKMM_MAJOR_VERSION < 4
     void save_position()                    { get_position(_savedXpos, _savedYpos); }
     void restore_position()                 { if (_savedXpos != -1) move(_savedXpos, _savedYpos); }
+#else
+    void save_position()                    { /* Position saving not available in gtkmm4 */ }
+    void restore_position()                 { /* Position restoring not available in gtkmm4 */ }
+#endif
 
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     bool start_on_systray_is_active() const;
     void start_on_systray_delayed_file_open_set(const std::string& filepath, const std::string& nodename, const std::string& anchorname);
     bool start_on_systray_delayed_file_open_kick();
     void set_systray_can_hide(const bool systrayCanHide) { _systrayCanHide = systrayCanHide; }
     bool get_systray_can_hide() const { return _systrayCanHide; }
+#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
+
+#if GTKMM_MAJOR_VERSION < 4
     void toggle_always_on_top() { _alwaysOnTop = not _alwaysOnTop; set_keep_above(_alwaysOnTop); }
+#endif /* GTKMM_MAJOR_VERSION < 4 */
+
     void resetAutoSaveCounter() { if (_autoSaveCounter) { _autoSaveCounter = 0; spdlog::debug("autoSaveCounter->0"); } }
 
 private:
+#if GTKMM_MAJOR_VERSION < 4
     bool _on_window_key_press_event(GdkEventKey* event);
     bool _on_window_configure_event(GdkEventConfigure* configure_event);
+#endif
 
     void _on_treeview_cursor_changed(); // pygtk: on_node_changed
+#if GTKMM_MAJOR_VERSION < 4
     bool _on_treeview_button_release_event(GdkEventButton* event);
     void _on_treeview_event_after(GdkEvent* event); // pygtk: on_event_after_tree
+#endif
     void _on_treeview_row_activated(const Gtk::TreeModel::Path&, Gtk::TreeViewColumn*);
     void _on_treeview_row_expanded(const Gtk::TreeModel::iterator&, const Gtk::TreeModel::Path&);
     void _on_treeview_row_collapsed(const Gtk::TreeModel::iterator&, const Gtk::TreeModel::Path&);
     bool _on_treeview_test_collapse_row(const Gtk::TreeModel::iterator&,const Gtk::TreeModel::Path&);
+    
+#if GTKMM_MAJOR_VERSION < 4
     bool _on_treeview_key_press_event(GdkEventKey* event);
     bool _on_treeview_popup_menu();
     bool _on_treeview_scroll_event(GdkEventScroll* event);
+#endif
+    #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     bool _on_treeview_drag_motion(const Glib::RefPtr<Gdk::DragContext>& context,
-                                                 int x,
-                                                 int y,
-                                                 guint time);
+                                  int x,
+                                  int y,
+                                  guint time);
     void _on_treeview_drag_data_received(const Glib::RefPtr<Gdk::DragContext>& context,
                                          int x,
                                          int y,
@@ -259,14 +298,29 @@ private:
                                     Gtk::SelectionData& selection_data,
                                     guint info,
                                     guint time);
+    #else
+    void _setup_treeview_drag_and_drop_gtk4();
+    void _on_treeview_drag_source_prepare_gtk4(const Glib::RefPtr<Gdk::Drag>& drag);
+    bool _on_treeview_drop_target_drop_gtk4(const Glib::ValueBase& value, double x, double y);
+    Glib::RefPtr<Gtk::DragSource> _treeDragSource4;
+    Glib::RefPtr<Gtk::DropTarget> _treeDropTarget4;
+    #endif
 
+    #if GTKMM_MAJOR_VERSION < 4
     void _on_textview_populate_popup(Gtk::Menu* menu);
+    #endif
+    #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     bool _on_textview_motion_notify_event(GdkEventMotion* event);
+    #endif
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     bool _on_textview_visibility_notify_event(GdkEventVisibility* event);
+#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
     void _on_textview_size_allocate(Gtk::Allocation& allocation);
-    bool _on_textview_event(GdkEvent* event); // pygtk: on_sourceview_event
-    void _on_textview_event_after(GdkEvent* event); // pygtk: on_sourceview_event_after
+    #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
+    bool _on_textview_event(GdkEvent* event);
+    void _on_textview_event_after(GdkEvent* event);
     bool _on_textview_scroll_event(GdkEventScroll* event);
+    #endif
 
     void _reset_CtTreestore_CtTreeview();
     void _ensure_curr_doc_in_recent_docs();
@@ -284,7 +338,10 @@ private:
     Glib::RefPtr<Gtk::TextTagTable> _rGtkTextTagTable;
     Glib::RefPtr<Gtk::CssProvider>  _rGtkCssProvider;
     GtkSourceLanguageManager*    const _pGtkSourceLanguageManager;
+
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     CtStatusIcon*                _pCtStatusIcon;
+#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
 
     std::unique_ptr<CtActions>        _uCtActions;
     std::unique_ptr<CtMenu>           _uCtMenu;
@@ -297,22 +354,35 @@ private:
     Gtk::Paned                   _hPaned{Gtk::ORIENTATION_HORIZONTAL};
     Gtk::Paned                   _vPaned{Gtk::ORIENTATION_VERTICAL};
     Gtk::HeaderBar*              _pHeaderBar{nullptr};
+    #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     Gtk::MenuBar*                _pMenuBar{nullptr};
     Gtk::ScrolledWindow*         _pScrolledWindowMenuBar{nullptr};
     std::vector<Gtk::Toolbar*>   _pToolbars;
+    #endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
     CtStatusBar                  _ctStatusBar;
     CtWinHeader                  _ctWinHeader;
+    #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     std::array<Gtk::MenuItem*,3> _pBookmarksSubmenus{nullptr,nullptr,nullptr};
     Gtk::MenuItem*               _pRecentDocsSubmenu{nullptr};
     Gtk::MenuToolButton*         _pRecentDocsMenuToolButton{nullptr};
     Gtk::ToolButton*             _pSaveToolButton{nullptr};
+    Gtk::MenuToolButton*         _pUndoMenuToolButton{nullptr};
+    Gtk::MenuToolButton*         _pRedoMenuToolButton{nullptr};
+    bool                         _updatingUndoRedoMenus{false};
+    #endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
+    #if GTKMM_MAJOR_VERSION >= 4
+    Gtk::MenuButton*             _pMenuButton4{nullptr};
+    Gtk::MenuButton*             _pRecentDocsMenuButton4{nullptr};
+    Gtk::MenuButton*             _pBookmarksButton4{nullptr};
+    std::vector<Gtk::Box*>       _gtk4Toolbars; // primary + category toolbars
+    #endif /* GTKMM_MAJOR_VERSION >= 4 */
     CtMenuAction*                _pSaveMenuAction{nullptr};
     Gtk::ScrolledWindow          _scrolledwindowTree;
     Gtk::ScrolledWindow          _scrolledwindowText;
     std::unique_ptr<CtTreeStore> _uCtTreestore;
     std::unique_ptr<CtTreeView>  _uCtTreeview;
     CtTextView                   _ctTextview;
-    CtStateMachine               _ctStateMachine;
+    std::unique_ptr<class CtCommandBridge> _pCtCommandBridge;
     std::unique_ptr<CtPairCodeboxMainWin> _uCtPairCodeboxMainWin;
 
     Glib::RefPtr<Gtk::CssProvider> _css_provider_theme;
@@ -338,23 +408,61 @@ private:
     std::unordered_set<gint64> _treeExpandedNodeIds;
     std::unordered_map<gint64, int> _nodesCursorPos;
     std::unordered_map<gint64, int> _nodesVScrollPos;
+
+public:
+    // Navigation history (back/forward buttons) - public for friend class CtCommandBridge
+    std::deque<gint64>  _visitedNodes;
+    size_t              _visitedNodesIdx{0};
+
+private:
+
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     std::string         _startOnSystray_delayedFilepath;
     std::string         _startOnSystray_delayedNodeName;
     std::string         _startOnSystray_delayedAnchorName;
     bool                _systrayCanHide{true};
+#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
+
     bool                _alwaysOnTop{false};
     bool                _startDialogShown{false};
 
 public:
-    sigc::signal<void>             signal_app_new_instance = sigc::signal<void>();
-    sigc::signal<void>             signal_app_show_hide_main_win = sigc::signal<void>();
-    sigc::signal<void>             signal_app_tree_node_copy = sigc::signal<void>();
-    sigc::signal<void>             signal_app_tree_node_paste = sigc::signal<void>();
-    sigc::signal<void, std::function<void(CtMainWin*)>>
-                                   signal_app_apply_for_each_window = sigc::signal<void, std::function<void(CtMainWin*)>>();
+    // Unified signals for GTK3/GTK4
+#if GTKMM_MAJOR_VERSION < 4
+    sigc::signal<void>             signal_app_new_instance;
+    sigc::signal<void>             signal_app_show_hide_main_win;
+    sigc::signal<void>             signal_app_tree_node_copy;
+    sigc::signal<void>             signal_app_tree_node_paste;
+    sigc::signal<void, std::function<void(CtMainWin*)>> signal_app_apply_for_each_window;
+    sigc::signal<void, CtMainWin*> signal_app_quit_or_hide_window;
+    sigc::signal<void, CtMainWin*> signal_app_quit_window;
+#else
+    std::vector<std::function<void()>>             signal_app_new_instance;
+    std::vector<std::function<void()>>             signal_app_show_hide_main_win;
+    std::vector<std::function<void()>>             signal_app_tree_node_copy;
+    std::vector<std::function<void()>>             signal_app_tree_node_paste;
+    std::vector<std::function<void(std::function<void(CtMainWin*)>)>> signal_app_apply_for_each_window;
+    std::vector<std::function<void()>>             signal_app_quit_or_hide_window;
+    std::vector<std::function<void()>>             signal_app_quit_window;
+#endif
 
-    sigc::signal<void, CtMainWin*> signal_app_quit_or_hide_window = sigc::signal<void, CtMainWin*>();
-    sigc::signal<void, CtMainWin*> signal_app_quit_window = sigc::signal<void, CtMainWin*>();
+public:
+    // Helper wrappers to emit/connect signals from translation units that
+    // don't include the full sigc++ definitions (avoids incomplete-type issues).
+    void emit_app_new_instance();
+    void emit_app_show_hide_main_win();
+    void emit_app_tree_node_copy();
+    void emit_app_tree_node_paste();
+    void connect_app_tree_node_copy(const std::function<void()>& cb);
+    void connect_app_tree_node_paste(const std::function<void()>& cb);
+    void emit_app_apply_for_each_window(const std::function<void(CtMainWin*)>& cb);
+    void emit_app_quit_or_hide_window(CtMainWin* pWin);
+    void emit_app_quit_window(CtMainWin* pWin);
+
+    void connect_app_new_instance(const std::function<void()>& cb);
+    void connect_app_apply_for_each_window(const std::function<void(std::function<void(CtMainWin*)>)>& cb);
+    void connect_app_quit_or_hide_window(const std::function<void(CtMainWin*)>& cb);
+    void connect_app_quit_window(const std::function<void(CtMainWin*)>& cb);
 
 public:
     Glib::Dispatcher dispatcherErrorMsg;

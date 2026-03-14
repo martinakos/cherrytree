@@ -674,8 +674,7 @@ std::list<CtAnchoredWidget*> CtTreeIter::get_anchored_widgets(const int start_of
                             auto pCtAnchoredWidget = new CtAnchWidgLink{_pCtMainWin, curr_iter.get_offset(), link_entry,
                                                                         CtTextIterUtil::get_text_iter_alignment(curr_iter, _pCtMainWin)};
                             retAnchoredWidgetsList.push_back(pCtAnchoredWidget);
-                            //spdlog::debug("{} +{}", __FUNCTION__, link_entry.get_target_searchable().c_str());
-                        }
+                                                }
                     }
                 }
             }
@@ -955,9 +954,10 @@ void CtTreeStore::text_view_apply_textbuffer(CtTreeIter& treeIter, CtTextView* p
     );
     if (treeIter.get_node_is_rich_text()) {
         const auto nodeIdDataHolder = treeIter.get_node_id_data_holder();
+        // Command pattern handles scroll position tracking via edit sessions
         _curr_node_sigc_conn.push_back(
             _pCtMainWin->getScrolledwindowText().get_vadjustment()->signal_value_changed().connect([this, nodeIdDataHolder](){
-                _pCtMainWin->get_state_machine().update_curr_state_v_adj_val(nodeIdDataHolder);
+                // Scroll position tracking removed with state machine
             })
         );
     }
@@ -980,7 +980,11 @@ int CtTreeStore::get_tree_icon_size() const
 Glib::RefPtr<Gdk::Pixbuf> CtTreeStore::_get_node_icon(int nodeDepth, const std::string &syntax, guint32 customIconId)
 {
     const char* stock_id = get_node_icon(nodeDepth, syntax, customIconId);
+    #if GTKMM_MAJOR_VERSION < 4
     return _pCtMainWin->get_icon_theme()->load_icon(stock_id, get_tree_icon_size());
+    #else
+    return Glib::RefPtr<Gdk::Pixbuf>{};
+    #endif
 }
 
 const char* CtTreeStore::get_node_icon(int nodeDepth, const std::string &syntax, guint32 customIconId)
@@ -1141,7 +1145,11 @@ void CtTreeStore::update_node_aux_icon(const Gtk::TreeModel::iterator& treeIter)
         treeIter->set_value(_columns.rColPixbufAux, Glib::RefPtr<Gdk::Pixbuf>{});
     }
     else {
+        #if GTKMM_MAJOR_VERSION < 4
         treeIter->set_value(_columns.rColPixbufAux, _pCtMainWin->get_icon_theme()->load_icon(stock_id, get_tree_icon_size()));
+        #else
+        treeIter->set_value(_columns.rColPixbufAux, Glib::RefPtr<Gdk::Pixbuf>{});
+        #endif
     }
 }
 
@@ -1180,7 +1188,7 @@ void CtTreeStore::_on_textbuffer_insert(const Gtk::TextBuffer::iterator& pos, co
         _pCtMainWin->get_text_view().column_edit_text_inserted(pos, text);
         CtTreeIter currTreeIter = _pCtMainWin->curr_tree_iter();
         if (currTreeIter and currTreeIter.get_node_is_rich_text()) {
-            _pCtMainWin->get_state_machine().text_variation(currTreeIter.get_node_id_data_holder(), text);
+            // Command pattern handles text variation tracking via edit sessions
         }
     }
 }
@@ -1191,7 +1199,7 @@ void CtTreeStore::_on_textbuffer_erase(const Gtk::TextBuffer::iterator& range_st
        _pCtMainWin->get_text_view().column_edit_text_removed(range_start, range_end);
         CtTreeIter currTreeIter = _pCtMainWin->curr_tree_iter();
         if (currTreeIter and currTreeIter.get_node_is_rich_text()) {
-            _pCtMainWin->get_state_machine().text_variation(currTreeIter.get_node_id_data_holder(), range_start.get_text(range_end));
+            // Command pattern handles text variation tracking via edit sessions
         }
     }
 }
@@ -1202,7 +1210,7 @@ void CtTreeStore::_on_textbuffer_mark_set(const Gtk::TextIter& /*iter*/, const G
         if (rMark->get_name() == "insert") {
             const auto currTreeIter = _pCtMainWin->curr_tree_iter();
             if (currTreeIter and currTreeIter.get_node_is_rich_text()) {
-                _pCtMainWin->get_state_machine().update_curr_state_cursor_pos(currTreeIter.get_node_id_data_holder());
+                // Command pattern handles cursor position tracking via edit sessions
             }
             _pCtMainWin->get_text_view().column_edit_selection_update();
         }
@@ -1233,7 +1241,7 @@ void CtTreeStore::addAnchoredWidgets(CtTreeIter ctTreeIter,
     for (CtAnchoredWidget* pCtAnchoredWidget : anchoredWidgetList) {
         Glib::RefPtr<Gtk::TextChildAnchor> pChildAnchor = pCtAnchoredWidget->getTextChildAnchor();
         if (pChildAnchor) {
-            if (0 == pChildAnchor->get_widgets().size()) {
+            if (pTextView && 0 == pChildAnchor->get_widgets().size()) {
                 pTextView->add_child_at_anchor(*pCtAnchoredWidget, pChildAnchor);
                 pCtAnchoredWidget->apply_width_height(pTextView->get_allocation().get_width());
                 pCtAnchoredWidget->apply_syntax_highlighting(false/*forceReApply*/);
