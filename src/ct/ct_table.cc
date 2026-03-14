@@ -28,6 +28,7 @@
 #include "ct_storage_xml.h"
 #include "ct_logging.h"
 #include "ct_misc_utils.h"
+#include "ct_command_bridge.h"
 
 CtTableCommon::CtTableCommon(CtMainWin* pCtMainWin,
                              const int colWidthDefault,
@@ -51,7 +52,8 @@ bool CtTableCommon::get_is_light() const
 
 std::shared_ptr<CtAnchoredWidgetState_TableCommon> CtTableCommon::get_state_common() const
 {
-    return std::shared_ptr<CtAnchoredWidgetState_TableCommon>(new CtAnchoredWidgetState_TableCommon(this));
+    // Command pattern uses XML snapshots instead of widget state objects
+    return nullptr;
 }
 
 void CtTableCommon::row_move_down(const size_t rowIdx)
@@ -153,7 +155,6 @@ bool CtTableCommon::on_cell_key_press_event(GdkEventKey* event)
     else if (GDK_KEY_Up == event->keyval) {
         if (not get_is_light()) {
             const int curr_line_num = get_curr_cell_curr_line_num();
-            //spdlog::debug("line {}", curr_line_num);
             if (0 == curr_line_num and rowIdx > 0) {
                 index = (rowIdx - 1) * get_num_columns() + colIdx;
             }
@@ -163,7 +164,6 @@ bool CtTableCommon::on_cell_key_press_event(GdkEventKey* event)
         if (not get_is_light()) {
             const int curr_line_num = get_curr_cell_curr_line_num();
             const int max_line_num = get_curr_cell_max_line_num();
-            //spdlog::debug("line {}/{}", curr_line_num, max_line_num);
             if (max_line_num == curr_line_num and rowIdx < (get_num_rows()-1)) {
                 index = (rowIdx + 1) * get_num_columns() + colIdx;
             }
@@ -172,7 +172,6 @@ bool CtTableCommon::on_cell_key_press_event(GdkEventKey* event)
     else if (GDK_KEY_Left == event->keyval) {
         if (not get_is_light()) {
             const int curr_offset = get_curr_cell_curr_offset();
-            //spdlog::debug("offset {}", curr_offset);
             if (0 == curr_offset) {
                 const int curr_index = rowIdx * get_num_columns() + colIdx;
                 if (curr_index > 0) {
@@ -185,7 +184,6 @@ bool CtTableCommon::on_cell_key_press_event(GdkEventKey* event)
         if (not get_is_light()) {
             const int curr_offset = get_curr_cell_curr_offset();
             const int max_offset = get_curr_cell_max_offset();
-            //spdlog::debug("offset {}/{}", curr_offset, max_offset);
             if (max_offset == curr_offset) {
                 const int curr_index = rowIdx * get_num_columns() + colIdx;
                 const int max_index = get_num_rows() * get_num_columns() - 1;
@@ -451,7 +449,8 @@ std::string CtTableHeavy::to_csv() const
 
 std::shared_ptr<CtAnchoredWidgetState> CtTableHeavy::get_state()
 {
-    return std::shared_ptr<CtAnchoredWidgetState>(new CtAnchoredWidgetState_TableHeavy(this));
+    // Command pattern uses XML snapshots instead of widget state objects
+    return nullptr;
 }
 
 void CtTableHeavy::set_modified_false()
@@ -610,28 +609,20 @@ bool CtTableHeavy::_row_sort(const bool sortAsc)
         }
         return false; // no swap needed as equal
     };
-    auto pPrevState = std::static_pointer_cast<CtAnchoredWidgetState_TableHeavy>(get_state());
+    // Sort the table rows (skip header row at index 0)
     std::sort(_tableMatrix.begin()+1, _tableMatrix.end(), f_need_swap);
-    auto pCurrState = std::static_pointer_cast<CtAnchoredWidgetState_TableHeavy>(get_state());
-    std::list<size_t> changed;
+
+    // Rebuild all rows in grid (command pattern uses XML snapshots, not state comparison)
     const size_t num_rows = get_num_rows();
     for (size_t rowIdx = 1; rowIdx < num_rows; ++rowIdx) {
-        if (pPrevState->rows.at(rowIdx) != pCurrState->rows.at(rowIdx)) {
-            changed.push_back(rowIdx);
-            _grid.remove_row(rowIdx);
-            _grid.insert_row(rowIdx);
+        _grid.remove_row(rowIdx);
+        _grid.insert_row(rowIdx);
+        for (size_t colIdx = 0; colIdx < _tableMatrix.at(rowIdx).size(); ++colIdx) {
+            CtTextView& textView = static_cast<CtTextCell*>(_tableMatrix.at(rowIdx).at(colIdx))->get_text_view();
+            _grid.attach(textView.mm(), colIdx, rowIdx, 1/*# cell horiz*/, 1/*# cell vert*/);
         }
     }
-    if (changed.size()) {
-        for (auto rowIdx : changed) {
-            for (size_t colIdx = 0; colIdx < _tableMatrix.at(rowIdx).size(); ++colIdx) {
-                CtTextView& textView = static_cast<CtTextCell*>(_tableMatrix.at(rowIdx).at(colIdx))->get_text_view();
-                _grid.attach(textView.mm(), colIdx, rowIdx, 1/*# cell horiz*/, 1/*# cell vert*/);
-            }
-        }
-        return true;
-    }
-    return false;
+    return true;
 }
 
 void CtTableHeavy::set_col_width_default(const int colWidthDefault)
@@ -727,12 +718,29 @@ Glib::ustring CtTableHeavy::get_line_content(size_t rowIdx, size_t colIdx, int m
 
 void CtTableHeavy::_on_grid_set_focus_child(Gtk::Widget* pWidget)
 {
+    auto* bridge = _pCtMainWin->get_command_bridge();
+
+    if (pWidget == nullptr) {
+        // Focus left the table — flush any pending widget edit
+        if (bridge && bridge->isActive()) {
+            bridge->endWidgetEdit();
+        }
+        return;
+    }
+
     const size_t num_rows = get_num_rows();
     for (size_t rowIdx = 0u; rowIdx < num_rows; ++rowIdx) {
         for (size_t colIdx = 0; colIdx < _tableMatrix[rowIdx].size(); ++colIdx) {
             if (pWidget == &static_cast<CtTextCell*>(_tableMatrix.at(rowIdx).at(colIdx))->get_text_view().mm()) {
                 _currentRow = rowIdx;
                 _currentColumn = colIdx;
+                // Focus entered a cell — begin widget edit tracking
+                if (bridge && bridge->isActive()) {
+                    CtTreeIter currTreeIter = _pCtMainWin->curr_tree_iter();
+                    if (currTreeIter) {
+                        bridge->beginWidgetEdit(currTreeIter.get_node_id(), this, (int)rowIdx, (int)colIdx);
+                    }
+                }
                 return;
             }
         }

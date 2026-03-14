@@ -85,7 +85,9 @@ public:
     void set_link(const Glib::ustring& link) { _link = link; }
 
 private:
+#if GTKMM_MAJOR_VERSION < 4
     bool _on_button_press_event(GdkEventButton* event);
+#endif
 
 protected:
     Glib::ustring _link;
@@ -111,7 +113,9 @@ public:
     void toggle_exp_coll_state();
 
 private:
+#if GTKMM_MAJOR_VERSION < 4
     bool _on_button_press_event(GdkEventButton* event);
+#endif
     void _set_exp_coll_state(const CtAnchorExpCollState expCollState);
     static const char* _get_stock_id_for_exp_coll_state(const CtAnchorExpCollState expCollState);
 
@@ -155,7 +159,9 @@ private:
     static bool _is_latex_text_safe(const Glib::ustring& latexText);
 
 private:
+#if GTKMM_MAJOR_VERSION < 4
     bool _on_button_press_event(GdkEventButton* event);
+#endif
 
 protected:
     static bool   _renderingBinariesTested;
@@ -201,7 +207,9 @@ private:
     static Glib::RefPtr<Gdk::Pixbuf> _get_file_icon(CtMainWin* pCtMainWin, const fs::path& fileName);
 
 private:
+#if GTKMM_MAJOR_VERSION < 4
     bool _on_button_press_event(GdkEventButton* event);
+#endif
     void _checkNonEmptyRawBlob(const char* multifile_dir);
 
 protected:

@@ -26,6 +26,7 @@
 #include "ct_storage_control.h"
 #include "ct_main_win.h"
 #include "ct_logging.h"
+#include "ct_gtk_compat.h"
 #include <unistd.h>
 #include <optional>
 
@@ -510,11 +511,11 @@ Glib::RefPtr<Gtk::TextBuffer> CtStorageSqlite::get_delayed_text_buffer(const gin
 
         widgets.sort([](const CtAnchoredWidget* w1, const CtAnchoredWidget* w2) { return w1->getOffset() < w2->getOffset(); });
         auto pGtkSourceBuffer = GTK_SOURCE_BUFFER(rRetTextBuffer->gobj());
-        gtk_source_buffer_begin_not_undoable_action(pGtkSourceBuffer);
+        CT_SOURCE_BUFFER_BEGIN_NOT_UNDOABLE(pGtkSourceBuffer);
         for (auto widget : widgets) {
             widget->insertInTextBuffer(rRetTextBuffer);
         }
-        gtk_source_buffer_end_not_undoable_action(pGtkSourceBuffer);
+        CT_SOURCE_BUFFER_END_NOT_UNDOABLE(pGtkSourceBuffer);
         rRetTextBuffer->set_modified(false);
     }
     return rRetTextBuffer;

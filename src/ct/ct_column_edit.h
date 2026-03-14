@@ -37,6 +37,7 @@ public:
     using StateOnOffCallback = std::function<void(const bool)>;
     using NewCursorRowColCallback = std::function<void(const int, const int)>;
     CtColumnEdit(Gtk::TextView& textView);
+    ~CtColumnEdit();
 
     CtColEditState get_state() const { return _state; }
     void register_on_off_callback(StateOnOffCallback stateOnOffCallback) { _stateOnOffCallback = stateOnOffCallback; }
@@ -58,9 +59,11 @@ public:
     void focus_in();
 
 private:
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     Gdk::Point _get_point(const Gtk::TextIter& textIter);
     Gdk::Point _get_cursor_place();
     Gdk::Point _get_cursor_column_mode_place();
+#endif
     void _clear_marks(const bool alsoStart = true);
     void _predit_to_edit();
     void _predit_to_edit_iter(Gtk::TextIter& iterStart, Gtk::TextIter& iterEnd, bool& firstLine);
@@ -68,9 +71,13 @@ private:
     bool _enforce_cursor_column_mode_place();
 
     Glib::ustring _lastInsertedText;
+    #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     Gdk::Point _lastInsertedPoint;
+    #endif
     Glib::ustring _lastRemovedText;
+    #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     Gdk::Point _lastRemovedPoint;
+    #endif
     int _lastRemovedDeltaOffset;
     std::mutex _mutexLastInOut;
 
@@ -81,8 +88,12 @@ private:
     std::atomic<bool> _ctrlDown{false};
     std::atomic<bool> _altDown{false};
     std::atomic<bool> _myOwnInsertDelete{false};
+    // Shared flag to safely signal destruction to pending idle callbacks
+    std::shared_ptr<std::atomic<bool>> _isDestroying;
+    #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     Gdk::Point _pointStart{-1,-1};
     Gdk::Point _pointEnd{-1,-1};
+    #endif
     std::vector<Glib::RefPtr<Gtk::TextMark>> _marksStart;
     std::vector<Glib::RefPtr<Gtk::TextMark>> _marksEnd;
 };

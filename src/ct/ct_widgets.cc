@@ -90,6 +90,12 @@ void CtAnchoredWidget::updateJustification(const Gtk::TextIter& textIter)
     updateJustification(CtTextIterUtil::get_text_iter_alignment(textIter, _pCtMainWin));
 }
 
+void CtAnchoredWidget::set_hidden(const bool hidden)
+{
+    _hidden = hidden;
+    set_visible(!hidden);
+}
+
 void CtAnchoredWidget::insertInTextBuffer(Glib::RefPtr<Gtk::TextBuffer> pTextBuffer)
 {
     _rTextChildAnchor = pTextBuffer->create_child_anchor(pTextBuffer->get_iter_at_offset(_charOffset));
@@ -117,10 +123,12 @@ void CtAnchoredWidget::_on_frame_size_allocate(Gtk::Allocation& allocation)
     if (not needWorkaround) {
         return;
     }
-    Glib::signal_idle().connect_once([&](){
+    _idleConnection.disconnect();
+    _idleConnection = Glib::signal_idle().connect([this](){
         CtTextView& textView = _pCtMainWin->get_text_view();
         textView.mm().set_wrap_mode(_pCtMainWin->get_ct_config()->lineWrapping ? Gtk::WrapMode::WRAP_NONE : Gtk::WrapMode::WRAP_WORD_CHAR);
         textView.mm().set_wrap_mode(_pCtMainWin->get_ct_config()->lineWrapping ? Gtk::WrapMode::WRAP_WORD_CHAR : Gtk::WrapMode::WRAP_NONE);
+        return false; // run once
     });
 }
 
@@ -190,12 +198,15 @@ void CtTreeView::set_tree_node_name_wrap_width(const bool wrap_enabled, const in
     }
 }
 
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
 CtStatusIcon::CtStatusIcon(CtApp& ctApp, CtConfig* pCtConfig)
  : _ctApp{ctApp}
  , _pCtConfig{pCtConfig}
 {
 }
+#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
 
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
 Gtk::StatusIcon* CtStatusIcon::get()
 {
     if (not _rStatusIcon) {
@@ -226,10 +237,13 @@ Gtk::StatusIcon* CtStatusIcon::get()
     }
     return _rStatusIcon.get();
 }
+#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
 
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
 void CtStatusIcon::ensure_menu_hidden()
 {
     if (_uStatusIconMenu) {
         _uStatusIconMenu->hide();
     }
 }
+#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */

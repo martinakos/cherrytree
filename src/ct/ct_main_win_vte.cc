@@ -1,7 +1,7 @@
 /*
  * ct_main_win_vte.cc
  *
- * Copyright 2009-2023
+ * Copyright 2009-2025
  * Giuseppe Penone <giuspen@gmail.com>
  * Evgenii Gurianov <https://github.com/txe>
  *
@@ -86,6 +86,12 @@ bool CtMainWin::show_hide_vte_cmd_passed_as_first_in_session(bool visible, const
 
 void CtMainWin::restart_vte(const char* first_cmd_passed)
 {
+#if GTKMM_MAJOR_VERSION >= 4
+    // GTK4 VTE integration TODO: implement VTE terminal UI for GTK4
+    spdlog::warn("restart_vte: GTK4 VTE integration not yet implemented");
+    (void)first_cmd_passed;
+    return;
+#else
 #if defined(HAVE_VTE)
     if (_pVte) {
         vte_terminal_reset(VTE_TERMINAL(_pVte->gobj()), true/*clear_tabstops*/, true/*clear_history*/);
@@ -120,6 +126,12 @@ void CtMainWin::restart_vte(const char* first_cmd_passed)
                              VTE_PTY_DEFAULT,
                              NULL/*working_directory*/,
                              startterm/*argv*/,
+                            #if GTKMM_MAJOR_VERSION >= 4
+                                // GTK4: VTE integration differs; skip GTK3-specific UI for now
+                                _hBoxVte.set_margin(0);
+                                _pVte = nullptr; // TODO: add GTK4 VTE wiring
+                                return;
+                            #endif
                              NULL/*envv*/,
                              G_SPAWN_DEFAULT/*spawn_flags_*/,
                              NULL/*child_setup*/,
@@ -154,7 +166,7 @@ void CtMainWin::restart_vte(const char* first_cmd_passed)
 
     _pVte->signal_button_press_event().connect([this](GdkEventButton* event){
         if (3 == event->button) {
-            get_ct_menu().get_popup_menu(CtMenu::POPUP_MENU_TYPE::Terminal)->popup(event->button, event->time);
+            get_ct_menu().get_popup_menu(CtMenu::POPUP_MENU_TYPE::Terminal)->popup_at_pointer((GdkEvent*)event);
             return true; // do not propagate the event
         }
         return false; // propagate the event
@@ -181,6 +193,7 @@ void CtMainWin::restart_vte(const char* first_cmd_passed)
 #else // !HAVE_VTE
     spdlog::warn("!! noVte {}", first_cmd_passed);
 #endif // !HAVE_VTE
+#endif /* GTKMM_MAJOR_VERSION < 4 */
 }
 
 void CtMainWin::update_vte_settings()
