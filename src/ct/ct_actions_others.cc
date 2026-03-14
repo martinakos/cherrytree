@@ -287,6 +287,40 @@ void CtActions::image_save()
 void CtActions::image_edit()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+
+    // Detect if the image is inside a rich table cell by walking the widget hierarchy.
+    // We cannot rely on bridge state (isTrackingRichCell) because the cell may not have
+    // received focus when the user clicked directly on the image's EventBox.
+    CtTableRich* pTable = nullptr;
+    for (auto* w = curr_image_anchor->get_parent(); w; w = w->get_parent()) {
+        pTable = dynamic_cast<CtTableRich*>(w);
+        if (pTable) break;
+    }
+    if (pTable) {
+        // Find the cell containing this image.
+        for (size_t r = 0; r < pTable->get_num_rows(); ++r) {
+            for (size_t c = 0; c < pTable->get_num_columns(); ++c) {
+                CtRichCell* cell = pTable->getRichCell(r, c);
+                for (auto* emb : cell->getEmbeddedWidgets()) {
+                    if (emb == curr_image_anchor) {
+                        // Set up bridge tracking so the image edit gets its own undo entry.
+                        auto pBridge = _pCtMainWin->get_command_bridge();
+                        if (pBridge && pBridge->isActive()) {
+                            gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+                            pBridge->beginWidgetEdit(nodeId, pTable, r, c);
+                        }
+                        auto cellBuffer = cell->get_buffer();
+                        Gtk::TextIter iter_insert = cellBuffer->get_iter_at_child_anchor(curr_image_anchor->getTextChildAnchor());
+                        Gtk::TextIter iter_bound = iter_insert;
+                        iter_bound.forward_char();
+                        _image_edit_dialog(curr_image_anchor->get_pixbuf(), iter_insert, &iter_bound, cell);
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
     Gtk::TextIter iter_insert = _curr_buffer()->get_iter_at_child_anchor(curr_image_anchor->getTextChildAnchor());
     Gtk::TextIter iter_bound = iter_insert;
     iter_bound.forward_char();
@@ -1135,51 +1169,59 @@ void CtActions::table_edit_properties()
     if (not _is_curr_node_not_read_only_or_error()) return;
     _pCtConfig->tableColWidthDefault = curr_table_anchor->get_col_width_default();
     const bool was_light = curr_table_anchor->get_is_light();
+    const bool was_rich = (curr_table_anchor->get_type() == CtAnchWidgType::TableRich);
     bool is_light{was_light};
+    bool is_rich{was_rich};
     if (CtDialogs::TableHandleResp::Cancel == CtDialogs::table_handle_dialog(
-        _pCtMainWin, _("Edit Table Properties"), false/*is_insert*/, is_light))
+        _pCtMainWin, _("Edit Table Properties"), false/*is_insert*/, is_light, is_rich))
     {
         return;
     }
     curr_table_anchor->set_col_width_default(_pCtConfig->tableColWidthDefault);
-    if (was_light != is_light) {
-        // Convert between light and heavy table types
-        // Extract table data as strings
+    const bool type_changed = (was_light != is_light) or (was_rich != is_rich);
+    if (type_changed) {
+        // Extract table data as plain strings for reconstruction
         std::vector<std::vector<Glib::ustring>> string_rows;
         curr_table_anchor->write_strings_matrix(string_rows);
 
-        // Get table properties
-        CtTableColWidths col_widths = curr_table_anchor->get_col_widths();
+        const CtTableColWidths col_widths = curr_table_anchor->get_col_widths();
         const int col_width_default = curr_table_anchor->get_col_width_default();
         const int char_offset = curr_table_anchor->getOffset();
         const std::string justification = curr_table_anchor->getJustification();
 
-        // Build new CtTableMatrix with target type
-        CtTableMatrix tbl_matrix;
-        void* pCell{nullptr};
-        for (const auto& row : string_rows) {
-            CtTableRow tbl_row;
-            for (const auto& cell : row) {
-                if (is_light) {
-                    pCell = new Glib::ustring{cell};
-                }
-                else {
-                    pCell = new CtTextCell{_pCtMainWin, cell, CtConst::TABLE_CELL_TEXT_ID};
-                }
-                tbl_row.emplace_back(pCell);
-            }
-            tbl_matrix.emplace_back(tbl_row);
-        }
-
-        // Delete old table from buffer
         table_delete();
 
-        // Create and insert new table
-        CtTableCommon* pCtTable = is_light ?
-            static_cast<CtTableCommon*>(new CtTableLight{
-                _pCtMainWin, tbl_matrix, col_width_default, char_offset, justification, col_widths}) :
-            static_cast<CtTableCommon*>(new CtTableHeavy{
-                _pCtMainWin, tbl_matrix, col_width_default, char_offset, justification, col_widths});
+        CtTableCommon* pCtTable{nullptr};
+        if (is_rich) {
+            // Wrap plain strings as CtCellContent (rich text, but no formatting yet)
+            std::vector<std::vector<CtCellContent>> richData;
+            for (const auto& row : string_rows) {
+                richData.push_back(std::vector<CtCellContent>{});
+                for (const auto& cell : row) {
+                    CtCellContent cc;
+                    cc.textSpans.push_back(CtTextSpan{cell, {}});
+                    richData.back().push_back(std::move(cc));
+                }
+            }
+            pCtTable = new CtTableRich{
+                _pCtMainWin, richData, col_width_default, char_offset, justification, col_widths};
+        } else {
+            CtTableMatrix tbl_matrix;
+            for (const auto& row : string_rows) {
+                CtTableRow tbl_row;
+                for (const auto& cell : row) {
+                    tbl_row.emplace_back(is_light ?
+                        static_cast<void*>(new Glib::ustring{cell}) :
+                        static_cast<void*>(new CtTextCell{_pCtMainWin, cell, CtConst::TABLE_CELL_TEXT_ID}));
+                }
+                tbl_matrix.emplace_back(tbl_row);
+            }
+            pCtTable = is_light ?
+                static_cast<CtTableCommon*>(new CtTableLight{
+                    _pCtMainWin, tbl_matrix, col_width_default, char_offset, justification, col_widths}) :
+                static_cast<CtTableCommon*>(new CtTableHeavy{
+                    _pCtMainWin, tbl_matrix, col_width_default, char_offset, justification, col_widths});
+        }
 
         pCtTable->insertInTextBuffer(_curr_buffer());
         _pCtMainWin->get_tree_store().addAnchoredWidgets(

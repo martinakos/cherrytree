@@ -259,13 +259,6 @@ void CtClipboard::plain_text_to_clipboard(const char* plain_text)
     _set_clipboard_data({CtConst::TARGET_CTD_PLAIN_TEXT}, clip_data);
 }
 
-void CtClipboard::plain_text_to_clipboard(const char* plain_text)
-{
-    CtClipboardData* clip_data = new CtClipboardData{};
-    clip_data->plain_text = plain_text;
-    _set_clipboard_data({CtConst::TARGET_CTD_PLAIN_TEXT}, clip_data);
-}
-
 void CtClipboard::table_row_to_clipboard(CtTableCommon* pTable)
 {
     CtClipboardData* clip_data = new CtClipboardData{};
@@ -338,25 +331,46 @@ void CtClipboard::anchor_link_to_clipboard(CtTreeIter node, const Glib::ustring&
     _set_clipboard_data({CtConst::TARGET_CTD_RICH_TEXT, CtConst::TARGET_CTD_PLAIN_TEXT}, clip_data);
 }
 
-// Given text_buffer and selection, returns the rich text xml
+// Given text_buffer and selection, returns the rich text xml.
+// When pCellWidgets is non-null the widget list comes from a rich cell's embedded
+// widgets rather than from the main node iter (used when copying from a rich cell).
 Glib::ustring CtClipboard::rich_text_get_from_text_buffer_selection(CtTreeIter node_iter,
                                                                     Glib::RefPtr<Gtk::TextBuffer> text_buffer,
                                                                     Gtk::TextIter iter_sel_start,
                                                                     Gtk::TextIter iter_sel_end,
                                                                     gchar change_case/*="n"*/,
-                                                                    bool exclude_iter_sel_end/*=false*/)
+                                                                    bool exclude_iter_sel_end/*=false*/,
+                                                                    const std::list<CtAnchoredWidget*>* pCellWidgets/*=nullptr*/)
 {
     int iter_sel_start_offset = iter_sel_start.get_offset();
     int iter_sel_end_offset = iter_sel_end.get_offset();
     if (exclude_iter_sel_end)
         iter_sel_end_offset -= 1;
-    std::list<CtAnchoredWidget*> widget_vector = node_iter.get_anchored_widgets(iter_sel_start_offset, iter_sel_end_offset);
+
+    // Build an ordered list of (buffer_offset, widget*) pairs in the selection.
+    // For rich cells we resolve current positions via child anchors to avoid stale offsets.
+    std::list<std::pair<int, CtAnchoredWidget*>> ordered_widgets;
+    if (pCellWidgets) {
+        for (auto* w : *pCellWidgets) {
+            if (auto anchor = w->getTextChildAnchor()) {
+                auto wIter = text_buffer->get_iter_at_child_anchor(anchor);
+                int off = wIter.get_offset();
+                if (off >= iter_sel_start_offset && off < iter_sel_end_offset) {
+                    ordered_widgets.emplace_back(off, w);
+                }
+            }
+        }
+        ordered_widgets.sort([](const auto& a, const auto& b) { return a.first < b.first; });
+    } else {
+        for (auto* w : node_iter.get_anchored_widgets(iter_sel_start_offset, iter_sel_end_offset)) {
+            ordered_widgets.emplace_back(w->getOffset(), w);
+        }
+    }
 
     xmlpp::Document doc;
     auto root = doc.create_root_node("root");
     int start_offset = iter_sel_start_offset;
-    for (CtAnchoredWidget* widget : widget_vector) {
-        int end_offset = widget->getOffset();
+    for (auto& [end_offset, widget] : ordered_widgets) {
         _rich_text_process_slot(root, start_offset, end_offset, text_buffer, widget, change_case);
         start_offset = end_offset;
     }
@@ -382,10 +396,13 @@ void CtClipboard::_rich_text_process_slot(xmlpp::Element* root,
     }
 }
 
-// From XML String to Text Buffer
+// From XML String to Text Buffer.
+// When pOutWidgets is non-null, any created widget objects are returned there and
+// NOT registered with the main tree store — the caller (rich cell paste) owns them.
 void CtClipboard::from_xml_string_to_buffer(Glib::RefPtr<Gtk::TextBuffer> text_buffer,
                                             const Glib::ustring& xml_string,
-                                            bool* const pPasteHadWidgets/*= nullptr*/)
+                                            bool* const pPasteHadWidgets/*= nullptr*/,
+                                            std::list<CtAnchoredWidget*>* pOutWidgets/*= nullptr*/)
 {
     xmlpp::DomParser parser;
     if (not CtXmlHelper::safe_parse_memory(parser, xml_string) or
@@ -394,17 +411,19 @@ void CtClipboard::from_xml_string_to_buffer(Glib::RefPtr<Gtk::TextBuffer> text_b
         throw std::invalid_argument("rich text from clipboard error");
     }
 
-    // End any active text edit session before pasting content, unless the
-    // caller already owns a paste session (delta path) — in that case the
-    // session must remain open to capture the buffer signals below.
+    // When pOutWidgets is set we're pasting into a rich cell — the caller
+    // handles undo tracking, so skip all bridge interaction here.
     auto pBridge = _pCtMainWin->get_command_bridge();
-    if (pBridge && pBridge->isActive() && !pBridge->isSuppressingTextEdits()) {
+    if (!pOutWidgets && pBridge && pBridge->isActive() && !pBridge->isSuppressingTextEdits()) {
+        // End any active text edit session before pasting content, unless the
+        // caller already owns a paste session (delta path) — in that case the
+        // session must remain open to capture the buffer signals below.
         pBridge->endTextEditSession();
     }
 
     // Capture state before paste (only needed for the XML snapshot path).
     Glib::ustring oldXml;
-    if (pBridge && pBridge->isActive() && !pBridge->isSuppressingTextEdits()) {
+    if (!pOutWidgets && pBridge && pBridge->isActive() && !pBridge->isSuppressingTextEdits()) {
         oldXml = pBridge->getCurrentBufferXml();
     }
 
@@ -413,6 +432,8 @@ void CtClipboard::from_xml_string_to_buffer(Glib::RefPtr<Gtk::TextBuffer> text_b
         if (slot_node->get_name() != "slot")
             continue;
         for (xmlpp::Node* child_node : slot_node->get_children()) {
+            // Nested rich tables are not supported — skip table nodes when pasting into a rich cell.
+            if (pOutWidgets && child_node->get_name() == "table") continue;
             Gtk::TextIter insert_iter = text_buffer->get_insert()->get_iter();
             CtStorageXmlHelper{_pCtMainWin}.get_text_buffer_one_slot_from_xml(
                 text_buffer,
@@ -424,9 +445,14 @@ void CtClipboard::from_xml_string_to_buffer(Glib::RefPtr<Gtk::TextBuffer> text_b
         }
     }
     if (not widgets.empty()) {
-        _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
-                                                         widgets,
-                                                         &_pCtMainWin->get_text_view().mm());
+        if (pOutWidgets) {
+            // Rich cell paste: hand ownership to caller; don't touch main tree store.
+            pOutWidgets->splice(pOutWidgets->end(), widgets);
+        } else {
+            _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
+                                                             widgets,
+                                                             &_pCtMainWin->get_text_view().mm());
+        }
         if (pPasteHadWidgets) {
             *pPasteHadWidgets = true;
         }
@@ -436,8 +462,9 @@ void CtClipboard::from_xml_string_to_buffer(Glib::RefPtr<Gtk::TextBuffer> text_b
     }
 
     // Only create a command if we're not already inside a paste/cut/format operation
-    // (those callers create their own command with the proper description)
-    if (pBridge && pBridge->isActive() && !pBridge->isSuppressingTextEdits()) {
+    // (those callers create their own command with the proper description).
+    // Skip for rich cell pastes (pOutWidgets) — caller handles undo.
+    if (!pOutWidgets && pBridge && pBridge->isActive() && !pBridge->isSuppressingTextEdits()) {
         Glib::ustring newXml = pBridge->getCurrentBufferXml();
         if (oldXml != newXml) {
             gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
@@ -468,12 +495,37 @@ void CtClipboard::_selection_to_clipboard(Glib::RefPtr<Gtk::TextBuffer> text_buf
 {
     CtTreeIter ct_tree_iter = _pCtMainWin->curr_tree_iter();
     const Glib::ustring node_syntax_high = ct_tree_iter.get_node_syntax_highlighting();
+
+    // When copying from inside a rich table cell, widgets live in the cell's
+    // embedded widget list rather than the main node's anchored widget list.
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    const bool isRichCell = not pCodebox && pBridge && pBridge->isActive() && pBridge->isTrackingRichCell();
+    CtRichCell* pRichCell = isRichCell ? pBridge->getActiveRichCellPtr() : nullptr;
+
+    // Build a widget list for the selection: cell embedded widgets or main-node widgets.
+    auto getSelectionWidgets = [&]() -> std::list<CtAnchoredWidget*> {
+        if (pRichCell) {
+            std::list<CtAnchoredWidget*> result;
+            for (auto* w : pRichCell->getEmbeddedWidgets()) {
+                if (auto anchor = w->getTextChildAnchor()) {
+                    auto wIter = text_buffer->get_iter_at_child_anchor(anchor);
+                    int off = wIter.get_offset();
+                    if (off >= iter_sel_start.get_offset() && off < iter_sel_end.get_offset()) {
+                        result.push_back(w);
+                    }
+                }
+            }
+            return result;
+        }
+        return ct_tree_iter.get_anchored_widgets(iter_sel_start.get_offset(), iter_sel_end.get_offset());
+    };
+
     CtImage* pixbuf_target{nullptr};
     if (not pCodebox and
         CtConst::RICH_TEXT_ID == node_syntax_high and
         1 == num_chars)
     {
-        std::list<CtAnchoredWidget*> widget_vector = ct_tree_iter.get_anchored_widgets(iter_sel_start.get_offset(), iter_sel_end.get_offset());
+        std::list<CtAnchoredWidget*> widget_vector = getSelectionWidgets();
         if (widget_vector.size() > 0) {
             if (auto image = dynamic_cast<CtImage*>(widget_vector.front())) {
                 pixbuf_target = image;
@@ -511,12 +563,19 @@ void CtClipboard::_selection_to_clipboard(Glib::RefPtr<Gtk::TextBuffer> text_buf
         }
     }
 
+    // Collect the full cell widget list for XML serialization (only needed once).
+    std::list<CtAnchoredWidget*> cellWidgetsFull;
+    if (pRichCell) {
+        cellWidgetsFull = pRichCell->getEmbeddedWidgets();
+    }
+    const std::list<CtAnchoredWidget*>* pCellWidgets = pRichCell ? &cellWidgetsFull : nullptr;
+
     CtClipboardData* clip_data = new CtClipboardData{};
     clip_data->html_text = CtExport2Html{_pCtMainWin}.selection_export_to_html(text_buffer, iter_sel_start, iter_sel_end, !pCodebox ? node_syntax_high : CtConst::PLAIN_TEXT_ID);
     if (not pCodebox and CtConst::RICH_TEXT_ID == node_syntax_high) {
         std::vector<std::string> targets_vector;
         clip_data->plain_text = CtExport2Txt{_pCtMainWin}.selection_export_to_txt(ct_tree_iter, text_buffer, iter_sel_start.get_offset(), iter_sel_end.get_offset(), true);
-        clip_data->rich_text = rich_text_get_from_text_buffer_selection(ct_tree_iter, text_buffer, iter_sel_start, iter_sel_end);
+        clip_data->rich_text = rich_text_get_from_text_buffer_selection(ct_tree_iter, text_buffer, iter_sel_start, iter_sel_end, 'n', false, pCellWidgets);
         if (not CtClipboard::_static_force_plain_text) {
             targets_vector = {CtConst::TARGET_CTD_PLAIN_TEXT, CtConst::TARGET_CTD_RICH_TEXT, CtConst::TARGETS_HTML[0], CtConst::TARGETS_HTML[1]};
             if (pixbuf_target) {
@@ -651,9 +710,22 @@ void CtClipboard::on_received_to_plain_text(const Gtk::SelectionData& selection_
         }
     }
 
+    auto pBridge = _pCtMainWin->get_command_bridge();
+
+    // Rich cell: insert plain text into the cell buffer and record undo
+    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+        if (auto* pCell = pBridge->getActiveRichCellPtr()) {
+            pBridge->cancelRichCellSession();  // stop signal capture during bulk insert
+            auto cellBuf = pCell->get_buffer();
+            cellBuf->insert(cellBuf->get_insert()->get_iter(), plain_text);
+            pBridge->commitRichCellFormatChange("Paste clipboard");
+        }
+        pTextView->scroll_to(pTextView->get_buffer()->get_insert());
+        return;
+    }
+
     // Begin paste operation for command tracking.
     // Plain text never inserts widget anchors, so use the lightweight delta path.
-    auto pBridge = _pCtMainWin->get_command_bridge();
     if (pBridge && pBridge->isActive()) {
         pBridge->endTextEditSession();  // Save any pending text as its own undo command
         pBridge->beginPaste(_pCtMainWin->curr_tree_iter().get_node_id(), false/*pasteContainsWidgets*/);
@@ -768,11 +840,28 @@ void CtClipboard::on_received_to_rich_text(const Gtk::SelectionData& selection_d
         return;
     }
 
+    auto pBridge = _pCtMainWin->get_command_bridge();
+
+    // Rich cell: parse XML into the cell buffer and hand any embedded widget
+    // objects to the cell rather than the main tree store.
+    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+        if (auto* pCell = pBridge->getActiveRichCellPtr()) {
+            pBridge->cancelRichCellSession();  // stop signal capture during bulk insert
+            std::list<CtAnchoredWidget*> pastedWidgets;
+            from_xml_string_to_buffer(pCell->get_buffer(), rich_text, nullptr, &pastedWidgets);
+            for (auto* w : pastedWidgets) {
+                pCell->addEmbeddedWidget(w);
+            }
+            pBridge->commitRichCellFormatChange("Paste clipboard");
+        }
+        pTextView->scroll_to(pTextView->get_buffer()->get_insert());
+        return;
+    }
+
     // Begin paste operation for command tracking.
     // If the clipboard XML has no widget anchors, use the lightweight session
     // (delta) path.  Widget-containing pastes must keep the XML snapshot path
     // because InsertTextCommand only captures text, not widget anchors.
-    auto pBridge = _pCtMainWin->get_command_bridge();
     if (pBridge && pBridge->isActive()) {
         pBridge->endTextEditSession();  // Save any pending text as its own undo command
         const bool hasWidgets = xmlContainsWidgets(rich_text);
@@ -850,8 +939,11 @@ void CtClipboard::on_received_to_table(const Gtk::SelectionData& selection_data,
         return;
     }
 
-    // Begin paste operation for command tracking
+    // Nested tables (pasting a table into a rich table cell) are not supported.
     auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) return;
+
+    // Begin paste operation for command tracking
     if (pBridge && pBridge->isActive()) {
         pBridge->endTextEditSession();
         pBridge->beginPaste(_pCtMainWin->curr_tree_iter().get_node_id());
@@ -953,10 +1045,30 @@ void CtClipboard::on_received_to_html(const Gtk::SelectionData& selection_data, 
     htmlParser.feed(html_content);
     const Glib::ustring xmlStr = htmlParser.to_string();
 
+    auto pBridge = _pCtMainWin->get_command_bridge();
+
+    // Rich cell: parse XML into the cell buffer, record undo via commitRichCellFormatChange
+    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+        if (auto* pCell = pBridge->getActiveRichCellPtr()) {
+            pBridge->cancelRichCellSession();  // stop signal capture during bulk insert
+            std::list<CtAnchoredWidget*> pastedWidgets;
+            try {
+                from_xml_string_to_buffer(pCell->get_buffer(), xmlStr, nullptr, &pastedWidgets);
+            } catch (std::exception& e) {
+                spdlog::warn("HTML paste into rich cell failed XML conversion: {}", e.what());
+            }
+            for (auto* w : pastedWidgets) {
+                pCell->addEmbeddedWidget(w);
+            }
+            pBridge->commitRichCellFormatChange("Paste clipboard");
+        }
+        pTextView->scroll_to(pTextView->get_buffer()->get_insert());
+        return;
+    }
+
     // Begin paste operation for command tracking.
     // Use the lightweight session (delta) path when the resulting XML has no
     // widget anchors; fall back to XML snapshot for widget-containing content.
-    auto pBridge = _pCtMainWin->get_command_bridge();
     if (pBridge && pBridge->isActive()) {
         pBridge->endTextEditSession();  // Save any pending text as its own undo command
         const bool hasWidgets = xmlContainsWidgets(xmlStr);
@@ -980,8 +1092,20 @@ void CtClipboard::on_received_to_image(const Gtk::SelectionData& selection_data,
 {
     Glib::RefPtr<const Gdk::Pixbuf> rPixbuf = selection_data.get_pixbuf();
     if (rPixbuf) {
-        // Begin paste operation for command tracking
         auto pBridge = _pCtMainWin->get_command_bridge();
+
+        // Rich cell: image_insert_png handles undo tracking internally via
+        // commitRichCellFormatChange.  Calling beginPaste/endPaste would clear
+        // the rich-cell tracking state before image_insert_png can use it.
+        if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+            Glib::ustring link = "";
+            _pCtMainWin->get_ct_actions()->image_insert_png(
+                pTextView->get_buffer()->get_insert()->get_iter(), rPixbuf->copy(), link, "");
+            pTextView->scroll_to(pTextView->get_buffer()->get_insert());
+            return;
+        }
+
+        // Standard paste path (main editor or codebox)
         if (pBridge && pBridge->isActive()) {
             pBridge->endTextEditSession();  // Save any pending text as its own undo command
             pBridge->beginPaste(_pCtMainWin->curr_tree_iter().get_node_id());

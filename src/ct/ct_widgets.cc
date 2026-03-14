@@ -79,7 +79,11 @@ CtAnchoredWidget::CtAnchoredWidget(CtMainWin* pCtMainWin, const int charOffset, 
 {
     _frame.set_shadow_type(Gtk::ShadowType::SHADOW_NONE);
     signal_button_press_event().connect([this](GdkEventButton* /*pEvent*/){
-        _pCtMainWin->curr_buffer()->place_cursor(_pCtMainWin->curr_buffer()->get_iter_at_child_anchor(_rTextChildAnchor));
+        // Use the buffer that owns this anchor — for widgets embedded in rich-cell
+        // buffers, curr_buffer() is the wrong buffer and would trigger a GTK assertion.
+        if (_rParentBuffer) {
+            _rParentBuffer->place_cursor(_rParentBuffer->get_iter_at_child_anchor(_rTextChildAnchor));
+        }
         return true; // we need to block this or the focus will go to the text buffer below
     });
     add(_frame);
@@ -98,6 +102,7 @@ void CtAnchoredWidget::set_hidden(const bool hidden)
 
 void CtAnchoredWidget::insertInTextBuffer(Glib::RefPtr<Gtk::TextBuffer> pTextBuffer)
 {
+    _rParentBuffer = pTextBuffer;
     _rTextChildAnchor = pTextBuffer->create_child_anchor(pTextBuffer->get_iter_at_offset(_charOffset));
     if (not _justification.empty()) {
         Gtk::TextIter textIterStart = pTextBuffer->get_iter_at_child_anchor(_rTextChildAnchor);
@@ -161,6 +166,8 @@ void CtTreeView::set_tooltips_enable(const bool on)
                 if (name) {
                     tooltip->set_text(name);
                     g_free(name);
+                    // Anchor the tooltip to the hovered row so it follows the mouse
+                    set_tooltip_row(tooltip, get_model()->get_path(iter));
                     return true;
                 }
                 return false;

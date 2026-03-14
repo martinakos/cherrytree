@@ -539,11 +539,24 @@ void CtStorageXmlHelper::populate_table_matrix(CtTableMatrix& tableMatrix,
     if (not isLightStr.empty()) {
         is_light = CtStrUtil::is_str_true(isLightStr);
     }
+    // Rich tables (is_rich="1"): extract plain text from <rich_text> children as fallback.
+    // RT-2 will replace this with CtTableRich creation once that class exists.
+    const bool is_rich = CtStrUtil::is_str_true(xml_element->get_attribute_value("is_rich"));
     for (xmlpp::Node* pNodeRow : xml_element->get_children("row")) {
         tableMatrix.push_back(CtTableRow{});
         for (xmlpp::Node* pNodeCell : pNodeRow->get_children("cell")) {
-            xmlpp::TextNode* pTextNode = static_cast<xmlpp::Element*>(pNodeCell)->get_child_text();
-            const Glib::ustring textContent = pTextNode ? pTextNode->get_content() : "";
+            xmlpp::Element* cellElem = static_cast<xmlpp::Element*>(pNodeCell);
+            Glib::ustring textContent;
+            if (is_rich) {
+                // Join plain text from all <rich_text> spans
+                for (xmlpp::Node* pRtNode : cellElem->get_children("rich_text")) {
+                    xmlpp::TextNode* pTextNode = static_cast<xmlpp::Element*>(pRtNode)->get_child_text();
+                    if (pTextNode) textContent += pTextNode->get_content();
+                }
+            } else {
+                xmlpp::TextNode* pTextNode = cellElem->get_child_text();
+                textContent = pTextNode ? pTextNode->get_content() : "";
+            }
             if (is_light) {
                 tableMatrix.back().push_back(new Glib::ustring{textContent});
             }
@@ -704,14 +717,92 @@ CtAnchoredWidget* CtStorageXmlHelper::_create_table_from_xml(xmlpp::Element* xml
 {
     const int colWidthDefault = std::stoi(xml_element->get_attribute_value("col_max"));
 
-    CtTableMatrix tableMatrix;
+    const Glib::ustring colWidthsStr = xml_element->get_attribute_value("col_widths");
     CtTableColWidths tableColWidths;
+    if (not colWidthsStr.empty()) {
+        tableColWidths = CtStrUtil::gstring_split_to_int(colWidthsStr.c_str(), ",");
+    }
+
+    if (CtStrUtil::is_str_true(xml_element->get_attribute_value("is_rich"))) {
+        return _create_rich_table_from_xml(xml_element, charOffset, justification,
+                                           colWidthDefault, tableColWidths);
+    }
+
+    CtTableMatrix tableMatrix;
     bool is_light{false};
     populate_table_matrix(tableMatrix, xml_element, tableColWidths, is_light);
     if (is_light) {
         return new CtTableLight{_pCtMainWin, tableMatrix, colWidthDefault, charOffset, justification, tableColWidths};
     }
     return new CtTableHeavy{_pCtMainWin, tableMatrix, colWidthDefault, charOffset, justification, tableColWidths};
+}
+
+CtWidgetDesc CtStorageXmlHelper::_parse_embedded_widget_xml(xmlpp::Element* elem)
+{
+    CtAnchWidgType wtype = CtAnchWidgType::None;
+    if (!elem->get_attribute_value("anchor").empty()) {
+        wtype = CtAnchWidgType::ImageAnchor;
+    } else if (elem->get_attribute_value("filename") == "latex") {
+        wtype = CtAnchWidgType::ImageLatex;
+    } else if (!elem->get_attribute_value("filename").empty()) {
+        wtype = CtAnchWidgType::ImageEmbFile;
+    } else {
+        wtype = CtAnchWidgType::ImagePng;
+    }
+    CtWidgetDesc desc(wtype);
+    for (const auto* attr : elem->get_attributes()) {
+        desc.setProperty(attr->get_name(), attr->get_value());
+    }
+    const xmlpp::TextNode* tn = elem->get_child_text();
+    if (tn && !tn->get_content().empty()) {
+        desc.contentData = tn->get_content().raw();
+    }
+    return desc;
+}
+
+CtAnchoredWidget* CtStorageXmlHelper::_create_rich_table_from_xml(xmlpp::Element* xml_element,
+                                                                   int charOffset,
+                                                                   const Glib::ustring& justification,
+                                                                   int colWidthDefault,
+                                                                   const CtTableColWidths& colWidths)
+{
+    std::vector<std::vector<CtCellContent>> richData;
+    for (xmlpp::Node* pNodeRow : xml_element->get_children("row")) {
+        std::vector<CtCellContent> richRow;
+        for (xmlpp::Node* pNodeCell : pNodeRow->get_children("cell")) {
+            CtCellContent cellContent;
+            auto* cellElem = dynamic_cast<xmlpp::Element*>(pNodeCell);
+            if (cellElem) {
+                for (xmlpp::Node* pChild : cellElem->get_children()) {
+                    auto* childElem = dynamic_cast<xmlpp::Element*>(pChild);
+                    if (!childElem) continue;
+                    if (childElem->get_name() == "rich_text") {
+                        CtTextSpan span;
+                        for (const auto* attr : childElem->get_attributes()) {
+                            span.attributes[attr->get_name()] = attr->get_value();
+                        }
+                        const xmlpp::TextNode* tn = childElem->get_child_text();
+                        span.text = tn ? tn->get_content() : "";
+                        cellContent.textSpans.push_back(std::move(span));
+                    }
+                    else if (childElem->get_name() == "encoded_png") {
+                        CtWidgetDesc wd = _parse_embedded_widget_xml(childElem);
+                        if (wd.type != CtAnchWidgType::None) {
+                            cellContent.embeddedWidgets.push_back(std::move(wd));
+                        }
+                    }
+                }
+            }
+            richRow.push_back(std::move(cellContent));
+        }
+        if (!richRow.empty()) richData.push_back(std::move(richRow));
+    }
+    // Header row is serialized last — rotate it to front
+    if (!richData.empty()) {
+        richData.insert(richData.begin(), richData.back());
+        richData.pop_back();
+    }
+    return new CtTableRich{_pCtMainWin, richData, colWidthDefault, charOffset, justification, colWidths};
 }
 
 void CtXmlHelper::table_to_xml(xmlpp::Element* p_parent,

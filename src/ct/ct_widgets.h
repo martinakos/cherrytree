@@ -96,6 +96,7 @@ protected:
     Gtk::Frame _frame;
     Gtk::Label _labelWidget;
     Glib::RefPtr<Gtk::TextChildAnchor> _rTextChildAnchor;
+    Glib::RefPtr<Gtk::TextBuffer> _rParentBuffer; // buffer that owns _rTextChildAnchor
     Gtk::Allocation _lastAllocation;
     bool _hidden{false};
     sigc::connection _idleConnection;

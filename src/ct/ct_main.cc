@@ -120,7 +120,11 @@ int main(int argc, char *argv[])
     spdlog::set_default_logger(cherrytree_logger);         // make our logger as a default logger
     spdlog::register_logger(gtk_logger);                   // register it, so we can access it in another place
     spdlog::flush_on(spdlog::level::debug);                // flush when "info" or higher message is logged on all loggers
-    spdlog::set_level(spdlog::level::debug);               // Setup spdlog, use debug level by default for now
+#ifdef NDEBUG
+    spdlog::set_level(spdlog::level::warn);                // Release build: suppress debug/info noise
+#else
+    spdlog::set_level(spdlog::level::debug);               // Debug build: full verbosity
+#endif
 
     g_log_set_default_handler(glib_log_handler, gtk_logger.get()); // Redirect Gtk log messages to spdlog
 

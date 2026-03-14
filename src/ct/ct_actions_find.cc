@@ -1376,7 +1376,8 @@ bool CtActions::_check_pattern_in_object(Glib::RefPtr<Glib::Regex> re_pattern,
             }
         } break;
         case CtAnchWidgType::TableHeavy:
-        case CtAnchWidgType::TableLight: {
+        case CtAnchWidgType::TableLight:
+        case CtAnchWidgType::TableRich: {
             if (auto pTable = dynamic_cast<CtTableCommon*>(pAnchWidg)) {
                 std::vector<std::vector<Glib::ustring>> rows;
                 pTable->write_strings_matrix(rows);
