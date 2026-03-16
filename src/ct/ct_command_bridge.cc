@@ -2008,7 +2008,7 @@ void CtCommandBridge::updateBufferFromXml(Glib::RefPtr<Gtk::TextBuffer> buffer, 
                       buffer->get_text().size(), buffer->get_char_count());
     }
     catch (const Glib::Error& e) {
-        spdlog::error("CtCommandBridge: XML deserialization failed (Glib::Error): {}", e.what());
+        spdlog::error("CtCommandBridge: XML deserialization failed (Glib::Error): {}", std::string{e.what()});
         throw;  // Re-throw to let caller handle
     }
     catch (const xmlpp::exception& e) {

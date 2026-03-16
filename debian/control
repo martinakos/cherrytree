@@ -1,4 +1,4 @@
-Source: cherrytree
+Source: cherrytree-docmodel
 Section: editors
 Priority: optional
 Maintainer: Giuseppe Penone <giuspen@gmail.com>
@@ -26,7 +26,7 @@ Homepage: https://www.giuspen.net/cherrytree/
 Vcs-Git: https://github.com/giuspen/cherrytree.git
 Vcs-Browser: https://github.com/giuspen/cherrytree
 
-Package: cherrytree
+Package: cherrytree-docmodel
 Architecture: any
 Depends:
  libgtkmm-3.0-1t64,

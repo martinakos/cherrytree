@@ -109,10 +109,10 @@ void present_main_window(Gtk::Window* pWindow)
 
 #if GTKMM_MAJOR_VERSION >= 4
 CtApp::CtApp(const Glib::ustring application_id_postfix, Gio::Application::Flags flags)
- : Gtk::Application{Glib::ustring{"net.giuspen.cherrytree"} + application_id_postfix, Gio::Application::Flags::HANDLES_OPEN | flags}
+ : Gtk::Application{Glib::ustring{"net.giuspen.cherrytree_docmodel"} + application_id_postfix, Gio::Application::Flags::HANDLES_OPEN | flags}
 #else
 CtApp::CtApp(const Glib::ustring application_id_postfix, Gio::ApplicationFlags flags)
- : Gtk::Application{Glib::ustring{"net.giuspen.cherrytree"} + application_id_postfix, Gio::APPLICATION_HANDLES_OPEN | flags}
+ : Gtk::Application{Glib::ustring{"net.giuspen.cherrytree_docmodel"} + application_id_postfix, Gio::APPLICATION_HANDLES_OPEN | flags}
 #endif
  , _pCtConfig{CtConfig::GetCtConfig()}
 {

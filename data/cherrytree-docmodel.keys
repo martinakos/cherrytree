@@ -1,0 +1,40 @@
+application/cherrytree-docmodel-ctdx:
+	description=CherryTree DocModel XML Document
+	default_action_type=application
+	short_list_application_ids_for_novice_user_level=cherrytree-docmodel
+	category=Documents/Data
+application/cherrytree-docmodel-ctzx:
+	description=CherryTree DocModel XML Zipped
+	default_action_type=application
+	short_list_application_ids_for_novice_user_level=cherrytree-docmodel
+	category=Documents/Data
+application/cherrytree-docmodel-ctbx:
+	description=CherryTree DocModel SQLite Document
+	default_action_type=application
+	short_list_application_ids_for_novice_user_level=cherrytree-docmodel
+	category=Documents/Data
+application/cherrytree-docmodel-ctxx:
+	description=CherryTree DocModel SQLite Zipped
+	default_action_type=application
+	short_list_application_ids_for_novice_user_level=cherrytree-docmodel
+	category=Documents/Data
+application/cherrytree-ctd:
+	description=CherryTree XML Document
+	default_action_type=application
+	short_list_application_ids_for_novice_user_level=cherrytree-docmodel
+	category=Documents/Data
+application/cherrytree-ctz:
+	description=CherryTree XML Zipped
+	default_action_type=application
+	short_list_application_ids_for_novice_user_level=cherrytree-docmodel
+	category=Documents/Data
+application/cherrytree-ctb:
+	description=CherryTree SQLite Document
+	default_action_type=application
+	short_list_application_ids_for_novice_user_level=cherrytree-docmodel
+	category=Documents/Data
+application/cherrytree-ctx:
+	description=CherryTree SQLite Zipped
+	default_action_type=application
+	short_list_application_ids_for_novice_user_level=cherrytree-docmodel
+	category=Documents/Data
