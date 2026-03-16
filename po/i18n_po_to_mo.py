@@ -4,7 +4,7 @@ import os
 import subprocess
 import glob
 
-APP_NAME = "cherrytree"
+APP_NAME = "cherrytree-docmodel"
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 
 for po_filepath in glob.glob(os.path.join(SCRIPT_DIR, "*.po")):

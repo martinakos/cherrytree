@@ -93,6 +93,11 @@ TEST(FileSystemGroup, get_doc_type_from_file_ext)
     ASSERT_TRUE(CtDocType::SQLite == fs::get_doc_type_from_file_ext(UT::unitTestsDataDir + "/mimetype_ctb.ctb"));
     ASSERT_TRUE(CtDocType::XML == fs::get_doc_type_from_file_ext(UT::unitTestsDataDir + "/7zr.ctz"));
     ASSERT_TRUE(CtDocType::SQLite == fs::get_doc_type_from_file_ext("test.ctx")); // Doesnt actually exist
+    // New extensions
+    ASSERT_TRUE(CtDocType::SQLite == fs::get_doc_type_from_file_ext("test.ctbx"));
+    ASSERT_TRUE(CtDocType::XML == fs::get_doc_type_from_file_ext("test.ctdx"));
+    ASSERT_TRUE(CtDocType::SQLite == fs::get_doc_type_from_file_ext("test.ctxx"));
+    ASSERT_TRUE(CtDocType::XML == fs::get_doc_type_from_file_ext("test.ctzx"));
 }
 
 TEST(FileSystemGroup, get_doc_encrypt_from_file_ext)

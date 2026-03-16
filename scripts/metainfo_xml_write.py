@@ -8,14 +8,14 @@ import xml.etree.ElementTree as ET
 SCRIPTS_DIR = os.path.dirname(os.path.realpath(__file__))
 ROOT_DIR = os.path.dirname(SCRIPTS_DIR)
 DATA_DIR = os.path.join(ROOT_DIR, "data")
-TEMPLATE_METAINFO_XML_FILEPATH = os.path.join(DATA_DIR, "_net.giuspen.cherrytree.metainfo.xml")
-METAINFO_XML_FILEPATH = os.path.join(DATA_DIR, "net.giuspen.cherrytree.metainfo.xml")
+TEMPLATE_METAINFO_XML_FILEPATH = os.path.join(DATA_DIR, "_net.giuspen.cherrytree-docmodel.metainfo.xml")
+METAINFO_XML_FILEPATH = os.path.join(DATA_DIR, "net.giuspen.cherrytree-docmodel.metainfo.xml")
 DEBIAN_CHANGELOG_PATH = os.path.join(ROOT_DIR, "debian", "changelog")
 
 VERSION = "?"
 with open(DEBIAN_CHANGELOG_PATH, "rb") as fd:
     for fileline in fd:
-        match = re.search(b"cherrytree +\\(([0-9]+\\.[0-9]+\\.[0-9]+)[-+]", fileline)
+        match = re.search(b"cherrytree-docmodel +\\(([0-9]+\\.[0-9]+\\.[0-9]+)[-+]", fileline)
         if match is not None:
             VERSION = str(match.group(1))
             #print(VERSION)

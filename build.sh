@@ -142,18 +142,20 @@ ninja -j ${NUM_JOBS}
 if [ -n "${MAKE_DEB}" ]
 then
   cpack -G DEB
+  PACKAGE_NAME="$(grep 'CPACK_PACKAGE_NAME ' ../CMakeLists.txt | head -1 | sed 's/.*"\(.*\)".*/\1/')"
   PACKAGE_VERSION="$(grep 'PACKAGE_VERSION ' ../config.h | awk -F\" '{print $2}')"
-  TARGET_PACKAGE_NAME="cherrytree-${PACKAGE_VERSION}~${DISTRIB_ID}${DISTRIB_RELEASE}_amd64.deb"
-  mv -v cherrytree-${PACKAGE_VERSION}-Linux.deb ${TARGET_PACKAGE_NAME}
-  mv -v cherrytree-${PACKAGE_VERSION}-Linux.deb.sha256 ${TARGET_PACKAGE_NAME}.sha256
+  TARGET_PACKAGE_NAME="${PACKAGE_NAME}-${PACKAGE_VERSION}~${DISTRIB_ID}${DISTRIB_RELEASE}_amd64.deb"
+  mv -v ${PACKAGE_NAME}-${PACKAGE_VERSION}-Linux.deb ${TARGET_PACKAGE_NAME}
+  mv -v ${PACKAGE_NAME}-${PACKAGE_VERSION}-Linux.deb.sha256 ${TARGET_PACKAGE_NAME}.sha256
 fi
 if [ -n "${MAKE_RPM}" ]
 then
   cpack -G RPM
+  PACKAGE_NAME="$(grep 'CPACK_PACKAGE_NAME ' ../CMakeLists.txt | head -1 | sed 's/.*"\(.*\)".*/\1/')"
   PACKAGE_VERSION="$(grep 'PACKAGE_VERSION ' ../config.h | awk -F\" '{print $2}')"
-  TARGET_PACKAGE_NAME="cherrytree-${PACKAGE_VERSION}~${DISTRIB_ID}${DISTRIB_RELEASE}_amd64.rpm"
-  mv -v cherrytree-${PACKAGE_VERSION}-Linux.rpm ${TARGET_PACKAGE_NAME}
-  mv -v cherrytree-${PACKAGE_VERSION}-Linux.rpm.sha256 ${TARGET_PACKAGE_NAME}.sha256
+  TARGET_PACKAGE_NAME="${PACKAGE_NAME}-${PACKAGE_VERSION}~${DISTRIB_ID}${DISTRIB_RELEASE}_amd64.rpm"
+  mv -v ${PACKAGE_NAME}-${PACKAGE_VERSION}-Linux.rpm ${TARGET_PACKAGE_NAME}
+  mv -v ${PACKAGE_NAME}-${PACKAGE_VERSION}-Linux.rpm.sha256 ${TARGET_PACKAGE_NAME}.sha256
 fi
 if [ -n "${MAKE_APPIMAGE}" ]
 then

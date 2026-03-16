@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Copyright 2026 Giuseppe Penone <giuspen@gmail.com> -->
 <component type="desktop-application">
- <id>net.giuspen.cherrytree</id>
+ <id>net.giuspen.cherrytree-docmodel</id>
  <developer id="tld.vendor">
   <name>Giuseppe Penone</name>
  </developer>
  <metadata_license>CC0-1.0</metadata_license>
  <project_license>GPL-3.0+</project_license>
- <name>CherryTree</name>
+ <name>CherryTree DocModel</name>
  <summary>Hierarchical Note Taking</summary>
  <description>
   <p>
@@ -33,7 +33,7 @@
    <caption>Main window, code</caption>
   </screenshot>
  </screenshots>
- <launchable type="desktop-id">cherrytree.desktop</launchable>
+ <launchable type="desktop-id">cherrytree-docmodel.desktop</launchable>
  <url type="homepage">https://www.giuspen.net/cherrytree</url>
  <url type="vcs-browser">https://github.com/giuspen/cherrytree</url>
  <update_contact>giuspen@gmail.com</update_contact>

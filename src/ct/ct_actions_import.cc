@@ -133,7 +133,11 @@ void CtActions::import_nodes_from_ct_file()
         CtDialogs::CtFileSelectArgs args{};
         args.curr_folder = _pCtConfig->pickDirImport;
         args.filter_name = _("CherryTree File");
-        args.filter_pattern.push_back("*.ctb"); // macos doesn't understand *.ct*
+        args.filter_pattern.push_back("*.ctbx");
+        args.filter_pattern.push_back("*.ctxx");
+        args.filter_pattern.push_back("*.ctdx");
+        args.filter_pattern.push_back("*.ctzx");
+        args.filter_pattern.push_back("*.ctb"); // legacy extensions
         args.filter_pattern.push_back("*.ctx");
         args.filter_pattern.push_back("*.ctd");
         args.filter_pattern.push_back("*.ctz");

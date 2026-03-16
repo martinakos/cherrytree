@@ -1,11 +1,14 @@
 
 #pragma once
 
-/* Name of package */
-#define PACKAGE "${PROJECT_NAME}"
+/* Name of package (used for config dir, XML root, clipboard) */
+#define PACKAGE "cherrytree"
 
-/* Name of package */
-#define PACKAGE_NAME "${PROJECT_NAME}"
+/* Name of package (used for config dir, XML root, clipboard) */
+#define PACKAGE_NAME "cherrytree"
+
+/* Binary/icon/desktop name (used for installed paths and D-Bus) */
+#define PACKAGE_BIN_NAME "${PROJECT_NAME}"
 
 /* Version of package */
 #define PACKAGE_VERSION "${CT_VERSION}"
