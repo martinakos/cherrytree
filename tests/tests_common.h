@@ -57,6 +57,6 @@ const std::string testImageJpg{Glib::build_filename(unitTestsDataDir, "testimage
 const std::string testImageBmp{Glib::build_filename(unitTestsDataDir, "testimage.bmp")};
 const std::string testImageGif{Glib::build_filename(unitTestsDataDir, "testimage.gif")};
 const std::string testImageWebp{Glib::build_filename(unitTestsDataDir, "testimage.webp")};
-const std::string testImageSvg{Glib::build_filename(_CMAKE_SOURCE_DIR, "icons", "cherrytree.svg")};
+const std::string testImageSvg{Glib::build_filename(_CMAKE_SOURCE_DIR, "icons", "cherrytree-docmodel.svg")};
 
 } // namespace UT

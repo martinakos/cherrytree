@@ -52,10 +52,10 @@ void CtActions::online_donate()
 void CtActions::dialog_about()
 {
 #if GTKMM_MAJOR_VERSION >= 4
-    auto paintable = _pCtMainWin->get_icon_theme()->lookup_icon(Glib::ustring{CtConst::APP_NAME}, 128, 1, Gtk::TextDirection::NONE, Gtk::IconLookupFlags{});
+    auto paintable = _pCtMainWin->get_icon_theme()->lookup_icon(Glib::ustring{CtConst::APP_BIN_NAME}, 128, 1, Gtk::TextDirection::NONE, Gtk::IconLookupFlags{});
     CtDialogs::dialog_about(*_pCtMainWin, paintable);
 #else
-    CtDialogs::dialog_about(*_pCtMainWin, _pCtMainWin->get_icon_theme()->load_icon(CtConst::APP_NAME, 128));
+    CtDialogs::dialog_about(*_pCtMainWin, _pCtMainWin->get_icon_theme()->load_icon(CtConst::APP_BIN_NAME, 128));
 #endif
 }
 

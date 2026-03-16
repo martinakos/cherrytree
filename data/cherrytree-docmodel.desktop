@@ -1,5 +1,5 @@
 [Desktop Entry]
-Name=CherryTree
+Name=CherryTree DocModel
 Comment=Hierarchical Note Taking
 Comment[cs]=Hierarchická tvorba poznámek
 Comment[de]=Hierarchische Notizfunktion
@@ -20,9 +20,9 @@ Comment[sv]=Hierarkiska anteckningar
 Comment[tr]=Hiyerarşik Notları Tutar
 Comment[uk]=Записник з ієрархічною структурою
 Comment[zh_CN]=分层笔记
-Exec=cherrytree --new_window %f
-Icon=cherrytree
-MimeType=application/cherrytree-ctd;application/cherrytree-ctz;application/cherrytree-ctb;application/cherrytree-ctx;
+Exec=cherrytree-docmodel --new_window %f
+Icon=cherrytree-docmodel
+MimeType=application/cherrytree-docmodel-ctdx;application/cherrytree-docmodel-ctzx;application/cherrytree-docmodel-ctbx;application/cherrytree-docmodel-ctxx;application/cherrytree-ctd;application/cherrytree-ctz;application/cherrytree-ctb;application/cherrytree-ctx;
 Terminal=false
 Type=Application
 StartupNotify=true

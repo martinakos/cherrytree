@@ -158,12 +158,15 @@ void CtMiscUtil::filepath_extension_fix(const CtDocType ctDocType, const CtDocEn
 {
     const std::string docExt{get_doc_extension(ctDocType, ctDocEncrypt)};
     if (docExt.empty() or not Glib::str_has_suffix(filepath, docExt)) {
-        if (Glib::str_has_suffix(filepath, CtConst::CTDOC_XML_NOENC) or
-            Glib::str_has_suffix(filepath, CtConst::CTDOC_XML_ENC) or
-            Glib::str_has_suffix(filepath, CtConst::CTDOC_SQLITE_NOENC) or
-            Glib::str_has_suffix(filepath, CtConst::CTDOC_SQLITE_ENC))
-        {
-            filepath = filepath.substr(0, filepath.length()-4);
+        // Strip any existing cherrytree extension (new 5-char first, then legacy 4-char)
+        for (const auto& ext : {CtConst::CTDOC_XML_NOENC, CtConst::CTDOC_XML_ENC,
+                                 CtConst::CTDOC_SQLITE_NOENC, CtConst::CTDOC_SQLITE_ENC,
+                                 CtConst::CTDOC_XML_NOENC_LEGACY, CtConst::CTDOC_XML_ENC_LEGACY,
+                                 CtConst::CTDOC_SQLITE_NOENC_LEGACY, CtConst::CTDOC_SQLITE_ENC_LEGACY}) {
+            if (Glib::str_has_suffix(filepath, ext)) {
+                filepath = filepath.substr(0, filepath.length() - ext.length());
+                break;
+            }
         }
         if (not docExt.empty()) {
             filepath += docExt;

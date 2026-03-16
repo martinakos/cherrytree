@@ -604,12 +604,16 @@ CtDocType get_doc_type_from_file_ext(const fs::path& filename)
 {
     const std::string file_ext = filename.extension();
     if (CtConst::CTDOC_XML_NOENC == file_ext or
-        CtConst::CTDOC_XML_ENC == file_ext)
+        CtConst::CTDOC_XML_ENC == file_ext or
+        CtConst::CTDOC_XML_NOENC_LEGACY == file_ext or
+        CtConst::CTDOC_XML_ENC_LEGACY == file_ext)
     {
         return CtDocType::XML;
     }
     if (CtConst::CTDOC_SQLITE_NOENC == file_ext or
-        CtConst::CTDOC_SQLITE_ENC == file_ext)
+        CtConst::CTDOC_SQLITE_ENC == file_ext or
+        CtConst::CTDOC_SQLITE_NOENC_LEGACY == file_ext or
+        CtConst::CTDOC_SQLITE_ENC_LEGACY == file_ext)
     {
         return CtDocType::SQLite;
     }
@@ -620,12 +624,16 @@ CtDocEncrypt get_doc_encrypt_from_file_ext(const fs::path& filename)
 {
     const std::string file_ext = filename.extension();
     if (CtConst::CTDOC_XML_NOENC == file_ext or
-        CtConst::CTDOC_SQLITE_NOENC == file_ext)
+        CtConst::CTDOC_SQLITE_NOENC == file_ext or
+        CtConst::CTDOC_XML_NOENC_LEGACY == file_ext or
+        CtConst::CTDOC_SQLITE_NOENC_LEGACY == file_ext)
     {
         return CtDocEncrypt::False;
     }
     if (CtConst::CTDOC_XML_ENC == file_ext or
-        CtConst::CTDOC_SQLITE_ENC == file_ext)
+        CtConst::CTDOC_SQLITE_ENC == file_ext or
+        CtConst::CTDOC_XML_ENC_LEGACY == file_ext or
+        CtConst::CTDOC_SQLITE_ENC_LEGACY == file_ext)
     {
         return CtDocEncrypt::True;
     }
