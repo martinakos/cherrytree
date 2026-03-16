@@ -590,7 +590,7 @@ void CtMenu::init_actions(CtActions* pActions)
             _("Edit the Link Associated to the Image"), sigc::mem_fun(*pActions, &CtActions::image_link_edit)});
         _actions.push_back(CtMenuAction{others_cat, "img_link_dismiss", "ct_clear", _("D_ismiss Link"), None,
             _("Dismiss the Link Associated to the Image"), sigc::mem_fun(*pActions, &CtActions::image_link_dismiss)});
-        _actions.push_back(CtMenuAction{others_cat, "toggle_show_mainwin", CtConst::APP_NAME, _("Show/Hide _CherryTree"), None,
+        _actions.push_back(CtMenuAction{others_cat, "toggle_show_mainwin", CtConst::APP_BIN_NAME, _("Show/Hide _CherryTree"), None,
             _("Toggle Show/Hide CherryTree"), sigc::mem_fun(*pActions, &CtActions::toggle_show_hide_main_window)});
     }
     {

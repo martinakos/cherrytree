@@ -31,13 +31,20 @@
 
 struct CtConst {
 
-const inline static gchar* CT_VERSION  {PACKAGE_VERSION};
-const inline static gchar* APP_NAME    {PACKAGE_NAME};
+const inline static gchar* CT_VERSION   {PACKAGE_VERSION};
+const inline static gchar* APP_NAME     {PACKAGE_NAME};
+const inline static gchar* APP_BIN_NAME {PACKAGE_BIN_NAME};
 
-const inline static std::string CTDOC_XML_NOENC     {".ctd"};
-const inline static std::string CTDOC_XML_ENC       {".ctz"};
-const inline static std::string CTDOC_SQLITE_NOENC  {".ctb"};
-const inline static std::string CTDOC_SQLITE_ENC    {".ctx"};
+// New extensions for docmodel (used for saving)
+const inline static std::string CTDOC_XML_NOENC     {".ctdx"};
+const inline static std::string CTDOC_XML_ENC       {".ctzx"};
+const inline static std::string CTDOC_SQLITE_NOENC  {".ctbx"};
+const inline static std::string CTDOC_SQLITE_ENC    {".ctxx"};
+// Legacy extensions (accepted for opening)
+const inline static std::string CTDOC_XML_NOENC_LEGACY     {".ctd"};
+const inline static std::string CTDOC_XML_ENC_LEGACY       {".ctz"};
+const inline static std::string CTDOC_SQLITE_NOENC_LEGACY  {".ctb"};
+const inline static std::string CTDOC_SQLITE_ENC_LEGACY    {".ctx"};
 
 const inline static std::string LINK_TYPE_WEBS      {"webs"};
 const inline static std::string LINK_TYPE_FILE      {"file"};
@@ -681,7 +688,7 @@ const inline static std::array<std::string_view, 4>  INVALID_HTML_TAGS = {
 
 // List of extensions for cherrytree save files, for use with gtk FileFilter
 const inline static std::vector<std::string> CT_FILE_EXTENSIONS_FILTER = {
-    "*.ctb", "*.ctx", "*.ctd", "*.ctz"
+    "*.ctbx", "*.ctxx", "*.ctdx", "*.ctzx", "*.ctb", "*.ctx", "*.ctd", "*.ctz"
 };
 
 const inline static Glib::ustring TARGET_CTD_PLAIN_TEXT = "UTF8_STRING";

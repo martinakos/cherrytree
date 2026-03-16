@@ -971,7 +971,7 @@ void TestGuiSimulationApp::_test_gtk_accelerator_bindings(CtMainWin* /*pWin*/)
 
         if (found) {
             spdlog::info("  ✓ Found accelerator: {} -> key={}, mods={}",
-                         test.description, gdk_keyval_name(key.accel_key), key.accel_mods);
+                         test.description, gdk_keyval_name(key.accel_key), static_cast<int>(key.accel_mods));
             foundCount++;
 
             // Note: We don't strictly verify the exact key/mod combination because

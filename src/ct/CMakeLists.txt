@@ -121,16 +121,16 @@ if(USE_VTE)
   )
 endif()
 
-add_executable(cherrytree ct_main.cc icons.gresource.cc ${CHERRY_EXE_RC})
-target_link_libraries(cherrytree cherrytree_shared)
+add_executable(cherrytree-docmodel ct_main.cc icons.gresource.cc ${CHERRY_EXE_RC})
+target_link_libraries(cherrytree-docmodel cherrytree_shared)
 
 if(APPLE)
-  target_link_libraries(cherrytree "-framework Foundation -framework AppKit")
+  target_link_libraries(cherrytree-docmodel "-framework Foundation -framework AppKit")
 elseif(WIN32)
-  target_link_libraries(cherrytree "-mwindows")
+  target_link_libraries(cherrytree-docmodel "-mwindows")
 endif()
 
-set_target_properties(cherrytree PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+set_target_properties(cherrytree-docmodel PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 
-# install cherrytree
-install(TARGETS cherrytree RUNTIME DESTINATION bin)
+# install cherrytree-docmodel
+install(TARGETS cherrytree-docmodel RUNTIME DESTINATION bin)

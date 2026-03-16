@@ -116,7 +116,7 @@ CtMainWin::CtMainWin(bool                            no_gui,
 
     get_style_context()->add_class("ct-app-win");
 #if GTKMM_MAJOR_VERSION < 4
-    set_icon(_pGtkIconTheme->load_icon(CtConst::APP_NAME, 48));
+    set_icon(_pGtkIconTheme->load_icon(CtConst::APP_BIN_NAME, 48));
 #endif
 
     _uCtActions.reset(new CtActions{this});
