@@ -56,7 +56,15 @@ fs::path CtTmp::getHiddenFilePath(const fs::path& visiblePath)
     if (not _mapHiddenFiles.count(visiblePath.string())) {
         fs::path tempDir = getHiddenDirPath(visiblePath);
         fs::path basename = visiblePath.filename();
-        if (basename.extension() == ".ctx") {
+        if (basename.extension() == ".ctxx") {
+            basename = basename.stem();
+            basename += ".ctbx";
+        }
+        else if (basename.extension() == ".ctzx") {
+            basename = basename.stem();
+            basename += ".ctdx";
+        }
+        else if (basename.extension() == ".ctx") {
             basename = basename.stem();
             basename += ".ctb";
         }
@@ -213,8 +221,8 @@ CtStatusIcon::CtStatusIcon(CtApp& ctApp, CtConfig* pCtConfig)
 Gtk::StatusIcon* CtStatusIcon::get()
 {
     if (not _rStatusIcon) {
-        _rStatusIcon = Gtk::StatusIcon::create(CtConst::APP_NAME);
-        _rStatusIcon->set_title(CtConst::APP_NAME);
+        _rStatusIcon = Gtk::StatusIcon::create(CtConst::APP_BIN_NAME);
+        _rStatusIcon->set_title(CtConst::APP_BIN_NAME);
         _rStatusIcon->set_tooltip_markup(_("CherryTree Hierarchical Note Taking"));
         _rStatusIcon->signal_button_press_event().connect([&](GdkEventButton* event) {
             if (event->button == 1) { _ctApp.systray_show_hide_windows(); }
@@ -225,7 +233,7 @@ Gtk::StatusIcon* CtStatusIcon::get()
                 _uStatusIconMenu = std::make_unique<Gtk::Menu>();
                 auto item1 = CtMenu::create_menu_item(_uStatusIconMenu.get(),
                                                       _("Show/Hide _CherryTree"),
-                                                      CtConst::APP_NAME,
+                                                      CtConst::APP_BIN_NAME,
                                                       _pCtConfig->menusTooltips ? _("Toggle Show/Hide CherryTree") : nullptr);
                 item1->signal_activate().connect([&](){ _ctApp.systray_show_hide_windows(); });
                 auto item2 = CtMenu::create_menu_item(_uStatusIconMenu.get(),

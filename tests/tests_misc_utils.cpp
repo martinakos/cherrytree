@@ -475,28 +475,30 @@ TEST(MiscUtilsGroup, vec_extend)
 TEST(MiscUtilsGroup, filepath_extension_fix)
 {
     {
+        // Legacy extension input — should be converted to new extensions
         std::string filepath{"a/test.ctd"};
         CtMiscUtil::filepath_extension_fix(CtDocType::XML, CtDocEncrypt::False, filepath);
-        ASSERT_STREQ("a/test.ctd", filepath.c_str());
+        ASSERT_STREQ("a/test.ctdx", filepath.c_str());
         CtMiscUtil::filepath_extension_fix(CtDocType::XML, CtDocEncrypt::True, filepath);
-        ASSERT_STREQ("a/test.ctz", filepath.c_str());
+        ASSERT_STREQ("a/test.ctzx", filepath.c_str());
         CtMiscUtil::filepath_extension_fix(CtDocType::SQLite, CtDocEncrypt::False, filepath);
-        ASSERT_STREQ("a/test.ctb", filepath.c_str());
+        ASSERT_STREQ("a/test.ctbx", filepath.c_str());
         CtMiscUtil::filepath_extension_fix(CtDocType::SQLite, CtDocEncrypt::True, filepath);
-        ASSERT_STREQ("a/test.ctx", filepath.c_str());
+        ASSERT_STREQ("a/test.ctxx", filepath.c_str());
         CtMiscUtil::filepath_extension_fix(CtDocType::None, CtDocEncrypt::False, filepath);
         ASSERT_STREQ("a/test", filepath.c_str());
     }
     {
+        // Legacy extension input (Windows path) — should be converted to new extensions
         std::string filepath{"b\\test.ctx"};
         CtMiscUtil::filepath_extension_fix(CtDocType::XML, CtDocEncrypt::False, filepath);
-        ASSERT_STREQ("b\\test.ctd", filepath.c_str());
+        ASSERT_STREQ("b\\test.ctdx", filepath.c_str());
         CtMiscUtil::filepath_extension_fix(CtDocType::XML, CtDocEncrypt::True, filepath);
-        ASSERT_STREQ("b\\test.ctz", filepath.c_str());
+        ASSERT_STREQ("b\\test.ctzx", filepath.c_str());
         CtMiscUtil::filepath_extension_fix(CtDocType::SQLite, CtDocEncrypt::False, filepath);
-        ASSERT_STREQ("b\\test.ctb", filepath.c_str());
+        ASSERT_STREQ("b\\test.ctbx", filepath.c_str());
         CtMiscUtil::filepath_extension_fix(CtDocType::SQLite, CtDocEncrypt::True, filepath);
-        ASSERT_STREQ("b\\test.ctx", filepath.c_str());
+        ASSERT_STREQ("b\\test.ctxx", filepath.c_str());
         CtMiscUtil::filepath_extension_fix(CtDocType::None, CtDocEncrypt::False, filepath);
         ASSERT_STREQ("b\\test", filepath.c_str());
     }

@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.10)
 
-project(cherrytree)
+project(cherrytree-docmodel)
 
 file(READ "debian/changelog" CHANGELOG)
-string(REGEX MATCH "cherrytree +\\(([0-9]+)\\.([0-9]+)\\.([0-9]+)[-+]" _ ${CHANGELOG})
-set(CT_VERSION ${CMAKE_MATCH_1}.${CMAKE_MATCH_2}.${CMAKE_MATCH_3})
+string(REGEX MATCH "cherrytree-docmodel +\\(([0-9]+)\\.([0-9]+)\\.([0-9]+)(\\+[a-zA-Z0-9]+)?[-]" _ ${CHANGELOG})
+set(CT_VERSION ${CMAKE_MATCH_1}.${CMAKE_MATCH_2}.${CMAKE_MATCH_3}${CMAKE_MATCH_4})
 set(CT_VERSION_WINDOWS ${CMAKE_MATCH_1},${CMAKE_MATCH_2},${CMAKE_MATCH_3},0)
 message(STATUS "CT_VERSION = ${CT_VERSION}")
 
@@ -46,9 +46,9 @@ endif()
 if(NOT SHARE_INSTALL)
   set(SHARE_INSTALL "share" CACHE STRING "Data file install path. Must be a relative path (from CMAKE_INSTALL_PREFIX), with no trailing slash.")
 endif(NOT SHARE_INSTALL)
-set(CHERRYTREE_SHARE_INSTALL "${SHARE_INSTALL}/cherrytree")
+set(CHERRYTREE_SHARE_INSTALL "${SHARE_INSTALL}/cherrytree-docmodel")
 
-set(CPACK_PACKAGE_NAME "cherrytree")
+set(CPACK_PACKAGE_NAME "cherrytree-docmodel")
 set(CPACK_PACKAGE_CONTACT "Giuseppe Penone <giuspen@gmail.com>")
 set(CPACK_PACKAGE_VENDOR ${CPACK_PACKAGE_CONTACT})
 set(CPACK_PACKAGE_VERSION ${CT_VERSION})
@@ -218,7 +218,7 @@ if(BUILD_TESTING AND NOT DEFINED ENV{DEB_BUILD_OPTIONS})
 endif()
 
 # rebuild man pages
-set(MANFILE_FULL "${CMAKE_SOURCE_DIR}/data/cherrytree.1")
+set(MANFILE_FULL "${CMAKE_SOURCE_DIR}/data/cherrytree-docmodel.1")
 set(MANFILE_FULL_GZ "${MANFILE_FULL}.gz")
 add_custom_command(
   OUTPUT ${MANFILE_FULL_GZ}
@@ -242,24 +242,24 @@ execute_process(
 
 # set icon on macos
 if(APPLE)
-  install(CODE "execute_process(COMMAND ${PYTHON_EXEC} ${CMAKE_SOURCE_DIR}/scripts/set_icon_macos.py ${CMAKE_SOURCE_DIR}/icons/cherrytree.ico ${CMAKE_INSTALL_PREFIX}/bin/cherrytree)")
+  install(CODE "execute_process(COMMAND ${PYTHON_EXEC} ${CMAKE_SOURCE_DIR}/scripts/set_icon_macos.py ${CMAKE_SOURCE_DIR}/icons/cherrytree.ico ${CMAKE_INSTALL_PREFIX}/bin/cherrytree-docmodel)")
 endif(APPLE)
 
 # install other files
 if(${CMAKE_SYSTEM_NAME} MATCHES Linux|.*BSD|DragonFly|Darwin)
   if(NOT APPLE)
     # share data
-    install(FILES "${CMAKE_SOURCE_DIR}/data/cherrytree.desktop"
+    install(FILES "${CMAKE_SOURCE_DIR}/data/cherrytree-docmodel.desktop"
             DESTINATION "${SHARE_INSTALL}/applications")
-    install(FILES "${CMAKE_SOURCE_DIR}/icons/cherrytree.svg"
+    install(FILES "${CMAKE_SOURCE_DIR}/icons/cherrytree-docmodel.svg"
             DESTINATION "${SHARE_INSTALL}/icons/hicolor/scalable/apps")
     install(FILES "${MANFILE_FULL_GZ}"
             DESTINATION "${SHARE_INSTALL}/man/man1")
     install(FILES
-            "${CMAKE_SOURCE_DIR}/data/cherrytree.mime"
-            "${CMAKE_SOURCE_DIR}/data/cherrytree.keys"
+            "${CMAKE_SOURCE_DIR}/data/cherrytree-docmodel.mime"
+            "${CMAKE_SOURCE_DIR}/data/cherrytree-docmodel.keys"
             DESTINATION "${SHARE_INSTALL}/mime-info")
-    install(FILES "${CMAKE_SOURCE_DIR}/data/net.giuspen.cherrytree.metainfo.xml"
+    install(FILES "${CMAKE_SOURCE_DIR}/data/net.giuspen.cherrytree-docmodel.metainfo.xml"
             DESTINATION "${SHARE_INSTALL}/metainfo")
   endif(NOT APPLE)
 

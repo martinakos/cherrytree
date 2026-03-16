@@ -792,6 +792,14 @@ void CtConfig::_populate_data_from_keyfile()
     // [misc]
     _currentGroup = "misc";
     _populate_string_from_keyfile("toolbar_ui_list", &toolbarUiList);
+    if (toolbarUiList.find("act_undo") == std::string::npos) {
+        // migrate saved toolbar: insert undo/redo after go_node_next,separator
+        auto pos = toolbarUiList.find("go_node_next,separator,");
+        if (pos != std::string::npos) {
+            pos += std::string("go_node_next,separator,").size();
+            toolbarUiList.insert(pos, "act_undo,act_redo,separator,");
+        }
+    }
     _populate_bool_from_keyfile("systray", &systrayOn);
     _populate_bool_from_keyfile("start_on_systray", &startOnSystray);
     if (savedFromPyGtk) {
