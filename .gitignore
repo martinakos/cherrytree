@@ -8,6 +8,11 @@ obj-x86_64-linux-gnu
 debian/autoreconf.after
 debian/autoreconf.before
 debian/cherrytree.debhelper.log
+debian/cherrytree-docmodel.debhelper.log
+debian/cherrytree-docmodel/
+debian/cherrytree-docmodel.substvars
+debian/.debhelper/
+debian/debhelper-build-stamp
 debian/files
 build
 *.mo

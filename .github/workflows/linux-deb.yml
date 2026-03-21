@@ -1,0 +1,94 @@
+name: Linux/Deb
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  build-deb:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: ubuntu:24.04
+            label: ubuntu24.04
+          - distro: ubuntu:24.10
+            label: ubuntu24.10
+          - distro: ubuntu:25.04
+            label: ubuntu25.04
+          - distro: debian:12
+            label: debian12
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ matrix.distro }}
+    steps:
+      - name: Install git and deps
+        run: |
+          apt-get update -qq
+          apt-get install -y --no-install-recommends \
+            git \
+            ca-certificates \
+            build-essential \
+            debhelper \
+            devscripts \
+            lsb-release \
+            desktop-file-utils \
+            gettext \
+            cmake \
+            ninja-build \
+            libgtkmm-3.0-dev \
+            libgtksourceview-4-dev \
+            libxml++2.6-dev \
+            libsqlite3-dev \
+            libgspell-1-dev \
+            libcurl4-openssl-dev \
+            libuchardet-dev \
+            libfribidi-dev \
+            libvte-2.91-dev \
+            libfmt-dev \
+            libspdlog-dev \
+            file \
+            libxml2-utils
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Fix debian/control dependencies for this distro
+        run: |
+          # Let dpkg-shlibdeps figure out the right versioned packages.
+          # Remove hardcoded runtime deps that vary across distros and
+          # rely on ${shlibs:Depends} instead.
+          sed -i '/^ libgtkmm-3.0/d' debian/control
+          sed -i '/^ libgtksourceview-4/d' debian/control
+          sed -i '/^ libxml++2.6/d' debian/control
+          sed -i '/^ libsqlite3-0/d' debian/control
+          sed -i '/^ libgspell-1/d' debian/control
+          sed -i '/^ libcurl4/d' debian/control
+          sed -i '/^ libuchardet0/d' debian/control
+          sed -i '/^ libfribidi0/d' debian/control
+          sed -i '/^ libvte-2.91/d' debian/control
+          sed -i '/^ libspdlog/d' debian/control
+      - name: Build deb
+        run: |
+          dpkg-buildpackage -b -uc -us
+      - name: Rename with distro label
+        run: |
+          mkdir -p artifacts
+          for f in ../cherrytree-docmodel_*.deb; do
+            base=$(basename "$f" .deb)
+            cp "$f" "artifacts/${base}_${{ matrix.label }}_$(dpkg --print-architecture).deb"
+          done
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.label }}
+          path: artifacts/*.deb
+          retention-days: 30
+          if-no-files-found: error
+      - name: Upload to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          apt-get install -y --no-install-recommends gh
+          for f in artifacts/*.deb; do
+            gh release upload "${{ github.event.release.tag_name }}" "$f" --clobber
+          done
