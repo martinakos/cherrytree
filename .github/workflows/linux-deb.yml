@@ -72,7 +72,9 @@ jobs:
           mkdir -p artifacts
           for f in ../cherrytree-docmodel_*.deb; do
             base=$(basename "$f" .deb)
-            cp "$f" "artifacts/${base}_${{ matrix.label }}_$(dpkg --print-architecture).deb"
+            # Replace trailing _amd64 (or arch) with _label_arch
+            newname=$(echo "$base" | sed "s/_$(dpkg --print-architecture)$/_${{ matrix.label }}_$(dpkg --print-architecture)/")
+            cp "$f" "artifacts/${newname}.deb"
           done
       - name: Upload artifact
         uses: actions/upload-artifact@v4
