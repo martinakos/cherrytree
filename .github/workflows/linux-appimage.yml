@@ -1,5 +1,8 @@
 name: Linux/AppImage
-on: [workflow_dispatch]
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
 
 jobs:
   linux-appimage:
@@ -38,7 +41,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           path: |
-            build/CherryTree-*.AppImage
-          retention-days: 3
+            build/CherryTree-DocModel-*.AppImage
+          retention-days: 30
           overwrite: true
           if-no-files-found: error
+      - name: Upload to release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.event.release.tag_name }}" build/CherryTree-DocModel-*.AppImage --clobber
