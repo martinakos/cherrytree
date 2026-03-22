@@ -30,6 +30,7 @@
 #include "ct_logging.h"
 #include "ct_misc_utils.h"
 #include "ct_command_bridge.h"
+#include "ct_list.h"
 
 CtTableCommon::CtTableCommon(CtMainWin* pCtMainWin,
                              const int colWidthDefault,
@@ -130,6 +131,25 @@ bool CtTableCommon::on_cell_key_press_event(GdkEventKey* event)
     _pCtMainWin->get_ct_actions()->curr_table_anchor = this;
     int index{-1};
     if (event->keyval == GDK_KEY_Tab or event->keyval == GDK_KEY_ISO_Left_Tab) {
+        // In rich cells, Tab/Shift+Tab indent/unindent list items; otherwise insert tab
+        if (get_type() == CtAnchWidgType::TableRich) {
+            if (auto* pTable = dynamic_cast<CtTableRich*>(this)) {
+                CtTextView& cellTextView = pTable->curr_cell_text_view();
+                auto cellBuffer = cellTextView.get_buffer();
+                if (!cellBuffer->get_has_selection()) {
+                    auto iter_insert = cellBuffer->get_insert()->get_iter();
+                    CtListInfo list_info = CtList{_pCtConfig, cellBuffer}.get_paragraph_list_info(iter_insert);
+                    if (list_info) {
+                        bool level_increase = !(event->state & Gdk::SHIFT_MASK);
+                        if (level_increase || list_info.level) {
+                            cellTextView.list_change_level(iter_insert, list_info, level_increase);
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false; // let GtkSourceView insert the tab character
+        }
         if (event->state & Gdk::SHIFT_MASK) {
             index = rowIdx * get_num_columns() + colIdx - 1;
         }
