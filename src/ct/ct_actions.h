@@ -375,7 +375,7 @@ private:
                             Gtk::TextIter insertIter,
                             Gtk::TextIter* pIterBound);
     void _text_selection_change_case(gchar change_type);
-    int  _find_previous_indent_margin();
+    int  _find_previous_indent_margin(Glib::RefPtr<Gtk::TextBuffer> text_buffer = Glib::RefPtr<Gtk::TextBuffer>{});
     void _apply_tag_hN(const char* tagPropScaleVal);
     void _remove_text_formatting(const bool dismiss_link);
     // RT-4: routes a format operation into the active rich table cell.

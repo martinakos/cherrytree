@@ -10,6 +10,7 @@
 #include "ct_command_bridge.h"
 #include "ct_codebox.h"
 #include "ct_table.h"
+#include "ct_list.h"
 #include <gtest/gtest.h>
 #include <gdk/gdkkeysyms.h>
 #include <random>
@@ -176,6 +177,12 @@ private:
     void _test_format_bold_italic_underline_stack(CtMainWin* pWin);
     void _test_format_overlapping_ranges(CtMainWin* pWin);
     void _test_format_then_type_separate_undo(CtMainWin* pWin);
+
+    // Rich cell list and indentation tests
+    void _test_rich_cell_list_insertion(CtMainWin* pWin);
+    void _test_rich_cell_indent_free_text(CtMainWin* pWin);
+    void _test_rich_cell_tab_inserts_tab(CtMainWin* pWin);
+    void _test_rich_cell_tab_indents_list(CtMainWin* pWin);
 };
 
 void TestGuiSimulationApp::on_activate()
@@ -250,6 +257,12 @@ void TestGuiSimulationApp::_run_tests(CtMainWin* pWin)
     _test_format_bold_italic_underline_stack(pWin);
     _test_format_overlapping_ranges(pWin);
     _test_format_then_type_separate_undo(pWin);
+
+    // Rich cell list and indentation tests
+    _test_rich_cell_list_insertion(pWin);
+    _test_rich_cell_indent_free_text(pWin);
+    _test_rich_cell_tab_inserts_tab(pWin);
+    _test_rich_cell_tab_indents_list(pWin);
 
     spdlog::info("=== GUI simulation test passed! ===");
 }
@@ -3933,6 +3946,281 @@ void TestGuiSimulationApp::_test_format_then_type_separate_undo(CtMainWin* pWin)
 
     while (pBridge->canUndo()) pActions->requested_step_back();
     spdlog::info("✓ format then type separate undo");
+}
+
+// ─── Rich cell list and indentation tests ─────────────────────────────────────
+
+// Helper: set up a 1×1 rich table with given text in cell (0,0), begin tracking
+struct RichCellTestSetup {
+    CtTableRich* pTable{nullptr};
+    Glib::RefPtr<Gtk::TextBuffer> cellBuf;
+    gint64 nodeId{0};
+    int charOffset{0};
+};
+
+static RichCellTestSetup prepareRichCellTest(CtMainWin* pWin, const Glib::ustring& cellText)
+{
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    gint64 nodeId = ctIter.get_node_id();
+    auto buffer = pWin->curr_buffer();
+    auto docModel = pBridge->getDocumentModel();
+
+    pBridge->endTextEditSession();
+    buffer->place_cursor(buffer->end());
+    int charOffset = buffer->get_insert()->get_iter().get_offset();
+
+    std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+    if (!cellText.empty()) {
+        richData[0][0].textSpans.push_back(CtTextSpan{cellText});
+    }
+
+    auto* pTable = new CtTableRich{pWin, richData, 120, charOffset, "", CtTableColWidths{}};
+    pTable->insertInTextBuffer(buffer);
+    pWin->get_tree_store().addAnchoredWidgets(
+        pWin->curr_tree_iter(), {pTable}, &pWin->get_text_view().mm());
+
+    auto desc = extractWidgetDesc(pTable, charOffset);
+    auto insertCmd = std::make_unique<InsertWidgetDeltaCommand>(
+        docModel, nodeId, charOffset, desc, "Insert rich table");
+    pBridge->addCommandToStack(std::move(insertCmd));
+    auto node = docModel->getNodeById(nodeId);
+    if (node) node->getContent().insertWidget(charOffset, desc);
+    GuiEventSimulator::process_pending_events();
+
+    // Set curr_table_anchor so _table_in_use() works (normally set by mouse click)
+    pWin->get_ct_actions()->curr_table_anchor = pTable;
+    // Place main buffer cursor at table anchor so _table_in_use() finds it
+    buffer->place_cursor(buffer->get_iter_at_offset(charOffset));
+
+    pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+    auto cellBuf = pTable->get_buffer(0, 0);
+
+    return {pTable, cellBuf, nodeId, charOffset};
+}
+
+static void cleanupRichCellTest(CtMainWin* pWin)
+{
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+    pBridge->endWidgetEdit();
+    GuiEventSimulator::process_pending_events();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+}
+
+void TestGuiSimulationApp::_test_rich_cell_list_insertion(CtMainWin* pWin)
+{
+    spdlog::info("Test: Rich cell — list insertion (bulleted, numbered, todo)");
+
+    auto pActions = pWin->get_ct_actions();
+    const auto pConfig = pWin->get_ct_config();
+
+    // Test bulleted list
+    {
+        auto setup = prepareRichCellTest(pWin, "");
+        ASSERT_TRUE(setup.cellBuf);
+        setup.cellBuf->place_cursor(setup.cellBuf->begin());
+
+        pActions->list_bulleted_handler();
+        GuiEventSimulator::process_pending_events();
+
+        Glib::ustring text = setup.cellBuf->get_text();
+        EXPECT_TRUE(text.find(pConfig->charsListbul[0]) != Glib::ustring::npos)
+            << "Cell should contain bullet character, got: '" << text << "'";
+
+        cleanupRichCellTest(pWin);
+    }
+
+    // Test numbered list
+    {
+        auto setup = prepareRichCellTest(pWin, "");
+        ASSERT_TRUE(setup.cellBuf);
+        setup.cellBuf->place_cursor(setup.cellBuf->begin());
+
+        pActions->list_numbered_handler();
+        GuiEventSimulator::process_pending_events();
+
+        Glib::ustring text = setup.cellBuf->get_text();
+        EXPECT_TRUE(text.find("1.") != Glib::ustring::npos || text.find("1)") != Glib::ustring::npos)
+            << "Cell should contain numbered list prefix, got: '" << text << "'";
+
+        cleanupRichCellTest(pWin);
+    }
+
+    // Test todo list
+    {
+        auto setup = prepareRichCellTest(pWin, "");
+        ASSERT_TRUE(setup.cellBuf);
+        setup.cellBuf->place_cursor(setup.cellBuf->begin());
+
+        pActions->list_todo_handler();
+        GuiEventSimulator::process_pending_events();
+
+        Glib::ustring text = setup.cellBuf->get_text();
+        EXPECT_TRUE(text.find(pConfig->charsTodo[0]) != Glib::ustring::npos)
+            << "Cell should contain todo character, got: '" << text << "'";
+
+        cleanupRichCellTest(pWin);
+    }
+
+    spdlog::info("✓ Rich cell list insertion test passed");
+}
+
+void TestGuiSimulationApp::_test_rich_cell_indent_free_text(CtMainWin* pWin)
+{
+    spdlog::info("Test: Rich cell — toolbar indent/unindent on free text");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    auto setup = prepareRichCellTest(pWin, "hello");
+    ASSERT_TRUE(setup.cellBuf);
+    ASSERT_TRUE(pBridge->isTrackingRichCell());
+
+    setup.cellBuf->place_cursor(setup.cellBuf->begin());
+
+    // Apply indent
+    pActions->apply_tag_indent();
+    GuiEventSimulator::process_pending_events();
+
+    // Check that an indent tag was applied to the cell buffer
+    {
+        auto iter = setup.cellBuf->begin();
+        auto tags = iter.get_tags();
+        bool hasIndent = false;
+        for (auto& tag : tags) {
+            if (tag->property_name().get_value().find("indent_") == 0) {
+                hasIndent = true;
+                break;
+            }
+        }
+        EXPECT_TRUE(hasIndent)
+            << "Cell text should have indent tag after apply_tag_indent";
+    }
+
+    // Unindent
+    pActions->reduce_tag_indent();
+    GuiEventSimulator::process_pending_events();
+
+    // Check that indent tag was removed
+    {
+        auto iter = setup.cellBuf->begin();
+        auto tags = iter.get_tags();
+        bool hasIndent = false;
+        for (auto& tag : tags) {
+            if (tag->property_name().get_value().find("indent_") == 0) {
+                hasIndent = true;
+                break;
+            }
+        }
+        EXPECT_FALSE(hasIndent)
+            << "Cell text should have no indent tag after reduce_tag_indent";
+    }
+
+    cleanupRichCellTest(pWin);
+    spdlog::info("✓ Rich cell indent free text test passed");
+}
+
+void TestGuiSimulationApp::_test_rich_cell_tab_inserts_tab(CtMainWin* pWin)
+{
+    spdlog::info("Test: Rich cell — Tab on non-list text does not navigate away");
+
+    auto setup = prepareRichCellTest(pWin, "hello");
+    ASSERT_TRUE(setup.cellBuf);
+
+    setup.cellBuf->place_cursor(setup.cellBuf->begin());
+
+    // Invoke the table's key press handler directly with a Tab event
+    GdkEventKey event;
+    memset(&event, 0, sizeof(event));
+    event.type = GDK_KEY_PRESS;
+    event.keyval = GDK_KEY_Tab;
+    event.state = 0;
+
+    bool handled = setup.pTable->on_cell_key_press_event(&event);
+
+    // For rich cells with non-list text, the handler should return false
+    // to let GtkSourceView insert the tab character (not navigate to next cell)
+    EXPECT_FALSE(handled)
+        << "Tab on non-list text in rich cell should return false (not navigate)";
+
+    cleanupRichCellTest(pWin);
+    spdlog::info("✓ Rich cell tab inserts tab test passed");
+}
+
+void TestGuiSimulationApp::_test_rich_cell_tab_indents_list(CtMainWin* pWin)
+{
+    spdlog::info("Test: Rich cell — Tab on list item indents it");
+
+    auto pActions = pWin->get_ct_actions();
+    const auto pConfig = pWin->get_ct_config();
+
+    auto setup = prepareRichCellTest(pWin, "");
+    ASSERT_TRUE(setup.cellBuf);
+
+    // Insert a bulleted list item
+    setup.cellBuf->place_cursor(setup.cellBuf->begin());
+    pActions->list_bulleted_handler();
+    GuiEventSimulator::process_pending_events();
+
+    int levelBefore = 0;
+    {
+        auto iter = setup.cellBuf->begin();
+        CtListInfo info = CtList{pConfig, setup.cellBuf}.get_paragraph_list_info(iter);
+        ASSERT_TRUE(info) << "Should be in a list after list_bulleted_handler";
+        levelBefore = info.level;
+    }
+
+    // Invoke on_cell_key_press_event directly with Tab
+    GdkEventKey tabEvent;
+    memset(&tabEvent, 0, sizeof(tabEvent));
+    tabEvent.type = GDK_KEY_PRESS;
+    tabEvent.keyval = GDK_KEY_Tab;
+    tabEvent.state = 0;
+
+    bool handled = setup.pTable->on_cell_key_press_event(&tabEvent);
+    GuiEventSimulator::process_pending_events();
+    EXPECT_TRUE(handled) << "Tab on list item in rich cell should be handled (indent)";
+
+    {
+        auto iter = setup.cellBuf->begin();
+        CtListInfo info = CtList{pConfig, setup.cellBuf}.get_paragraph_list_info(iter);
+        ASSERT_TRUE(info) << "Should still be in a list after Tab";
+        EXPECT_GT(info.level, levelBefore)
+            << "List level should increase after Tab";
+    }
+
+    // Invoke Shift+Tab to unindent back
+    GdkEventKey shiftTabEvent;
+    memset(&shiftTabEvent, 0, sizeof(shiftTabEvent));
+    shiftTabEvent.type = GDK_KEY_PRESS;
+    shiftTabEvent.keyval = GDK_KEY_ISO_Left_Tab;
+    shiftTabEvent.state = GDK_SHIFT_MASK;
+
+    handled = setup.pTable->on_cell_key_press_event(&shiftTabEvent);
+    GuiEventSimulator::process_pending_events();
+    EXPECT_TRUE(handled) << "Shift+Tab on indented list item should be handled (unindent)";
+
+    {
+        auto iter = setup.cellBuf->begin();
+        CtListInfo info = CtList{pConfig, setup.cellBuf}.get_paragraph_list_info(iter);
+        ASSERT_TRUE(info) << "Should still be in a list after Shift+Tab";
+        EXPECT_EQ(info.level, levelBefore)
+            << "List level should return to original after Shift+Tab";
+    }
+
+    cleanupRichCellTest(pWin);
+    spdlog::info("✓ Rich cell tab indents list test passed");
 }
 
 TEST(CommandGuiSimulationTests, Phase6_3_GuiEventSimulation)
