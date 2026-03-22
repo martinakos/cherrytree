@@ -402,9 +402,20 @@ void CtActions::apply_tag_indent()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
 
-    // Not supported in rich cells — return early to preserve widget tracking state
     auto pBridge = _pCtMainWin->get_command_bridge();
-    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) return;
+
+    // Route to rich cell buffer when active
+    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+        auto cellBuffer = pBridge->getActiveRichCellBuffer();
+        if (!cellBuffer) return;
+        CtTextRange range = CtList{_pCtConfig, cellBuffer}.get_paragraph_iters();
+        if (not range.iter_start) return;
+        int newMargin = _find_previous_indent_margin(cellBuffer) + 1;
+        pBridge->flushRichCellSession();
+        apply_tag(CtConst::TAG_INDENT, std::to_string(newMargin), range.iter_start, range.iter_end, cellBuffer);
+        pBridge->commitRichCellFormatChange("indent");
+        return;
+    }
 
     CtTextRange range = CtList{_pCtConfig, _curr_buffer()}.get_paragraph_iters();
     if (not range.iter_start) return;
@@ -429,9 +440,25 @@ void CtActions::reduce_tag_indent()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
 
-    // Not supported in rich cells — return early to preserve widget tracking state
     auto pBridge = _pCtMainWin->get_command_bridge();
-    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) return;
+
+    // Route to rich cell buffer when active
+    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+        auto cellBuffer = pBridge->getActiveRichCellBuffer();
+        if (!cellBuffer) return;
+        CtTextRange range = CtList{_pCtConfig, cellBuffer}.get_paragraph_iters();
+        if (not range.iter_start) return;
+        int newMargin = _find_previous_indent_margin(cellBuffer) - 1;
+        pBridge->flushRichCellSession();
+        if (newMargin < 1) {
+            cellBuffer->remove_tag_by_name("indent_1", range.iter_start, range.iter_end);
+        }
+        else {
+            apply_tag(CtConst::TAG_INDENT, std::to_string(newMargin), range.iter_start, range.iter_end, cellBuffer);
+        }
+        pBridge->commitRichCellFormatChange("unindent");
+        return;
+    }
 
     CtTextRange range = CtList{_pCtConfig, _curr_buffer()}.get_paragraph_iters();
     if (not range.iter_start) return;
@@ -458,9 +485,10 @@ void CtActions::reduce_tag_indent()
 
 //See if there's already an indent tag on the current text, & if so, return its numerical margin.
 //If not, return the default "zero margin" (i.e. the margin shown in the UI when there's no indentation)
-int CtActions::_find_previous_indent_margin()
+int CtActions::_find_previous_indent_margin(Glib::RefPtr<Gtk::TextBuffer> text_buffer)
 {
-    CtTextRange range = CtList{_pCtConfig, _curr_buffer()}.get_paragraph_iters();
+    if (!text_buffer) text_buffer = _curr_buffer();
+    CtTextRange range = CtList{_pCtConfig, text_buffer}.get_paragraph_iters();
     std::vector<Glib::RefPtr<Gtk::TextTag>> curr_tags = range.iter_start.get_tags();
     for (auto& curr_tag : curr_tags) {
         Glib::ustring curr_tag_name = curr_tag->property_name();
@@ -960,6 +988,13 @@ CtActions::text_view_n_buffer_codebox_proof CtActions::_get_text_view_n_buffer_c
             &pCodebox->get_text_view(),
             pCodebox->get_syntax_highlighting(),
             pCodebox,
+            nullptr};
+    }
+    if (auto pTable = dynamic_cast<CtTableRich*>(_table_in_use())) {
+        return text_view_n_buffer_codebox_proof{
+            &pTable->curr_cell_text_view(),
+            CtConst::RICH_TEXT_ID,
+            nullptr,
             nullptr};
     }
     if (auto pTable = dynamic_cast<CtTableHeavy*>(_table_in_use())) {
