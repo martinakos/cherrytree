@@ -89,6 +89,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           apt-get install -y --no-install-recommends gh
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
           for f in artifacts/*.deb; do
             gh release upload "${{ github.event.release.tag_name }}" "$f" --clobber
           done
