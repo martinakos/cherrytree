@@ -548,13 +548,23 @@ void CtActions::codebox_copy_content()
 void CtActions::codebox_delete()
 {
     if (not _is_there_anch_widg_selection_or_error('c')) return;
-    Gtk::TextIter iter = _curr_buffer()->get_iter_at_child_anchor(curr_codebox_anchor->getTextChildAnchor());
-    Gtk::TextIter iter_b = iter;
-    iter_b.forward_char();
-    _curr_buffer()->select_range(iter, iter_b);
+
+    // Same beginCut/endCut guard as codebox_delete_keeping_text — prevents
+    // the focus-out re-entrancy during erase_selection.
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->beginCut(nodeId);
+    }
+
+    object_set_selection(curr_codebox_anchor);
     _curr_buffer()->erase_selection(true, _pCtMainWin->get_text_view().mm().get_editable());
     curr_codebox_anchor = nullptr;
     _pCtMainWin->get_text_view().mm().grab_focus();
+
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endCut();
+    }
 }
 
 void CtActions::codebox_delete_keeping_text()
@@ -562,14 +572,26 @@ void CtActions::codebox_delete_keeping_text()
     if (not _is_there_anch_widg_selection_or_error('c')) return;
     if (not _is_curr_node_not_read_only_or_error()) return;
     Glib::ustring content = curr_codebox_anchor->get_text_content();
-    Gtk::TextIter iter = _curr_buffer()->get_iter_at_child_anchor(curr_codebox_anchor->getTextChildAnchor());
-    Gtk::TextIter iter_b = iter;
-    iter_b.forward_char();
-    _curr_buffer()->select_range(iter, iter_b);
+
+    // Wrap in beginCut/endCut so the widget edit session is properly ended
+    // before the codebox is destroyed.  Without this, erase_selection triggers
+    // the codebox's focus-out signal which re-enters endWidgetEdit →
+    // beginTextEditSession mid-buffer-modification, freezing indefinitely.
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->beginCut(nodeId);
+    }
+
+    object_set_selection(curr_codebox_anchor);
     _curr_buffer()->erase_selection(true, _pCtMainWin->get_text_view().mm().get_editable());
     curr_codebox_anchor = nullptr;
     _pCtMainWin->get_text_view().mm().grab_focus();
     _curr_buffer()->insert_at_cursor(content);
+
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endCut();
+    }
 }
 
 void CtActions::codebox_change_properties()
