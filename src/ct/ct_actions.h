@@ -323,6 +323,15 @@ private:
     text_view_n_buffer_codebox_proof _get_text_view_n_buffer_codebox_proof();
     CtCodebox* _codebox_in_use();
     CtTableCommon* _table_in_use();
+    // Find the rich cell containing an in-cell codebox. Returns false if not in a cell.
+    struct InCellCodeboxInfo {
+        CtTableRich* table{nullptr};
+        CtRichCell*  cell{nullptr};
+        int tableOffset{-1};
+        size_t row{0};
+        size_t col{0};
+    };
+    bool _find_codebox_rich_cell(CtCodebox* pCodebox, InCellCodeboxInfo& info);
     void _save_tags_at_cursor_as_latest(Glib::RefPtr<Gtk::TextBuffer> pTextBuffer,
                                         int cursorOffset);
     bool _links_entries_pre_dialog(const Glib::ustring& curr_link,
@@ -435,6 +444,7 @@ private:
                              Gtk::TextIter* iter_bound);
     bool _on_embfiles_sentinel_timeout();
     void _exec_code(const bool is_all);
+    void _codebox_delete_impl(bool keepText);
     void _link_right_click_pre_action();
 
 public:

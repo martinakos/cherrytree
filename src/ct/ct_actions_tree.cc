@@ -28,6 +28,7 @@
 #include "ct_clipboard.h"
 #include "ct_treestore.h"
 #include "ct_command_bridge.h"
+#include "ct_table.h"
 #include <ctime>
 #include <gtkmm/dialog.h>
 
@@ -84,6 +85,15 @@ bool CtActions::_is_there_anch_widg_selection_or_error(const char anch_widg_id)
 {
     if (not _is_there_selected_node_or_error()) return false;
     if (not _is_curr_node_not_syntax_highlighting_or_error()) return false;
+
+    // curr_codebox_anchor is set by the popup/button-press handler before any
+    // menu action fires.  Trust it directly — the cursor-based lookup below
+    // fails when the codebox was right-clicked (object_set_selection is skipped
+    // for button==3) or when the codebox lives inside a rich table cell.
+    if ('c' == anch_widg_id && curr_codebox_anchor) {
+        return true;
+    }
+
     bool already_failed{false};
     Gtk::TextIter iter_insert;
     if (_curr_buffer()->get_has_selection()) {
@@ -118,6 +128,34 @@ bool CtActions::_is_there_anch_widg_selection_or_error(const char anch_widg_id)
     }
     if ('t' == anch_widg_id) CtDialogs::error_dialog(_("No Table is Selected."), *_pCtMainWin);
     else if ('c' == anch_widg_id) CtDialogs::error_dialog(_("No CodeBox is Selected."), *_pCtMainWin);
+    return false;
+}
+
+bool CtActions::_find_codebox_rich_cell(CtCodebox* pCodebox, InCellCodeboxInfo& info)
+{
+    if (!pCodebox) return false;
+    Gtk::Widget* parent = pCodebox->get_parent();
+    if (!parent || parent == &_pCtMainWin->get_text_view().mm()) return false;
+
+    for (auto* w : _pCtMainWin->curr_tree_iter().get_anchored_widgets()) {
+        if (w->get_type() != CtAnchWidgType::TableRich) continue;
+        auto* pTable = static_cast<CtTableRich*>(w);
+        for (size_t r = 0; r < pTable->get_num_rows(); ++r) {
+            for (size_t c = 0; c < pTable->get_num_columns(); ++c) {
+                auto* pCell = pTable->getRichCell(r, c);
+                for (auto* emb : pCell->getEmbeddedWidgets()) {
+                    if (emb == pCodebox) {
+                        info.table = pTable;
+                        info.cell = pCell;
+                        info.tableOffset = w->getOffset();
+                        info.row = r;
+                        info.col = c;
+                        return true;
+                    }
+                }
+            }
+        }
+    }
     return false;
 }
 

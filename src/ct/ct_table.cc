@@ -23,6 +23,7 @@
 
 #include "ct_table.h"
 #include "ct_clipboard.h"
+#include "ct_codebox.h"
 #include "ct_main_win.h"
 #include "ct_actions.h"
 #include "ct_storage_sqlite.h"
@@ -821,6 +822,12 @@ CtRichCell::CtRichCell(CtMainWin* pCtMainWin, const CtCellContent& content)
 
 CtRichCell::~CtRichCell()
 {
+    // Clear the buffer to detach all child-anchored widgets before deleting them.
+    // A codebox has its own text view/buffer; if it's still anchored in this cell
+    // when destroyed, GTK's internal teardown can assert on invalidated marks.
+    if (_rTextBuffer) {
+        _rTextBuffer->erase(_rTextBuffer->begin(), _rTextBuffer->end());
+    }
     for (auto* w : _embeddedWidgets) { delete w; }
 }
 
@@ -852,6 +859,18 @@ CtAnchoredWidget* CtRichCell::_createWidgetFromDesc(const CtWidgetDesc& desc, in
         if (desc.type == CtAnchWidgType::ImageLatex) {
             return new CtImageLatex{_pCtMainWin, desc.getContent(), charOffset, justification,
                                     CtImageEmbFile::get_next_unique_id()};
+        }
+        if (desc.type == CtAnchWidgType::CodeBox) {
+            return new CtCodebox{_pCtMainWin,
+                                 desc.getContent(),
+                                 desc.getSyntaxHighlighting(),
+                                 desc.getFrameWidth(),
+                                 desc.getFrameHeight(),
+                                 charOffset,
+                                 justification,
+                                 desc.isWidthInPixels(),
+                                 desc.isHighlightBrackets(),
+                                 desc.isShowLineNumbers()};
         }
     }
     catch (const std::exception& e) {

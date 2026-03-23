@@ -23,6 +23,8 @@
 
 #include "ct_widget_commands.h"
 #include "ct_logging.h"
+#include "ct_main_win.h"
+#include "ct_table.h"
 
 // InsertWidgetDeltaCommand implementation
 
@@ -201,6 +203,25 @@ void EditRichCellCommand::_applyContent(const CtCellContent& content)
     auto node = _docModel->getNodeById(_nodeId);
     if (!node) return;
     node->getContent().setWidgetRichTableCell(_widgetCharOffset, _row, _col, content);
+
+    // When a main window is available, update the live cell widget directly
+    // instead of triggering a full buffer rebuild (which crashes when cells
+    // contain codeboxes due to nested text view destruction ordering).
+    if (_pMainWin) {
+        auto treeIter = _pMainWin->get_tree_store().get_node_from_node_id(_nodeId);
+        if (treeIter) {
+            for (auto* w : treeIter.get_anchored_widgets()) {
+                if (w->getOffset() == _widgetCharOffset && w->get_type() == CtAnchWidgType::TableRich) {
+                    auto* pTable = static_cast<CtTableRich*>(w);
+                    if (_row < pTable->get_num_rows() && _col < pTable->get_num_columns()) {
+                        pTable->getRichCell(_row, _col)->populateFromContent(content);
+                    }
+                    return;
+                }
+            }
+        }
+    }
+    // Fallback: notify observers for a full buffer rebuild.
     _docModel->notifyNodeChanged(_nodeId);
 }
 

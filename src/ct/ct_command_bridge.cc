@@ -1217,6 +1217,7 @@ void CtCommandBridge::flushRichCellSession()
         _widgetEditOldCursorPos,
         cursorPos,
         std::move(desc));
+    cmd->setMainWin(_pMainWin);
 
     double scrollPosNew = -1.0;
     auto adj = _pMainWin->getScrolledwindowText().get_vadjustment();
@@ -1299,6 +1300,7 @@ void CtCommandBridge::commitRichCellFormatChange(std::string description)
         cursorPos,
         cursorPos,
         std::move(description));
+    cmd->setMainWin(_pMainWin);
 
     double scrollPosNew = -1.0;
     auto adj = _pMainWin->getScrolledwindowText().get_vadjustment();

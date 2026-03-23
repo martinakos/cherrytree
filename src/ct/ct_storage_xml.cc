@@ -740,7 +740,9 @@ CtAnchoredWidget* CtStorageXmlHelper::_create_table_from_xml(xmlpp::Element* xml
 CtWidgetDesc CtStorageXmlHelper::_parse_embedded_widget_xml(xmlpp::Element* elem)
 {
     CtAnchWidgType wtype = CtAnchWidgType::None;
-    if (!elem->get_attribute_value("anchor").empty()) {
+    if (elem->get_name() == "codebox") {
+        wtype = CtAnchWidgType::CodeBox;
+    } else if (!elem->get_attribute_value("anchor").empty()) {
         wtype = CtAnchWidgType::ImageAnchor;
     } else if (elem->get_attribute_value("filename") == "latex") {
         wtype = CtAnchWidgType::ImageLatex;
@@ -785,7 +787,8 @@ CtAnchoredWidget* CtStorageXmlHelper::_create_rich_table_from_xml(xmlpp::Element
                         span.text = tn ? tn->get_content() : "";
                         cellContent.textSpans.push_back(std::move(span));
                     }
-                    else if (childElem->get_name() == "encoded_png") {
+                    else if (childElem->get_name() == "encoded_png" ||
+                             childElem->get_name() == "codebox") {
                         CtWidgetDesc wd = _parse_embedded_widget_xml(childElem);
                         if (wd.type != CtAnchWidgType::None) {
                             cellContent.embeddedWidgets.push_back(std::move(wd));

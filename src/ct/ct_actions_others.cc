@@ -506,22 +506,65 @@ void CtActions::codebox_copy_content()
 void CtActions::codebox_delete()
 {
     if (not _is_there_anch_widg_selection_or_error('c')) return;
-    object_set_selection(curr_codebox_anchor);
-    _curr_buffer()->erase_selection(true, _pCtMainWin->get_text_view().mm().get_editable());
-    curr_codebox_anchor = nullptr;
-   _pCtMainWin->get_text_view().mm().grab_focus();
+    _codebox_delete_impl(false/*keepText*/);
 }
 
 void CtActions::codebox_delete_keeping_text()
 {
     if (not _is_there_anch_widg_selection_or_error('c')) return;
     if (not _is_curr_node_not_read_only_or_error()) return;
-    Glib::ustring content = curr_codebox_anchor->get_text_content();
+    _codebox_delete_impl(true/*keepText*/);
+}
+
+void CtActions::_codebox_delete_impl(bool keepText)
+{
+    Glib::ustring codeboxText;
+    if (keepText) {
+        codeboxText = curr_codebox_anchor->get_text_content();
+    }
+
+    InCellCodeboxInfo ci;
+    if (_find_codebox_rich_cell(curr_codebox_anchor, ci)) {
+        // In-cell codebox: operate on cell buffer, create undo command.
+        CtCellContent oldContent = ci.cell->extractContent();
+
+        auto cellBuf = ci.cell->get_buffer();
+        auto anchor = curr_codebox_anchor->getTextChildAnchor();
+        auto iter = cellBuf->get_iter_at_child_anchor(anchor);
+        auto iterEnd = iter;
+        iterEnd.forward_char();
+        cellBuf->erase(iter, iterEnd);
+        if (keepText && !codeboxText.empty()) {
+            cellBuf->insert(iter, codeboxText);
+        }
+
+        curr_codebox_anchor = nullptr;
+
+        CtCellContent newContent = ci.cell->extractContent();
+
+        auto pBridge = _pCtMainWin->get_command_bridge();
+        if (pBridge && pBridge->isActive()) {
+            gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+            auto cmd = std::make_unique<EditRichCellCommand>(
+                pBridge->getDocumentModel(), nodeId, ci.tableOffset,
+                ci.row, ci.col, oldContent, newContent, -1, -1,
+                keepText ? "Delete codebox keeping text" : "Delete codebox");
+            cmd->setMainWin(_pCtMainWin);
+            cmd->execute();
+            pBridge->addCommandToStack(std::move(cmd));
+        }
+        _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true);
+        return;
+    }
+
+    // Outside-table codebox: operate on main node buffer.
     object_set_selection(curr_codebox_anchor);
     _curr_buffer()->erase_selection(true, _pCtMainWin->get_text_view().mm().get_editable());
     curr_codebox_anchor = nullptr;
     _pCtMainWin->get_text_view().mm().grab_focus();
-    _curr_buffer()->insert_at_cursor(content);
+    if (keepText && !codeboxText.empty()) {
+        _curr_buffer()->insert_at_cursor(codeboxText);
+    }
 }
 
 void CtActions::codebox_change_properties()
@@ -537,6 +580,11 @@ void CtActions::codebox_change_properties()
 
     if (not CtDialogs::codeboxhandle_dialog(_pCtMainWin, _("Edit CodeBox"))) return;
 
+    InCellCodeboxInfo ci;
+    CtCellContent oldContent;
+    if (_find_codebox_rich_cell(curr_codebox_anchor, ci))
+        oldContent = ci.cell->extractContent();
+
     curr_codebox_anchor->set_syntax_highlighting(_pCtConfig->codeboxSynHighl,
                                                  _pCtMainWin->get_language_manager());
     curr_codebox_anchor->update_toolbar_buttons();
@@ -544,6 +592,20 @@ void CtActions::codebox_change_properties()
     curr_codebox_anchor->set_width_height((int)_pCtConfig->codeboxWidth, (int)_pCtConfig->codeboxHeight);
     curr_codebox_anchor->set_show_line_numbers(_pCtConfig->codeboxLineNum);
     curr_codebox_anchor->set_highlight_brackets(_pCtConfig->codeboxMatchBra);
+
+    if (ci.cell) {
+        auto pBridge = _pCtMainWin->get_command_bridge();
+        if (pBridge && pBridge->isActive()) {
+            gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+            auto newContent = ci.cell->extractContent();
+            auto cmd = std::make_unique<EditRichCellCommand>(
+                pBridge->getDocumentModel(), nodeId, ci.tableOffset,
+                ci.row, ci.col, oldContent, newContent, -1, -1, "Change codebox properties");
+            cmd->setMainWin(_pCtMainWin);
+            cmd->execute();
+            pBridge->addCommandToStack(std::move(cmd));
+        }
+    }
     _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
 }
 
@@ -673,19 +735,40 @@ void CtActions::codebox_increase_width()
 {
     if (not _is_there_anch_widg_selection_or_error('c')) return;
     if (_pCtMainWin->curr_tree_iter().get_node_read_only()) return;
+
+    InCellCodeboxInfo ci;
+    CtCellContent oldContent;
+    if (_find_codebox_rich_cell(curr_codebox_anchor, ci))
+        oldContent = ci.cell->extractContent();
+
     int prevFrameWidth = curr_codebox_anchor->get_frame_width();
+    bool changed = false;
     if (curr_codebox_anchor->get_width_in_pixels()) {
         if (_pCtConfig->codeboxAutoResizeW and prevFrameWidth < curr_codebox_anchor->get_text_view().mm().get_allocated_width() ) {
             prevFrameWidth = curr_codebox_anchor->get_text_view().mm().get_allocated_width();
         }
         curr_codebox_anchor->set_width_height(prevFrameWidth + CtCodebox::CB_WIDTH_HEIGHT_STEP_PIX, 0);
-        _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf);
+        changed = true;
     }
-    else {
-        if (prevFrameWidth + CtCodebox::CB_WIDTH_HEIGHT_STEP_PERC < 100) {
-            curr_codebox_anchor->set_width_height(prevFrameWidth + CtCodebox::CB_WIDTH_HEIGHT_STEP_PERC, 0);
-            _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf);
+    else if (prevFrameWidth + CtCodebox::CB_WIDTH_HEIGHT_STEP_PERC < 100) {
+        curr_codebox_anchor->set_width_height(prevFrameWidth + CtCodebox::CB_WIDTH_HEIGHT_STEP_PERC, 0);
+        changed = true;
+    }
+    if (changed) {
+        if (ci.cell) {
+            auto pBridge = _pCtMainWin->get_command_bridge();
+            if (pBridge && pBridge->isActive()) {
+                gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+                auto newContent = ci.cell->extractContent();
+                auto cmd = std::make_unique<EditRichCellCommand>(
+                    pBridge->getDocumentModel(), nodeId, ci.tableOffset,
+                    ci.row, ci.col, oldContent, newContent, -1, -1, "Resize codebox");
+                cmd->setMainWin(_pCtMainWin);
+                cmd->execute();
+                pBridge->addCommandToStack(std::move(cmd));
+            }
         }
+        _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf);
     }
 }
 
@@ -693,17 +776,38 @@ void CtActions::codebox_decrease_width()
 {
     if (not _is_there_anch_widg_selection_or_error('c')) return;
     if (_pCtMainWin->curr_tree_iter().get_node_read_only()) return;
+
+    InCellCodeboxInfo ci;
+    CtCellContent oldContent;
+    if (_find_codebox_rich_cell(curr_codebox_anchor, ci))
+        oldContent = ci.cell->extractContent();
+
+    bool changed = false;
     if (curr_codebox_anchor->get_width_in_pixels()) {
         if (curr_codebox_anchor->get_frame_width() - CtCodebox::CB_WIDTH_HEIGHT_STEP_PIX >= CtCodebox::CB_WIDTH_LIMIT_MIN) {
             curr_codebox_anchor->set_width_height(curr_codebox_anchor->get_frame_width() - CtCodebox::CB_WIDTH_HEIGHT_STEP_PIX, 0);
-            _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf);
+            changed = true;
         }
     }
-    else {
-        if (curr_codebox_anchor->get_frame_width() - CtCodebox::CB_WIDTH_HEIGHT_STEP_PERC >= CtCodebox::CB_WIDTH_HEIGHT_STEP_PERC) {
-            curr_codebox_anchor->set_width_height(curr_codebox_anchor->get_frame_width() - CtCodebox::CB_WIDTH_HEIGHT_STEP_PERC, 0);
-            _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf);
+    else if (curr_codebox_anchor->get_frame_width() - CtCodebox::CB_WIDTH_HEIGHT_STEP_PERC >= CtCodebox::CB_WIDTH_HEIGHT_STEP_PERC) {
+        curr_codebox_anchor->set_width_height(curr_codebox_anchor->get_frame_width() - CtCodebox::CB_WIDTH_HEIGHT_STEP_PERC, 0);
+        changed = true;
+    }
+    if (changed) {
+        if (ci.cell) {
+            auto pBridge = _pCtMainWin->get_command_bridge();
+            if (pBridge && pBridge->isActive()) {
+                gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+                auto newContent = ci.cell->extractContent();
+                auto cmd = std::make_unique<EditRichCellCommand>(
+                    pBridge->getDocumentModel(), nodeId, ci.tableOffset,
+                    ci.row, ci.col, oldContent, newContent, -1, -1, "Resize codebox");
+                cmd->setMainWin(_pCtMainWin);
+                cmd->execute();
+                pBridge->addCommandToStack(std::move(cmd));
+            }
         }
+        _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf);
     }
 }
 
@@ -711,11 +815,30 @@ void CtActions::codebox_increase_height()
 {
     if (not _is_there_anch_widg_selection_or_error('c')) return;
     if (_pCtMainWin->curr_tree_iter().get_node_read_only()) return;
+
+    InCellCodeboxInfo ci;
+    CtCellContent oldContent;
+    if (_find_codebox_rich_cell(curr_codebox_anchor, ci))
+        oldContent = ci.cell->extractContent();
+
     int prevFrameHeight = curr_codebox_anchor->get_frame_height();
     if (_pCtConfig->codeboxAutoResizeH and prevFrameHeight < curr_codebox_anchor->get_text_view().mm().get_allocated_height() ) {
         prevFrameHeight = curr_codebox_anchor->get_text_view().mm().get_allocated_height();
     }
     curr_codebox_anchor->set_width_height(0, prevFrameHeight + CtCodebox::CB_WIDTH_HEIGHT_STEP_PIX);
+    if (ci.cell) {
+        auto pBridge = _pCtMainWin->get_command_bridge();
+        if (pBridge && pBridge->isActive()) {
+            gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+            auto newContent = ci.cell->extractContent();
+            auto cmd = std::make_unique<EditRichCellCommand>(
+                pBridge->getDocumentModel(), nodeId, ci.tableOffset,
+                ci.row, ci.col, oldContent, newContent, -1, -1, "Resize codebox");
+            cmd->setMainWin(_pCtMainWin);
+            cmd->execute();
+            pBridge->addCommandToStack(std::move(cmd));
+        }
+    }
     _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf);
 }
 
@@ -724,7 +847,25 @@ void CtActions::codebox_decrease_height()
     if (not _is_there_anch_widg_selection_or_error('c')) return;
     if (_pCtMainWin->curr_tree_iter().get_node_read_only()) return;
     if (curr_codebox_anchor->get_frame_height() - CtCodebox::CB_WIDTH_HEIGHT_STEP_PIX >= CtCodebox::CB_HEIGHT_LIMIT_MIN) {
+        InCellCodeboxInfo ci;
+        CtCellContent oldContent;
+        if (_find_codebox_rich_cell(curr_codebox_anchor, ci))
+            oldContent = ci.cell->extractContent();
+
         curr_codebox_anchor->set_width_height(0, curr_codebox_anchor->get_frame_height() - CtCodebox::CB_WIDTH_HEIGHT_STEP_PIX);
+        if (ci.cell) {
+            auto pBridge = _pCtMainWin->get_command_bridge();
+            if (pBridge && pBridge->isActive()) {
+                gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+                auto newContent = ci.cell->extractContent();
+                auto cmd = std::make_unique<EditRichCellCommand>(
+                    pBridge->getDocumentModel(), nodeId, ci.tableOffset,
+                    ci.row, ci.col, oldContent, newContent, -1, -1, "Resize codebox");
+                cmd->setMainWin(_pCtMainWin);
+                cmd->execute();
+                pBridge->addCommandToStack(std::move(cmd));
+            }
+        }
         _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf);
     }
 }

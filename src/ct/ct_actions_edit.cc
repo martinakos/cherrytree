@@ -229,12 +229,39 @@ void CtActions::codebox_insert()
     if (not CtDialogs::codeboxhandle_dialog(_pCtMainWin, _("Insert a CodeBox"))) {
         return;
     }
+
+    // Route to cell buffer when a rich table cell is focused.
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+        if (auto* pTable = dynamic_cast<CtTableRich*>(_table_in_use())) {
+            const size_t row = pTable->current_row();
+            const size_t col = pTable->current_column();
+            CtRichCell* pCell = pTable->getRichCell(row, col);
+            auto cellBuffer = pCell->get_buffer();
+            const int cellCharOffset = cellBuffer->get_insert()->get_iter().get_offset();
+            pBridge->cancelRichCellSession();
+            auto* pCodebox = new CtCodebox{_pCtMainWin,
+                                           textContent,
+                                           _pCtConfig->codeboxSynHighl,
+                                           (int)_pCtConfig->codeboxWidth,
+                                           (int)_pCtConfig->codeboxHeight,
+                                           cellCharOffset,
+                                           ""/*justification*/,
+                                           _pCtConfig->codeboxWidthPixels,
+                                           _pCtConfig->codeboxMatchBra,
+                                           _pCtConfig->codeboxLineNum};
+            pCodebox->insertInTextBuffer(cellBuffer);
+            pCell->addEmbeddedWidget(pCodebox);
+            pBridge->commitRichCellFormatChange("Insert codebox");
+            return;
+        }
+    }
+
     if (not textContent.empty()) {
         _curr_buffer()->erase(iter_sel_start, iter_sel_end);
     }
     Gtk::TextIter iter_insert = _curr_buffer()->get_insert()->get_iter();
 
-    auto pBridge = _pCtMainWin->get_command_bridge();
     if (pBridge && pBridge->isActive()) {
         pBridge->endTextEditSession();
 

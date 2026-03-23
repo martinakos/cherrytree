@@ -189,7 +189,7 @@ CtCodebox::CtCodebox(CtMainWin* pCtMainWin,
     _ctTextview.mm().signal_focus_in_event().connect([this](GdkEventFocus*) -> bool {
         if (_pCtMainWin->user_active()) {
             auto* bridge = _pCtMainWin->get_command_bridge();
-            if (bridge && bridge->isActive()) {
+            if (bridge && bridge->isActive() && !bridge->isTrackingRichCell()) {
                 CtTreeIter currTreeIter = _pCtMainWin->curr_tree_iter();
                 if (currTreeIter) {
                     bridge->beginWidgetEdit(currTreeIter.get_node_id(), this);
@@ -201,7 +201,7 @@ CtCodebox::CtCodebox(CtMainWin* pCtMainWin,
     _ctTextview.mm().signal_focus_out_event().connect([this](GdkEventFocus*) -> bool {
         if (_pCtMainWin->user_active()) {
             auto* bridge = _pCtMainWin->get_command_bridge();
-            if (bridge && bridge->isActive()) {
+            if (bridge && bridge->isActive() && !bridge->isTrackingRichCell()) {
                 bridge->endWidgetEdit();
             }
         }

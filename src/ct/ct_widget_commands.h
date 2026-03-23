@@ -186,11 +186,13 @@ public:
 
     void setOldScrollPos(double pos) { _oldScrollPos = pos; }
     void setNewScrollPos(double pos) { _newScrollPos = pos; }
+    void setMainWin(CtMainWin* pMainWin) { _pMainWin = pMainWin; }
 
 private:
     void _applyContent(const CtCellContent& content);
 
     std::shared_ptr<CtDocumentModel> _docModel;
+    CtMainWin* _pMainWin{nullptr};
     gint64 _nodeId;
     int _widgetCharOffset;
     size_t _row;

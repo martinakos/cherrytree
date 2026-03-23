@@ -896,8 +896,40 @@ void CtClipboard::on_received_to_codebox(const Gtk::SelectionData& selection_dat
         return;
     }
 
-    // Begin paste operation for command tracking
     auto pBridge = _pCtMainWin->get_command_bridge();
+
+    // Rich cell: parse the codebox XML into the cell buffer.
+    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+        if (auto* pCell = pBridge->getActiveRichCellPtr()) {
+            xmlpp::DomParser parser;
+            if (not CtXmlHelper::safe_parse_memory(parser, xml_text) or
+                parser.get_document()->get_root_node()->get_name() != "root" or
+                not parser.get_document()->get_root_node()->get_first_child("codebox"))
+            {
+                spdlog::error("codebox from clipboard error");
+                return;
+            }
+            pBridge->cancelRichCellSession();
+            auto cellBuf = pCell->get_buffer();
+            std::list<CtAnchoredWidget*> widgets;
+            Gtk::TextIter insert_iter = cellBuf->get_insert()->get_iter();
+            CtStorageXmlHelper{_pCtMainWin}.get_text_buffer_one_slot_from_xml(
+                cellBuf,
+                parser.get_document()->get_root_node()->get_first_child("codebox"),
+                widgets,
+                &insert_iter,
+                insert_iter.get_offset(),
+                "");
+            for (auto* w : widgets) {
+                pCell->addEmbeddedWidget(w);
+            }
+            pBridge->commitRichCellFormatChange("Paste codebox");
+        }
+        pTextView->scroll_to(pTextView->get_buffer()->get_insert());
+        return;
+    }
+
+    // Begin paste operation for command tracking
     if (pBridge && pBridge->isActive()) {
         pBridge->endTextEditSession();
         pBridge->beginPaste(_pCtMainWin->curr_tree_iter().get_node_id());
