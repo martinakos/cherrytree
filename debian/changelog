@@ -1,4 +1,4 @@
-cherrytree-docmodel (1.6.3+docmodel1-1) plucky; urgency=low
+cherrytree-docmodel (1.6.3+docmodel2-1) plucky; urgency=low
 
   * improved search/replace dialog with memory of the latest patterns searched for / replaced with
   * fixed closing parenthesis not included in automatically created link (#2789)
