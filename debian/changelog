@@ -1,4 +1,4 @@
-cherrytree-docmodel (1.6.3+docmodel1-1) plucky; urgency=low
+cherrytree-docmodel (1.6.3+docmodel2-1) plucky; urgency=low
 
   * implemented new start dialog that shows when no document is loaded (e.g. after file--new instance) to better guide the user in what to do (and preferences dialog option to disable it)
   * added confirmation dialog for when the user is searching + replacing with the option 'all, list matches' and the replace entry is empty (#2850)
