@@ -185,8 +185,7 @@ bool CtCommandManager::undo()
     }
     catch (const std::exception& e) {
         spdlog::error("Command undo failed: {} - {}", cmd->getDescription(), e.what());
-        // Put command back on undo stack on failure
-        _undoStack.push_back(std::move(cmd));
+        // Discard the failed command to prevent infinite retry loops
         return false;
     }
 }
@@ -211,8 +210,7 @@ bool CtCommandManager::redo()
     }
     catch (const std::exception& e) {
         spdlog::error("Command redo failed: {} - {}", cmd->getDescription(), e.what());
-        // Put command back on redo stack on failure
-        _redoStack.push_back(std::move(cmd));
+        // Discard the failed command to prevent infinite retry loops
         return false;
     }
 }

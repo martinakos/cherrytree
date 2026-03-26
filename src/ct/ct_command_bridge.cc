@@ -35,6 +35,9 @@
 #include <chrono>
 #include <set>
 
+// Forward declaration (defined later in this file, used by endTextEditSession and endFormatChange)
+static std::pair<std::string, std::string> decomposeTagName(const std::string& tagName);
+
 // CtCommandBridge implementation
 
 CtCommandBridge::CtCommandBridge(CtMainWin* pMainWin)
@@ -675,6 +678,10 @@ void CtCommandBridge::beginTextEditSession(gint64 nodeId)
     // Begin signal-based capture, passing treeIter to capture initial XML from buffer
     _editSession->begin(nodeId, buffer, hasWidgets, &treeIter);
 
+    // Also capture tag apply/remove signals so that link insertion and other
+    // tag-only operations within a text edit session produce proper undo entries.
+    _editSession->startTagCapture(buffer);
+
     // During undo/redo, suppress signal capture so the buffer rebuild from the
     // observer doesn't modify the model via onBufferInsert/onBufferErase.
     if (isInUndoRedo()) {
@@ -725,8 +732,44 @@ void CtCommandBridge::endTextEditSession()
     // Get current cursor position
     int cursorPos = buffer->get_insert()->get_iter().get_offset();
 
+    // Drain any pending tag changes (e.g. link tag applied during this session)
+    auto tagChanges = _editSession->drainAndCoalesceTagChanges();
+    _editSession->stopTagCapture();
+
     // End session and get command — always a CompoundCommand of delta commands
     auto cmd = _editSession->end(buffer, widgets, cursorPos);
+
+    // If we have tag changes, inject them into the compound command
+    if (!tagChanges.empty()) {
+        CompoundCommand* cc = cmd ? dynamic_cast<CompoundCommand*>(cmd.get()) : nullptr;
+        // If no text-edit command was created, create a new compound for tags only
+        if (!cc) {
+            auto tagCompound = std::make_unique<CompoundCommand>(
+                "Node " + std::to_string(nodeId) + ": Format");
+            tagCompound->setNodeId(nodeId);
+            tagCompound->setDocumentModel(_docModel);
+            tagCompound->setOldCursorPos(cursorPos);
+            tagCompound->setNewCursorPos(cursorPos);
+            cmd = std::move(tagCompound);
+            cc = dynamic_cast<CompoundCommand*>(cmd.get());
+        }
+        for (const auto& tc : tagChanges) {
+            auto [attr, val] = decomposeTagName(tc.tagName);
+            if (attr.empty()) {
+                spdlog::warn("CtCommandBridge: endTextEditSession — unknown tag '{}', skipping", tc.tagName);
+                continue;
+            }
+            int len = tc.end - tc.start;
+            if (tc.isApply) {
+                cc->addCommand(std::make_unique<ApplyFormatCommand>(
+                    _docModel, nodeId, tc.start, len, attr, val, -1, -1));
+            } else {
+                cc->addCommand(std::make_unique<RemoveFormatCommand>(
+                    _docModel, nodeId, tc.start, len, attr, -1, -1));
+            }
+        }
+    }
+
     if (cmd) {
         spdlog::info("CtCommandBridge: session created command, adding to undo stack");
 
@@ -1334,6 +1377,7 @@ static std::pair<std::string, std::string> decomposeTagName(const std::string& t
     if (str::startswith(tagName, CtConst::TAG_STRIKETHROUGH_PREFIX)) return {CtConst::TAG_STRIKETHROUGH, tagName.substr(14)};
     if (str::startswith(tagName, CtConst::TAG_INDENT_PREFIX))        return {CtConst::TAG_INDENT,        tagName.substr(7)};
     if (str::startswith(tagName, CtConst::TAG_FAMILY_PREFIX))        return {CtConst::TAG_FAMILY,        tagName.substr(7)};
+    if (str::startswith(tagName, CtConst::TAG_LINK_PREFIX))          return {CtConst::TAG_LINK,          tagName.substr(5)};
     return {"", ""};
 }
 

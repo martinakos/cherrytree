@@ -11,6 +11,7 @@
 #include "ct_codebox.h"
 #include "ct_table.h"
 #include "ct_list.h"
+#include "ct_image.h"
 #include <gtest/gtest.h>
 #include <gdk/gdkkeysyms.h>
 #include <random>
@@ -183,6 +184,20 @@ private:
     void _test_rich_cell_indent_free_text(CtMainWin* pWin);
     void _test_rich_cell_tab_inserts_tab(CtMainWin* pWin);
     void _test_rich_cell_tab_indents_list(CtMainWin* pWin);
+
+    // Link and anchor tests
+    void _test_link_all_types_insert_in_node(CtMainWin* pWin);
+    void _test_anchor_insert_in_node(CtMainWin* pWin);
+    void _test_link_insert_in_rich_cell(CtMainWin* pWin);
+    void _test_anchor_insert_in_rich_cell(CtMainWin* pWin);
+    void _test_anchor_in_rich_cell_discoverable(CtMainWin* pWin);
+    void _test_link_to_anchor_in_rich_cell_navigates(CtMainWin* pWin);
+    void _test_link_insert_in_node_functional(CtMainWin* pWin);
+    void _test_anchor_insert_in_node_undo_description(CtMainWin* pWin);
+    void _test_link_to_anchor_in_node_navigates(CtMainWin* pWin);
+    void _test_link_click_navigates_between_nodes(CtMainWin* pWin);
+    void _test_link_undo_removes_link_in_node(CtMainWin* pWin);
+    void _test_anchor_undo_removes_anchor_in_rich_cell(CtMainWin* pWin);
 };
 
 void TestGuiSimulationApp::on_activate()
@@ -263,6 +278,20 @@ void TestGuiSimulationApp::_run_tests(CtMainWin* pWin)
     _test_rich_cell_indent_free_text(pWin);
     _test_rich_cell_tab_inserts_tab(pWin);
     _test_rich_cell_tab_indents_list(pWin);
+
+    // Link and anchor tests
+    _test_link_all_types_insert_in_node(pWin);
+    _test_anchor_insert_in_node(pWin);
+    _test_link_insert_in_rich_cell(pWin);
+    _test_anchor_insert_in_rich_cell(pWin);
+    _test_anchor_in_rich_cell_discoverable(pWin);
+    _test_link_to_anchor_in_rich_cell_navigates(pWin);
+    _test_link_insert_in_node_functional(pWin);
+    _test_anchor_insert_in_node_undo_description(pWin);
+    _test_link_to_anchor_in_node_navigates(pWin);
+    _test_link_click_navigates_between_nodes(pWin);
+    _test_link_undo_removes_link_in_node(pWin);
+    _test_anchor_undo_removes_anchor_in_rich_cell(pWin);
 
     spdlog::info("=== GUI simulation test passed! ===");
 }
@@ -2724,6 +2753,168 @@ void TestGuiSimulationApp::_test_rich_cell_edit_description_format(CtMainWin* pW
         spdlog::info("  3. newline in cell: '{}'", descs[0]);
     }
 
+    // Undo all then re-insert a fresh table for the link/anchor description tests
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    // --- 4. Insert link in cell → description should mention "Insert link" ---
+    {
+        std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+        richData[0][0].textSpans.push_back(CtTextSpan{"linkme"});
+        insertRichTableAtEnd(pWin, pBridge, richData);
+
+        auto* pTable = findFirstRichTable(pWin);
+        ASSERT_TRUE(pTable);
+
+        pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+        auto cellBuf = pTable->get_buffer(0, 0);
+        ASSERT_TRUE(cellBuf);
+        cellBuf->select_range(cellBuf->begin(), cellBuf->end());
+        GuiEventSimulator::process_pending_events();
+
+        Glib::ustring linkProp = CtConst::LINK_TYPE_WEBS + CtConst::CHAR_SPACE + "https://example.com";
+        pBridge->flushRichCellSession();
+        pActions->apply_tag(CtConst::TAG_LINK, linkProp,
+                            cellBuf->begin(), cellBuf->end(), cellBuf);
+        pBridge->commitRichCellFormatChange("Insert link");
+        GuiEventSimulator::process_pending_events();
+
+        auto descs = pBridge->getUndoStackDescriptions();
+        ASSERT_GE(descs.size(), 1u);
+        assertSingleLine(descs[0]);
+        EXPECT_EQ(descs[0], pfx + "Insert link")
+            << "Cell link insert should produce 'Insert link' description";
+        spdlog::info("  4. link in cell: '{}'", descs[0]);
+
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+    }
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    // --- 5. Insert anchor in cell → description should mention "Insert anchor" ---
+    {
+        std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+        richData[0][0].textSpans.push_back(CtTextSpan{"anchorme"});
+        insertRichTableAtEnd(pWin, pBridge, richData);
+
+        auto* pTable = findFirstRichTable(pWin);
+        ASSERT_TRUE(pTable);
+
+        pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+        auto cellBuf = pTable->get_buffer(0, 0);
+        ASSERT_TRUE(cellBuf);
+        cellBuf->place_cursor(cellBuf->end());
+        GuiEventSimulator::process_pending_events();
+
+        CtRichCell* cell = pTable->getRichCell(0, 0);
+        ASSERT_TRUE(cell);
+        const int cellCharOffset = cellBuf->get_insert()->get_iter().get_offset();
+        pBridge->cancelRichCellSession();
+        auto* pWidget = new CtImageAnchor{pWin, "desc_anchor", CtAnchorExpCollState::None,
+                                          cellCharOffset, ""};
+        pWidget->insertInTextBuffer(cellBuf);
+        cell->addEmbeddedWidget(pWidget);
+        pBridge->commitRichCellFormatChange("Insert anchor");
+        GuiEventSimulator::process_pending_events();
+
+        auto descs = pBridge->getUndoStackDescriptions();
+        ASSERT_GE(descs.size(), 1u);
+        assertSingleLine(descs[0]);
+        EXPECT_EQ(descs[0], pfx + "Insert anchor")
+            << "Cell anchor insert should produce 'Insert anchor' description";
+        spdlog::info("  5. anchor in cell: '{}'", descs[0]);
+
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+    }
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    // --- 6. Insert link on main buffer (pre-selected text) ---
+    {
+        auto mainBuffer = pWin->curr_buffer();
+        // Type some text in the main buffer
+        pBridge->endTextEditSession();
+        pBridge->beginTextEditSession(nodeId);
+        mainBuffer->place_cursor(mainBuffer->end());
+        mainBuffer->insert_at_cursor("linkme");
+        pBridge->endTextEditSession();
+        GuiEventSimulator::process_pending_events();
+
+        // Select the just-typed text
+        auto selEnd = mainBuffer->end();
+        auto selStart = selEnd;
+        selStart.backward_chars(6); // "linkme"
+        mainBuffer->select_range(selStart, selEnd);
+        GuiEventSimulator::process_pending_events();
+
+        // Apply link tag via the same path as apply_tag_link main-buffer path
+        pBridge->beginFormatChange(nodeId, "Insert link");
+        Glib::ustring linkProp = CtConst::LINK_TYPE_WEBS + CtConst::CHAR_SPACE + "https://example.com";
+        pActions->apply_tag(CtConst::TAG_LINK, linkProp, selStart, selEnd);
+        pBridge->endFormatChange();
+        pBridge->beginTextEditSession(nodeId);
+        GuiEventSimulator::process_pending_events();
+
+        auto descs = pBridge->getUndoStackDescriptions();
+        ASSERT_GE(descs.size(), 1u);
+        assertSingleLine(descs[0]);
+        spdlog::info("  6. link on main buffer (pre-selected): '{}'", descs[0]);
+        EXPECT_EQ(descs[0], pfx + "Format (Insert link)")
+            << "Main buffer link insert should produce 'Format (Insert link)' description";
+    }
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    // --- 7. Insert link on main buffer (no selection — text inserted then tagged) ---
+    // This simulates the actual apply_tag_link() flow where the user types a link name
+    // in the dialog, text is inserted, then the link tag is applied.
+    // Uses beginTextEditSession/endTextEditSession (same as apply_tag_link) so both
+    // text insertion and tag application are captured in a single undoable command.
+    {
+        auto mainBuffer = pWin->curr_buffer();
+        mainBuffer->place_cursor(mainBuffer->end());
+        pBridge->endTextEditSession();
+        GuiEventSimulator::process_pending_events();
+
+        // Start a fresh session for the link operation (mirrors apply_tag_link)
+        pBridge->beginTextEditSession(nodeId);
+
+        // Simulate what apply_tag does internally for TAG_LINK with no selection:
+        // 1. insert_at_cursor("mylink") — this fires buffer insert signal
+        int startOff = mainBuffer->get_insert()->get_iter().get_offset();
+        mainBuffer->insert_at_cursor("mylink");
+        int endOff = mainBuffer->get_insert()->get_iter().get_offset();
+        // 2. Select the inserted text
+        mainBuffer->select_range(mainBuffer->get_iter_at_offset(startOff),
+                                  mainBuffer->get_iter_at_offset(endOff));
+        // 3. Apply the link tag
+        Glib::ustring linkProp2 = CtConst::LINK_TYPE_WEBS + CtConst::CHAR_SPACE + "https://test.com";
+        Glib::ustring tagName = pWin->get_text_tag_name_exist_or_create(CtConst::TAG_LINK, linkProp2);
+        mainBuffer->apply_tag_by_name(tagName,
+                                       mainBuffer->get_iter_at_offset(startOff),
+                                       mainBuffer->get_iter_at_offset(endOff));
+
+        // End session and override description (mirrors apply_tag_link)
+        pBridge->endTextEditSession();
+        if (auto* pCmd = dynamic_cast<CompoundCommand*>(pBridge->getCommandManager().peekUndoCommand())) {
+            pCmd->setDescription(pfx + "Insert link");
+        }
+        pBridge->beginTextEditSession(nodeId);
+        GuiEventSimulator::process_pending_events();
+
+        auto descs = pBridge->getUndoStackDescriptions();
+        ASSERT_GE(descs.size(), 1u);
+        assertSingleLine(descs[0]);
+        spdlog::info("  7. link on main buffer (no selection, text+tag): '{}'", descs[0]);
+        EXPECT_EQ(descs[0], pfx + "Insert link")
+            << "Main buffer link insert (with text insertion) should produce 'Insert link' description, not 'Type ...'";
+    }
+
     while (pBridge->canUndo()) pActions->requested_step_back();
     GuiEventSimulator::process_pending_events();
 
@@ -4221,6 +4412,1043 @@ void TestGuiSimulationApp::_test_rich_cell_tab_indents_list(CtMainWin* pWin)
 
     cleanupRichCellTest(pWin);
     spdlog::info("✓ Rich cell tab indents list test passed");
+}
+
+// ─── Link and anchor tests ────────────────────────────────────────────────────
+
+void TestGuiSimulationApp::_test_link_all_types_insert_in_node(CtMainWin* pWin)
+{
+    spdlog::info("Test: Insert all link types (webs, file, fold, node, node+anchor) in node buffer");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    auto buffer = pWin->curr_buffer();
+
+    // Clear buffer and type link text
+    pBridge->beginTextEditSession(nodeId);
+    buffer->set_text("");
+    buffer->insert_at_cursor("click here");
+    buffer->set_modified(true);
+    pBridge->endTextEditSession();
+    GuiEventSimulator::process_pending_events();
+
+    // Build link property values for each type
+    struct LinkTestCase {
+        std::string name;
+        Glib::ustring propertyValue;
+    };
+
+    std::vector<LinkTestCase> linkTests = {
+        {"webs",        CtConst::LINK_TYPE_WEBS + CtConst::CHAR_SPACE + "https://example.com"},
+        {"file",        CtConst::LINK_TYPE_FILE + CtConst::CHAR_SPACE + Glib::Base64::encode("/tmp/test.txt")},
+        {"fold",        CtConst::LINK_TYPE_FOLD + CtConst::CHAR_SPACE + Glib::Base64::encode("/tmp")},
+        {"node",        CtConst::LINK_TYPE_NODE + CtConst::CHAR_SPACE + std::to_string(nodeId)},
+        {"node+anchor", CtConst::LINK_TYPE_NODE + CtConst::CHAR_SPACE + std::to_string(nodeId) + CtConst::CHAR_SPACE + "test_anch"},
+    };
+
+    for (const auto& tc : linkTests) {
+        // Select the text
+        buffer->select_range(buffer->begin(), buffer->end());
+
+        // Apply link tag using the same pattern as format actions:
+        // endTextEditSession -> beginFormatChange -> apply_tag -> endFormatChange -> beginTextEditSession
+        pBridge->endTextEditSession();
+        pBridge->beginFormatChange(nodeId, "link");
+        pActions->apply_tag(CtConst::TAG_LINK, tc.propertyValue,
+                            buffer->begin(), buffer->end(), buffer);
+        pBridge->endFormatChange();
+        pBridge->beginTextEditSession(nodeId);
+        GuiEventSimulator::process_pending_events();
+
+        // Verify the link tag is on the text
+        Gtk::TextIter checkIter = buffer->begin();
+        bool foundLinkTag = false;
+        for (auto& tag : checkIter.get_tags()) {
+            Glib::ustring tagName = tag->property_name();
+            if (tagName.find("link_") == 0) {
+                foundLinkTag = true;
+                break;
+            }
+        }
+        EXPECT_TRUE(foundLinkTag) << "Link tag not found for type: " << tc.name;
+
+        // Undo this link application (remove it) before applying the next type
+        pBridge->endTextEditSession();
+        pActions->requested_step_back();
+        GuiEventSimulator::process_pending_events();
+        pBridge->beginTextEditSession(nodeId);
+    }
+
+    // Undo all remaining
+    pBridge->endTextEditSession();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("  All link types inserted and verified");
+}
+
+void TestGuiSimulationApp::_test_anchor_insert_in_node(CtMainWin* pWin)
+{
+    spdlog::info("Test: Insert anchor in node buffer and scroll to it");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    auto buffer = pWin->curr_buffer();
+
+    // Clear buffer
+    pBridge->beginTextEditSession(nodeId);
+    buffer->set_text("before anchor after");
+    buffer->set_modified(true);
+    pBridge->endTextEditSession();
+    GuiEventSimulator::process_pending_events();
+
+    // Place cursor after "before " and insert anchor
+    buffer->place_cursor(buffer->get_iter_at_offset(7));
+    pActions->image_insert_anchor(buffer->get_insert()->get_iter(),
+                                  "my_test_anchor",
+                                  CtAnchorExpCollState::None, "");
+    GuiEventSimulator::process_pending_events();
+
+    // Verify anchor exists in node widgets
+    CtImageAnchor* foundAnchor = nullptr;
+    for (auto* w : pWin->curr_tree_iter().get_anchored_widgets_fast()) {
+        if (auto* a = dynamic_cast<CtImageAnchor*>(w)) {
+            if (a->get_anchor_name() == "my_test_anchor") {
+                foundAnchor = a;
+                break;
+            }
+        }
+    }
+    ASSERT_TRUE(foundAnchor) << "Anchor 'my_test_anchor' not found in node widgets";
+
+    // Navigate to anchor via current_node_scroll_to_anchor
+    buffer->place_cursor(buffer->begin());
+    pActions->current_node_scroll_to_anchor("my_test_anchor");
+    GuiEventSimulator::process_pending_events();
+
+    // Cursor should be near the anchor offset
+    int cursorOff = buffer->get_insert()->get_iter().get_offset();
+    EXPECT_EQ(cursorOff, foundAnchor->getOffset())
+        << "Cursor should be at anchor offset after scroll_to_anchor";
+
+    // Undo all
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("  Anchor insert and navigation verified");
+}
+
+void TestGuiSimulationApp::_test_link_insert_in_rich_cell(CtMainWin* pWin)
+{
+    spdlog::info("Test: Insert link in rich table cell — stays in cell, not main buffer");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    // Record main buffer state before the operation
+    auto mainBuffer = pWin->curr_buffer();
+    const int mainCharCountBefore = mainBuffer->get_char_count();
+
+    // Insert a 1x1 rich table with text
+    std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+    richData[0][0].textSpans.push_back(CtTextSpan{"click here"});
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+
+    // Record main buffer state after table insert (before link)
+    const int mainCharCountAfterTable = mainBuffer->get_char_count();
+
+    // Set up _table_in_use() prerequisites (normally set by mouse click)
+    pActions->curr_table_anchor = pTable;
+    mainBuffer->place_cursor(mainBuffer->get_iter_at_offset(mainCharCountBefore));
+
+    // Begin editing cell (0,0)
+    pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+    auto cellBuf = pTable->get_buffer(0, 0);
+    ASSERT_TRUE(cellBuf);
+
+    // Select "click here" in the cell
+    cellBuf->select_range(cellBuf->begin(), cellBuf->end());
+    GuiEventSimulator::process_pending_events();
+
+    // Apply a web link tag via the same path as apply_tag_link() rich cell routing:
+    // flushRichCellSession -> apply_tag with cellBuffer -> commitRichCellFormatChange
+    Glib::ustring linkProp = CtConst::LINK_TYPE_WEBS + CtConst::CHAR_SPACE + "https://example.com";
+    pBridge->flushRichCellSession();
+    pActions->apply_tag(CtConst::TAG_LINK, linkProp,
+                        cellBuf->begin(), cellBuf->end(), cellBuf);
+    pBridge->commitRichCellFormatChange("Insert link");
+    GuiEventSimulator::process_pending_events();
+
+    // Verify the link tag is present on the cell text
+    Gtk::TextIter cellIter = cellBuf->begin();
+    bool foundLinkTag = false;
+    for (auto& tag : cellIter.get_tags()) {
+        Glib::ustring tagName = tag->property_name();
+        if (tagName.find("link_") == 0) {
+            foundLinkTag = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(foundLinkTag) << "Link tag not found on rich cell text";
+
+    // CRITICAL: verify the link did NOT leak to the main buffer
+    EXPECT_EQ(mainBuffer->get_char_count(), mainCharCountAfterTable)
+        << "Main buffer char count changed — link leaked outside the table";
+
+    // Verify no link tags on main buffer text
+    for (auto it = mainBuffer->begin(); !it.is_end(); it.forward_char()) {
+        for (auto& tag : it.get_tags()) {
+            Glib::ustring tagName = tag->property_name();
+            EXPECT_TRUE(tagName.find("link_") != 0)
+                << "Link tag found on main buffer at offset " << it.get_offset()
+                << " — link should only be in cell, not main buffer";
+        }
+    }
+
+    // Verify cell text is unchanged
+    EXPECT_EQ(cellBuf->get_text(), "click here")
+        << "Cell text should remain 'click here' after link insertion";
+
+    // Verify undo description
+    auto descs = pBridge->getUndoStackDescriptions();
+    ASSERT_GE(descs.size(), 1u);
+    EXPECT_TRUE(descs[0].find("Insert link") != std::string::npos
+             || descs[0].find("link") != std::string::npos
+             || descs[0].find("Link") != std::string::npos)
+        << "Top undo description should mention link, got: " << descs[0];
+    // Description must be single-line (suitable for dropdown)
+    EXPECT_EQ(descs[0].find('\n'), std::string::npos)
+        << "Description must be single-line for dropdown, got: " << descs[0];
+
+    // Cleanup
+    pBridge->endWidgetEdit();
+    GuiEventSimulator::process_pending_events();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("  Link in rich cell verified (stays in cell, not main buffer)");
+}
+
+void TestGuiSimulationApp::_test_anchor_insert_in_rich_cell(CtMainWin* pWin)
+{
+    spdlog::info("Test: Insert anchor in rich table cell — stays in cell, not main buffer");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    // Record main buffer state before the operation
+    auto mainBuffer = pWin->curr_buffer();
+    const int mainCharCountBefore = mainBuffer->get_char_count();
+
+    // Insert a 1x1 rich table with text
+    std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+    richData[0][0].textSpans.push_back(CtTextSpan{"text"});
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+
+    // Record main buffer state after table insert (before anchor)
+    const int mainCharCountAfterTable = mainBuffer->get_char_count();
+
+    // Set up _table_in_use() prerequisites (normally set by mouse click)
+    pActions->curr_table_anchor = pTable;
+    mainBuffer->place_cursor(mainBuffer->get_iter_at_offset(mainCharCountBefore));
+
+    // Begin editing cell
+    pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+    auto cellBuf = pTable->get_buffer(0, 0);
+    ASSERT_TRUE(cellBuf);
+    cellBuf->place_cursor(cellBuf->end());
+    GuiEventSimulator::process_pending_events();
+
+    // Use the RT-5 path of image_insert_anchor (same as anchor_handle's rich cell route)
+    CtRichCell* cell = pTable->getRichCell(0, 0);
+    ASSERT_TRUE(cell);
+    const int cellCharOffset = cellBuf->get_insert()->get_iter().get_offset();
+    pBridge->cancelRichCellSession();
+    auto* pWidget = new CtImageAnchor{pWin, "cell_anchor", CtAnchorExpCollState::None,
+                                      cellCharOffset, ""};
+    pWidget->insertInTextBuffer(cellBuf);
+    cell->addEmbeddedWidget(pWidget);
+    pBridge->commitRichCellFormatChange("Insert anchor");
+    GuiEventSimulator::process_pending_events();
+
+    // Verify anchor exists in cell's embedded widgets
+    CtImageAnchor* foundAnchor = nullptr;
+    for (auto* emb : cell->getEmbeddedWidgets()) {
+        if (auto* a = dynamic_cast<CtImageAnchor*>(emb)) {
+            if (a->get_anchor_name() == "cell_anchor") {
+                foundAnchor = a;
+                break;
+            }
+        }
+    }
+    EXPECT_TRUE(foundAnchor) << "Anchor 'cell_anchor' not found in rich cell embedded widgets";
+
+    // CRITICAL: verify the anchor did NOT leak to the main buffer
+    EXPECT_EQ(mainBuffer->get_char_count(), mainCharCountAfterTable)
+        << "Main buffer char count changed — anchor leaked outside the table";
+
+    // Verify no anchor widgets in the main buffer's anchored widgets list
+    // (the table itself is a widget, but there should be no CtImageAnchor at node level)
+    for (auto* w : ctIter.get_anchored_widgets_fast()) {
+        if (auto* a = dynamic_cast<CtImageAnchor*>(w)) {
+            EXPECT_TRUE(a->get_anchor_name() != "cell_anchor")
+                << "Anchor 'cell_anchor' found at node level — should only be inside the cell";
+        }
+    }
+
+    // Verify undo description
+    auto descs = pBridge->getUndoStackDescriptions();
+    ASSERT_GE(descs.size(), 1u);
+    EXPECT_TRUE(descs[0].find("Insert anchor") != std::string::npos
+             || descs[0].find("anchor") != std::string::npos
+             || descs[0].find("Anchor") != std::string::npos)
+        << "Top undo description should mention anchor, got: " << descs[0];
+    EXPECT_EQ(descs[0].find('\n'), std::string::npos)
+        << "Description must be single-line for dropdown, got: " << descs[0];
+
+    // Cleanup
+    pBridge->endWidgetEdit();
+    GuiEventSimulator::process_pending_events();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("  Anchor in rich cell verified (stays in cell, not main buffer)");
+}
+
+void TestGuiSimulationApp::_test_anchor_in_rich_cell_discoverable(CtMainWin* pWin)
+{
+    spdlog::info("Test: Anchors inside rich cells are discoverable via get_anchored_widgets_fast");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    // Insert a 1x1 rich table
+    std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+    richData[0][0].textSpans.push_back(CtTextSpan{"anchor host"});
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+
+    // Insert an anchor directly in the cell (same as RT-5 path of image_insert_anchor)
+    pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+    auto cellBuf = pTable->get_buffer(0, 0);
+    cellBuf->place_cursor(cellBuf->end());
+    GuiEventSimulator::process_pending_events();
+
+    CtRichCell* discCell = pTable->getRichCell(0, 0);
+    ASSERT_TRUE(discCell);
+    const int discCharOff = cellBuf->get_insert()->get_iter().get_offset();
+    pBridge->cancelRichCellSession();
+    auto* discAnchor = new CtImageAnchor{pWin, "discoverable_anchor",
+                                         CtAnchorExpCollState::None, discCharOff, ""};
+    discAnchor->insertInTextBuffer(cellBuf);
+    discCell->addEmbeddedWidget(discAnchor);
+    pBridge->commitRichCellFormatChange("Insert anchor");
+    GuiEventSimulator::process_pending_events();
+    pBridge->endWidgetEdit();
+    GuiEventSimulator::process_pending_events();
+
+    // Search for the anchor the same way the link dialog does:
+    // iterate node-level widgets, and for TableRich, look inside cells
+    bool found = false;
+    for (CtAnchoredWidget* pWidget : ctIter.get_anchored_widgets_fast()) {
+        if (CtAnchWidgType::ImageAnchor == pWidget->get_type()) {
+            if (dynamic_cast<CtImageAnchor*>(pWidget)->get_anchor_name() == "discoverable_anchor") {
+                found = true;
+                break;
+            }
+        }
+        if (CtAnchWidgType::TableRich == pWidget->get_type()) {
+            auto* tbl = dynamic_cast<CtTableRich*>(pWidget);
+            for (size_t r = 0; r < tbl->get_num_rows(); ++r) {
+                for (size_t c = 0; c < tbl->get_num_columns(); ++c) {
+                    for (auto* emb : tbl->getRichCell(r, c)->getEmbeddedWidgets()) {
+                        if (CtAnchWidgType::ImageAnchor == emb->get_type()) {
+                            if (dynamic_cast<CtImageAnchor*>(emb)->get_anchor_name() == "discoverable_anchor") {
+                                found = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if (found) break;
+    }
+    EXPECT_TRUE(found) << "Anchor 'discoverable_anchor' not found via widget traversal (simulates link dialog browse)";
+
+    // Cleanup
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("  Anchor in rich cell discoverable verified");
+}
+
+void TestGuiSimulationApp::_test_link_to_anchor_in_rich_cell_navigates(CtMainWin* pWin)
+{
+    spdlog::info("Test: Navigate to anchor inside rich cell via current_node_scroll_to_anchor");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    // Insert a 1x1 rich table
+    std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+    richData[0][0].textSpans.push_back(CtTextSpan{"target"});
+    int tableOffset = insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+
+    // Insert an anchor directly in the cell
+    pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+    auto cellBuf = pTable->get_buffer(0, 0);
+    cellBuf->place_cursor(cellBuf->end());
+    GuiEventSimulator::process_pending_events();
+
+    CtRichCell* cell = pTable->getRichCell(0, 0);
+    ASSERT_TRUE(cell);
+    const int navCharOff = cellBuf->get_insert()->get_iter().get_offset();
+    pBridge->cancelRichCellSession();
+    auto* navAnchor = new CtImageAnchor{pWin, "nav_target",
+                                        CtAnchorExpCollState::None, navCharOff, ""};
+    navAnchor->insertInTextBuffer(cellBuf);
+    cell->addEmbeddedWidget(navAnchor);
+    pBridge->commitRichCellFormatChange("Insert anchor");
+    GuiEventSimulator::process_pending_events();
+    pBridge->endWidgetEdit();
+    GuiEventSimulator::process_pending_events();
+
+    // Move cursor away from the table so we can verify navigation scrolls back
+    auto mainBuffer = pWin->curr_buffer();
+    mainBuffer->place_cursor(mainBuffer->begin());
+    GuiEventSimulator::process_pending_events();
+
+    // --- Test 1: call current_node_scroll_to_anchor directly ---
+    pActions->current_node_scroll_to_anchor("nav_target");
+    GuiEventSimulator::process_pending_events();
+
+    // After navigation, the cursor should be at the table widget's offset
+    int cursorOffset = mainBuffer->get_insert()->get_iter().get_offset();
+    EXPECT_EQ(cursorOffset, tableOffset)
+        << "current_node_scroll_to_anchor: cursor should be at table offset "
+        << tableOffset << ", but got " << cursorOffset;
+
+    // --- Test 2: call link_clicked with a "node <id> <anchor>" tag (full link flow) ---
+    mainBuffer->place_cursor(mainBuffer->begin());
+    GuiEventSimulator::process_pending_events();
+
+    Glib::ustring linkProp = CtConst::LINK_TYPE_NODE + CtConst::CHAR_SPACE
+                            + std::to_string(nodeId) + CtConst::CHAR_SPACE + "nav_target";
+    pActions->link_clicked(linkProp, false/*from_wheel*/);
+    GuiEventSimulator::process_pending_events();
+
+    cursorOffset = mainBuffer->get_insert()->get_iter().get_offset();
+    EXPECT_EQ(cursorOffset, tableOffset)
+        << "link_clicked: cursor should be at table offset "
+        << tableOffset << ", but got " << cursorOffset;
+
+    // --- Test 3: exercise for_event_after_button_press on the cell's CtTextView ---
+    // This tests the actual event→tag-detection→link_clicked chain.
+    //
+    // Setup: insert linked text in the existing cell, then simulate a button press
+    // at the link iter's coordinates.
+
+    // First, redo everything back so the table + anchor exist
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+
+    pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable) << "Table should exist after redo";
+
+    // Use the existing cell (0,0) which already has "target" text + anchor.
+    // Append linked text at the end of the cell buffer.
+    CtRichCell* linkCell = pTable->getRichCell(0, 0);
+    ASSERT_TRUE(linkCell);
+    auto linkCellBuf = linkCell->get_buffer();
+
+    // Insert text "click me" with a link tag pointing to the same node+anchor
+    Glib::ustring linkTagName = Glib::ustring{CtConst::TAG_LINK_PREFIX}
+        + CtConst::LINK_TYPE_NODE + CtConst::CHAR_SPACE
+        + std::to_string(nodeId) + CtConst::CHAR_SPACE + "nav_target";
+    auto linkTag = linkCellBuf->create_tag(linkTagName);
+    linkCellBuf->insert_with_tag(linkCellBuf->end(), "click me", linkTag);
+    GuiEventSimulator::process_pending_events();
+
+    // Find the start of "click me" (search from end backwards)
+    auto linkStart = linkCellBuf->end();
+    linkStart.backward_chars(8); // "click me" is 8 chars
+
+    // Verify the link tag is present
+    {
+        auto tags = linkStart.get_tags();
+        bool foundLinkTag = false;
+        for (auto& t : tags) {
+            if (t->property_name().get_value().substr(0, 4) == CtConst::TAG_LINK) {
+                foundLinkTag = true;
+            }
+        }
+        EXPECT_TRUE(foundLinkTag) << "Cell buffer should have a link tag on 'click me'";
+    }
+
+    // Move main cursor away from table
+    mainBuffer->place_cursor(mainBuffer->begin());
+    GuiEventSimulator::process_pending_events();
+
+    // Now call for_event_after_button_press on the cell's CtTextView
+    // to exercise the tag detection path
+    CtTextView& cellTV = linkCell->get_text_view();
+
+    // Get buffer coordinates of the "click me" start iter
+    Gdk::Rectangle iterLoc;
+    cellTV.mm().get_iter_location(linkStart, iterLoc);
+
+    // Convert buffer coords to window coords
+    int winX, winY;
+    cellTV.mm().buffer_to_window_coords(Gtk::TEXT_WINDOW_TEXT,
+                                         iterLoc.get_x() + 1, // +1 to be inside the char
+                                         iterLoc.get_y() + 1,
+                                         winX, winY);
+
+    // Construct a synthetic GDK button press event
+    GdkEvent* synthEvent = gdk_event_new(GDK_BUTTON_PRESS);
+    synthEvent->button.button = 1;
+    synthEvent->button.x = winX;
+    synthEvent->button.y = winY;
+    synthEvent->button.window = gtk_text_view_get_window(GTK_TEXT_VIEW(cellTV.mm().gobj()), GTK_TEXT_WINDOW_TEXT);
+    if (synthEvent->button.window) {
+        g_object_ref(synthEvent->button.window); // gdk_event_free will unref it
+    }
+
+    spdlog::info("  Test 3: calling for_event_after_button_press on cell TV at buf({},{}) -> win({},{})",
+                 iterLoc.get_x(), iterLoc.get_y(), winX, winY);
+
+    cellTV.for_event_after_button_press(synthEvent);
+    GuiEventSimulator::process_pending_events();
+
+    gdk_event_free(synthEvent);
+
+    // After the click, cursor should have moved to the table offset in the main buffer
+    cursorOffset = mainBuffer->get_insert()->get_iter().get_offset();
+    EXPECT_EQ(cursorOffset, tableOffset)
+        << "for_event_after_button_press: cursor should be at table offset "
+        << tableOffset << ", but got " << cursorOffset;
+
+    // Verify undo removes the anchor (the table insert + anchor insert)
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    // After full undo, there should be no rich table
+    auto* pTableAfterUndo = findFirstRichTable(pWin);
+    EXPECT_FALSE(pTableAfterUndo) << "Rich table should be gone after full undo";
+
+    spdlog::info("  Navigate to anchor in rich cell verified");
+}
+
+void TestGuiSimulationApp::_test_link_insert_in_node_functional(CtMainWin* pWin)
+{
+    spdlog::info("Test: Link insert on main buffer — tag applied, text correct, undo description");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    auto buffer = pWin->curr_buffer();
+
+    // Set up text
+    pBridge->beginTextEditSession(nodeId);
+    buffer->set_text("");
+    buffer->insert_at_cursor("link text");
+    buffer->set_modified(true);
+    pBridge->endTextEditSession();
+    GuiEventSimulator::process_pending_events();
+
+    // Select all text and apply a web link
+    buffer->select_range(buffer->begin(), buffer->end());
+    Glib::ustring linkProp = CtConst::LINK_TYPE_WEBS + CtConst::CHAR_SPACE + "https://example.com";
+    pBridge->beginFormatChange(nodeId, "Insert link");
+    pActions->apply_tag(CtConst::TAG_LINK, linkProp, buffer->begin(), buffer->end(), buffer);
+    pBridge->endFormatChange();
+    pBridge->beginTextEditSession(nodeId);
+    GuiEventSimulator::process_pending_events();
+
+    // Verify link tag is present
+    bool foundLinkTag = false;
+    for (auto& tag : buffer->begin().get_tags()) {
+        if (tag->property_name().get_value().find("link_") == 0) {
+            foundLinkTag = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(foundLinkTag) << "Link tag not found on main buffer text";
+
+    // Verify text is unchanged
+    EXPECT_EQ(buffer->get_text(), "link text");
+
+    // Verify undo description mentions link
+    pBridge->endTextEditSession();
+    auto descs = pBridge->getUndoStackDescriptions();
+    ASSERT_GE(descs.size(), 1u);
+    EXPECT_TRUE(descs[0].find("Insert link") != std::string::npos
+             || descs[0].find("link") != std::string::npos)
+        << "Top undo description should mention link, got: " << descs[0];
+
+    // Cleanup
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("  Link insert on main buffer verified");
+}
+
+void TestGuiSimulationApp::_test_anchor_insert_in_node_undo_description(CtMainWin* pWin)
+{
+    spdlog::info("Test: Anchor insert on main buffer — undo description says 'Insert anchor'");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    auto buffer = pWin->curr_buffer();
+
+    // Set up text
+    pBridge->beginTextEditSession(nodeId);
+    buffer->set_text("before after");
+    buffer->set_modified(true);
+    pBridge->endTextEditSession();
+    GuiEventSimulator::process_pending_events();
+
+    // Place cursor at offset 7 and insert anchor
+    buffer->place_cursor(buffer->get_iter_at_offset(7));
+    pActions->image_insert_anchor(buffer->get_insert()->get_iter(),
+                                  "desc_check_anchor",
+                                  CtAnchorExpCollState::None, "");
+    GuiEventSimulator::process_pending_events();
+
+    // Verify undo description mentions anchor, not "Type"
+    auto descs = pBridge->getUndoStackDescriptions();
+    ASSERT_GE(descs.size(), 1u);
+    EXPECT_TRUE(descs[0].find("anchor") != std::string::npos
+             || descs[0].find("Anchor") != std::string::npos
+             || descs[0].find("Insert anchor") != std::string::npos)
+        << "Top undo description should mention anchor, got: " << descs[0];
+    EXPECT_TRUE(descs[0].find("Type") == std::string::npos)
+        << "Undo description should NOT say 'Type', got: " << descs[0];
+
+    // Cleanup
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("  Anchor insert undo description verified");
+}
+
+void TestGuiSimulationApp::_test_link_to_anchor_in_node_navigates(CtMainWin* pWin)
+{
+    spdlog::info("Test: Link click navigates to anchor on main buffer (same node)");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    auto buffer = pWin->curr_buffer();
+
+    // Set up text and insert anchor
+    pBridge->beginTextEditSession(nodeId);
+    buffer->set_text("start anchor_here end");
+    buffer->set_modified(true);
+    pBridge->endTextEditSession();
+    GuiEventSimulator::process_pending_events();
+
+    buffer->place_cursor(buffer->get_iter_at_offset(6)); // after "start "
+    pActions->image_insert_anchor(buffer->get_insert()->get_iter(),
+                                  "nav_main_anchor",
+                                  CtAnchorExpCollState::None, "");
+    GuiEventSimulator::process_pending_events();
+
+    // Find the anchor and its offset
+    CtImageAnchor* foundAnchor = nullptr;
+    for (auto* w : pWin->curr_tree_iter().get_anchored_widgets_fast()) {
+        if (auto* a = dynamic_cast<CtImageAnchor*>(w)) {
+            if (a->get_anchor_name() == "nav_main_anchor") {
+                foundAnchor = a;
+                break;
+            }
+        }
+    }
+    ASSERT_TRUE(foundAnchor) << "Anchor 'nav_main_anchor' not found";
+    int anchorOffset = foundAnchor->getOffset();
+
+    // Test 1: current_node_scroll_to_anchor
+    buffer->place_cursor(buffer->begin());
+    pActions->current_node_scroll_to_anchor("nav_main_anchor");
+    GuiEventSimulator::process_pending_events();
+    EXPECT_EQ(buffer->get_insert()->get_iter().get_offset(), anchorOffset)
+        << "scroll_to_anchor: cursor should be at anchor offset";
+
+    // Test 2: link_clicked with node+anchor property
+    buffer->place_cursor(buffer->begin());
+    GuiEventSimulator::process_pending_events();
+    Glib::ustring linkProp = CtConst::LINK_TYPE_NODE + CtConst::CHAR_SPACE
+                            + std::to_string(nodeId) + CtConst::CHAR_SPACE + "nav_main_anchor";
+    pActions->link_clicked(linkProp, false);
+    GuiEventSimulator::process_pending_events();
+    EXPECT_EQ(buffer->get_insert()->get_iter().get_offset(), anchorOffset)
+        << "link_clicked: cursor should be at anchor offset";
+
+    // Cleanup
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("  Link to anchor on main buffer navigation verified");
+}
+
+void TestGuiSimulationApp::_test_link_click_navigates_between_nodes(CtMainWin* pWin)
+{
+    spdlog::info("Test: Link click navigates between different nodes");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    // Clean up both nodes
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    // Navigate to "html" node and insert an anchor there
+    auto htmlIter = pWin->get_tree_store().get_node_from_node_name("html");
+    ASSERT_TRUE(htmlIter);
+    gint64 htmlNodeId = htmlIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(htmlIter));
+    GuiEventSimulator::process_pending_events();
+
+    auto htmlBuffer = pWin->curr_buffer();
+    int htmlOrigCharCount = htmlBuffer->get_char_count();
+
+    // Insert anchor in html node
+    pBridge->beginTextEditSession(htmlNodeId);
+    htmlBuffer->place_cursor(htmlBuffer->begin());
+    pBridge->endTextEditSession();
+    pActions->image_insert_anchor(htmlBuffer->begin(),
+                                  "cross_node_anchor",
+                                  CtAnchorExpCollState::None, "");
+    GuiEventSimulator::process_pending_events();
+
+    // Verify anchor was inserted
+    CtImageAnchor* htmlAnchor = nullptr;
+    for (auto* w : pWin->curr_tree_iter().get_anchored_widgets_fast()) {
+        if (auto* a = dynamic_cast<CtImageAnchor*>(w)) {
+            if (a->get_anchor_name() == "cross_node_anchor") {
+                htmlAnchor = a;
+                break;
+            }
+        }
+    }
+    ASSERT_TRUE(htmlAnchor) << "Anchor 'cross_node_anchor' not found in html node";
+
+    // Navigate to "b" node
+    auto bIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(bIter);
+    gint64 bNodeId = bIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(bIter));
+    GuiEventSimulator::process_pending_events();
+    EXPECT_EQ(pWin->curr_tree_iter().get_node_id(), bNodeId) << "Should be on node 'b'";
+
+    // Click a link that points to the html node's anchor
+    Glib::ustring linkProp = CtConst::LINK_TYPE_NODE + CtConst::CHAR_SPACE
+                            + std::to_string(htmlNodeId) + CtConst::CHAR_SPACE + "cross_node_anchor";
+    pActions->link_clicked(linkProp, false);
+    GuiEventSimulator::process_pending_events();
+
+    // Should have navigated to html node
+    EXPECT_EQ(pWin->curr_tree_iter().get_node_id(), htmlNodeId)
+        << "link_clicked should navigate from 'b' to 'html' node";
+
+    // Cleanup: undo anchor insertion in html node
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    // Navigate back to "b" to leave state clean for subsequent tests
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(bIter));
+    GuiEventSimulator::process_pending_events();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("  Cross-node link navigation verified");
+}
+
+void TestGuiSimulationApp::_test_link_undo_removes_link_in_node(CtMainWin* pWin)
+{
+    spdlog::info("Test: Link undo round-trip — undo removes tag, redo restores it");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    auto buffer = pWin->curr_buffer();
+
+    // Helper: check if any character in buffer has a link tag
+    auto bufferHasLinkTag = [&buffer]() -> bool {
+        for (auto it = buffer->begin(); !it.is_end(); it.forward_char()) {
+            for (auto& tag : it.get_tags()) {
+                if (tag->property_name().get_value().find("link_") == 0)
+                    return true;
+            }
+        }
+        return false;
+    };
+
+    // Set up text
+    pBridge->beginTextEditSession(nodeId);
+    buffer->set_text("undo link test");
+    buffer->set_modified(true);
+    pBridge->endTextEditSession();
+    GuiEventSimulator::process_pending_events();
+
+    EXPECT_FALSE(bufferHasLinkTag()) << "No link tag before applying link";
+
+    // Apply link
+    buffer->select_range(buffer->begin(), buffer->end());
+    Glib::ustring linkProp = CtConst::LINK_TYPE_WEBS + CtConst::CHAR_SPACE + "https://example.com";
+    pBridge->beginFormatChange(nodeId, "Insert link");
+    pActions->apply_tag(CtConst::TAG_LINK, linkProp, buffer->begin(), buffer->end(), buffer);
+    pBridge->endFormatChange();
+    pBridge->beginTextEditSession(nodeId);
+    GuiEventSimulator::process_pending_events();
+
+    EXPECT_TRUE(bufferHasLinkTag()) << "Link tag should be present after applying link";
+    EXPECT_EQ(buffer->get_text(), "undo link test") << "Text should be unchanged";
+
+    // Undo the link
+    pBridge->endTextEditSession();
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    EXPECT_FALSE(bufferHasLinkTag()) << "Link tag should be gone after undo";
+    EXPECT_EQ(buffer->get_text(), "undo link test") << "Text should survive undo";
+
+    // Redo the link
+    pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+
+    EXPECT_TRUE(bufferHasLinkTag()) << "Link tag should be back after redo";
+    EXPECT_EQ(buffer->get_text(), "undo link test") << "Text should survive redo";
+
+    // Cleanup
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("  Link undo/redo round-trip verified");
+}
+
+void TestGuiSimulationApp::_test_anchor_undo_removes_anchor_in_rich_cell(CtMainWin* pWin)
+{
+    spdlog::info("Test: Anchor undo round-trip in rich cell — undo removes, redo restores");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    auto mainBuffer = pWin->curr_buffer();
+
+    // Insert a 1x1 rich table
+    std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+    richData[0][0].textSpans.push_back(CtTextSpan{"cell text"});
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+
+    // Begin editing cell and insert anchor
+    pActions->curr_table_anchor = pTable;
+    pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+    auto cellBuf = pTable->get_buffer(0, 0);
+    ASSERT_TRUE(cellBuf);
+    cellBuf->place_cursor(cellBuf->end());
+    GuiEventSimulator::process_pending_events();
+
+    CtRichCell* cell = pTable->getRichCell(0, 0);
+    ASSERT_TRUE(cell);
+    int charOff = cellBuf->get_insert()->get_iter().get_offset();
+    pBridge->cancelRichCellSession();
+    auto* pAnchor = new CtImageAnchor{pWin, "cell_undo_anchor",
+                                      CtAnchorExpCollState::None, charOff, ""};
+    pAnchor->insertInTextBuffer(cellBuf);
+    cell->addEmbeddedWidget(pAnchor);
+    pBridge->commitRichCellFormatChange("Insert anchor");
+    GuiEventSimulator::process_pending_events();
+
+    // Helper: check if cell has the anchor
+    auto cellHasAnchor = [&pWin](const std::string& anchorName) -> bool {
+        auto* tbl = findFirstRichTable(pWin);
+        if (!tbl) return false;
+        auto* c = tbl->getRichCell(0, 0);
+        if (!c) return false;
+        for (auto* emb : c->getEmbeddedWidgets()) {
+            if (auto* a = dynamic_cast<CtImageAnchor*>(emb)) {
+                if (a->get_anchor_name() == anchorName) return true;
+            }
+        }
+        return false;
+    };
+
+    EXPECT_TRUE(cellHasAnchor("cell_undo_anchor")) << "Anchor should be present after insert";
+
+    // Undo the anchor insertion
+    pBridge->endWidgetEdit();
+    GuiEventSimulator::process_pending_events();
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    // After undo, table should still exist but anchor should be gone
+    auto* tableAfterUndo = findFirstRichTable(pWin);
+    if (tableAfterUndo) {
+        auto* cellAfterUndo = tableAfterUndo->getRichCell(0, 0);
+        if (cellAfterUndo) {
+            bool anchorStillPresent = false;
+            for (auto* emb : cellAfterUndo->getEmbeddedWidgets()) {
+                if (auto* a = dynamic_cast<CtImageAnchor*>(emb)) {
+                    if (a->get_anchor_name() == "cell_undo_anchor")
+                        anchorStillPresent = true;
+                }
+            }
+            EXPECT_FALSE(anchorStillPresent)
+                << "Anchor 'cell_undo_anchor' should be gone after undo";
+        }
+    }
+
+    // Redo and verify anchor returns
+    pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+
+    auto* tableAfterRedo = findFirstRichTable(pWin);
+    ASSERT_TRUE(tableAfterRedo) << "Table should exist after redo";
+    auto* cellAfterRedo = tableAfterRedo->getRichCell(0, 0);
+    ASSERT_TRUE(cellAfterRedo);
+    bool anchorBack = false;
+    for (auto* emb : cellAfterRedo->getEmbeddedWidgets()) {
+        if (auto* a = dynamic_cast<CtImageAnchor*>(emb)) {
+            if (a->get_anchor_name() == "cell_undo_anchor")
+                anchorBack = true;
+        }
+    }
+    EXPECT_TRUE(anchorBack) << "Anchor should be back after redo";
+
+    // Cleanup
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("  Anchor undo/redo in rich cell verified");
 }
 
 TEST(CommandGuiSimulationTests, Phase6_3_GuiEventSimulation)
