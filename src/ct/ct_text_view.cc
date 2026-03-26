@@ -341,7 +341,7 @@ void CtTextView::for_event_after_double_click_button12(GdkEvent* event)
         GtkSourceView* pGutterGtkSourceView = gtk_source_gutter_get_view(pGtkSourceGutter);
         if (pGutterGtkSourceView) {
             GdkWindow* pGutterLNWindow = gtk_widget_get_window(GTK_WIDGET(pGutterGtkSourceView));
-            if (pGutterLNWindow == event->button.window) {
+            if (pGutterLNWindow and pGutterLNWindow == event->button.window) {
                 // line number click
                 _pCtMainWin->apply_tag_try_automatic_bounds_paragraph(text_buffer, text_iter);
                 return;
@@ -414,18 +414,22 @@ void CtTextView::set_buffer(const Glib::RefPtr<Gtk::TextBuffer>& buffer)
 void CtTextView::for_event_after_button_press(GdkEvent* event)
 {
     auto text_buffer = get_buffer();
+    spdlog::debug("for_event_after_button_press: button={} type={} buf_chars={}",
+                  event->button.button, (int)event->type, text_buffer->get_char_count());
     if (event->button.button == 1 or event->button.button == 2) {
         int x, y, trailing;
         _pTextView->window_to_buffer_coords(Gtk::TEXT_WINDOW_TEXT, (int)event->button.x, (int)event->button.y, x, y);
         Gtk::TextIter text_iter;
         _pTextView->get_iter_at_position(text_iter, trailing, x, y); // works better than get_iter_at_location
+        spdlog::debug("  coords: event({},{}) -> buffer({},{}) iter_offset={} trailing={}",
+                      (int)event->button.x, (int)event->button.y, x, y, text_iter.get_offset(), trailing);
         if (1 == event->button.button) {
             GtkSourceGutter* pGtkSourceGutter = gtk_source_view_get_gutter(_pGtkSourceView, GTK_TEXT_WINDOW_LEFT);
             if (pGtkSourceGutter) {
                 GtkSourceView* pGutterGtkSourceView = gtk_source_gutter_get_view(pGtkSourceGutter);
                 if (pGutterGtkSourceView) {
                     GdkWindow* pGutterLNWindow = gtk_widget_get_window(GTK_WIDGET(pGutterGtkSourceView));
-                    if (pGutterLNWindow == event->button.window) {
+                    if (pGutterLNWindow and pGutterLNWindow == event->button.window) {
                         // line number click
                         _pCtMainWin->apply_tag_try_automatic_bounds(text_buffer, text_iter);
                         return;
@@ -436,16 +440,24 @@ void CtTextView::for_event_after_button_press(GdkEvent* event)
         // the issue: get_iter_at_position always gives iter, so we have to check if iter is valid
         Gdk::Rectangle iter_rect;
         _pTextView->get_iter_location(text_iter, iter_rect);
+        spdlog::debug("  iter_rect: x={} y={} w={} h={} vs buffer_x={}",
+                      iter_rect.get_x(), iter_rect.get_y(), iter_rect.get_width(), iter_rect.get_height(), x);
             if ( (iter_rect.get_width() >= 0/*LTR*/ and iter_rect.get_x() <= x and x <= (iter_rect.get_x() + iter_rect.get_width())) or
              (iter_rect.get_width() < 0/*RTL*/ and (iter_rect.get_x() + iter_rect.get_width()) <= x and x <= iter_rect.get_x()) )
         {
             auto tags = text_iter.get_tags();
+            spdlog::debug("  iter in range, num_tags={}", tags.size());
             // check whether we are hovering a link
             for (auto& tag : tags) {
                 Glib::ustring tag_name = tag->property_name();
+                spdlog::debug("  tag: '{}'", tag_name.raw());
                 if (str::startswith(tag_name, CtConst::TAG_LINK)) {
                     if (not _pCtConfig->doubleClickLink) {
+                        spdlog::debug("  -> calling link_clicked with '{}'", tag_name.substr(5).raw());
                         _pCtMainWin->get_ct_actions()->link_clicked(tag_name.substr(5), event->button.button == 2);
+                    }
+                    else {
+                        spdlog::debug("  -> doubleClickLink is ON, skipping single-click link");
                     }
                     return;
                 }
@@ -470,6 +482,9 @@ void CtTextView::for_event_after_button_press(GdkEvent* event)
                     }
                 }
             }
+        }
+        else {
+            spdlog::debug("  iter NOT in range — click outside character bounds");
         }
     }
     else if (event->button.button == 3 and not text_buffer->get_has_selection()) {
