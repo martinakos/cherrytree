@@ -361,7 +361,8 @@ static bool isUserFormattingTag(const std::string& tagName)
         || startsWith(tagName, CtConst::TAG_UNDERLINE_PREFIX)
         || startsWith(tagName, CtConst::TAG_STRIKETHROUGH_PREFIX)
         || startsWith(tagName, CtConst::TAG_INDENT_PREFIX)
-        || startsWith(tagName, CtConst::TAG_FAMILY_PREFIX);
+        || startsWith(tagName, CtConst::TAG_FAMILY_PREFIX)
+        || startsWith(tagName, CtConst::TAG_LINK_PREFIX);
 }
 
 void CtTextEditSession::startTagCapture(const Glib::RefPtr<Gtk::TextBuffer>& buffer)

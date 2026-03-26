@@ -1071,6 +1071,34 @@ void CtTableRich::_new_rich_cell_attach(const size_t rowIdx, const size_t colIdx
         return false;
     });
 
+    // Handle link clicks and cursor/tooltip changes in rich cell text views
+    // (same pattern as codebox — see ct_codebox.cc)
+    // NOTE: capture pCell (stable pointer in _tableMatrix), NOT &ctTextView (dangling local ref).
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
+    textView.signal_event_after().connect([this, pCell](GdkEvent* event){
+        spdlog::trace("Rich cell signal_event_after: type={} user_active={}",
+                      (int)event->type, _pCtMainWin->user_active());
+        if (not _pCtMainWin->user_active()) return;
+        CtTextView& cellTV = pCell->get_text_view();
+        if (event->type == GDK_2BUTTON_PRESS and (1 == event->button.button or 2 == event->button.button)) {
+            spdlog::debug("Rich cell: double-click detected, calling for_event_after_double_click_button12");
+            cellTV.for_event_after_double_click_button12(event);
+        }
+        else if (event->type == GDK_BUTTON_PRESS) {
+            spdlog::debug("Rich cell: button press detected, calling for_event_after_button_press");
+            cellTV.for_event_after_button_press(event);
+        }
+    });
+    textView.signal_motion_notify_event().connect([this, pCell](GdkEventMotion* event){
+        if (not _pCtMainWin->user_active()) return false;
+        CtTextView& cellTV = pCell->get_text_view();
+        int x, y;
+        cellTV.mm().window_to_buffer_coords(Gtk::TEXT_WINDOW_TEXT, int(event->x), int(event->y), x, y);
+        cellTV.cursor_and_tooltips_handler(x, y);
+        return false;
+    });
+#endif
+
     _grid.attach(ctTextView.mm(), colIdx, rowIdx, 1, 1);
     _pCtMainWin->apply_syntax_highlighting(pCell->get_buffer(), pCell->get_syntax_highlighting(), false);
     textView.show();

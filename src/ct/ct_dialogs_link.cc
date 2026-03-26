@@ -25,6 +25,58 @@
 #include "ct_main_win.h"
 #include "ct_storage_control.h"
 
+// Collect all anchor names from a node, including those inside rich table cells.
+static std::list<Glib::ustring> collect_all_anchor_names(CtTreeIter& ctTreeIter)
+{
+    std::list<Glib::ustring> anchors_list;
+    for (CtAnchoredWidget* pWidget : ctTreeIter.get_anchored_widgets_fast()) {
+        if (CtAnchWidgType::ImageAnchor == pWidget->get_type()) {
+            anchors_list.push_back(dynamic_cast<CtImageAnchor*>(pWidget)->get_anchor_name());
+        }
+        else if (CtAnchWidgType::TableRich == pWidget->get_type()) {
+            auto* pTable = dynamic_cast<CtTableRich*>(pWidget);
+            for (size_t r = 0; r < pTable->get_num_rows(); ++r) {
+                for (size_t c = 0; c < pTable->get_num_columns(); ++c) {
+                    for (auto* emb : pTable->getRichCell(r, c)->getEmbeddedWidgets()) {
+                        if (CtAnchWidgType::ImageAnchor == emb->get_type()) {
+                            anchors_list.push_back(dynamic_cast<CtImageAnchor*>(emb)->get_anchor_name());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return anchors_list;
+}
+
+// Search for an anchor by name in a node, including inside rich table cells.
+// Returns true if found.
+static bool find_anchor_in_node(CtTreeIter& ctTreeIter, const Glib::ustring& anchorName)
+{
+    for (CtAnchoredWidget* pWidget : ctTreeIter.get_anchored_widgets_fast()) {
+        if (CtAnchWidgType::ImageAnchor == pWidget->get_type()) {
+            if (anchorName == dynamic_cast<CtImageAnchor*>(pWidget)->get_anchor_name()) {
+                return true;
+            }
+        }
+        else if (CtAnchWidgType::TableRich == pWidget->get_type()) {
+            auto* pTable = dynamic_cast<CtTableRich*>(pWidget);
+            for (size_t r = 0; r < pTable->get_num_rows(); ++r) {
+                for (size_t c = 0; c < pTable->get_num_columns(); ++c) {
+                    for (auto* emb : pTable->getRichCell(r, c)->getEmbeddedWidgets()) {
+                        if (CtAnchWidgType::ImageAnchor == emb->get_type()) {
+                            if (anchorName == dynamic_cast<CtImageAnchor*>(emb)->get_anchor_name()) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+
 bool CtDialogs::link_handle_dialog(CtMainWin& ctMainWin,
                                    const Glib::ustring& title,
                                    Gtk::TreeModel::iterator sel_tree_iter,
@@ -263,12 +315,7 @@ bool CtDialogs::link_handle_dialog(CtMainWin& ctMainWin,
             return;
         }
         CtTreeIter ctTreeIter = ctTreestore.to_ct_tree_iter(sel_tree_iter);
-        std::list<Glib::ustring> anchors_list;
-        for (CtAnchoredWidget* pAnchoredWidget : ctTreeIter.get_anchored_widgets_fast()) {
-            if (CtAnchWidgType::ImageAnchor == pAnchoredWidget->get_type()) {
-                anchors_list.push_back(dynamic_cast<CtImageAnchor*>(pAnchoredWidget)->get_anchor_name());
-            }
-        }
+        std::list<Glib::ustring> anchors_list = collect_all_anchor_names(ctTreeIter);
         if (anchors_list.empty()) {
             info_dialog(_("There are No Anchors in the Selected Node."), dialog);
         }
@@ -308,18 +355,14 @@ bool CtDialogs::link_handle_dialog(CtMainWin& ctMainWin,
                 }
                 else {
                     CtTreeIter ctTreeIter = ctTreestore.to_ct_tree_iter(treeIter);
-                    for (CtAnchoredWidget* pAnchoredWidget : ctTreeIter.get_anchored_widgets_fast()) {
-                        if (CtAnchWidgType::ImageAnchor == pAnchoredWidget->get_type()) {
-                            if (anchorName == dynamic_cast<CtImageAnchor*>(pAnchoredWidget)->get_anchor_name()) {
-                                Gtk::TreePath sel_path = ctTreestore.get_path(treeIter);
-                                treeview_2.expand_to_path(sel_path);
-                                treeview_2.set_cursor(sel_path);
-                                treeview_2.scroll_to_row(sel_path);
-                                lastAnchorSearch = treeIter;
-                                foundIt = true;
-                                return true; /* we're done */
-                            }
-                        }
+                    if (find_anchor_in_node(ctTreeIter, anchorName)) {
+                        Gtk::TreePath sel_path = ctTreestore.get_path(treeIter);
+                        treeview_2.expand_to_path(sel_path);
+                        treeview_2.set_cursor(sel_path);
+                        treeview_2.scroll_to_row(sel_path);
+                        lastAnchorSearch = treeIter;
+                        foundIt = true;
+                        return true; /* we're done */
                     }
                 }
                 return false; /* false for continue */
