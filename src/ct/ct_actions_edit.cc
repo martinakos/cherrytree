@@ -365,6 +365,22 @@ void CtActions::embfile_insert()
 void CtActions::apply_tag_link()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+
+    // RT-5: Route to cell buffer when a rich table cell is focused.
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+        auto cellBuffer = pBridge->getActiveRichCellBuffer();
+        if (cellBuffer) {
+            // Cancel (not flush) the session so apply_tag's text insertion
+            // doesn't get captured as a separate "Type ..." undo entry.
+            // commitRichCellFormatChange will capture the full diff as "Insert link".
+            pBridge->cancelRichCellSession();
+            apply_tag(CtConst::TAG_LINK, ""/*property_value*/, std::nullopt, std::nullopt, cellBuffer);
+            pBridge->commitRichCellFormatChange("Insert link");
+            return;
+        }
+    }
+
     if (_curr_buffer()->get_has_selection()) {
         Gtk::TextIter iter_sel_start, iter_sel_end;
         _curr_buffer()->get_selection_bounds(iter_sel_start, iter_sel_end);
@@ -379,7 +395,27 @@ void CtActions::apply_tag_link()
             }
         }
     }
+
+    // End current text edit session and start a fresh one for the link operation.
+    // We use a text edit session (not format change) because apply_tag for links
+    // may also insert new text (the link name), which format change doesn't capture.
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
+
     apply_tag(CtConst::TAG_LINK);
+
+    // End the link session and start a new one for subsequent edits
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        // Override the auto-generated "Type '...'" description with "Insert link"
+        if (auto* pCmd = dynamic_cast<CompoundCommand*>(pBridge->getCommandManager().peekUndoCommand())) {
+            pCmd->setDescription("Node " + std::to_string(_pCtMainWin->curr_tree_iter().get_node_id())
+                                 + ": Insert link");
+        }
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+    }
 }
 
 // Insert an Anchor
@@ -387,6 +423,33 @@ void CtActions::anchor_handle()
 {
     if (not _node_sel_and_rich_text()) return;
     if (not _is_curr_node_not_read_only_or_error()) return;
+
+    // RT-5: Route to cell buffer when a rich table cell is focused.
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+        if (auto* pTable = dynamic_cast<CtTableRich*>(_table_in_use())) {
+            auto cellBuffer = pBridge->getActiveRichCellBuffer();
+            if (cellBuffer) {
+                // Show dialog to get anchor name
+                Glib::ustring ret_anchor_name = CtDialogs::img_n_entry_dialog(
+                    *_pCtMainWin, _("Insert Anchor"), "", "ct_anchor");
+                if (ret_anchor_name.empty()) return;
+
+                const size_t row = pTable->current_row();
+                const size_t col = pTable->current_column();
+                CtRichCell* pCell = pTable->getRichCell(row, col);
+                const int cellCharOffset = cellBuffer->get_insert()->get_iter().get_offset();
+                pBridge->cancelRichCellSession();
+                auto* pWidget = new CtImageAnchor{_pCtMainWin, ret_anchor_name,
+                                                  CtAnchorExpCollState::None, cellCharOffset, ""};
+                pWidget->insertInTextBuffer(cellBuffer);
+                pCell->addEmbeddedWidget(pWidget);
+                pBridge->commitRichCellFormatChange("Insert anchor");
+                return;
+            }
+        }
+    }
+
     _anchor_edit_dialog(nullptr, _curr_buffer()->get_insert()->get_iter(), nullptr);
 }
 

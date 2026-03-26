@@ -388,6 +388,7 @@ void CtActions::toggle_show_hide_main_window()
 
 void CtActions::link_clicked(const Glib::ustring& tag_property_value, bool from_wheel)
 {
+    spdlog::debug("link_clicked: tag='{}' from_wheel={}", tag_property_value.raw(), from_wheel);
     CtLinkEntry link_entry = CtMiscUtil::get_link_entry_from_property(tag_property_value);
     if (CtLinkType::Webs == link_entry.type) { // link to webpage
         Glib::ustring clean_weblink = str::replace(link_entry.webs, "amp;", "");
@@ -459,24 +460,67 @@ void CtActions::link_clicked(const Glib::ustring& tag_property_value, bool from_
 
 void CtActions::current_node_scroll_to_anchor(Glib::ustring anchor_name)
 {
+    spdlog::debug("current_node_scroll_to_anchor: name='{}'", anchor_name.raw());
     if (not _is_there_selected_node_or_error()) return;
 
     CtImageAnchor* imageAnchor = nullptr;
+    CtTableRich* ownerTable = nullptr;  // non-null when anchor is inside a rich table cell
+    size_t anchorRow = 0, anchorCol = 0;
+    int anchorCellOffset = 0;
     for (auto& widget : _pCtMainWin->curr_tree_iter().get_anchored_widgets_fast()) {
         if (auto anchor = dynamic_cast<CtImageAnchor*>(widget)) {
             if (anchor->get_anchor_name() == anchor_name) {
                 imageAnchor = anchor;
             }
         }
+        // Also search inside rich table cells
+        if (not imageAnchor and CtAnchWidgType::TableRich == widget->get_type()) {
+            auto* pTable = dynamic_cast<CtTableRich*>(widget);
+            for (size_t r = 0; r < pTable->get_num_rows() and not imageAnchor; ++r) {
+                for (size_t c = 0; c < pTable->get_num_columns() and not imageAnchor; ++c) {
+                    for (auto* emb : pTable->getRichCell(r, c)->getEmbeddedWidgets()) {
+                        if (auto anchor = dynamic_cast<CtImageAnchor*>(emb)) {
+                            if (anchor->get_anchor_name() == anchor_name) {
+                                imageAnchor = anchor;
+                                ownerTable = pTable;
+                                anchorRow = r;
+                                anchorCol = c;
+                                anchorCellOffset = anchor->getOffset();
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
     if (not imageAnchor) {
+        spdlog::debug("  anchor '{}' NOT found", anchor_name.raw());
         if (anchor_name.size() > (size_t)CtConst::MAX_TOOLTIP_LINK_CHARS) {
             anchor_name = anchor_name.substr(0, (size_t)CtConst::MAX_TOOLTIP_LINK_CHARS) + "...";
         }
         CtDialogs::warning_dialog(str::format(_("No anchor named '%s' found"), str::xml_escape(anchor_name)), *_pCtMainWin);
     }
+    else if (ownerTable) {
+        // Anchor is inside a rich table cell — scroll main view to table, then focus the cell
+        Gtk::TextIter iter_table = _curr_buffer()->get_iter_at_child_anchor(ownerTable->getTextChildAnchor());
+        spdlog::debug("  anchor found in table row={} col={} cellOffset={}, table at main offset={}",
+                      anchorRow, anchorCol, anchorCellOffset, iter_table.get_offset());
+        _pCtMainWin->get_text_view().set_selection_at_offset_n_delta(iter_table.get_offset(), 1);
+        // Focus the cell containing the anchor and place cursor at anchor position
+        CtRichCell* pCell = ownerTable->getRichCell(anchorRow, anchorCol);
+        auto cellBuf = pCell->get_buffer();
+        auto anchorChildRef = imageAnchor->getTextChildAnchor();
+        if (anchorChildRef and not anchorChildRef->get_deleted()) {
+            Gtk::TextIter iterAnchorInCell = cellBuf->get_iter_at_child_anchor(anchorChildRef);
+            cellBuf->place_cursor(iterAnchorInCell);
+        }
+        pCell->get_text_view().mm().grab_focus();
+    }
     else {
+        // Anchor is in the main node buffer — scroll to it directly
         Gtk::TextIter iter_anchor = _curr_buffer()->get_iter_at_child_anchor(imageAnchor->getTextChildAnchor());
+        spdlog::debug("  anchor found at node level, offset={}", iter_anchor.get_offset());
         _pCtMainWin->get_text_view().set_selection_at_offset_n_delta(iter_anchor.get_offset(), 1);
     }
 }
