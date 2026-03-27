@@ -10,6 +10,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - distro: ubuntu:22.04
+            label: ubuntu22.04
           - distro: ubuntu:24.04
             label: ubuntu24.04
           - distro: ubuntu:25.04
