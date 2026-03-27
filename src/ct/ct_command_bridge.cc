@@ -2197,8 +2197,11 @@ void CtCommandBridge::BridgeObserver::buildBufferForNode(
     std::list<CtAnchoredWidget*> new_widgets;
     try {
         new_widgets = buildBufferFromContent(content, buf, _bridge->_pMainWin);
+    } catch (const std::exception& e) {
+        spdlog::error("BridgeObserver::buildBufferForNode: exception in buildBufferFromContent for node {}: {}", nodeId, e.what());
+        buf->set_text("(Content reconstruction failed due to corrupt data)");
     } catch (...) {
-        spdlog::error("BridgeObserver::buildBufferForNode: exception in buildBufferFromContent for node {}", nodeId);
+        spdlog::error("BridgeObserver::buildBufferForNode: unknown exception in buildBufferFromContent for node {}", nodeId);
         buf->set_text("(Content reconstruction failed due to corrupt data)");
     }
     CT_SOURCE_BUFFER_END_NOT_UNDOABLE(pGtkSourceBuffer);
