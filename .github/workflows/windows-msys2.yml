@@ -7,6 +7,8 @@ on:
         required: false
         default: 'false'
         type: boolean
+  release:
+    types: [published]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -102,6 +104,15 @@ jobs:
           retention-days: 3
           overwrite: true
           if-no-files-found: error
+      - name: Upload to release
+        if: github.event_name == 'release'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          Get-ChildItem build/cherrytree*.7z, build/cherrytree*.exe | ForEach-Object {
+            gh release upload "${{ github.event.release.tag_name }}" $_.FullName --clobber
+          }
       - name: SignPath Signing
         if: ${{ github.event.inputs.sign_build == 'true' }}
         uses: signpath/github-action-submit-signing-request@v1
