@@ -943,7 +943,7 @@ CtNodeContent CtNodeContent::fromXml(const Glib::ustring& xml, CtMainWin* /*pCtM
                                             if (childName == "encoded_png") {
                                                 if (!childElem->get_attribute_value("anchor").empty()) {
                                                     wd.type = CtAnchWidgType::ImageAnchor;
-                                                } else if (childElem->get_attribute_value("filename") == "latex") {
+                                                } else if (childElem->get_attribute_value("filename") == "__ct_special.tex") { // CtImageLatex::LatexSpecialFilename
                                                     wd.type = CtAnchWidgType::ImageLatex;
                                                 } else if (!childElem->get_attribute_value("filename").empty()) {
                                                     wd.type = CtAnchWidgType::ImageEmbFile;

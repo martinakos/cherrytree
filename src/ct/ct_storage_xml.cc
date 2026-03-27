@@ -765,7 +765,7 @@ CtWidgetDesc CtStorageXmlHelper::_parse_embedded_widget_xml(xmlpp::Element* elem
     CtAnchWidgType wtype = CtAnchWidgType::None;
     if (!elem->get_attribute_value("anchor").empty()) {
         wtype = CtAnchWidgType::ImageAnchor;
-    } else if (elem->get_attribute_value("filename") == "latex") {
+    } else if (elem->get_attribute_value("filename") == CtImageLatex::LatexSpecialFilename) {
         wtype = CtAnchWidgType::ImageLatex;
     } else if (!elem->get_attribute_value("filename").empty()) {
         wtype = CtAnchWidgType::ImageEmbFile;

@@ -55,7 +55,7 @@ CtWidgetDesc extractWidgetDesc(CtAnchoredWidget* widget, int charOffset)
         if (elem_name == "encoded_png") {
             if (!elem->get_attribute_value("anchor").empty()) {
                 wtype = CtAnchWidgType::ImageAnchor;
-            } else if (elem->get_attribute_value("filename") == "latex") {
+            } else if (elem->get_attribute_value("filename") == CtImageLatex::LatexSpecialFilename) {
                 wtype = CtAnchWidgType::ImageLatex;
             } else if (!elem->get_attribute_value("filename").empty()) {
                 wtype = CtAnchWidgType::ImageEmbFile;
@@ -84,16 +84,44 @@ CtWidgetDesc extractWidgetDesc(CtAnchoredWidget* widget, int charOffset)
                         CtCellContent cellContent;
                         const xmlpp::Element* cellElem = dynamic_cast<const xmlpp::Element*>(pNodeCell);
                         if (cellElem) {
-                            for (xmlpp::Node* pNodeRt : cellElem->get_children("rich_text")) {
-                                const xmlpp::Element* rtElem = dynamic_cast<const xmlpp::Element*>(pNodeRt);
-                                if (!rtElem) continue;
-                                CtTextSpan span;
-                                for (const auto* attr : rtElem->get_attributes()) {
-                                    span.attributes[attr->get_name()] = attr->get_value();
+                            for (xmlpp::Node* pNodeChild : cellElem->get_children()) {
+                                const xmlpp::Element* childElem = dynamic_cast<const xmlpp::Element*>(pNodeChild);
+                                if (!childElem) continue;
+                                const Glib::ustring childName = childElem->get_name();
+                                if (childName == "rich_text") {
+                                    CtTextSpan span;
+                                    for (const auto* attr : childElem->get_attributes()) {
+                                        span.attributes[attr->get_name()] = attr->get_value();
+                                    }
+                                    const xmlpp::TextNode* tn = childElem->get_child_text();
+                                    span.text = tn ? tn->get_content() : "";
+                                    cellContent.textSpans.push_back(std::move(span));
                                 }
-                                const xmlpp::TextNode* tn = rtElem->get_child_text();
-                                span.text = tn ? tn->get_content() : "";
-                                cellContent.textSpans.push_back(std::move(span));
+                                else if (childName == "encoded_png" || childName == "codebox") {
+                                    CtWidgetDesc wd;
+                                    if (childName == "encoded_png") {
+                                        if (!childElem->get_attribute_value("anchor").empty()) {
+                                            wd.type = CtAnchWidgType::ImageAnchor;
+                                        } else if (childElem->get_attribute_value("filename") == CtImageLatex::LatexSpecialFilename) {
+                                            wd.type = CtAnchWidgType::ImageLatex;
+                                        } else if (!childElem->get_attribute_value("filename").empty()) {
+                                            wd.type = CtAnchWidgType::ImageEmbFile;
+                                        } else {
+                                            wd.type = CtAnchWidgType::ImagePng;
+                                        }
+                                    } else {
+                                        wd.type = CtAnchWidgType::CodeBox;
+                                    }
+                                    for (const auto& attr : childElem->get_attributes()) {
+                                        wd.setProperty(attr->get_name(), attr->get_value());
+                                    }
+                                    const xmlpp::TextNode* textNode = childElem->get_child_text();
+                                    if (textNode) {
+                                        wd.contentData = textNode->get_content().raw();
+                                        wd.setProperty("_content", wd.contentData);
+                                    }
+                                    cellContent.embeddedWidgets.push_back(std::move(wd));
+                                }
                             }
                         }
                         richRow.push_back(std::move(cellContent));
@@ -384,7 +412,7 @@ CtNodeContent buildContentFromBuffer(
                         // Determine more specific image type from attributes
                         if (!elem->get_attribute_value("anchor").empty()) {
                             wtype = CtAnchWidgType::ImageAnchor;
-                        } else if (elem->get_attribute_value("filename") == "latex") {
+                        } else if (elem->get_attribute_value("filename") == CtImageLatex::LatexSpecialFilename) {
                             wtype = CtAnchWidgType::ImageLatex;
                         } else if (!elem->get_attribute_value("filename").empty()) {
                             wtype = CtAnchWidgType::ImageEmbFile;
