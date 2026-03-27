@@ -1,4 +1,4 @@
-cherrytree-docmodel (1.7.2+docmodel2-1) plucky; urgency=low
+cherrytree-docmodel (1.7.2+docmodel3-1) plucky; urgency=low
 
   * fixed command injection with custom link actions (@r3vpwnx, @Afnaan-Ahmed #2945 CVE-2026-118692)
   * fixed arbitrary local file read via crafted embedded-file name (@Afnaan-Ahmed, #2944 CVE-2026-118693)
