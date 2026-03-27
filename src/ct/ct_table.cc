@@ -853,6 +853,15 @@ CtAnchoredWidget* CtRichCell::_createWidgetFromDesc(const CtWidgetDesc& desc, in
             return new CtImageLatex{_pCtMainWin, desc.getContent(), charOffset, justification,
                                     CtImageEmbFile::get_next_unique_id()};
         }
+        if (desc.type == CtAnchWidgType::ImageEmbFile) {
+            const std::string fileName = desc.getFileName();
+            const std::string encodedBlob = desc.getContent();
+            std::string rawBlob;
+            if (!encodedBlob.empty()) rawBlob = Glib::Base64::decode(encodedBlob);
+            const time_t timeInt = static_cast<time_t>(desc.getFileTime());
+            return new CtImageEmbFile{_pCtMainWin, fileName, rawBlob, timeInt, charOffset, justification,
+                                      CtImageEmbFile::get_next_unique_id(), fs::path{fileName}};
+        }
     }
     catch (const std::exception& e) {
         spdlog::error("CtRichCell::_createWidgetFromDesc: {}", e.what());
