@@ -4,8 +4,8 @@
 #define MyAppName "CherryTree"
 #define MyAppPublisher "Giuseppe Penone"
 #define MyAppURL "https://www.giuspen.net/cherrytree/"
-#define MyAppExeName "cherrytree.exe"
-#define MyAppVersion GetFileVersion('..\build\cherrytree.exe')
+#define MyAppExeName "cherrytree-docmodel.exe"
+#define MyAppVersion GetFileVersion('..\build\cherrytree-docmodel.exe')
 
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
