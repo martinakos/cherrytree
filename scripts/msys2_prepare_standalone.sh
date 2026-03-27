@@ -5,7 +5,7 @@ set -e
 
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 IN_CT_FOLDER="$(dirname "${SCRIPT_DIR}")"
-IN_CT_EXE="${IN_CT_FOLDER}/build/cherrytree.exe"
+IN_CT_EXE="${IN_CT_FOLDER}/build/cherrytree-docmodel.exe"
 IN_CT_LANGUAGES_FOLDER="${IN_CT_FOLDER}/po"
 IN_CT_DATA_FOLDER="${IN_CT_FOLDER}/data"
 IN_CT_ICONS_FOLDER="${IN_CT_FOLDER}/icons"
