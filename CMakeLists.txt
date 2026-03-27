@@ -5,6 +5,7 @@ project(cherrytree-docmodel)
 file(READ "debian/changelog" CHANGELOG)
 string(REGEX MATCH "cherrytree-docmodel +\\(([0-9]+)\\.([0-9]+)\\.([0-9]+)(\\+[a-zA-Z0-9]+)?[-]" _ ${CHANGELOG})
 set(CT_VERSION ${CMAKE_MATCH_1}.${CMAKE_MATCH_2}.${CMAKE_MATCH_3}${CMAKE_MATCH_4})
+set(CT_VERSION_DOTTED ${CMAKE_MATCH_1}.${CMAKE_MATCH_2}.${CMAKE_MATCH_3})
 set(CT_VERSION_WINDOWS ${CMAKE_MATCH_1},${CMAKE_MATCH_2},${CMAKE_MATCH_3},0)
 message(STATUS "CT_VERSION = ${CT_VERSION}")
 
