@@ -119,6 +119,14 @@ void CtActions::table_insert()
 {
     if (not _node_sel_and_rich_text()) return;
     if (not _is_curr_node_not_read_only_or_error()) return;
+    // Tables cannot be nested inside rich table cells.
+    {
+        auto pBr = _pCtMainWin->get_command_bridge();
+        if (pBr && pBr->isActive() && pBr->isTrackingRichCell()) {
+            CtDialogs::info_dialog(_("Inserting a Table inside a Rich Table Cell is not supported."), *_pCtMainWin);
+            return;
+        }
+    }
     bool is_light{_pCtConfig->tableColumns*_pCtConfig->tableRows > _pCtConfig->tableCellsGoLight};
     bool is_rich{false};
     CtDialogs::TableHandleResp res = CtDialogs::table_handle_dialog(
@@ -231,6 +239,12 @@ void CtActions::codebox_insert()
 {
     if (not _node_sel_and_rich_text()) return;
     if (not _is_curr_node_not_read_only_or_error()) return;
+    // Codeboxes cannot be nested inside rich table cells.
+    auto pBridgeCb = _pCtMainWin->get_command_bridge();
+    if (pBridgeCb && pBridgeCb->isActive() && pBridgeCb->isTrackingRichCell()) {
+        CtDialogs::info_dialog(_("Inserting a CodeBox inside a Rich Table Cell is not supported."), *_pCtMainWin);
+        return;
+    }
 
     Glib::ustring textContent, justification;
     Gtk::TextIter iter_sel_start, iter_sel_end;
@@ -329,6 +343,26 @@ void CtActions::embfile_insert_path(const std::string& filepath)
         blob = Glib::file_get_contents(filepath);
     }
 
+    // RT-5: Route to cell buffer when a rich table cell is focused.
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+        if (auto* pTable = dynamic_cast<CtTableRich*>(_table_in_use())) {
+            const size_t row = pTable->current_row();
+            const size_t col = pTable->current_column();
+            CtRichCell* pCell = pTable->getRichCell(row, col);
+            auto cellBuffer = pCell->get_buffer();
+            const int cellCharOffset = cellBuffer->get_insert()->get_iter().get_offset();
+            pBridge->cancelRichCellSession();
+            auto* pWidget = new CtImageEmbFile{_pCtMainWin, name, blob, std::time(nullptr),
+                                               cellCharOffset, "", CtImageEmbFile::get_next_unique_id(),
+                                               embfilePath};
+            pWidget->insertInTextBuffer(cellBuffer);
+            pCell->addEmbeddedWidget(pWidget);
+            pBridge->commitRichCellFormatChange("Insert embedded file");
+            return;
+        }
+    }
+
     const int charOffset = _curr_buffer()->get_insert()->get_iter().get_offset();
     CtAnchoredWidget* pAnchoredWidget = new CtImageEmbFile{_pCtMainWin,
                                                            name,
@@ -343,7 +377,6 @@ void CtActions::embfile_insert_path(const std::string& filepath)
                                                      {pAnchoredWidget},
                                                      &_pCtMainWin->get_text_view().mm());
 
-    auto pBridge = _pCtMainWin->get_command_bridge();
     if (pBridge && pBridge->isActive() && !pBridge->isSuppressingTextEdits()) {
         gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
         auto desc = extractWidgetDesc(pAnchoredWidget, charOffset);
@@ -602,6 +635,15 @@ void CtActions::toc_insert()
 {
     if (not _is_there_selected_node_or_error()) return;
     if (not _node_sel_and_rich_text()) return;
+    // TOC cannot be inserted in rich table cells: find_toc_entries creates header
+    // expand/collapse anchors that require the main buffer's line structure.
+    {
+        auto pBr = _pCtMainWin->get_command_bridge();
+        if (pBr && pBr->isActive() && pBr->isTrackingRichCell()) {
+            CtDialogs::info_dialog(_("Inserting a Table of Contents inside a Rich Table Cell is not supported."), *_pCtMainWin);
+            return;
+        }
+    }
 
     auto toc_type = CtDialogs::selnode_selnodeandsub_alltree_dialog(*_pCtMainWin, false, nullptr, nullptr, nullptr, nullptr);
 
