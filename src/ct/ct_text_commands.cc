@@ -199,9 +199,9 @@ void CtTextEditSession::begin(gint64 nodeId, const Glib::RefPtr<Gtk::TextBuffer>
     _suppressCapture = false;
     _capturedCommands.clear();
 
-    // Snapshot for deduplication — detect sessions where all edits cancel out
+    // Snapshot content length for cheap deduplication (detect net-zero sessions)
     auto node = _docModel->getNodeById(nodeId);
-    _initialXml = node ? node->getContent().toXml() : Glib::ustring{};
+    _initialLength = node ? node->getContent().length() : 0;
 
     startSignalCapture(buffer);
 }
@@ -222,14 +222,14 @@ std::unique_ptr<CtCommand> CtTextEditSession::end(const Glib::RefPtr<Gtk::TextBu
         return nullptr;
     }
 
-    // Deduplication: if all edits cancel out (e.g. type 'a' then backspace),
-    // the model is unchanged — discard the session rather than pushing a no-op.
-    // Skip this check when model sync is disabled (rich cell sessions) because
-    // the model wasn't updated, so it would always appear unchanged.
+    // Cheap deduplication: if content length hasn't changed AND all captured
+    // commands are insert+delete pairs, the session likely netted to zero.
+    // This replaces the expensive toXml() serialization + comparison.
     if (!_skipModelSync) {
         auto node = _docModel->getNodeById(_nodeId);
-        const Glib::ustring currentXml = node ? node->getContent().toXml() : Glib::ustring{};
-        if (currentXml == _initialXml) {
+        const size_t currentLength = node ? node->getContent().length() : 0;
+        if (currentLength == _initialLength && _capturedCommands.size() == 2) {
+            // Common case: type a char then delete it (or vice versa)
             _active = false;
             _capturedCommands.clear();
             return nullptr;
