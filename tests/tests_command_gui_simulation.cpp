@@ -5219,36 +5219,36 @@ void TestGuiSimulationApp::_test_link_click_navigates_between_nodes(CtMainWin* p
     while (pBridge->canRedo()) pActions->requested_step_ahead();
     while (pBridge->canUndo()) pActions->requested_step_back();
 
-    // Navigate to "html" node and insert an anchor there
-    auto htmlIter = pWin->get_tree_store().get_node_from_node_name("html");
-    ASSERT_TRUE(htmlIter);
-    gint64 htmlNodeId = htmlIter.get_node_id();
-    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(htmlIter));
+    // Navigate to "e" node (rich text) and insert an anchor there
+    auto targetIter = pWin->get_tree_store().get_node_from_node_name("e");
+    ASSERT_TRUE(targetIter);
+    gint64 targetNodeId = targetIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(targetIter));
     GuiEventSimulator::process_pending_events();
 
-    auto htmlBuffer = pWin->curr_buffer();
-    int htmlOrigCharCount = htmlBuffer->get_char_count();
+    auto targetBuffer = pWin->curr_buffer();
+    int targetOrigCharCount = targetBuffer->get_char_count();
 
-    // Insert anchor in html node
-    pBridge->beginTextEditSession(htmlNodeId);
-    htmlBuffer->place_cursor(htmlBuffer->begin());
+    // Insert anchor in target node
+    pBridge->beginTextEditSession(targetNodeId);
+    targetBuffer->place_cursor(targetBuffer->begin());
     pBridge->endTextEditSession();
-    pActions->image_insert_anchor(htmlBuffer->begin(),
+    pActions->image_insert_anchor(targetBuffer->begin(),
                                   "cross_node_anchor",
                                   CtAnchorExpCollState::None, "");
     GuiEventSimulator::process_pending_events();
 
     // Verify anchor was inserted
-    CtImageAnchor* htmlAnchor = nullptr;
+    CtImageAnchor* targetAnchor = nullptr;
     for (auto* w : pWin->curr_tree_iter().get_anchored_widgets_fast()) {
         if (auto* a = dynamic_cast<CtImageAnchor*>(w)) {
             if (a->get_anchor_name() == "cross_node_anchor") {
-                htmlAnchor = a;
+                targetAnchor = a;
                 break;
             }
         }
     }
-    ASSERT_TRUE(htmlAnchor) << "Anchor 'cross_node_anchor' not found in html node";
+    ASSERT_TRUE(targetAnchor) << "Anchor 'cross_node_anchor' not found in target node";
 
     // Navigate to "b" node
     auto bIter = pWin->get_tree_store().get_node_from_node_name("b");
@@ -5258,17 +5258,17 @@ void TestGuiSimulationApp::_test_link_click_navigates_between_nodes(CtMainWin* p
     GuiEventSimulator::process_pending_events();
     EXPECT_EQ(pWin->curr_tree_iter().get_node_id(), bNodeId) << "Should be on node 'b'";
 
-    // Click a link that points to the html node's anchor
+    // Click a link that points to the target node's anchor
     Glib::ustring linkProp = CtConst::LINK_TYPE_NODE + CtConst::CHAR_SPACE
-                            + std::to_string(htmlNodeId) + CtConst::CHAR_SPACE + "cross_node_anchor";
+                            + std::to_string(targetNodeId) + CtConst::CHAR_SPACE + "cross_node_anchor";
     pActions->link_clicked(linkProp, false);
     GuiEventSimulator::process_pending_events();
 
-    // Should have navigated to html node
-    EXPECT_EQ(pWin->curr_tree_iter().get_node_id(), htmlNodeId)
-        << "link_clicked should navigate from 'b' to 'html' node";
+    // Should have navigated to target node
+    EXPECT_EQ(pWin->curr_tree_iter().get_node_id(), targetNodeId)
+        << "link_clicked should navigate from 'b' to target node";
 
-    // Cleanup: undo anchor insertion in html node
+    // Cleanup: undo anchor insertion in target node
     while (pBridge->canUndo()) pActions->requested_step_back();
     GuiEventSimulator::process_pending_events();
 
