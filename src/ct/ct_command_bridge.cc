@@ -208,6 +208,7 @@ void CtCommandBridge::resetForNewDocument()
     _currentOp = BridgeOp::None;
     _inCommandExecution = false;
     _skipNextModelSync = false;
+    _lastSyncedNodeId = -1;
     _widgetEditNodeId = 0;
     _captureNodeId = 0;
     _formatChangeNodeId = 0;
@@ -659,10 +660,14 @@ void CtCommandBridge::beginTextEditSession(gint64 nodeId)
             newNode->setContentXml(getBufferContentAsXml(buffer, &treeIter));
             _docModel->addNode(newNode, 0 /* flat model — no hierarchy needed for undo */);
             spdlog::info("CtCommandBridge: lazy-added node {} to model on first edit visit", nodeId);
+        } else if (nodeId == _lastSyncedNodeId) {
+            // The previous session for this node ended cleanly — delta commands kept
+            // the model in sync.  Skip the expensive getBufferContentAsXml which
+            // re-encodes every PNG image in the buffer.
+            spdlog::debug("CtCommandBridge: skipping model re-sync for node {} (delta-synced)", nodeId);
         } else if (buffer->get_modified()) {
-            // Only re-sync when the buffer has been modified since it was last loaded/synced.
-            // Skipping this on unmodified buffers avoids expensive XML serialization on
-            // every node click, which was the main cause of slow loading for large files.
+            // Buffer was modified outside a tracked session (e.g., switched back from
+            // another node, or widget edit changed the buffer).  Re-sync from XML.
             spdlog::info("CtCommandBridge: re-syncing model from buffer for node {} (buffer modified)", nodeId);
             Glib::ustring currentXml = getBufferContentAsXml(buffer, &treeIter);
             node->setContentXml(currentXml);
@@ -788,6 +793,11 @@ void CtCommandBridge::endTextEditSession()
     } else {
         spdlog::debug("CtCommandBridge: session ended but no command created (no changes)");
     }
+
+    // Mark this node's model as in sync — delta commands maintained it.
+    // The next beginTextEditSession for the same node can skip the expensive
+    // getBufferContentAsXml re-serialization (which re-encodes every PNG image).
+    _lastSyncedNodeId = nodeId;
 }
 
 void CtCommandBridge::cancelTextEditSession()
@@ -799,10 +809,12 @@ void CtCommandBridge::cancelTextEditSession()
     if (_editSession) {
         _editSession->cancel();
     }
+    _lastSyncedNodeId = -1;  // cancelled session — can't guarantee model sync
 }
 
 void CtCommandBridge::beginWidgetEdit(gint64 nodeId, CtAnchoredWidget* widget, int row, int col)
 {
+    _lastSyncedNodeId = -1;  // widget edit may modify buffer outside delta tracking
     if (!_active || !_pMainWin) {
         return;
     }
@@ -1383,6 +1395,7 @@ static std::pair<std::string, std::string> decomposeTagName(const std::string& t
 
 void CtCommandBridge::beginFormatChange(gint64 nodeId, const std::string& formatType)
 {
+    _lastSyncedNodeId = -1;  // format change modifies buffer outside delta tracking
     if (!_active || !_pMainWin) {
         return;
     }
@@ -1733,6 +1746,7 @@ void CtCommandBridge::endCut()
 
 void CtCommandBridge::beginXmlCapture(BridgeOp op, gint64 nodeId)
 {
+    _lastSyncedNodeId = -1;  // XML capture modifies buffer outside delta tracking
     if (!_active || !_pMainWin) {
         return;
     }
