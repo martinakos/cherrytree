@@ -69,6 +69,7 @@ CtCommandBridge::~CtCommandBridge()
 {
     spdlog::debug("CtCommandBridge: destroying");
 
+    _scrollFixupConnection.disconnect();
     if (_docModel && _observer) {
         _docModel->removeObserver(_observer.get());
     }
@@ -301,6 +302,10 @@ void CtCommandBridge::undo()
         savedScrollVal = cmdScrollPos;
     }
 
+    // Pass scroll position to the observer so it can restore it synchronously
+    // after rebuilding the buffer, preventing a visible flash to the top of the node.
+    _pendingScrollPos = _pMainWin->no_gui() ? -1.0 : savedScrollVal;
+
     // Switch to the affected node if it's different from current
     auto curr_iter = _pMainWin->curr_tree_iter();
     if (affectedNodeId != -1 && curr_iter && curr_iter.get_node_id() != affectedNodeId) {
@@ -355,7 +360,9 @@ void CtCommandBridge::undo()
     // with many anchored widgets, PRIORITY_DEFAULT_IDLE fires too early and
     // scroll_to computes the wrong pixel position.
     if (not _pMainWin->no_gui()) {
-        Glib::signal_idle().connect_once([pMainWin = _pMainWin, scrollTargetOffset, savedScrollVal, cmdScrollPos](){
+        Glib::signal_idle().connect_once([this, pMainWin = _pMainWin, scrollTargetOffset, savedScrollVal, cmdScrollPos](){
+            // Disconnect the signal_changed fixup — this idle callback takes over
+            _scrollFixupConnection.disconnect();
             if (auto buf = pMainWin->curr_buffer()) {
                 Gtk::TextView& tv = pMainWin->get_text_view().mm();
                 auto adj = pMainWin->getScrolledwindowText().get_vadjustment();
@@ -367,8 +374,9 @@ void CtCommandBridge::undo()
                 }
                 // Restore scroll position
                 adj->set_value(savedScrollVal);
-                // If no stored scroll position was available, verify cursor is visible
-                if (cmdScrollPos < 0 && scrollTargetOffset >= 0) {
+                // Always verify cursor is visible — the stored scroll position may
+                // be stale (e.g. captured at node load before the user scrolled).
+                {
                     Gdk::Rectangle iterRect, visibleRect;
                     auto cursorIter = buf->get_iter_at_mark(buf->get_insert());
                     tv.get_iter_location(cursorIter, iterRect);
@@ -433,6 +441,10 @@ void CtCommandBridge::redo()
         savedScrollVal = cmdScrollPos;
     }
 
+    // Pass scroll position to the observer so it can restore it synchronously
+    // after rebuilding the buffer, preventing a visible flash to the top of the node.
+    _pendingScrollPos = _pMainWin->no_gui() ? -1.0 : savedScrollVal;
+
     // Switch to the affected node if it's different from current
     auto curr_iter = _pMainWin->curr_tree_iter();
     if (affectedNodeId != -1 && curr_iter && curr_iter.get_node_id() != affectedNodeId) {
@@ -484,7 +496,9 @@ void CtCommandBridge::redo()
 
     // Restore cursor and scroll — see undo() for rationale.
     if (not _pMainWin->no_gui()) {
-        Glib::signal_idle().connect_once([pMainWin = _pMainWin, scrollTargetOffset, savedScrollVal, cmdScrollPos](){
+        Glib::signal_idle().connect_once([this, pMainWin = _pMainWin, scrollTargetOffset, savedScrollVal, cmdScrollPos](){
+            // Disconnect the signal_changed fixup — this idle callback takes over
+            _scrollFixupConnection.disconnect();
             if (auto buf = pMainWin->curr_buffer()) {
                 Gtk::TextView& tv = pMainWin->get_text_view().mm();
                 auto adj = pMainWin->getScrolledwindowText().get_vadjustment();
@@ -496,8 +510,9 @@ void CtCommandBridge::redo()
                 }
                 // Restore scroll position
                 adj->set_value(savedScrollVal);
-                // If no stored scroll position was available, verify cursor is visible
-                if (cmdScrollPos < 0 && scrollTargetOffset >= 0) {
+                // Always verify cursor is visible — the stored scroll position may
+                // be stale (e.g. captured at node load before the user scrolled).
+                {
                     Gdk::Rectangle iterRect, visibleRect;
                     auto cursorIter = buf->get_iter_at_mark(buf->get_insert());
                     tv.get_iter_location(cursorIter, iterRect);
@@ -783,7 +798,14 @@ void CtCommandBridge::endTextEditSession()
             double scrollPosNew = -1.0;
             auto adj = _pMainWin->getScrolledwindowText().get_vadjustment();
             if (adj) scrollPosNew = adj->get_value();
-            cc->setOldScrollPos(_sessionScrollPosOld);
+            // _sessionScrollPosOld == 0 is likely stale from node load (captured
+            // before images were laid out).  Fall back to the current scroll so
+            // undoing the first edit doesn't jump to the top of the node.
+            double scrollPosOld = _sessionScrollPosOld;
+            if (scrollPosOld == 0 && scrollPosNew > 0) {
+                scrollPosOld = scrollPosNew;
+            }
+            cc->setOldScrollPos(scrollPosOld);
             cc->setNewScrollPos(scrollPosNew);
         }
 
@@ -2173,10 +2195,32 @@ void CtCommandBridge::BridgeObserver::onNodeChanged(gint64 nodeId)
                 auto restore_iter = treeBuffer->get_iter_at_offset(std::min(cursor_offset, max_offset));
                 treeBuffer->place_cursor(restore_iter);
             }
-            // Note: scroll restoration is NOT done here. Setting scroll position
-            // during buffer rebuild is unreliable because GTK layout changes from
-            // widget insertion can override it. Instead, undo()/redo() apply scroll
-            // position after all GTK events have been processed.
+            // Restore scroll position synchronously to prevent a visible flash
+            // to the top of the node.  Widgets may not be fully laid out yet so
+            // this value gets clamped — the signal_changed handler below and the
+            // deferred idle callback in undo()/redo() will re-apply it as widgets
+            // are sized and the vadjustment upper increases.
+            if (_bridge->_pendingScrollPos >= 0) {
+                auto adj = _bridge->_pMainWin->getScrolledwindowText().get_vadjustment();
+                if (adj) {
+                    adj->set_value(_bridge->_pendingScrollPos);
+
+                    // Keep restoring scroll whenever vadjustment bounds change
+                    // (i.e. as widgets are laid out and the content height grows).
+                    // This fires during GTK's layout phase, BEFORE the draw, so
+                    // the user never sees a frame at the wrong scroll position.
+                    double targetScroll = _bridge->_pendingScrollPos;
+                    _bridge->_scrollFixupConnection.disconnect();
+                    _bridge->_scrollFixupConnection = adj->signal_changed().connect(
+                        [adj, targetScroll]() {
+                            double maxVal = adj->get_upper() - adj->get_page_size();
+                            if (maxVal > 0) {
+                                adj->set_value(std::min(targetScroll, maxVal));
+                            }
+                        });
+                }
+                _bridge->_pendingScrollPos = -1.0;
+            }
         }
         // Else: skip update during normal editing — buffer is already correct
     } catch (...) {
