@@ -266,8 +266,15 @@ private:
     int _captureOldCursorPos{-1};
     int _captureNewCursorPos{-1};
 
-    // Cursor position restoration after undo/redo (consumed by observer in onNodeChanged)
+    // Cursor and scroll position restoration after undo/redo (consumed by observer in onNodeChanged).
+    // Restoring scroll synchronously in the observer prevents the view from flashing to
+    // the top of the node between the buffer rebuild and the deferred idle callback.
     int _pendingCursorPos{-1};
+    double _pendingScrollPos{-1.0};
+
+    // Connection that keeps restoring scroll as widget layout changes vadjustment bounds.
+    // Connected during buffer rebuild in onNodeChanged, disconnected by the idle callback.
+    sigc::connection _scrollFixupConnection;
 
     // Scroll position captured at beginTextEditSession (before-edit state)
     double _sessionScrollPosOld{-1.0};
