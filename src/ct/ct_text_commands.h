@@ -187,8 +187,8 @@ private:
     // Captured commands during the session
     std::vector<std::unique_ptr<CtCommand>> _capturedCommands;
 
-    // Initial XML snapshot for deduplication (detect net-zero sessions)
-    Glib::ustring _initialXml;
+    // Initial content length for cheap deduplication (detect net-zero sessions)
+    size_t _initialLength{0};
 };
 
 // Delta-based commands: store only the operation delta instead of full XML snapshots.
