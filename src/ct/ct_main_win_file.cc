@@ -315,6 +315,25 @@ bool CtMainWin::file_open(const fs::path& filepath,
         CtDialogs::warning_dialog(str::xml_escape(error_or_warning), *this);
     }
 
+    if (not _no_gui and not is_reload and not fs::is_directory(filepath)) {
+        const std::string file_ext = filepath.extension();
+        if (file_ext == CtConst::CTDOC_SQLITE_NOENC_LEGACY or
+            file_ext == CtConst::CTDOC_SQLITE_ENC_LEGACY or
+            file_ext == CtConst::CTDOC_XML_NOENC_LEGACY or
+            file_ext == CtConst::CTDOC_XML_ENC_LEGACY)
+        {
+            const std::string new_ext =
+                file_ext == CtConst::CTDOC_SQLITE_NOENC_LEGACY ? CtConst::CTDOC_SQLITE_NOENC :
+                file_ext == CtConst::CTDOC_SQLITE_ENC_LEGACY   ? CtConst::CTDOC_SQLITE_ENC :
+                file_ext == CtConst::CTDOC_XML_NOENC_LEGACY    ? CtConst::CTDOC_XML_NOENC :
+                                                                  CtConst::CTDOC_XML_ENC;
+            CtDialogs::warning_dialog(
+                str::format(_("You are loading a legacy document format (%s).\nUse \"Save As\" to save it as a %s file to correctly support all features of this version."),
+                            file_ext, new_ext),
+                *this);
+        }
+    }
+
     return true;
 }
 
