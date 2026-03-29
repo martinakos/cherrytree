@@ -277,4 +277,11 @@ private:
 
     // When true, the next beginTextEditSession skips the buffer→model re-sync.
     bool _skipNextModelSync{false};
+
+    // Node ID whose model was last kept in sync by a clean session end.
+    // When beginTextEditSession is called for the same node, the expensive
+    // getBufferContentAsXml re-sync is skipped because delta commands already
+    // maintained the model.  Reset to -1 whenever sync can't be guaranteed
+    // (widget edits, paste/cut, format changes, node switches).
+    gint64 _lastSyncedNodeId{-1};
 };
