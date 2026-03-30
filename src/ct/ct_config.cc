@@ -100,7 +100,16 @@ bool CtConfig::_load_from_file()
             return false;
         }
         _populate_data_from_keyfile();
-        
+        // Always start at 100% zoom: restore each font to its reset (default) size
+        if (rtResetFontSize > 0)
+            rtFont = CtFontUtil::get_font_str(CtFontUtil::get_font_family(rtFont), rtResetFontSize);
+        if (msResetFontSize > 0)
+            monospaceFont = CtFontUtil::get_font_str(CtFontUtil::get_font_family(monospaceFont), msResetFontSize);
+        if (ptResetFontSize > 0)
+            ptFont = CtFontUtil::get_font_str(CtFontUtil::get_font_family(ptFont), ptResetFontSize);
+        if (codeResetFontSize > 0)
+            codeFont = CtFontUtil::get_font_str(CtFontUtil::get_font_family(codeFont), codeResetFontSize);
+
     #if GTKMM_MAJOR_VERSION >= 4
         _uKeyFile.reset();
     #else
@@ -401,6 +410,10 @@ void CtConfig::_populate_keyfile_from_data()
     _uKeyFile->set_string(_currentGroup, "tree_font", treeFont);
     _uKeyFile->set_string(_currentGroup, "code_font", codeFont);
     _uKeyFile->set_string(_currentGroup, "vte_font", vteFont);
+    if (rtResetFontSize > 0) _uKeyFile->set_integer(_currentGroup, "rt_reset_font_size", rtResetFontSize);
+    if (msResetFontSize > 0) _uKeyFile->set_integer(_currentGroup, "ms_reset_font_size", msResetFontSize);
+    if (ptResetFontSize > 0) _uKeyFile->set_integer(_currentGroup, "pt_reset_font_size", ptResetFontSize);
+    if (codeResetFontSize > 0) _uKeyFile->set_integer(_currentGroup, "code_reset_font_size", codeResetFontSize);
 
     // [colors]
     _currentGroup = "colors";
@@ -752,6 +765,10 @@ void CtConfig::_populate_data_from_keyfile()
     _populate_string_from_keyfile("tree_font", &treeFont);
     _populate_string_from_keyfile("code_font", &codeFont);
     _populate_string_from_keyfile("vte_font", &vteFont);
+    _populate_int_from_keyfile("rt_reset_font_size", &rtResetFontSize);
+    _populate_int_from_keyfile("ms_reset_font_size", &msResetFontSize);
+    _populate_int_from_keyfile("pt_reset_font_size", &ptResetFontSize);
+    _populate_int_from_keyfile("code_reset_font_size", &codeResetFontSize);
 
     // [colors]
     _currentGroup = "colors";

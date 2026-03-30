@@ -933,6 +933,47 @@ void CtTreeStore::text_view_apply_textbuffer(CtTreeIter& treeIter, CtTextView* p
     // we shouldn't lose focus from TREE because TREE shortcuts/arrays movement stop working
     // pTextView->grab_focus();
 
+    // Apply current zoom level to images if font is currently zoomed
+    if (treeIter.get_node_is_rich_text()) {
+        const int resetSize = _pCtMainWin->get_ct_config()->rtResetFontSize;
+        if (resetSize > 0) {
+            const Pango::FontDescription fontDesc(_pCtMainWin->get_ct_config()->rtFont);
+            const int currSize = fontDesc.get_size() / Pango::SCALE;
+            if (currSize != resetSize) {
+                const double scaleFactor = (double)currSize / resetSize;
+                for (auto* widget : treeIter.get_anchored_widgets_fast()) {
+                    const auto wtype = widget->get_type();
+                    if (wtype == CtAnchWidgType::ImagePng or wtype == CtAnchWidgType::ImageLatex) {
+                        static_cast<CtImage*>(widget)->apply_zoom(scaleFactor);
+                    }
+                    else if (wtype == CtAnchWidgType::CodeBox) {
+                        static_cast<CtCodebox*>(widget)->apply_zoom(scaleFactor);
+                    }
+                    else if (wtype == CtAnchWidgType::TableHeavy) {
+                        static_cast<CtTableHeavy*>(widget)->apply_zoom(scaleFactor);
+                    }
+                    else if (wtype == CtAnchWidgType::TableLight) {
+                        static_cast<CtTableLight*>(widget)->apply_zoom(scaleFactor);
+                    }
+                    else if (wtype == CtAnchWidgType::TableRich) {
+                        auto* pTable = static_cast<CtTableRich*>(widget);
+                        pTable->apply_zoom(scaleFactor);
+                        for (size_t r = 0; r < pTable->get_num_rows(); ++r) {
+                            for (size_t c = 0; c < pTable->get_num_columns(); ++c) {
+                                for (auto* emb : pTable->getRichCell(r, c)->getEmbeddedWidgets()) {
+                                    const auto embType = emb->get_type();
+                                    if (embType == CtAnchWidgType::ImagePng or embType == CtAnchWidgType::ImageLatex) {
+                                        static_cast<CtImage*>(emb)->apply_zoom(scaleFactor);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     for (CtAnchoredWidget* pCtAnchoredWidget : anchored_widgets_to_hide) {
         pCtAnchoredWidget->hide();
     }

@@ -321,7 +321,35 @@ void CtCodebox::update_toolbar_buttons()
 void CtCodebox::apply_width_height(const int parentTextWidth)
 {
     int frameWidth = _widthInPixels ? _frameWidth : (parentTextWidth*_frameWidth)/100;
-    _scrolledwindow.set_size_request(frameWidth, _frameHeight);
+    _scrolledwindow.set_size_request(
+        static_cast<int>(frameWidth * _zoomFactor),
+        static_cast<int>(_frameHeight * _zoomFactor));
+}
+
+void CtCodebox::apply_zoom(const double scaleFactor)
+{
+    _zoomFactor = scaleFactor;
+    apply_width_height(_pCtMainWin->get_text_view().mm().get_allocation().get_width());
+
+    // Scale the codebox text font via a per-widget CSS override
+    const std::string& baseFont = (_syntaxHighlighting == CtConst::PLAIN_TEXT_ID)
+        ? _pCtConfig->ptFont : _pCtConfig->codeFont;
+    const Pango::FontDescription fontDesc(baseFont);
+    const int baseSizeFromConfig = (_syntaxHighlighting == CtConst::PLAIN_TEXT_ID)
+        ? (_pCtConfig->ptResetFontSize > 0 ? _pCtConfig->ptResetFontSize : fontDesc.get_size() / Pango::SCALE)
+        : (_pCtConfig->codeResetFontSize > 0 ? _pCtConfig->codeResetFontSize : fontDesc.get_size() / Pango::SCALE);
+    const int scaledSize = std::max(6, static_cast<int>(baseSizeFromConfig * scaleFactor));
+    if (not _rCssProviderZoom) {
+        _rCssProviderZoom = Gtk::CssProvider::create();
+        _ctTextview.mm().get_style_context()->add_provider(
+            _rCssProviderZoom, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
+    }
+    const std::string css = fmt::format("* {{ font-size: {}pt; }}", scaledSize);
+#if GTKMM_MAJOR_VERSION >= 4
+    gtk_css_provider_load_from_data(_rCssProviderZoom->gobj_copy(), css.c_str(), css.size());
+#else
+    gtk_css_provider_load_from_data(_rCssProviderZoom->gobj_copy(), css.c_str(), css.size(), nullptr);
+#endif
 }
 
 void CtCodebox::apply_syntax_highlighting(const bool forceReApply)

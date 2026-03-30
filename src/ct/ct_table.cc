@@ -681,6 +681,20 @@ bool CtTableHeavy::_row_sort(const bool sortAsc)
     return true;
 }
 
+void CtTableHeavy::apply_zoom(const double scaleFactor)
+{
+    _zoomFactor = scaleFactor;
+    const size_t numRows = get_num_rows();
+    const size_t numColumns = get_num_columns();
+    for (size_t c = 0u; c < numColumns; ++c) {
+        const int scaledWidth = static_cast<int>(get_col_width(c) * scaleFactor);
+        for (size_t r = 0u; r < numRows; ++r) {
+            CtTextCell* pTextCell = static_cast<CtTextCell*>(_tableMatrix[r][c]);
+            pTextCell->get_text_view().mm().set_size_request(scaledWidth, -1);
+        }
+    }
+}
+
 void CtTableHeavy::set_col_width_default(const int colWidthDefault)
 {
     _colWidthDefault = colWidthDefault;
@@ -1369,6 +1383,20 @@ bool CtTableRich::_row_sort(const bool sortAsc)
         }
     }
     return true;
+}
+
+void CtTableRich::apply_zoom(const double scaleFactor)
+{
+    _zoomFactor = scaleFactor;
+    const size_t numRows = get_num_rows();
+    const size_t numColumns = get_num_columns();
+    for (size_t c = 0u; c < numColumns; ++c) {
+        const int scaledWidth = static_cast<int>(get_col_width(c) * scaleFactor);
+        for (size_t r = 0u; r < numRows; ++r) {
+            static_cast<CtRichCell*>(_tableMatrix[r][c])->get_text_view().mm()
+                .set_size_request(scaledWidth, -1);
+        }
+    }
 }
 
 void CtTableRich::set_col_width_default(const int colWidthDefault)

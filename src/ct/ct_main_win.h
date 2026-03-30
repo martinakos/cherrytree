@@ -49,6 +49,7 @@ struct CtStatusBar
 {
     Gtk::Statusbar   statusBar;
     Gtk::Label       cursorPos;
+    Gtk::Label       zoomLabel;
     guint            statusId;
     Gtk::ProgressBar progressBar;
     Gtk::Button      stopButton;
@@ -61,6 +62,7 @@ struct CtStatusBar
     void pop() { statusBar.pop(statusId); }
     void update_status(const Glib::ustring& text) { pop(); push(text); }
     void new_cursor_pos(const int r, const int c);
+    void update_zoom_level(int zoomPercent);
 
 private:
     bool _progress_stop{false};
@@ -132,6 +134,8 @@ public:
     bool get_file_save_needed();
 
     void update_selected_node_statusbar_info();
+    void update_node_zoom_label();
+    double get_rt_zoom_scale_factor() const; // 1.0 when not zoomed
 
     void tree_node_paste_from_other_window(CtMainWin* pWinToCopyFrom, gint64 nodeIdToCopyFrom);
 

@@ -71,6 +71,11 @@ void CtMainWin::init_app_actions_gtk4()
 #include "ct_dialogs.h"
 #include "ct_command_bridge.h"
 
+void CtStatusBar::update_zoom_level(int zoomPercent)
+{
+    zoomLabel.set_text(fmt::format(" Zoom: {}% ", zoomPercent > 0 ? zoomPercent : 100));
+}
+
 void CtStatusBar::new_cursor_pos(const int r, const int c)
 {
     if (_r != r or _c != c) {
@@ -777,6 +782,7 @@ void CtMainWin::update_theme()
     css_str += ".ct-codebox.ct-view-code" + codeFont;
     css_str += ".ct-tree-panel" + treeFont;
     css_str += ".ct-table-light" + rtFont;
+    css_str += ".ct-table .ct-view-rich-text" + rtFont;
     css_str += " ";
     css_str += ".ct-tree-panel { color: " + _pCtConfig->ttDefFg + "; background-color: " + _pCtConfig->ttDefBg + "; } ";
     css_str += ".ct-tree-panel:selected { color: " + _pCtConfig->ttSelFg + "; background: " + _pCtConfig->ttSelBg + "; } ";
@@ -828,6 +834,7 @@ Gtk::Box& CtMainWin::_init_status_bar()
     _ctStatusBar.stopButton.set_image_from_icon_name("ct_stop", Gtk::IconSize::INHERIT);
     _ctStatusBar.hbox.append(_ctStatusBar.cursorPos);
     _ctStatusBar.hbox.append(_ctStatusBar.statusBar);
+    _ctStatusBar.hbox.append(_ctStatusBar.zoomLabel);
     _ctStatusBar.hbox.append(_ctStatusBar.frame);
     _ctStatusBar.hbox.append(_ctStatusBar.stopButton);
     #else
@@ -836,6 +843,7 @@ Gtk::Box& CtMainWin::_init_status_bar()
     _ctStatusBar.stopButton.set_image_from_icon_name("ct_stop", Gtk::ICON_SIZE_MENU);
     _ctStatusBar.hbox.pack_start(_ctStatusBar.cursorPos, false, false);
     _ctStatusBar.hbox.pack_start(_ctStatusBar.statusBar, true, true);
+    _ctStatusBar.hbox.pack_start(_ctStatusBar.zoomLabel, false, false);
     _ctStatusBar.hbox.pack_start(_ctStatusBar.frame, false, true);
     _ctStatusBar.hbox.pack_start(_ctStatusBar.stopButton, false, true);
     #endif
@@ -1576,6 +1584,47 @@ void CtMainWin::update_selected_node_statusbar_info()
         }
     }
     _ctStatusBar.update_status(statusbar_text);
+}
+
+void CtMainWin::update_node_zoom_label()
+{
+    CtTreeIter treeIter = curr_tree_iter();
+    if (not treeIter) {
+        _ctStatusBar.update_zoom_level(100);
+        return;
+    }
+    const std::string syntaxHighl = treeIter.get_node_syntax_highlighting();
+    int resetSize = 0;
+    std::string fontStr;
+    if (syntaxHighl == CtConst::RICH_TEXT_ID or syntaxHighl == CtConst::TABLE_CELL_TEXT_ID) {
+        resetSize = _pCtConfig->rtResetFontSize;
+        fontStr = _pCtConfig->rtFont;
+    }
+    else if (syntaxHighl == CtConst::PLAIN_TEXT_ID) {
+        resetSize = _pCtConfig->ptResetFontSize;
+        fontStr = _pCtConfig->ptFont;
+    }
+    else {
+        resetSize = _pCtConfig->codeResetFontSize;
+        fontStr = _pCtConfig->codeFont;
+    }
+    if (resetSize <= 0) {
+        _ctStatusBar.update_zoom_level(100);
+        return;
+    }
+    const Pango::FontDescription fontDesc(fontStr);
+    const int currSize = fontDesc.get_size() / Pango::SCALE;
+    const int zoomPercent = (int)std::round(100.0 * currSize / resetSize);
+    _ctStatusBar.update_zoom_level(zoomPercent);
+}
+
+double CtMainWin::get_rt_zoom_scale_factor() const
+{
+    const int resetSize = _pCtConfig->rtResetFontSize;
+    if (resetSize <= 0) return 1.0;
+    const Pango::FontDescription fontDesc(_pCtConfig->rtFont);
+    const int currSize = fontDesc.get_size() / Pango::SCALE;
+    return (currSize != resetSize) ? (double)currSize / resetSize : 1.0;
 }
 
 void CtMainWin::tree_node_paste_from_other_window(CtMainWin* pWinToCopyFrom, gint64 nodeIdToCopyFrom)
