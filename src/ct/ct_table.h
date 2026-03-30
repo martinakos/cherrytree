@@ -92,6 +92,8 @@ public:
     virtual void row_delete(const size_t rowIdx) = 0;
     virtual void row_move_up(const size_t rowIdx, const bool from_move_down) = 0;
 
+    virtual void apply_zoom(const double scaleFactor) = 0;
+
     virtual void set_col_width_default(const int colWidthDefault) = 0;
     virtual void set_col_width(const int colWidth, std::optional<size_t> optColIdx = std::nullopt) = 0;
 
@@ -118,6 +120,7 @@ protected:
 
     int              _colWidthDefault;
     CtTableColWidths _colWidths;
+    double           _zoomFactor{1.0};
     size_t           _currentRow{0u};
     size_t           _currentColumn{0u};
 };
@@ -172,6 +175,8 @@ public:
     void row_add(const size_t afterRowIdx, const std::vector<Glib::ustring>* pNewRow = nullptr) override;
     void row_delete(const size_t rowIdx) override;
     void row_move_up(const size_t rowIdx, const bool from_move_down) override;
+
+    void apply_zoom(const double scaleFactor) override;
 
     void set_col_width_default(const int colWidthDefault) override;
     void set_col_width(const int colWidth, std::optional<size_t> optColIdx = std::nullopt) override;
@@ -240,6 +245,8 @@ public:
     void row_add(const size_t afterRowIdx, const std::vector<Glib::ustring>* pNewRow = nullptr) override;
     void row_delete(const size_t rowIdx) override;
     void row_move_up(const size_t rowIdx, const bool from_move_down) override;
+
+    void apply_zoom(const double scaleFactor) override;
 
     void set_col_width_default(const int colWidthDefault) override;
     void set_col_width(const int colWidth, std::optional<size_t> optColIdx = std::nullopt) override;
@@ -334,6 +341,8 @@ public:
     void row_add(const size_t afterRowIdx, const std::vector<Glib::ustring>* pNewRow = nullptr) override;
     void row_delete(const size_t rowIdx) override;
     void row_move_up(const size_t rowIdx, const bool from_move_down) override;
+
+    void apply_zoom(const double scaleFactor) override;
 
     void set_col_width_default(const int colWidthDefault) override;
     void set_col_width(const int colWidth, std::optional<size_t> optColIdx = std::nullopt) override;
