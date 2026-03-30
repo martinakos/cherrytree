@@ -366,7 +366,8 @@ private:
     void _image_edit_dialog(Glib::RefPtr<Gdk::Pixbuf> rPixbuf,
                             Gtk::TextIter insertIter,
                             Gtk::TextIter* pIterBound,
-                            CtRichCell* pRichCell = nullptr);
+                            CtRichCell* pRichCell = nullptr,
+                            Glib::RefPtr<Gdk::Pixbuf> rOrigPixbuf = Glib::RefPtr<Gdk::Pixbuf>{});
     void _latex_edit_dialog(const Glib::ustring& latex_text,
                             Gtk::TextIter insertIter,
                             Gtk::TextIter* pIterBound);

@@ -923,6 +923,40 @@ void CtTextView::zoom_text(const std::optional<bool> is_increase, const std::str
 #else
         _pCtMainWin->signal_app_apply_for_each_window([](CtMainWin* win) { win->update_theme(); });
 #endif
+        if (is_rt) {
+            const int resetSize = _pCtConfig->rtResetFontSize;
+            const double scaleFactor = (resetSize > 0) ? (double)size_new / resetSize : 1.0;
+            for (auto* widget : _pCtMainWin->curr_tree_iter().get_anchored_widgets_fast()) {
+                const auto wtype = widget->get_type();
+                if (wtype == CtAnchWidgType::ImagePng or wtype == CtAnchWidgType::ImageLatex) {
+                    static_cast<CtImage*>(widget)->apply_zoom(scaleFactor);
+                }
+                else if (wtype == CtAnchWidgType::CodeBox) {
+                    static_cast<CtCodebox*>(widget)->apply_zoom(scaleFactor);
+                }
+                else if (wtype == CtAnchWidgType::TableHeavy) {
+                    static_cast<CtTableHeavy*>(widget)->apply_zoom(scaleFactor);
+                }
+                else if (wtype == CtAnchWidgType::TableLight) {
+                    static_cast<CtTableLight*>(widget)->apply_zoom(scaleFactor);
+                }
+                else if (wtype == CtAnchWidgType::TableRich) {
+                    auto* pTable = static_cast<CtTableRich*>(widget);
+                    pTable->apply_zoom(scaleFactor);
+                    for (size_t r = 0; r < pTable->get_num_rows(); ++r) {
+                        for (size_t c = 0; c < pTable->get_num_columns(); ++c) {
+                            for (auto* emb : pTable->getRichCell(r, c)->getEmbeddedWidgets()) {
+                                const auto embType = emb->get_type();
+                                if (embType == CtAnchWidgType::ImagePng or embType == CtAnchWidgType::ImageLatex) {
+                                    static_cast<CtImage*>(emb)->apply_zoom(scaleFactor);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        _pCtMainWin->update_node_zoom_label();
     }
 }
 

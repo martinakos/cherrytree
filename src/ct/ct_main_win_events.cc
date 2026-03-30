@@ -91,6 +91,7 @@ void CtMainWin::_on_treeview_cursor_changed()
         window_header_update_ghost_icon(treeIter.get_node_is_excluded_from_search() or treeIter.get_node_children_are_excluded_from_search());
         window_header_update_bookmark_icon(is_bookmarked);
         update_selected_node_statusbar_info();
+        update_node_zoom_label();
 
         // Track visited nodes for navigation history
         if (not _visitedNodes.empty() && _visitedNodesIdx < _visitedNodes.size()) {

@@ -683,7 +683,17 @@ CtAnchoredWidget* CtStorageXmlHelper::_create_image_from_xml(xmlpp::Element* xml
                                   fs::path{multifile_dir} / file_name};
     }
     const Glib::ustring link = xml_element->get_attribute_value("link");
-    return new CtImagePng{_pCtMainWin, rawBlob, link, charOffset, justification};
+    auto* pImage = new CtImagePng{_pCtMainWin, rawBlob, link, charOffset, justification};
+    const std::string displayWidthStr = xml_element->get_attribute_value("display_width");
+    const std::string displayHeightStr = xml_element->get_attribute_value("display_height");
+    if (not displayWidthStr.empty() and not displayHeightStr.empty()) {
+        const int displayWidth = std::stoi(displayWidthStr);
+        const int displayHeight = std::stoi(displayHeightStr);
+        if (displayWidth > 0 and displayHeight > 0) {
+            pImage->set_display_size(displayWidth, displayHeight);
+        }
+    }
+    return pImage;
 }
 
 CtAnchoredWidget* CtStorageXmlHelper::_create_codebox_from_xml(xmlpp::Element* xml_element,

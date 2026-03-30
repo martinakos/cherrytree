@@ -40,6 +40,8 @@ CtImage::CtImage(CtMainWin* pCtMainWin,
     rPixbufLoader->write(reinterpret_cast<const guint8*>(rawBlob.c_str()), rawBlob.size());
     rPixbufLoader->close();
     _rPixbuf = rPixbufLoader->get_pixbuf();
+    _rOrigPixbuf = _rPixbuf;
+    _rZoomBasePixbuf = _rPixbuf;
 
     _image.set(_rPixbuf);
 #if GTKMM_MAJOR_VERSION >= 4
@@ -62,6 +64,8 @@ CtImage::CtImage(CtMainWin* pCtMainWin,
     #else
     _rPixbuf.reset();
     #endif
+    _rOrigPixbuf = _rPixbuf;
+    _rZoomBasePixbuf = _rPixbuf;
 
     _image.set(_rPixbuf);
 #if GTKMM_MAJOR_VERSION >= 4
@@ -79,6 +83,8 @@ CtImage::CtImage(CtMainWin* pCtMainWin,
  : CtAnchoredWidget{pCtMainWin, charOffset, justification}
 {
     _rPixbuf = pixBuf;
+    _rOrigPixbuf = _rPixbuf;
+    _rZoomBasePixbuf = _rPixbuf;
 
     _image.set(_rPixbuf);
 #if GTKMM_MAJOR_VERSION >= 4
@@ -92,6 +98,31 @@ CtImage::CtImage(CtMainWin* pCtMainWin,
 void CtImage::save(const fs::path& file_name, const Glib::ustring& type)
 {
     _rPixbuf->save(file_name.string(), type);
+}
+
+void CtImage::set_display_size(int w, int h)
+{
+    if (_rOrigPixbuf and (w != _rOrigPixbuf->get_width() or h != _rOrigPixbuf->get_height())) {
+        _rZoomBasePixbuf = _rOrigPixbuf->scale_simple(w, h, Gdk::INTERP_BILINEAR);
+        _rPixbuf = _rZoomBasePixbuf;
+        _image.set(_rPixbuf);
+    }
+}
+
+void CtImage::apply_zoom(double scaleFactor)
+{
+    if (not _rZoomBasePixbuf) return;
+    if (std::abs(scaleFactor - 1.0) < 0.001) {
+        _rPixbuf = _rZoomBasePixbuf;
+    }
+    else {
+        const int w = std::max(16, (int)(_rZoomBasePixbuf->get_width() * scaleFactor));
+        const int h = std::max(16, (int)(_rZoomBasePixbuf->get_height() * scaleFactor));
+        // Scale from original full-res pixbuf when available for better quality
+        const auto& source = _rOrigPixbuf ? _rOrigPixbuf : _rZoomBasePixbuf;
+        _rPixbuf = source->scale_simple(w, h, Gdk::INTERP_BILINEAR);
+    }
+    _image.set(_rPixbuf);
 }
 
 CtImagePng::CtImagePng(CtMainWin* pCtMainWin,
@@ -126,7 +157,8 @@ const std::string CtImagePng::get_raw_blob()
 {
     g_autofree gchar* pBuffer{NULL};
     gsize buffer_size;
-    _rPixbuf->save_to_buffer(pBuffer, buffer_size, "png");
+    const auto& source = _rOrigPixbuf ? _rOrigPixbuf : _rPixbuf;
+    source->save_to_buffer(pBuffer, buffer_size, "png");
     const std::string rawBlob = std::string(pBuffer, buffer_size);
     return rawBlob;
 }
@@ -140,6 +172,13 @@ void CtImagePng::to_xml(xmlpp::Element* p_node_parent,
     p_image_node->set_attribute("char_offset", std::to_string(_charOffset+offset_adjustment));
     p_image_node->set_attribute(CtConst::TAG_JUSTIFICATION, _justification);
     p_image_node->set_attribute("link", _link);
+    if (_rZoomBasePixbuf and _rOrigPixbuf and
+        (_rZoomBasePixbuf->get_width() != _rOrigPixbuf->get_width() or
+         _rZoomBasePixbuf->get_height() != _rOrigPixbuf->get_height()))
+    {
+        p_image_node->set_attribute("display_width", std::to_string(_rZoomBasePixbuf->get_width()));
+        p_image_node->set_attribute("display_height", std::to_string(_rZoomBasePixbuf->get_height()));
+    }
     if (multifile_dir.empty()) {
         std::string encodedBlob;
         if (not storage_cache or not storage_cache->get_cached_image(this, encodedBlob)) {
@@ -180,6 +219,17 @@ bool CtImagePng::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offset_
         sqlite3_bind_text(p_stmt, 6, "", -1, SQLITE_STATIC); // filename
         sqlite3_bind_text(p_stmt, 7, link.c_str(), link.size(), SQLITE_STATIC);
         sqlite3_bind_int64(p_stmt, 8, 0); // time
+        if (_rZoomBasePixbuf and _rOrigPixbuf and
+            (_rZoomBasePixbuf->get_width() != _rOrigPixbuf->get_width() or
+             _rZoomBasePixbuf->get_height() != _rOrigPixbuf->get_height()))
+        {
+            sqlite3_bind_int64(p_stmt, 9, _rZoomBasePixbuf->get_width());
+            sqlite3_bind_int64(p_stmt, 10, _rZoomBasePixbuf->get_height());
+        }
+        else {
+            sqlite3_bind_int64(p_stmt, 9, 0);
+            sqlite3_bind_int64(p_stmt, 10, 0);
+        }
         if (sqlite3_step(p_stmt) != SQLITE_DONE) {
             spdlog::error("{}: {}", CtStorageSqlite::ERR_SQLITE_STEP, sqlite3_errmsg(pDb));
             retVal = false;
@@ -306,6 +356,8 @@ bool CtImageAnchor::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offs
             sqlite3_bind_text(p_stmt, 7, "", -1, SQLITE_STATIC); // link
         }
         sqlite3_bind_int64(p_stmt, 8, 0); // time
+        sqlite3_bind_int64(p_stmt, 9, 0); // display_width
+        sqlite3_bind_int64(p_stmt, 10, 0); // display_height
         if (sqlite3_step(p_stmt) != SQLITE_DONE) {
             spdlog::error("{}: {}", CtStorageSqlite::ERR_SQLITE_STEP, sqlite3_errmsg(pDb));
             retVal = false;
@@ -457,6 +509,8 @@ bool CtImageLatex::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offse
         sqlite3_bind_text(p_stmt, 6, CtImageLatex::LatexSpecialFilename.c_str(), CtImageLatex::LatexSpecialFilename.size(), SQLITE_STATIC);
         sqlite3_bind_text(p_stmt, 7, "", -1, SQLITE_STATIC); // link
         sqlite3_bind_int64(p_stmt, 8, 0); // time
+        sqlite3_bind_int64(p_stmt, 9, 0); // display_width
+        sqlite3_bind_int64(p_stmt, 10, 0); // display_height
         if (sqlite3_step(p_stmt) != SQLITE_DONE) {
             spdlog::error("{}: {}", CtStorageSqlite::ERR_SQLITE_STEP, sqlite3_errmsg(pDb));
             retVal = false;
@@ -775,6 +829,8 @@ bool CtImageEmbFile::to_sqlite(sqlite3* pDb, const gint64 node_id, const int off
         sqlite3_bind_text(p_stmt, 6, file_name.c_str(), file_name.size(), SQLITE_STATIC);
         sqlite3_bind_text(p_stmt, 7, "", -1, SQLITE_STATIC); // link
         sqlite3_bind_int64(p_stmt, 8, _timeSeconds);
+        sqlite3_bind_int64(p_stmt, 9, 0); // display_width
+        sqlite3_bind_int64(p_stmt, 10, 0); // display_height
         if (sqlite3_step(p_stmt) != SQLITE_DONE) {
             spdlog::error("{}: {}", CtStorageSqlite::ERR_SQLITE_STEP, sqlite3_errmsg(pDb));
             retVal = false;
