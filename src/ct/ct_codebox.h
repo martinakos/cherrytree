@@ -80,6 +80,7 @@ public:
     CtAnchWidgType get_type() const override { return CtAnchWidgType::CodeBox; }
     std::shared_ptr<CtAnchoredWidgetState> get_state() override;
 
+    void apply_zoom(const double scaleFactor);
     void set_width_height(int newWidth, int newHeight);
     void set_width_in_pixels(const bool widthInPixels) { _widthInPixels = widthInPixels; }
     void set_highlight_brackets(const bool highlightBrackets);
@@ -105,9 +106,11 @@ private:
     void _set_scrollbars_policies();
 
 private:
-    int _frameWidth;
-    int _frameHeight;
-    bool _widthInPixels{true};
+    int    _frameWidth;
+    int    _frameHeight;
+    double _zoomFactor{1.0};
+    bool   _widthInPixels{true};
+    Glib::RefPtr<Gtk::CssProvider> _rCssProviderZoom;
     bool _highlightBrackets{true};
     bool _showLineNumbers{false};
     Gtk::ScrolledWindow _scrolledwindow;

@@ -53,10 +53,17 @@ public:
 
     void save(const fs::path& file_name, const Glib::ustring& type);
     Glib::RefPtr<Gdk::Pixbuf> get_pixbuf() const { return _rPixbuf; }
+    Glib::RefPtr<Gdk::Pixbuf> get_orig_pixbuf() const { return _rOrigPixbuf; }
+    void set_orig_pixbuf(Glib::RefPtr<Gdk::Pixbuf> pixbuf) { _rOrigPixbuf = pixbuf; }
+    Glib::RefPtr<Gdk::Pixbuf> get_zoom_base_pixbuf() const { return _rZoomBasePixbuf; }
+    void set_display_size(int w, int h);
+    void apply_zoom(double scaleFactor);
 
 protected:
     Gtk::Image _image;
     Glib::RefPtr<Gdk::Pixbuf> _rPixbuf;
+    Glib::RefPtr<Gdk::Pixbuf> _rOrigPixbuf;
+    Glib::RefPtr<Gdk::Pixbuf> _rZoomBasePixbuf; // display size before text zoom (may differ from orig after manual resize)
 };
 
 class CtImagePng : public CtImage
