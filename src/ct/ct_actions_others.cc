@@ -340,7 +340,7 @@ void CtActions::image_edit()
                         Gtk::TextIter iter_insert = cellBuffer->get_iter_at_child_anchor(curr_image_anchor->getTextChildAnchor());
                         Gtk::TextIter iter_bound = iter_insert;
                         iter_bound.forward_char();
-                        _image_edit_dialog(curr_image_anchor->get_pixbuf(), iter_insert, &iter_bound, cell);
+                        _image_edit_dialog(curr_image_anchor->get_zoom_base_pixbuf(), iter_insert, &iter_bound, cell, curr_image_anchor->get_orig_pixbuf());
                         return;
                     }
                 }
@@ -351,7 +351,7 @@ void CtActions::image_edit()
     Gtk::TextIter iter_insert = _curr_buffer()->get_iter_at_child_anchor(curr_image_anchor->getTextChildAnchor());
     Gtk::TextIter iter_bound = iter_insert;
     iter_bound.forward_char();
-    _image_edit_dialog(curr_image_anchor->get_pixbuf(), iter_insert, &iter_bound);
+    _image_edit_dialog(curr_image_anchor->get_zoom_base_pixbuf(), iter_insert, &iter_bound, nullptr, curr_image_anchor->get_orig_pixbuf());
 }
 
 void CtActions::image_cut()
@@ -1351,6 +1351,9 @@ void CtActions::table_edit_properties()
             _pCtMainWin->curr_tree_iter(),
             {pCtTable},
             &_pCtMainWin->get_text_view().mm());
+        if (const double sf = _pCtMainWin->get_rt_zoom_scale_factor(); sf != 1.0) {
+            pCtTable->apply_zoom(sf);
+        }
         curr_table_anchor = pCtTable;
     }
     else {

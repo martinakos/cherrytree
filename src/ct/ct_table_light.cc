@@ -482,6 +482,21 @@ void CtTableLight::set_col_width_default(const int colWidthDefault)
     }
 }
 
+void CtTableLight::apply_zoom(const double scaleFactor)
+{
+    _zoomFactor = scaleFactor;
+    const size_t numColumns = get_num_columns();
+    for (size_t c = 0u; c < numColumns; ++c) {
+        Gtk::TreeViewColumn* pTVColumn = _pManagedTreeView->get_column(c);
+        if (pTVColumn) {
+            const int scaledWidth = static_cast<int>(get_col_width(c) * scaleFactor);
+            auto pCellRendererText = static_cast<Gtk::CellRendererText*>(pTVColumn->get_first_cell());
+            pCellRendererText->property_wrap_width() = scaledWidth;
+            pTVColumn->property_min_width() = scaledWidth / 2;
+        }
+    }
+}
+
 void CtTableLight::set_col_width(const int colWidth, std::optional<size_t> optColIdx/*= std::nullopt*/)
 {
     const size_t c = optColIdx.value_or(_currentColumn);

@@ -85,10 +85,12 @@ const char CtStorageSqlite::TABLE_IMAGE_CREATE[]{"CREATE TABLE image ("
 "png BLOB,"
 "filename TEXT,"
 "link TEXT,"
-"time INTEGER"
+"time INTEGER,"
+"display_width INTEGER,"
+"display_height INTEGER"
 ")"
 };
-const char CtStorageSqlite::TABLE_IMAGE_INSERT[]{"INSERT INTO image VALUES(?,?,?,?,?,?,?,?)"};
+const char CtStorageSqlite::TABLE_IMAGE_INSERT[]{"INSERT INTO image VALUES(?,?,?,?,?,?,?,?,?,?)"};
 const char CtStorageSqlite::TABLE_IMAGE_DELETE[]{"DELETE FROM image WHERE node_id=?"};
 
 const char CtStorageSqlite::TABLE_CHILDREN_CREATE[]{"CREATE TABLE children ("
@@ -573,7 +575,13 @@ void CtStorageSqlite::_image_from_db(const gint64& nodeId, std::list<CtAnchoredW
             }
             else {
                 const Glib::ustring link = safe_sqlite3_column_text(stmt, 6);
-                anchoredWidgets.push_back(new CtImagePng{_pCtMainWin, rawBlob, link, charOffset, justification});
+                auto* pImage = new CtImagePng{_pCtMainWin, rawBlob, link, charOffset, justification};
+                const int displayWidth = sqlite3_column_int64(stmt, 8);
+                const int displayHeight = sqlite3_column_int64(stmt, 9);
+                if (displayWidth > 0 and displayHeight > 0) {
+                    pImage->set_display_size(displayWidth, displayHeight);
+                }
+                anchoredWidgets.push_back(pImage);
             }
         }
     }
@@ -1007,7 +1015,7 @@ void CtStorageSqlite::_fix_db_tables()
 {
     const static std::vector<std::vector<std::string>> tables = {
         {"node", "ts_creation", "INTEGER", "ts_lastsave", "INTEGER"},
-        {"image", "filename", "TEXT", "link", "TEXT", "time", "TEXT"},
+        {"image", "filename", "TEXT", "link", "TEXT", "time", "TEXT", "display_width", "INTEGER", "display_height", "INTEGER"},
         {"children", "master_id", "INTEGER"},
     };
     try {

@@ -154,6 +154,9 @@ void CtActions::table_insert()
         pCtTable->insertInTextBuffer(_curr_buffer());
         _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
             {pCtTable}, &_pCtMainWin->get_text_view().mm());
+        if (const double sf = _pCtMainWin->get_rt_zoom_scale_factor(); sf != 1.0) {
+            pCtTable->apply_zoom(sf);
+        }
         if (pBridge && pBridge->isActive()) {
             gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
             auto desc = extractWidgetDesc(pCtTable, charOffset);
@@ -212,6 +215,9 @@ void CtActions::table_insert()
         pCtTable->insertInTextBuffer(_curr_buffer());
         _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
             {pCtTable}, &_pCtMainWin->get_text_view().mm());
+        if (const double sf = _pCtMainWin->get_rt_zoom_scale_factor(); sf != 1.0) {
+            pCtTable->apply_zoom(sf);
+        }
 
         gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
         auto desc = extractWidgetDesc(pCtTable, charOffset);
@@ -231,6 +237,9 @@ void CtActions::table_insert()
         pCtTable->insertInTextBuffer(_curr_buffer());
         _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
             {pCtTable}, &_pCtMainWin->get_text_view().mm());
+        if (const double sf = _pCtMainWin->get_rt_zoom_scale_factor(); sf != 1.0) {
+            pCtTable->apply_zoom(sf);
+        }
     }
     //pCtTable->get_text_view().mm().grab_focus();
 }
@@ -279,6 +288,9 @@ void CtActions::codebox_insert()
         _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
                                                          {pCtCodebox},
                                                          &_pCtMainWin->get_text_view().mm());
+        if (const double sf = _pCtMainWin->get_rt_zoom_scale_factor(); sf != 1.0) {
+            pCtCodebox->apply_zoom(sf);
+        }
 
         gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
         auto desc = extractWidgetDesc(pCtCodebox, charOffset);
@@ -304,6 +316,9 @@ void CtActions::codebox_insert()
         _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
                                                          {pCtCodebox},
                                                          &_pCtMainWin->get_text_view().mm());
+        if (const double sf = _pCtMainWin->get_rt_zoom_scale_factor(); sf != 1.0) {
+            pCtCodebox->apply_zoom(sf);
+        }
         pCtCodebox->get_text_view().mm().grab_focus();
     }
 }
@@ -1279,11 +1294,24 @@ void CtActions::image_insert_latex(Gtk::TextIter iter_insert,
 void CtActions::_image_edit_dialog(Glib::RefPtr<Gdk::Pixbuf> rPixbuf,
                                    Gtk::TextIter insert_iter,
                                    Gtk::TextIter* pIterBound,
-                                   CtRichCell* pRichCell)
+                                   CtRichCell* pRichCell,
+                                   Glib::RefPtr<Gdk::Pixbuf> rOrigPixbuf)
 {
     Glib::RefPtr<Gdk::Pixbuf> ret_pixbuf = CtDialogs::image_handle_dialog(*_pCtMainWin, rPixbuf);
     if (not ret_pixbuf) return;
     Glib::ustring image_justification;
+
+    // Apply current text zoom to a newly created image widget
+    auto applyCurrentZoom = [this](CtImage* pImage) {
+        const int resetSize = _pCtMainWin->get_ct_config()->rtResetFontSize;
+        if (resetSize > 0) {
+            const Pango::FontDescription fontDesc(_pCtMainWin->get_ct_config()->rtFont);
+            const int currSize = fontDesc.get_size() / Pango::SCALE;
+            if (currSize != resetSize) {
+                pImage->apply_zoom((double)currSize / resetSize);
+            }
+        }
+    };
 
     // For image edits, use ModifyWidgetDeltaCommand (old desc → new desc)
     if (pIterBound) { // only in case of modify
@@ -1305,6 +1333,8 @@ void CtActions::_image_edit_dialog(Glib::RefPtr<Gdk::Pixbuf> rPixbuf,
             cellBuffer->erase(insert_iter, *pIterBound);
             insert_iter = cellBuffer->get_iter_at_offset(image_offset);
             auto* pWidget = new CtImagePng{_pCtMainWin, ret_pixbuf, ""/*link*/, image_offset, ""};
+            if (rOrigPixbuf) pWidget->set_orig_pixbuf(rOrigPixbuf);
+            applyCurrentZoom(pWidget);
             pWidget->insertInTextBuffer(cellBuffer);
             pRichCell->addEmbeddedWidget(pWidget);
 
@@ -1331,6 +1361,8 @@ void CtActions::_image_edit_dialog(Glib::RefPtr<Gdk::Pixbuf> rPixbuf,
             _curr_buffer()->erase(insert_iter, *pIterBound);
             insert_iter = _curr_buffer()->get_iter_at_offset(image_offset);
             CtAnchoredWidget* pAnchoredWidget = new CtImagePng{_pCtMainWin, ret_pixbuf, ""/*link*/, image_offset, image_justification};
+            if (rOrigPixbuf) static_cast<CtImage*>(pAnchoredWidget)->set_orig_pixbuf(rOrigPixbuf);
+            applyCurrentZoom(static_cast<CtImage*>(pAnchoredWidget));
             pAnchoredWidget->insertInTextBuffer(_curr_buffer());
             _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
                                                              {pAnchoredWidget},
