@@ -445,25 +445,62 @@ Glib::ustring CtExport2Html::_get_table_html(CtTableCommon* table)
 {
     std::vector<std::vector<Glib::ustring>> rows;
     table->write_strings_matrix(rows);
-    Glib::ustring table_html = "<table class=\"table\">";
+    const CtTableStyle& style = table->getTableStyle();
+
+    // Only emit inline styles when they differ from the default appearance
+    const bool hasCustomBorder = (style.borderWidth != 1 || style.borderColor != "#808080");
+    const bool hasCustomBg = !style.tableBgColor.empty();
+    const bool hasCustomCellBg = !style.cellBgColors.empty();
+
+    std::string tableStyle;
+    if (hasCustomBorder) {
+        if (style.borderWidth > 0) {
+            tableStyle += "border: " + std::to_string(style.borderWidth) + "px solid " + style.borderColor + "; border-collapse: collapse; ";
+        }
+    }
+    if (hasCustomBg) {
+        tableStyle += "background-color: " + style.tableBgColor + "; ";
+    }
+
+    Glib::ustring table_html = "<table class=\"table\"";
+    if (!tableStyle.empty()) {
+        table_html += " style=\"" + Glib::ustring{tableStyle} + "\"";
+    }
+    table_html += ">";
+
     bool first{true};
+    size_t rowIdx = 0;
     for (const auto& row : rows) {
         table_html += "<tr>";
+        size_t colIdx = 0;
         for (const Glib::ustring& cell : row) {
             Glib::ustring content = str::xml_escape(cell);
             if (content.empty()) {
                 content = " "; // Otherwise the table will render with squashed cells
             }
-            if (first) {
-                table_html += "<th>" + content + "</th>";
-            } else {
-                table_html += "<td>" + content + "</td>";
+            std::string cellStyle;
+            if (hasCustomBorder && style.borderWidth > 0) {
+                cellStyle += "border: " + std::to_string(style.borderWidth) + "px solid " + style.borderColor + "; ";
             }
+            if (hasCustomCellBg) {
+                const auto it = style.cellBgColors.find({rowIdx, colIdx});
+                if (it != style.cellBgColors.end()) {
+                    cellStyle += "background-color: " + it->second + "; ";
+                }
+            }
+            const Glib::ustring cellAttr = cellStyle.empty() ? "" : Glib::ustring{" style=\"" + cellStyle + "\""};
+            if (first) {
+                table_html += "<th" + cellAttr + ">" + content + "</th>";
+            } else {
+                table_html += "<td" + cellAttr + ">" + content + "</td>";
+            }
+            ++colIdx;
         }
         if (first) {
             first = false;
         }
         table_html += "</tr>";
+        ++rowIdx;
     }
     table_html += "</table>";
     return table_html;

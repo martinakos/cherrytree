@@ -27,6 +27,24 @@
 #include "ct_widgets.h"
 #include "ct_node_content.h"
 #include <optional>
+#include <map>
+#include <set>
+
+struct CtTableStyle {
+    int borderWidth{1};
+    std::string borderColor{"#808080"};
+    std::string tableBgColor;
+    // sparse map: (row,col) -> hex color string. Missing key = use tableBgColor/default.
+    std::map<std::pair<size_t,size_t>, std::string> cellBgColors;
+    // sparse maps: per-cell border overrides. Missing key = use table-level borderWidth/borderColor.
+    std::map<std::pair<size_t,size_t>, int> cellBorderWidths;
+    std::map<std::pair<size_t,size_t>, std::string> cellBorderColors;
+
+    void remapAfterRowDelete(size_t row);
+    void remapAfterRowInsert(size_t afterRow);
+    void remapAfterColDelete(size_t col);
+    void remapAfterColInsert(size_t afterCol);
+};
 
 class CtAnchoredWidgetState_TableCommon;
 class CtTableCommon : public CtAnchoredWidget
@@ -106,6 +124,13 @@ public:
     virtual int get_curr_cell_curr_offset() const = 0;
     virtual int get_curr_cell_max_offset() const = 0;
 
+    const CtTableStyle& getTableStyle() const { return _tableStyle; }
+    void setTableStyle(const CtTableStyle& style);
+    const std::set<std::pair<size_t,size_t>>& getSelectedCells() const { return _selectedCells; }
+
+    // Returns the CtTextCell* at (row, col). Light tables return nullptr.
+    virtual CtTextCell* getCellAt(size_t /*row*/, size_t /*col*/) { return nullptr; }
+
     #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     bool on_table_button_press_event(GdkEventButton* event);
     void on_cell_populate_popup(Gtk::Menu* menu);
@@ -113,16 +138,34 @@ public:
     bool on_rich_cell_key_release_event(GdkEventKey* event);
     #endif
 
+    // Update visual selection highlights for all cells
+    void _updateSelectionHighlights();
+    // Clear multi-cell selection (and remove highlights)
+    void _clearCellSelection();
+    // Find which (row, col) a child widget belongs to, or (-1,-1)
+    std::pair<int,int> _findCellAt(Gtk::Widget* pWidget) const;
+    // Hit-test: find cell at grid-relative coordinates
+    std::pair<int,int> _cellAtGridCoords(int gridX, int gridY) const;
+
 protected:
     virtual void _populate_xml_rows_cells(xmlpp::Element* p_table_node) const = 0;
     virtual bool _row_sort(const bool sortAsc) = 0;
     virtual bool _on_cell_key_press_alt_or_ctrl_enter() { return false; /* propagate signal */ }
+    virtual void _applyTableStyle() {}
+
+    void _serializeStyleAttrs(xmlpp::Element* p_table_node) const;
 
     int              _colWidthDefault;
     CtTableColWidths _colWidths;
     double           _zoomFactor{1.0};
     size_t           _currentRow{0u};
     size_t           _currentColumn{0u};
+    CtTableStyle     _tableStyle;
+
+    // Multi-cell selection state
+    std::set<std::pair<size_t,size_t>> _selectedCells;
+    bool _isSelecting{false};
+    std::pair<size_t,size_t> _selectionAnchor{0u, 0u};
 };
 
 struct CtTableLightColumns : public Gtk::TreeModelColumnRecord
@@ -233,6 +276,9 @@ public:
 
     CtTextView& curr_cell_text_view() const;
     Glib::RefPtr<Gtk::TextBuffer> get_buffer(const size_t rowIdx, const size_t colIdx) const;
+    CtTextCell* getCellAt(size_t row, size_t col) override {
+        return static_cast<CtTextCell*>(_tableMatrix.at(row).at(col));
+    }
 
     void write_strings_matrix(std::vector<std::vector<Glib::ustring>>& rows) const override;
     size_t get_num_rows() const override { return _tableMatrix.size(); }
@@ -329,6 +375,9 @@ public:
     CtTextView& curr_cell_text_view() const;
     Glib::RefPtr<Gtk::TextBuffer> get_buffer(const size_t rowIdx, const size_t colIdx) const;
     CtRichCell* getRichCell(size_t row, size_t col) const;
+    CtTextCell* getCellAt(size_t row, size_t col) override {
+        return static_cast<CtTextCell*>(_tableMatrix.at(row).at(col));
+    }
 
     void write_strings_matrix(std::vector<std::vector<Glib::ustring>>& rows) const override;
     size_t get_num_rows() const override { return _tableMatrix.size(); }
@@ -359,6 +408,7 @@ public:
 protected:
     void _new_rich_cell_attach(const size_t rowIdx, const size_t colIdx, CtRichCell* pCell);
     void _apply_remove_header_style(const bool isApply, CtTextView& textView);
+    void _applyTableStyle() override;
 
     bool _row_sort(const bool sortAsc) override;
     void _populate_xml_rows_cells(xmlpp::Element* p_table_node) const override;
@@ -367,4 +417,5 @@ protected:
 
     CtTableMatrix _tableMatrix;
     Gtk::Grid     _grid;
+    Glib::RefPtr<Gtk::CssProvider> _rCssProviderTableStyle;
 };

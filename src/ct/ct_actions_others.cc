@@ -1295,13 +1295,36 @@ void CtActions::table_edit_properties()
     const bool was_rich = (curr_table_anchor->get_type() == CtAnchWidgType::TableRich);
     bool is_light{was_light};
     bool is_rich{was_rich};
+    CtTableStyle tableStyle = curr_table_anchor->getTableStyle();
+    CtTableStyle* pTableStyle = was_rich ? &tableStyle : nullptr;
+    const auto& selectedCells = curr_table_anchor->getSelectedCells();
+    const size_t numRows = curr_table_anchor->get_num_rows();
+    const size_t numCols = curr_table_anchor->get_num_columns();
     if (CtDialogs::TableHandleResp::Cancel == CtDialogs::table_handle_dialog(
-        _pCtMainWin, _("Edit Table Properties"), false/*is_insert*/, is_light, is_rich))
+        _pCtMainWin, _("Edit Table Properties"), false/*is_insert*/, is_light, is_rich, pTableStyle,
+        selectedCells, numRows, numCols))
     {
         return;
     }
-    curr_table_anchor->set_col_width_default(_pCtConfig->tableColWidthDefault);
     const bool type_changed = (was_light != is_light) or (was_rich != is_rich);
+
+    // Capture old state for undo before applying any changes
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    const int widgetOffset = curr_table_anchor->getOffset();
+    CtWidgetDesc oldDesc;
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endWidgetEdit();
+        pBridge->endTextEditSession();
+        if (!type_changed) {
+            gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+            oldDesc = pBridge->getDocumentModel()->getNodeById(nodeId)->getContent().getWidgetDescAt(widgetOffset);
+        }
+    }
+
+    curr_table_anchor->set_col_width_default(_pCtConfig->tableColWidthDefault);
+    if (pTableStyle) {
+        curr_table_anchor->setTableStyle(tableStyle);
+    }
     if (type_changed) {
         // Extract table data as plain strings for reconstruction
         std::vector<std::vector<Glib::ustring>> string_rows;
@@ -1357,6 +1380,13 @@ void CtActions::table_edit_properties()
         curr_table_anchor = pCtTable;
     }
     else {
+        if (pBridge && pBridge->isActive()) {
+            gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+            auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
+            if (!(oldDesc == newDesc)) {
+                pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Edit table properties");
+            }
+        }
         _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
     }
 }
