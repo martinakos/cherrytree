@@ -24,6 +24,7 @@
 #include "ct_dialogs.h"
 #include "ct_main_win.h"
 #include "ct_text_view.h"
+#include "ct_table.h"
 
 #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
 Glib::ustring CtDialogs::latex_handle_dialog(CtMainWin* pCtMainWin,
@@ -585,7 +586,11 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
                                                           const Glib::ustring& title,
                                                           const bool is_insert,
                                                           bool& is_light,
-                                                          bool& is_rich)
+                                                          bool& is_rich,
+                                                          CtTableStyle* pTableStyle,
+                                                          const std::set<std::pair<size_t,size_t>>& selectedCells,
+                                                          size_t numRows,
+                                                          size_t numCols)
 {
     Gtk::Dialog dialog{title,
                        *pCtMainWin,
@@ -651,9 +656,185 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
     auto content_area = dialog.get_content_area();
     content_area->set_spacing(5);
     content_area->pack_start(grid);
-    content_area->pack_start(checkbutton_is_light);
-    content_area->pack_start(checkbutton_is_rich);
-    if (is_insert) content_area->pack_start(checkbutton_table_ins_from_file);
+
+    if (is_insert) {
+        // Insert mode: show type selection checkboxes
+        content_area->pack_start(checkbutton_is_light);
+        content_area->pack_start(checkbutton_is_rich);
+        content_area->pack_start(checkbutton_table_ins_from_file);
+    } else if (not pTableStyle) {
+        // Edit mode for light/heavy tables: show lightweight toggle
+        content_area->pack_start(checkbutton_is_light);
+    } else if (pTableStyle) {
+        // Edit mode: show border / background style controls
+        auto label_border = Gtk::Label{std::string("<b>") + _("Border") + "</b>"};
+        label_border.set_use_markup();
+        label_border.set_halign(Gtk::Align::ALIGN_START);
+        label_border.set_margin_top(8);
+
+        const bool hasSelection = !selectedCells.empty();
+
+        auto label_bw = Gtk::Label{_("Border Width")};
+        label_bw.set_halign(Gtk::Align::ALIGN_START);
+
+        // When cells are selected, initialize border controls from per-cell values
+        int initialBorderWidth = pTableStyle->borderWidth;
+        std::string initialBorderColor = pTableStyle->borderColor.empty() ? "#808080" : pTableStyle->borderColor;
+        if (hasSelection) {
+            bool bwFirst{true}, bcFirst{true}, bwMixed{false}, bcMixed{false};
+            for (const auto& cell : selectedCells) {
+                auto bwIt = pTableStyle->cellBorderWidths.find(cell);
+                int cellBw = (bwIt != pTableStyle->cellBorderWidths.end()) ? bwIt->second : pTableStyle->borderWidth;
+                if (bwFirst) { initialBorderWidth = cellBw; bwFirst = false; }
+                else if (cellBw != initialBorderWidth) { bwMixed = true; }
+
+                auto bcIt = pTableStyle->cellBorderColors.find(cell);
+                const std::string& cellBc = (bcIt != pTableStyle->cellBorderColors.end()) ? bcIt->second : pTableStyle->borderColor;
+                if (bcFirst) { initialBorderColor = cellBc; bcFirst = false; }
+                else if (cellBc != initialBorderColor) { bcMixed = true; }
+            }
+            if (bwMixed) initialBorderWidth = pTableStyle->borderWidth;
+            if (bcMixed) initialBorderColor = pTableStyle->borderColor.empty() ? "#808080" : pTableStyle->borderColor;
+        }
+
+        auto adj_bw = Gtk::Adjustment::create(initialBorderWidth, 0, 10, 1);
+        auto spinbutton_bw = Gtk::SpinButton{adj_bw};
+        spinbutton_bw.set_value(initialBorderWidth);
+
+        auto label_bc = Gtk::Label{_("Border Color")};
+        label_bc.set_halign(Gtk::Align::ALIGN_START);
+        Gdk::RGBA borderRgba;
+        borderRgba.set(initialBorderColor);
+        auto colorbutton_border = Gtk::ColorButton{borderRgba};
+        colorbutton_border.set_use_alpha(false);
+
+        auto label_bg = Gtk::Label{std::string("<b>") + _("Background") + "</b>"};
+        label_bg.set_use_markup();
+        label_bg.set_halign(Gtk::Align::ALIGN_START);
+        label_bg.set_margin_top(8);
+
+        // When cells are selected: show their common color; otherwise show table bg
+        Gdk::RGBA bgRgba;
+        std::string initialBgColor;
+        bool bgMixed{false};
+        if (hasSelection) {
+            for (const auto& cell : selectedCells) {
+                auto it = pTableStyle->cellBgColors.find(cell);
+                const std::string& clr = (it != pTableStyle->cellBgColors.end()) ? it->second : std::string{};
+                if (initialBgColor.empty() && !bgMixed) {
+                    initialBgColor = clr;
+                } else if (initialBgColor != clr) {
+                    bgMixed = true;
+                }
+            }
+        } else {
+            initialBgColor = pTableStyle->tableBgColor;
+        }
+        if (!initialBgColor.empty() && !bgMixed) bgRgba.set(initialBgColor);
+        else bgRgba.set("#ffffff");
+
+        auto label_bgc = Gtk::Label{_("Background Color")};
+        label_bgc.set_halign(Gtk::Align::ALIGN_START);
+        auto colorbutton_bg = Gtk::ColorButton{bgRgba};
+        colorbutton_bg.set_use_alpha(false);
+        auto button_clear_bg = Gtk::Button{_("Clear")};
+
+        Gtk::Grid style_grid;
+        style_grid.property_margin() = 6;
+        style_grid.set_row_spacing(4);
+        style_grid.set_column_spacing(8);
+        style_grid.set_row_homogeneous(true);
+        style_grid.attach(label_border,         0, 0, 4, 1);
+        style_grid.attach(label_bw,             0, 1, 1, 1);
+        style_grid.attach(spinbutton_bw,        1, 1, 1, 1);
+        style_grid.attach(label_bc,             2, 1, 1, 1);
+        style_grid.attach(colorbutton_border,   3, 1, 1, 1);
+        style_grid.attach(label_bg,             0, 2, 4, 1);
+        style_grid.attach(label_bgc,            0, 3, 1, 1);
+        style_grid.attach(colorbutton_bg,       1, 3, 1, 1);
+        style_grid.attach(button_clear_bg,      2, 3, 1, 1);
+
+        content_area->pack_start(style_grid);
+        content_area->show_all();
+
+        bool bgCleared{false};
+        button_clear_bg.signal_clicked().connect([&](){
+            Gdk::RGBA white; white.set("#ffffff");
+            colorbutton_bg.set_rgba(white);
+            bgCleared = true;
+        });
+
+        auto on_key_press_dialog2 = [&](GdkEventKey* pEventKey)->bool{
+            if (GDK_KEY_Return == pEventKey->keyval or GDK_KEY_KP_Enter == pEventKey->keyval) {
+                Gtk::Button* pButton = static_cast<Gtk::Button*>(dialog.get_widget_for_response(Gtk::RESPONSE_ACCEPT));
+                pButton->grab_focus();
+                pButton->clicked();
+                return true;
+            }
+            if (GDK_KEY_Escape == pEventKey->keyval) {
+                Gtk::Button* pButton = static_cast<Gtk::Button*>(dialog.get_widget_for_response(Gtk::RESPONSE_REJECT));
+                pButton->grab_focus();
+                pButton->clicked();
+                return true;
+            }
+            return false;
+        };
+        dialog.signal_key_press_event().connect(on_key_press_dialog2, false);
+
+        const auto resp2 = dialog.run();
+        pCtConfig->tableColWidthDefault = spinbutton_col_width.get_value_as_int();
+        if (Gtk::RESPONSE_ACCEPT == resp2) {
+            const int newBorderWidth = spinbutton_bw.get_value_as_int();
+            auto bc = colorbutton_border.get_rgba();
+            char hex[8];
+            snprintf(hex, sizeof(hex), "#%02x%02x%02x",
+                     (int)(bc.get_red()*255), (int)(bc.get_green()*255), (int)(bc.get_blue()*255));
+            const std::string newBorderColor{hex};
+            if (hasSelection) {
+                // Per-cell border: store overrides for selected cells
+                for (const auto& cell : selectedCells) {
+                    pTableStyle->cellBorderWidths[cell] = newBorderWidth;
+                    pTableStyle->cellBorderColors[cell] = newBorderColor;
+                }
+            } else {
+                // Table-wide border: update table defaults and clear per-cell overrides
+                pTableStyle->borderWidth = newBorderWidth;
+                pTableStyle->borderColor = newBorderColor;
+                pTableStyle->cellBorderWidths.clear();
+                pTableStyle->cellBorderColors.clear();
+            }
+            // Background: applies to selected cells or whole table
+            auto bg = colorbutton_bg.get_rgba();
+            char bhex[8];
+            snprintf(bhex, sizeof(bhex), "#%02x%02x%02x",
+                     (int)(bg.get_red()*255), (int)(bg.get_green()*255), (int)(bg.get_blue()*255));
+            if (hasSelection) {
+                if (bgCleared) {
+                    for (const auto& cell : selectedCells) {
+                        pTableStyle->cellBgColors.erase(cell);
+                    }
+                } else {
+                    const bool colorChanged = bgMixed || std::string{bhex} != initialBgColor;
+                    if (colorChanged) {
+                        for (const auto& cell : selectedCells) {
+                            pTableStyle->cellBgColors[cell] = bhex;
+                        }
+                    }
+                }
+            } else {
+                // Whole table: clear all per-cell colors and set table bg
+                pTableStyle->cellBgColors.clear();
+                if (bgCleared) {
+                    pTableStyle->tableBgColor.clear();
+                } else {
+                    pTableStyle->tableBgColor = bhex;
+                }
+            }
+            return TableHandleResp::Ok;
+        }
+        return TableHandleResp::Cancel;
+    }
+
     content_area->show_all();
 
     // Rich and lightweight are mutually exclusive
@@ -749,9 +930,14 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
                                                           const Glib::ustring& title,
                                                           const bool is_insert,
                                                           bool& is_light,
-                                                          bool& is_rich)
+                                                          bool& is_rich,
+                                                          CtTableStyle* pTableStyle,
+                                                          const std::set<std::pair<size_t,size_t>>& selectedCells,
+                                                          size_t numRows,
+                                                          size_t numCols)
 {
-    (void)pCtMainWin; (void)title; (void)is_insert; (void)is_light; (void)is_rich;
+    (void)pCtMainWin; (void)title; (void)is_insert; (void)is_light; (void)is_rich; (void)pTableStyle;
+    (void)selectedCells; (void)numRows; (void)numCols;
     return TableHandleResp::Cancel;
 }
 #endif

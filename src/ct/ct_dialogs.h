@@ -28,6 +28,7 @@
 #include <glibconfig.h>
 #include <gtkmm.h>
 #include <array>
+#include <set>
 
 class CtMainWin;
 class CtTreeStore;
@@ -167,6 +168,8 @@ private:
     int                         _page_idx{0};
     std::vector<CtMatchRowData> _all_matches;
 };
+
+struct CtTableStyle; // defined in ct_table.h
 
 namespace CtDialogs {
 
@@ -320,6 +323,10 @@ TableHandleResp table_handle_dialog(CtMainWin* pCtMainWin,
                                     const Glib::ustring& title,
                                     const bool is_insert,
                                     bool& is_light,
-                                    bool& is_rich);
+                                    bool& is_rich,
+                                    CtTableStyle* pTableStyle = nullptr,
+                                    const std::set<std::pair<size_t,size_t>>& selectedCells = {},
+                                    size_t numRows = 0,
+                                    size_t numCols = 0);
 
 } // namespace CtDialogs
