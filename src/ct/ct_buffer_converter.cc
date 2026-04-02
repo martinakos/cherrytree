@@ -26,6 +26,7 @@
 
 #include "ct_node_content.h"
 #include "ct_main_win.h"
+#include <type_traits>
 #include "ct_const.h"
 #include "ct_storage_xml.h"
 #include "ct_widgets.h"
@@ -284,6 +285,39 @@ std::list<CtAnchoredWidget*> buildBufferFromContent(
                         } else {
                             widget = new CtTableHeavy{pCtMainWin, tableMatrix, colWidthDefault, charOffset, justification, colWidths};
                         }
+                    }
+                    // Restore table style (border, colors) from widget descriptor properties
+                    if (widget) {
+                        CtTableStyle style;
+                        const std::string bw = widgetDesc.getProperty("border_width");
+                        if (!bw.empty()) style.borderWidth = std::stoi(bw);
+                        const std::string bc = widgetDesc.getProperty("border_color");
+                        if (!bc.empty()) style.borderColor = bc;
+                        const std::string tbg = widgetDesc.getProperty("table_bg_color");
+                        if (!tbg.empty()) style.tableBgColor = tbg;
+                        // Parse "row,col:value;..." format for per-cell maps
+                        auto parseCellMapStr = [](const std::string& s, auto& targetMap) {
+                            if (s.empty()) return;
+                            for (const auto& entry : str::split(s, ";")) {
+                                const auto colon = entry.find(':');
+                                if (colon == std::string::npos) continue;
+                                const std::string coords = entry.substr(0, colon);
+                                const std::string value = entry.substr(colon + 1);
+                                const auto comma = coords.find(',');
+                                if (comma == std::string::npos) continue;
+                                size_t row = static_cast<size_t>(std::stoul(coords.substr(0, comma)));
+                                size_t col = static_cast<size_t>(std::stoul(coords.substr(comma + 1)));
+                                if constexpr (std::is_same_v<typename std::decay_t<decltype(targetMap)>::mapped_type, int>) {
+                                    targetMap[{row, col}] = std::stoi(value);
+                                } else {
+                                    targetMap[{row, col}] = value;
+                                }
+                            }
+                        };
+                        parseCellMapStr(widgetDesc.getProperty("cell_bg_colors"), style.cellBgColors);
+                        parseCellMapStr(widgetDesc.getProperty("cell_border_widths"), style.cellBorderWidths);
+                        parseCellMapStr(widgetDesc.getProperty("cell_border_colors"), style.cellBorderColors);
+                        static_cast<CtTableCommon*>(widget)->setTableStyle(style);
                     }
                 }
                 else if (widgetDesc.type == CtAnchWidgType::ImageAnchor) {

@@ -52,6 +52,117 @@ bool CtTableCommon::get_is_light() const
     return dynamic_cast<const CtTableLight*>(this);
 }
 
+// ─── CtTableStyle ────────────────────────────────────────────────────────────
+
+// Helper: remap row keys in a sparse cell map after row delete/insert
+template<typename V>
+static void _remapRowDelete(std::map<std::pair<size_t,size_t>, V>& m, size_t row) {
+    std::map<std::pair<size_t,size_t>, V> updated;
+    for (auto& [key, val] : m) {
+        if (key.first == row) continue;
+        updated[{key.first > row ? key.first - 1 : key.first, key.second}] = std::move(val);
+    }
+    m = std::move(updated);
+}
+template<typename V>
+static void _remapRowInsert(std::map<std::pair<size_t,size_t>, V>& m, size_t afterRow) {
+    std::map<std::pair<size_t,size_t>, V> updated;
+    for (auto& [key, val] : m) {
+        updated[{key.first > afterRow ? key.first + 1 : key.first, key.second}] = std::move(val);
+    }
+    m = std::move(updated);
+}
+template<typename V>
+static void _remapColDelete(std::map<std::pair<size_t,size_t>, V>& m, size_t col) {
+    std::map<std::pair<size_t,size_t>, V> updated;
+    for (auto& [key, val] : m) {
+        if (key.second == col) continue;
+        updated[{key.first, key.second > col ? key.second - 1 : key.second}] = std::move(val);
+    }
+    m = std::move(updated);
+}
+template<typename V>
+static void _remapColInsert(std::map<std::pair<size_t,size_t>, V>& m, size_t afterCol) {
+    std::map<std::pair<size_t,size_t>, V> updated;
+    for (auto& [key, val] : m) {
+        updated[{key.first, key.second > afterCol ? key.second + 1 : key.second}] = std::move(val);
+    }
+    m = std::move(updated);
+}
+
+void CtTableStyle::remapAfterRowDelete(size_t row)
+{
+    _remapRowDelete(cellBgColors, row);
+    _remapRowDelete(cellBorderWidths, row);
+    _remapRowDelete(cellBorderColors, row);
+}
+
+void CtTableStyle::remapAfterRowInsert(size_t afterRow)
+{
+    _remapRowInsert(cellBgColors, afterRow);
+    _remapRowInsert(cellBorderWidths, afterRow);
+    _remapRowInsert(cellBorderColors, afterRow);
+}
+
+void CtTableStyle::remapAfterColDelete(size_t col)
+{
+    _remapColDelete(cellBgColors, col);
+    _remapColDelete(cellBorderWidths, col);
+    _remapColDelete(cellBorderColors, col);
+}
+
+void CtTableStyle::remapAfterColInsert(size_t afterCol)
+{
+    _remapColInsert(cellBgColors, afterCol);
+    _remapColInsert(cellBorderWidths, afterCol);
+    _remapColInsert(cellBorderColors, afterCol);
+}
+
+// ─── CtTableCommon style helpers ─────────────────────────────────────────────
+
+void CtTableCommon::setTableStyle(const CtTableStyle& style)
+{
+    _tableStyle = style;
+    _applyTableStyle();
+}
+
+void CtTableCommon::_serializeStyleAttrs(xmlpp::Element* p_table_node) const
+{
+    if (_tableStyle.borderWidth != 1) {
+        p_table_node->set_attribute("border_width", std::to_string(_tableStyle.borderWidth));
+    }
+    if (_tableStyle.borderColor != "#808080") {
+        p_table_node->set_attribute("border_color", _tableStyle.borderColor);
+    }
+    if (!_tableStyle.tableBgColor.empty()) {
+        p_table_node->set_attribute("table_bg_color", _tableStyle.tableBgColor);
+    }
+    if (!_tableStyle.cellBgColors.empty()) {
+        std::string cellBgStr;
+        for (const auto& [key, color] : _tableStyle.cellBgColors) {
+            if (!cellBgStr.empty()) cellBgStr += ";";
+            cellBgStr += std::to_string(key.first) + "," + std::to_string(key.second) + ":" + color;
+        }
+        p_table_node->set_attribute("cell_bg_colors", cellBgStr);
+    }
+    if (!_tableStyle.cellBorderWidths.empty()) {
+        std::string s;
+        for (const auto& [key, w] : _tableStyle.cellBorderWidths) {
+            if (!s.empty()) s += ";";
+            s += std::to_string(key.first) + "," + std::to_string(key.second) + ":" + std::to_string(w);
+        }
+        p_table_node->set_attribute("cell_border_widths", s);
+    }
+    if (!_tableStyle.cellBorderColors.empty()) {
+        std::string s;
+        for (const auto& [key, color] : _tableStyle.cellBorderColors) {
+            if (!s.empty()) s += ";";
+            s += std::to_string(key.first) + "," + std::to_string(key.second) + ":" + color;
+        }
+        p_table_node->set_attribute("cell_border_colors", s);
+    }
+}
+
 std::shared_ptr<CtAnchoredWidgetState_TableCommon> CtTableCommon::get_state_common() const
 {
     // Command pattern uses XML snapshots instead of widget state objects
@@ -94,6 +205,84 @@ bool CtTableCommon::on_table_button_press_event(GdkEventButton* event)
     return false;
 }
 
+void CtTableCommon::_updateSelectionHighlights()
+{
+    const size_t numRows = get_num_rows();
+    const size_t numCols = get_num_columns();
+    for (size_t r = 0; r < numRows; ++r) {
+        for (size_t c = 0; c < numCols; ++c) {
+            CtTextCell* pCell = getCellAt(r, c);
+            if (pCell) {
+                pCell->applySelectionHighlight(_selectedCells.count({r, c}) > 0);
+            }
+        }
+    }
+}
+
+void CtTableCommon::_clearCellSelection()
+{
+    if (_selectedCells.empty()) return;
+    _selectedCells.clear();
+    _updateSelectionHighlights();
+}
+
+std::pair<int,int> CtTableCommon::_findCellAt(Gtk::Widget* pWidget) const
+{
+    // Walk up from pWidget to find a direct child of the grid, then get its grid position.
+    // The grid holds text views directly.
+    const size_t numRows = get_num_rows();
+    const size_t numCols = get_num_columns();
+    for (size_t r = 0; r < numRows; ++r) {
+        for (size_t c = 0; c < numCols; ++c) {
+            CtTextCell* pCell = const_cast<CtTableCommon*>(this)->getCellAt(r, c);
+            if (pCell && &pCell->get_text_view().mm() == pWidget) {
+                return {(int)r, (int)c};
+            }
+        }
+    }
+    return {-1, -1};
+}
+
+std::pair<int,int> CtTableCommon::_cellAtGridCoords(int gridX, int gridY) const
+{
+    const size_t numRows = get_num_rows();
+    const size_t numCols = get_num_columns();
+    for (size_t r = 0; r < numRows; ++r) {
+        for (size_t c = 0; c < numCols; ++c) {
+            CtTextCell* pCell = const_cast<CtTableCommon*>(this)->getCellAt(r, c);
+            if (!pCell) continue;
+            Gtk::Allocation alloc = pCell->get_text_view().mm().get_allocation();
+            if (gridX >= alloc.get_x() && gridX < alloc.get_x() + alloc.get_width() &&
+                gridY >= alloc.get_y() && gridY < alloc.get_y() + alloc.get_height())
+            {
+                return {(int)r, (int)c};
+            }
+        }
+    }
+    // Clamp to nearest edge cell for drag beyond grid bounds
+    if (numRows > 0 && numCols > 0) {
+        int bestR = 0, bestC = 0;
+        int bestDist = INT_MAX;
+        for (size_t r = 0; r < numRows; ++r) {
+            for (size_t c = 0; c < numCols; ++c) {
+                CtTextCell* pCell = const_cast<CtTableCommon*>(this)->getCellAt(r, c);
+                if (!pCell) continue;
+                Gtk::Allocation alloc = pCell->get_text_view().mm().get_allocation();
+                int cx = alloc.get_x() + alloc.get_width()/2;
+                int cy = alloc.get_y() + alloc.get_height()/2;
+                int dist = std::abs(gridX - cx) + std::abs(gridY - cy);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    bestR = (int)r;
+                    bestC = (int)c;
+                }
+            }
+        }
+        return {bestR, bestC};
+    }
+    return {-1, -1};
+}
+
 void CtTableCommon::on_cell_populate_popup(Gtk::Menu* menu)
 {
     if (not _pCtMainWin->user_active()) return;
@@ -104,8 +293,7 @@ void CtTableCommon::on_cell_populate_popup(Gtk::Menu* menu)
     const bool first_col = 0 == colIdx;
     const bool last_row = get_num_rows()-1 == rowIdx;
     const bool last_col = get_num_rows() and get_num_columns()-1 == colIdx;
-    const bool is_rich = (get_type() == CtAnchWidgType::TableRich);
-    _pCtMainWin->get_ct_menu().build_popup_menu_table_cell(menu, first_row, first_col, last_row, last_col, is_rich);
+    _pCtMainWin->get_ct_menu().build_popup_menu_table_cell(menu, first_row, first_col, last_row, last_col);
 }
 
 bool CtTableCommon::on_cell_key_press_event(GdkEventKey* event)
@@ -326,6 +514,11 @@ void CtTableCommon::to_xml(xmlpp::Element* p_node_parent, const int offset_adjus
                               _colWidthDefault,
                               str::join_numbers(_colWidths, ","),
                               CtAnchWidgType::TableLight == get_type());
+    // Add style attributes to the last added <table> child
+    auto children = p_node_parent->get_children("table");
+    if (!children.empty()) {
+        _serializeStyleAttrs(static_cast<xmlpp::Element*>(children.back()));
+    }
 }
 
 bool CtTableCommon::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offset_adjustment, CtStorageCache*)
@@ -345,6 +538,7 @@ bool CtTableCommon::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offs
         } else if (CtAnchWidgType::TableRich == get_type()) {
             xml_doc.get_root_node()->set_attribute("is_rich", "1");
         }
+        _serializeStyleAttrs(xml_doc.get_root_node());
         _populate_xml_rows_cells(xml_doc.get_root_node());
         const std::string table_txt = xml_doc.write_to_string();
         sqlite3_bind_int64(p_stmt, 1, node_id);
@@ -446,6 +640,56 @@ void CtTableHeavy::_new_text_cell_attach(const size_t rowIdx, const size_t colId
     }
     textView.signal_populate_popup().connect(sigc::mem_fun(*this, &CtTableCommon::on_cell_populate_popup));
     textView.signal_key_press_event().connect(sigc::mem_fun(*this, &CtTableCommon::on_cell_key_press_event), false);
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
+    textView.signal_button_press_event().connect([this, rowIdx, colIdx](GdkEventButton* event) -> bool {
+        if (event->button == 1 && (event->state & GDK_CONTROL_MASK)) {
+            const auto cell = std::make_pair(rowIdx, colIdx);
+            if (_selectedCells.count(cell)) {
+                _selectedCells.erase(cell);
+            } else {
+                _selectedCells.insert(cell);
+            }
+            _selectionAnchor = {rowIdx, colIdx};
+            _isSelecting = true;
+            _updateSelectionHighlights();
+            return true; // consume — don't let the text view handle Ctrl+click as cursor placement
+        }
+        if (event->button == 1 && !(event->state & GDK_SHIFT_MASK)) {
+            _clearCellSelection();
+        }
+        return false; // propagate
+    }, false);
+    textView.signal_motion_notify_event().connect([this, pTextCell](GdkEventMotion* event) -> bool {
+        if (!_isSelecting || !(event->state & GDK_BUTTON1_MASK)) return false;
+        // Translate from cell-local to grid-relative coordinates
+        int gridX, gridY;
+        pTextCell->get_text_view().mm().translate_coordinates(_grid, (int)event->x, (int)event->y, gridX, gridY);
+        auto [r, c] = _cellAtGridCoords(gridX, gridY);
+        if (r < 0) return false;
+        // Rectangular selection from anchor to hovered cell
+        const size_t r0 = std::min(_selectionAnchor.first, (size_t)r);
+        const size_t r1 = std::max(_selectionAnchor.first, (size_t)r);
+        const size_t c0 = std::min(_selectionAnchor.second, (size_t)c);
+        const size_t c1 = std::max(_selectionAnchor.second, (size_t)c);
+        std::set<std::pair<size_t,size_t>> newSel;
+        for (size_t ri = r0; ri <= r1; ++ri) {
+            for (size_t ci = c0; ci <= c1; ++ci) {
+                newSel.insert({ri, ci});
+            }
+        }
+        if (newSel != _selectedCells) {
+            _selectedCells = std::move(newSel);
+            _updateSelectionHighlights();
+        }
+        return true;
+    }, false);
+    textView.signal_button_release_event().connect([this](GdkEventButton* event) -> bool {
+        if (event->button == 1) {
+            _isSelecting = false;
+        }
+        return false;
+    }, false);
+#endif
 
     _grid.attach(pTextCell->get_text_view().mm(), colIdx, rowIdx, 1/*# cell horiz*/, 1/*# cell vert*/);
 
@@ -531,6 +775,7 @@ void CtTableHeavy::column_add(const size_t afterColIdx, const std::vector<Glib::
         _tableMatrix.at(rowIdx).insert(_tableMatrix.at(rowIdx).begin()+newColIdx, pTextCell);
         _new_text_cell_attach(rowIdx, newColIdx, pTextCell);
     }
+    _tableStyle.remapAfterColInsert(afterColIdx);
 }
 
 void CtTableHeavy::column_delete(const size_t colIdx)
@@ -547,6 +792,7 @@ void CtTableHeavy::column_delete(const size_t colIdx)
     if (_currentColumn == get_num_columns()) {
         --_currentColumn;
     }
+    _tableStyle.remapAfterColDelete(colIdx);
     grab_focus();
 }
 
@@ -592,6 +838,7 @@ void CtTableHeavy::row_add(const size_t afterRowIdx, const std::vector<Glib::ust
         _tableMatrix.at(newRowIdx).push_back(pTextCell);
         _new_text_cell_attach(newRowIdx, colIdx, pTextCell);
     }
+    _tableStyle.remapAfterRowInsert(afterRowIdx);
 }
 
 void CtTableHeavy::row_delete(const size_t rowIdx)
@@ -607,6 +854,7 @@ void CtTableHeavy::row_delete(const size_t rowIdx)
     if (_currentRow == get_num_rows()) {
         --_currentRow;
     }
+    _tableStyle.remapAfterRowDelete(rowIdx);
     grab_focus();
 }
 
@@ -1063,7 +1311,7 @@ CtTableRich::CtTableRich(CtMainWin* pCtMainWin,
     _grid.signal_button_press_event().connect(sigc::mem_fun(*this, &CtTableCommon::on_table_button_press_event), false);
     _grid.signal_set_focus_child().connect(sigc::mem_fun(*this, &CtTableRich::_on_grid_set_focus_child));
 
-    _frame.get_style_context()->add_class("ct-table");
+    _frame.get_style_context()->add_class("ct-table-rich");
     _frame.add(_grid);
     _frame.signal_size_allocate().connect(sigc::mem_fun(*this, &CtTableRich::_on_frame_size_allocate));
     show_all();
@@ -1083,21 +1331,73 @@ void CtTableRich::_new_rich_cell_attach(const size_t rowIdx, const size_t colIdx
     CtTextView& ctTextView = pCell->get_text_view();
     auto& textView = ctTextView.mm();
     textView.set_size_request(get_col_width(colIdx), -1);
+    textView.set_border_window_size(Gtk::TEXT_WINDOW_LEFT, 0);
+    textView.set_border_window_size(Gtk::TEXT_WINDOW_RIGHT, 0);
+    textView.set_border_window_size(Gtk::TEXT_WINDOW_TOP, 0);
+    textView.set_border_window_size(Gtk::TEXT_WINDOW_BOTTOM, 0);
     gtk_source_view_set_highlight_current_line(GTK_SOURCE_VIEW(ctTextView.gobj()), false);
     textView.signal_populate_popup().connect(sigc::mem_fun(*this, &CtTableCommon::on_cell_populate_popup));
     textView.signal_key_press_event().connect(sigc::mem_fun(*this, &CtTableCommon::on_cell_key_press_event), false);
     textView.signal_key_release_event().connect(sigc::mem_fun(*this, &CtTableCommon::on_rich_cell_key_release_event), false);
-    // Clear selection when this cell loses focus so the highlighted text doesn't persist visually
-    textView.signal_focus_out_event().connect([pCell](GdkEventFocus*) {
-        auto buffer = pCell->get_buffer();
-        buffer->place_cursor(buffer->get_iter_at_mark(buffer->get_insert()));
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
+    textView.signal_button_press_event().connect([this, rowIdx, colIdx](GdkEventButton* event) -> bool {
+        if (event->button == 1 && (event->state & GDK_CONTROL_MASK)) {
+            const auto cell = std::make_pair(rowIdx, colIdx);
+            if (_selectedCells.count(cell)) {
+                _selectedCells.erase(cell);
+            } else {
+                _selectedCells.insert(cell);
+            }
+            _selectionAnchor = {rowIdx, colIdx};
+            _isSelecting = true;
+            _updateSelectionHighlights();
+            return true; // consume
+        }
+        if (event->button == 1 && !(event->state & GDK_SHIFT_MASK)) {
+            _clearCellSelection();
+        }
+        return false; // propagate
+    }, false);
+    textView.signal_motion_notify_event().connect([this, pCell](GdkEventMotion* event) -> bool {
+        // Multi-cell drag selection
+        if (_isSelecting && (event->state & GDK_BUTTON1_MASK)) {
+            int gridX, gridY;
+            pCell->get_text_view().mm().translate_coordinates(_grid, (int)event->x, (int)event->y, gridX, gridY);
+            auto [r, c] = _cellAtGridCoords(gridX, gridY);
+            if (r < 0) return false;
+            const size_t r0 = std::min(_selectionAnchor.first, (size_t)r);
+            const size_t r1 = std::max(_selectionAnchor.first, (size_t)r);
+            const size_t c0 = std::min(_selectionAnchor.second, (size_t)c);
+            const size_t c1 = std::max(_selectionAnchor.second, (size_t)c);
+            std::set<std::pair<size_t,size_t>> newSel;
+            for (size_t ri = r0; ri <= r1; ++ri) {
+                for (size_t ci = c0; ci <= c1; ++ci) {
+                    newSel.insert({ri, ci});
+                }
+            }
+            if (newSel != _selectedCells) {
+                _selectedCells = std::move(newSel);
+                _updateSelectionHighlights();
+            }
+            return true;
+        }
+        // Normal cursor/tooltip handling
+        if (not _pCtMainWin->user_active()) return false;
+        CtTextView& cellTV = pCell->get_text_view();
+        int x, y;
+        cellTV.mm().window_to_buffer_coords(Gtk::TEXT_WINDOW_TEXT, int(event->x), int(event->y), x, y);
+        cellTV.cursor_and_tooltips_handler(x, y);
         return false;
-    });
-
+    }, false);
+    textView.signal_button_release_event().connect([this](GdkEventButton* event) -> bool {
+        if (event->button == 1) {
+            _isSelecting = false;
+        }
+        return false;
+    }, false);
     // Handle link clicks and cursor/tooltip changes in rich cell text views
     // (same pattern as codebox — see ct_codebox.cc)
     // NOTE: capture pCell (stable pointer in _tableMatrix), NOT &ctTextView (dangling local ref).
-#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     textView.signal_event_after().connect([this, pCell](GdkEvent* event){
         spdlog::trace("Rich cell signal_event_after: type={} user_active={}",
                       (int)event->type, _pCtMainWin->user_active());
@@ -1108,23 +1408,89 @@ void CtTableRich::_new_rich_cell_attach(const size_t rowIdx, const size_t colIdx
             cellTV.for_event_after_double_click_button12(event);
         }
         else if (event->type == GDK_BUTTON_PRESS) {
-            spdlog::debug("Rich cell: button press detected, calling for_event_after_button_press");
-            cellTV.for_event_after_button_press(event);
+            // Skip if Ctrl is held — handled by multi-cell selection
+            if (!(event->button.state & GDK_CONTROL_MASK)) {
+                spdlog::debug("Rich cell: button press detected, calling for_event_after_button_press");
+                cellTV.for_event_after_button_press(event);
+            }
         }
     });
-    textView.signal_motion_notify_event().connect([this, pCell](GdkEventMotion* event){
-        if (not _pCtMainWin->user_active()) return false;
-        CtTextView& cellTV = pCell->get_text_view();
-        int x, y;
-        cellTV.mm().window_to_buffer_coords(Gtk::TEXT_WINDOW_TEXT, int(event->x), int(event->y), x, y);
-        cellTV.cursor_and_tooltips_handler(x, y);
+#endif
+    // Clear in-cell text selection when this cell loses focus
+    textView.signal_focus_out_event().connect([pCell](GdkEventFocus*) {
+        auto buffer = pCell->get_buffer();
+        buffer->place_cursor(buffer->get_iter_at_mark(buffer->get_insert()));
         return false;
     });
-#endif
 
     _grid.attach(ctTextView.mm(), colIdx, rowIdx, 1, 1);
     _pCtMainWin->apply_syntax_highlighting(pCell->get_buffer(), pCell->get_syntax_highlighting(), false);
     textView.show();
+}
+
+void CtTableRich::_applyTableStyle()
+{
+    // Grid spacing creates inner borders; grid margin + frame background creates outer edges
+    _grid.set_column_spacing(_tableStyle.borderWidth);
+    _grid.set_row_spacing(_tableStyle.borderWidth);
+    _grid.set_margin_start(_tableStyle.borderWidth);
+    _grid.set_margin_end(_tableStyle.borderWidth);
+    _grid.set_margin_top(_tableStyle.borderWidth);
+    _grid.set_margin_bottom(_tableStyle.borderWidth);
+
+    if (_rCssProviderTableStyle) {
+        _frame.get_style_context()->remove_provider(_rCssProviderTableStyle);
+    }
+    _rCssProviderTableStyle = Gtk::CssProvider::create();
+
+    std::string css = ".ct-table-rich { ";
+    if (_tableStyle.borderWidth > 0) {
+        css += "background: " + _tableStyle.borderColor + "; ";
+    } else {
+        css += "background: transparent; ";
+    }
+    css += "border: none; ";
+    css += "} .ct-table-rich grid { ";
+    if (_tableStyle.borderWidth > 0) {
+        css += "background: " + _tableStyle.borderColor + "; ";
+    } else {
+        css += "background: transparent; ";
+    }
+    css += "border: none; ";
+    if (!_tableStyle.tableBgColor.empty()) {
+        css += "} .ct-table-rich > frame { background-color: " + _tableStyle.tableBgColor + "; ";
+    }
+    css += "}";
+
+    _rCssProviderTableStyle->load_from_data(css);
+    _frame.get_style_context()->add_provider(_rCssProviderTableStyle, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+
+    // Apply per-cell background colors and borders
+    const size_t numRows = get_num_rows();
+    const size_t numCols = get_num_columns();
+    for (size_t r = 0; r < numRows; ++r) {
+        for (size_t c = 0; c < numCols; ++c) {
+            auto* pCell = static_cast<CtRichCell*>(_tableMatrix.at(r).at(c));
+            auto it = _tableStyle.cellBgColors.find({r, c});
+            if (it != _tableStyle.cellBgColors.end()) {
+                pCell->applyCellBgColor(it->second);
+            } else if (!_tableStyle.tableBgColor.empty()) {
+                pCell->applyCellBgColor(_tableStyle.tableBgColor);
+            } else {
+                pCell->applyCellBgColor("");
+            }
+            auto bwIt = _tableStyle.cellBorderWidths.find({r, c});
+            auto bcIt = _tableStyle.cellBorderColors.find({r, c});
+            if (bwIt != _tableStyle.cellBorderWidths.end()) {
+                const std::string& color = (bcIt != _tableStyle.cellBorderColors.end()) ? bcIt->second : _tableStyle.borderColor;
+                pCell->applyCellBorder(bwIt->second, color);
+            } else if (bcIt != _tableStyle.cellBorderColors.end()) {
+                pCell->applyCellBorder(_tableStyle.borderWidth, bcIt->second);
+            } else {
+                pCell->applyCellBorder(0, "");
+            }
+        }
+    }
 }
 
 void CtTableRich::_apply_remove_header_style(const bool isApply, CtTextView& textView)
@@ -1166,6 +1532,7 @@ void CtTableRich::to_xml(xmlpp::Element* p_node_parent, const int offset_adjustm
     p_table_node->set_attribute("col_max", std::to_string(_colWidthDefault));
     p_table_node->set_attribute("col_widths", str::join_numbers(_colWidths, ","));
     p_table_node->set_attribute("is_rich", "1");
+    _serializeStyleAttrs(p_table_node);
     _populate_xml_rows_cells(p_table_node);
 }
 
@@ -1280,6 +1647,7 @@ void CtTableRich::column_add(const size_t afterColIdx, const std::vector<Glib::u
         _tableMatrix.at(r).insert(_tableMatrix.at(r).begin() + newColIdx, pCell);
         _new_rich_cell_attach(r, newColIdx, pCell);
     }
+    _tableStyle.remapAfterColInsert(afterColIdx);
 }
 
 void CtTableRich::column_delete(const size_t colIdx)
@@ -1292,6 +1660,7 @@ void CtTableRich::column_delete(const size_t colIdx)
         row.erase(row.begin() + colIdx);
     }
     if (_currentColumn == get_num_columns()) --_currentColumn;
+    _tableStyle.remapAfterColDelete(colIdx);
     grab_focus();
 }
 
@@ -1330,6 +1699,7 @@ void CtTableRich::row_add(const size_t afterRowIdx, const std::vector<Glib::ustr
         _tableMatrix.at(newRowIdx).push_back(pCell);
         _new_rich_cell_attach(newRowIdx, c, pCell);
     }
+    _tableStyle.remapAfterRowInsert(afterRowIdx);
 }
 
 void CtTableRich::row_delete(const size_t rowIdx)
@@ -1341,6 +1711,7 @@ void CtTableRich::row_delete(const size_t rowIdx)
     }
     _tableMatrix.erase(_tableMatrix.begin() + rowIdx);
     if (_currentRow == get_num_rows()) --_currentRow;
+    _tableStyle.remapAfterRowDelete(rowIdx);
     grab_focus();
 }
 

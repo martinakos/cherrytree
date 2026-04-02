@@ -769,6 +769,7 @@ void CtMainWin::update_theme()
     css_str += ".ct-tree-panel" + treeFont;
     css_str += ".ct-table-light" + rtFont;
     css_str += ".ct-table .ct-view-rich-text" + rtFont;
+    css_str += ".ct-table-rich .ct-view-rich-text" + rtFont;
     css_str += " ";
     css_str += ".ct-tree-panel { color: " + _pCtConfig->ttDefFg + "; background-color: " + _pCtConfig->ttDefBg + "; } ";
     css_str += ".ct-tree-panel:selected { color: " + _pCtConfig->ttSelFg + "; background: " + _pCtConfig->ttSelBg + "; } ";

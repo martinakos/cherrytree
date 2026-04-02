@@ -24,6 +24,7 @@
 #include "ct_storage_xml.h"
 #include "ct_const.h"
 #include "ct_misc_utils.h"
+#include <type_traits>
 #include <libxml++/libxml++.h>
 #include <libxml2/libxml/parser.h>
 #include "ct_image.h"
@@ -744,6 +745,41 @@ CtAnchoredWidget* CtStorageXmlHelper::_create_codebox_from_xml(xmlpp::Element* x
                          showLineNumbers};
 }
 
+static CtTableStyle _parseTableStyle(xmlpp::Element* xml_element)
+{
+    CtTableStyle style;
+    const Glib::ustring borderWidthStr = xml_element->get_attribute_value("border_width");
+    if (!borderWidthStr.empty()) style.borderWidth = std::stoi(borderWidthStr.raw());
+    const Glib::ustring borderColorStr = xml_element->get_attribute_value("border_color");
+    if (!borderColorStr.empty()) style.borderColor = borderColorStr.raw();
+    const Glib::ustring tableBgStr = xml_element->get_attribute_value("table_bg_color");
+    if (!tableBgStr.empty()) style.tableBgColor = tableBgStr.raw();
+    // Helper to parse "row,col:value;row,col:value" format
+    auto parseCellMap = [&](const char* attrName, auto& targetMap) {
+        const Glib::ustring attrStr = xml_element->get_attribute_value(attrName);
+        if (attrStr.empty()) return;
+        for (const auto& entry : str::split(attrStr.raw(), ";")) {
+            const auto colon = entry.find(':');
+            if (colon == std::string::npos) continue;
+            const std::string coords = entry.substr(0, colon);
+            const std::string value = entry.substr(colon + 1);
+            const auto comma = coords.find(',');
+            if (comma == std::string::npos) continue;
+            size_t row = static_cast<size_t>(std::stoul(coords.substr(0, comma)));
+            size_t col = static_cast<size_t>(std::stoul(coords.substr(comma + 1)));
+            if constexpr (std::is_same_v<typename std::decay_t<decltype(targetMap)>::mapped_type, int>) {
+                targetMap[{row, col}] = std::stoi(value);
+            } else {
+                targetMap[{row, col}] = value;
+            }
+        }
+    };
+    parseCellMap("cell_bg_colors", style.cellBgColors);
+    parseCellMap("cell_border_widths", style.cellBorderWidths);
+    parseCellMap("cell_border_colors", style.cellBorderColors);
+    return style;
+}
+
 CtAnchoredWidget* CtStorageXmlHelper::_create_table_from_xml(xmlpp::Element* xml_element,
                                                              int charOffset,
                                                              const Glib::ustring& justification)
@@ -764,10 +800,15 @@ CtAnchoredWidget* CtStorageXmlHelper::_create_table_from_xml(xmlpp::Element* xml
     CtTableMatrix tableMatrix;
     bool is_light{false};
     populate_table_matrix(tableMatrix, xml_element, tableColWidths, is_light);
+    const CtTableStyle style = _parseTableStyle(xml_element);
+    CtTableCommon* pTable{nullptr};
     if (is_light) {
-        return new CtTableLight{_pCtMainWin, tableMatrix, colWidthDefault, charOffset, justification, tableColWidths};
+        pTable = new CtTableLight{_pCtMainWin, tableMatrix, colWidthDefault, charOffset, justification, tableColWidths};
+    } else {
+        pTable = new CtTableHeavy{_pCtMainWin, tableMatrix, colWidthDefault, charOffset, justification, tableColWidths};
     }
-    return new CtTableHeavy{_pCtMainWin, tableMatrix, colWidthDefault, charOffset, justification, tableColWidths};
+    if (pTable) pTable->setTableStyle(style);
+    return pTable;
 }
 
 CtWidgetDesc CtStorageXmlHelper::_parse_embedded_widget_xml(xmlpp::Element* elem)
@@ -835,7 +876,10 @@ CtAnchoredWidget* CtStorageXmlHelper::_create_rich_table_from_xml(xmlpp::Element
         richData.insert(richData.begin(), richData.back());
         richData.pop_back();
     }
-    return new CtTableRich{_pCtMainWin, richData, colWidthDefault, charOffset, justification, colWidths};
+    const CtTableStyle style = _parseTableStyle(xml_element);
+    auto* pTable = new CtTableRich{_pCtMainWin, richData, colWidthDefault, charOffset, justification, colWidths};
+    pTable->setTableStyle(style);
+    return pTable;
 }
 
 void CtXmlHelper::table_to_xml(xmlpp::Element* p_parent,
