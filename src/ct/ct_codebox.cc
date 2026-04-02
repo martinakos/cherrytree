@@ -99,6 +99,81 @@ Glib::ustring CtTextCell::get_text_content() const
     return start_iter.get_text(end_iter);
 }
 
+void CtTextCell::applyCellBgColor(const std::string& hexColor)
+{
+    auto& textView = _ctTextview.mm();
+    auto styleCtx = textView.get_style_context();
+
+    if (_rCssProviderCellBg) {
+        styleCtx->remove_provider(_rCssProviderCellBg);
+        _rCssProviderCellBg.reset();
+    }
+    if (hexColor.empty()) return;
+
+    _rCssProviderCellBg = Gtk::CssProvider::create();
+    const std::string css = "textview text { background-color: " + hexColor + "; }";
+    _rCssProviderCellBg->load_from_data(css);
+    styleCtx->add_provider(_rCssProviderCellBg, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+}
+
+void CtTextCell::applyCellBorder(int width, const std::string& hexColor)
+{
+    auto& textView = _ctTextview.mm();
+    auto styleCtx = textView.get_style_context();
+
+    if (_rCssProviderCellBorder) {
+        styleCtx->remove_provider(_rCssProviderCellBorder);
+        _rCssProviderCellBorder.reset();
+    }
+    if (width <= 0) {
+        textView.set_border_window_size(Gtk::TEXT_WINDOW_LEFT, 0);
+        textView.set_border_window_size(Gtk::TEXT_WINDOW_RIGHT, 0);
+        textView.set_border_window_size(Gtk::TEXT_WINDOW_TOP, 0);
+        textView.set_border_window_size(Gtk::TEXT_WINDOW_BOTTOM, 0);
+        return;
+    }
+
+    textView.set_border_window_size(Gtk::TEXT_WINDOW_LEFT, width);
+    textView.set_border_window_size(Gtk::TEXT_WINDOW_RIGHT, width);
+    textView.set_border_window_size(Gtk::TEXT_WINDOW_TOP, width);
+    textView.set_border_window_size(Gtk::TEXT_WINDOW_BOTTOM, width);
+
+    _rCssProviderCellBorder = Gtk::CssProvider::create();
+    const std::string css = "textview border { background-color: " + hexColor + "; }";
+    _rCssProviderCellBorder->load_from_data(css);
+    styleCtx->add_provider(_rCssProviderCellBorder, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+}
+
+void CtTextCell::applySelectionHighlight(bool selected)
+{
+    auto& textView = _ctTextview.mm();
+    auto styleCtx = textView.get_style_context();
+
+    if (_rCssProviderSelHighlight) {
+        styleCtx->remove_provider(_rCssProviderSelHighlight);
+        _rCssProviderSelHighlight.reset();
+    }
+    if (!selected) return;
+
+    // Query the theme's actual text selection background color
+    GtkStyleContext* gtkCtx = styleCtx->gobj();
+    gtk_style_context_save(gtkCtx);
+    gtk_style_context_set_state(gtkCtx, GTK_STATE_FLAG_SELECTED);
+    GdkRGBA gSelBg;
+    gtk_style_context_get_background_color(gtkCtx, GTK_STATE_FLAG_SELECTED, &gSelBg);
+    gtk_style_context_restore(gtkCtx);
+    Gdk::RGBA selBg(&gSelBg);
+
+    char rgba_str[48];
+    snprintf(rgba_str, sizeof(rgba_str), "rgba(%d,%d,%d,0.45)",
+             (int)(selBg.get_red()*255), (int)(selBg.get_green()*255), (int)(selBg.get_blue()*255));
+
+    _rCssProviderSelHighlight = Gtk::CssProvider::create();
+    const std::string css = std::string("textview text { background-image: linear-gradient(") + rgba_str + ", " + rgba_str + "); }";
+    _rCssProviderSelHighlight->load_from_data(css);
+    styleCtx->add_provider(_rCssProviderSelHighlight, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
+}
+
 void CtTextCell::set_syntax_highlighting(const std::string& syntaxHighlighting, GtkSourceLanguageManager* pGtkSourceLanguageManager)
 {
     _syntaxHighlighting = syntaxHighlighting;

@@ -44,11 +44,25 @@ public:
     void set_syntax_highlighting(const std::string& syntaxHighlighting, GtkSourceLanguageManager* pGtkSourceLanguageManager);
     void set_text_buffer_modified_false() { _rTextBuffer->set_modified(false); }
 
+    // Apply (or clear) a background color to this cell's text view.
+    // Pass empty string to remove the override.
+    void applyCellBgColor(const std::string& hexColor);
+
+    // Apply (or clear) a border on this cell's text view.
+    // Pass width <= 0 to remove the override.
+    void applyCellBorder(int width, const std::string& hexColor);
+
+    // Apply or remove the multi-cell selection highlight overlay.
+    void applySelectionHighlight(bool selected);
+
 protected:
     std::string _syntaxHighlighting;
     Glib::RefPtr<Gtk::TextBuffer> _rTextBuffer{};
     CtTextView _ctTextview;
     std::unique_ptr<CtPairCodeboxMainWin> _uCtPairCodeboxMainWin;
+    Glib::RefPtr<Gtk::CssProvider> _rCssProviderCellBg;
+    Glib::RefPtr<Gtk::CssProvider> _rCssProviderCellBorder;
+    Glib::RefPtr<Gtk::CssProvider> _rCssProviderSelHighlight;
 };
 
 class CtCodebox : public CtAnchoredWidget, public CtTextCell

@@ -1867,8 +1867,21 @@ void CtCommandBridge::commitWidgetModification(
     const CtWidgetDesc& newDesc,
     const std::string& description)
 {
+    // Capture cursor and scroll position so undo/redo restores them
+    int cursorPos = -1;
+    double scrollPos = -1.0;
+    if (_pMainWin && !_pMainWin->no_gui()) {
+        if (auto buf = _pMainWin->curr_buffer()) {
+            cursorPos = buf->get_insert()->get_iter().get_offset();
+        }
+        scrollPos = _pMainWin->getScrolledwindowText().get_vadjustment()->get_value();
+    }
+
     auto cmd = std::make_unique<ModifyWidgetDeltaCommand>(
-        _docModel, nodeId, charOffset, oldDesc, newDesc, description);
+        _docModel, nodeId, charOffset, oldDesc, newDesc, description,
+        cursorPos, cursorPos);
+    cmd->setOldScrollPos(scrollPos);
+    cmd->setNewScrollPos(scrollPos);
     addCommandToStack(std::move(cmd));
     auto node = _docModel->getNodeById(nodeId);
     if (node) {
