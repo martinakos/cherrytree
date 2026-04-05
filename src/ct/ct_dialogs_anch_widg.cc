@@ -791,10 +791,14 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
                      (int)(bc.get_red()*255), (int)(bc.get_green()*255), (int)(bc.get_blue()*255));
             const std::string newBorderColor{hex};
             if (hasSelection) {
-                // Per-cell border: store overrides for selected cells
-                for (const auto& cell : selectedCells) {
-                    pTableStyle->cellBorderWidths[cell] = newBorderWidth;
-                    pTableStyle->cellBorderColors[cell] = newBorderColor;
+                // Per-cell border: store overrides only if actually changed
+                const bool borderChanged = (newBorderWidth != initialBorderWidth) ||
+                                           (newBorderColor != initialBorderColor);
+                if (borderChanged) {
+                    for (const auto& cell : selectedCells) {
+                        pTableStyle->cellBorderWidths[cell] = newBorderWidth;
+                        pTableStyle->cellBorderColors[cell] = newBorderColor;
+                    }
                 }
             } else {
                 // Table-wide border: update table defaults and clear per-cell overrides

@@ -84,6 +84,17 @@ bool CtActions::_is_there_anch_widg_selection_or_error(const char anch_widg_id)
 {
     if (not _is_there_selected_node_or_error()) return false;
     if (not _is_curr_node_not_syntax_highlighting_or_error()) return false;
+
+    // When focus is inside a rich table cell, the main text view cursor is not
+    // at the table anchor.  The cell context menu already set curr_table_anchor
+    // via on_cell_populate_popup, so trust it.
+    if ('t' == anch_widg_id) {
+        auto* pBridge = _pCtMainWin->get_command_bridge();
+        if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell() && curr_table_anchor) {
+            return true;
+        }
+    }
+
     bool already_failed{false};
     Gtk::TextIter iter_insert;
     if (_curr_buffer()->get_has_selection()) {
