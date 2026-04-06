@@ -1297,7 +1297,10 @@ void CtActions::table_edit_properties()
     bool is_rich{was_rich};
     CtTableStyle tableStyle = curr_table_anchor->getTableStyle();
     CtTableStyle* pTableStyle = was_rich ? &tableStyle : nullptr;
-    const auto& selectedCells = curr_table_anchor->getSelectedCells();
+    const auto& rawSelectedCells = curr_table_anchor->getSelectedCells();
+    const std::set<std::pair<size_t,size_t>> selectedCells = rawSelectedCells.empty()
+        ? std::set<std::pair<size_t,size_t>>{{curr_table_anchor->current_row(), curr_table_anchor->current_column()}}
+        : rawSelectedCells;
     const size_t numRows = curr_table_anchor->get_num_rows();
     const size_t numCols = curr_table_anchor->get_num_columns();
     if (CtDialogs::TableHandleResp::Cancel == CtDialogs::table_handle_dialog(
