@@ -95,6 +95,7 @@ void CtTableStyle::remapAfterRowDelete(size_t row)
     _remapRowDelete(cellBgColors, row);
     _remapRowDelete(cellBorderWidths, row);
     _remapRowDelete(cellBorderColors, row);
+    _remapRowDelete(cellBorderSeq, row);
 }
 
 void CtTableStyle::remapAfterRowInsert(size_t afterRow)
@@ -102,6 +103,7 @@ void CtTableStyle::remapAfterRowInsert(size_t afterRow)
     _remapRowInsert(cellBgColors, afterRow);
     _remapRowInsert(cellBorderWidths, afterRow);
     _remapRowInsert(cellBorderColors, afterRow);
+    _remapRowInsert(cellBorderSeq, afterRow);
 }
 
 void CtTableStyle::remapAfterColDelete(size_t col)
@@ -109,6 +111,7 @@ void CtTableStyle::remapAfterColDelete(size_t col)
     _remapColDelete(cellBgColors, col);
     _remapColDelete(cellBorderWidths, col);
     _remapColDelete(cellBorderColors, col);
+    _remapColDelete(cellBorderSeq, col);
 }
 
 void CtTableStyle::remapAfterColInsert(size_t afterCol)
@@ -116,6 +119,7 @@ void CtTableStyle::remapAfterColInsert(size_t afterCol)
     _remapColInsert(cellBgColors, afterCol);
     _remapColInsert(cellBorderWidths, afterCol);
     _remapColInsert(cellBorderColors, afterCol);
+    _remapColInsert(cellBorderSeq, afterCol);
 }
 
 // ─── CtTableCommon style helpers ─────────────────────────────────────────────
@@ -131,7 +135,7 @@ void CtTableCommon::_serializeStyleAttrs(xmlpp::Element* p_table_node) const
     if (_tableStyle.borderWidth != 1) {
         p_table_node->set_attribute("border_width", std::to_string(_tableStyle.borderWidth));
     }
-    if (_tableStyle.borderColor != "#808080") {
+    if (_tableStyle.borderColor != "#000000") {
         p_table_node->set_attribute("border_color", _tableStyle.borderColor);
     }
     if (!_tableStyle.tableBgColor.empty()) {
@@ -160,6 +164,15 @@ void CtTableCommon::_serializeStyleAttrs(xmlpp::Element* p_table_node) const
             s += std::to_string(key.first) + "," + std::to_string(key.second) + ":" + color;
         }
         p_table_node->set_attribute("cell_border_colors", s);
+    }
+    if (!_tableStyle.cellBorderSeq.empty()) {
+        std::string s;
+        for (const auto& [key, seq] : _tableStyle.cellBorderSeq) {
+            if (!s.empty()) s += ";";
+            s += std::to_string(key.first) + "," + std::to_string(key.second) + ":" + std::to_string(seq);
+        }
+        p_table_node->set_attribute("cell_border_seq", s);
+        p_table_node->set_attribute("border_seq_counter", std::to_string(_tableStyle.borderSeqCounter));
     }
 }
 
@@ -1306,14 +1319,13 @@ CtTableRich::CtTableRich(CtMainWin* pCtMainWin,
         }
     }
 
-    _grid.set_column_spacing(1);
-    _grid.set_row_spacing(1);
     _grid.signal_button_press_event().connect(sigc::mem_fun(*this, &CtTableCommon::on_table_button_press_event), false);
     _grid.signal_set_focus_child().connect(sigc::mem_fun(*this, &CtTableRich::_on_grid_set_focus_child));
 
     _frame.get_style_context()->add_class("ct-table-rich");
     _frame.add(_grid);
     _frame.signal_size_allocate().connect(sigc::mem_fun(*this, &CtTableRich::_on_frame_size_allocate));
+    _applyTableStyle();
     show_all();
 }
 
@@ -1430,65 +1442,137 @@ void CtTableRich::_new_rich_cell_attach(const size_t rowIdx, const size_t colIdx
 
 void CtTableRich::_applyTableStyle()
 {
-    // Grid spacing creates inner borders; grid margin + frame background creates outer edges
-    _grid.set_column_spacing(_tableStyle.borderWidth);
-    _grid.set_row_spacing(_tableStyle.borderWidth);
-    _grid.set_margin_start(_tableStyle.borderWidth);
-    _grid.set_margin_end(_tableStyle.borderWidth);
-    _grid.set_margin_top(_tableStyle.borderWidth);
-    _grid.set_margin_bottom(_tableStyle.borderWidth);
+    // Collapsed-border model: borders are drawn exclusively by each cell using per-side
+    // border windows. Grid spacing is always 0 so there is only one edge between adjacent
+    // cells — no "outside/inside" layering of two different styles.
+    _grid.set_column_spacing(0);
+    _grid.set_row_spacing(0);
+    _grid.set_margin_start(0);
+    _grid.set_margin_end(0);
+    _grid.set_margin_top(0);
+    _grid.set_margin_bottom(0);
 
     if (_rCssProviderTableStyle) {
         _frame.get_style_context()->remove_provider(_rCssProviderTableStyle);
     }
     _rCssProviderTableStyle = Gtk::CssProvider::create();
 
-    std::string css = ".ct-table-rich { ";
-    if (_tableStyle.borderWidth > 0) {
-        css += "background: " + _tableStyle.borderColor + "; ";
-    } else {
-        css += "background: transparent; ";
-    }
-    css += "border: none; ";
-    css += "} .ct-table-rich grid { ";
-    if (_tableStyle.borderWidth > 0) {
-        css += "background: " + _tableStyle.borderColor + "; ";
-    } else {
-        css += "background: transparent; ";
-    }
-    css += "border: none; ";
+    std::string css = ".ct-table-rich { background: transparent; border: none; } ";
+    css += ".ct-table-rich grid { background: transparent; border: none; } ";
     if (!_tableStyle.tableBgColor.empty()) {
-        css += "} .ct-table-rich > frame { background-color: " + _tableStyle.tableBgColor + "; ";
+        css += ".ct-table-rich > frame { background-color: " + _tableStyle.tableBgColor + "; } ";
     }
-    css += "}";
 
     _rCssProviderTableStyle->load_from_data(css);
     _frame.get_style_context()->add_provider(_rCssProviderTableStyle, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 
-    // Apply per-cell background colors and borders
     const size_t numRows = get_num_rows();
     const size_t numCols = get_num_columns();
+
+    // Returns the effective {width, color} for cell (r,c): per-cell override if set, else table default.
+    auto effectiveBorder = [&](size_t r, size_t c) -> std::pair<int, std::string> {
+        auto bwIt = _tableStyle.cellBorderWidths.find({r, c});
+        auto bcIt = _tableStyle.cellBorderColors.find({r, c});
+        int w = (bwIt != _tableStyle.cellBorderWidths.end()) ? bwIt->second : _tableStyle.borderWidth;
+        const std::string& color = (bcIt != _tableStyle.cellBorderColors.end()) ? bcIt->second : _tableStyle.borderColor;
+        return {w, color};
+    };
+
+    auto hasOverride = [&](size_t r, size_t c) -> bool {
+        return _tableStyle.cellBorderWidths.count({r, c}) > 0 ||
+               _tableStyle.cellBorderColors.count({r, c}) > 0;
+    };
+
+    auto getSeq = [&](size_t r, size_t c) -> size_t {
+        auto it = _tableStyle.cellBorderSeq.find({r, c});
+        return (it != _tableStyle.cellBorderSeq.end()) ? it->second : 0;
+    };
+
+    // Resolve a shared edge between two adjacent cells.
+    // Returns {width, color, winning_sequence}.
+    // The cell whose override was applied more recently (higher sequence) wins.
+    auto resolveSharedEdge = [&](size_t r, size_t c, size_t nr, size_t nc,
+                                 int w, const std::string& color)
+        -> std::tuple<int, std::string, size_t>
+    {
+        const bool thisOvr = hasOverride(r, c);
+        const bool neighOvr = hasOverride(nr, nc);
+        if (thisOvr && neighOvr) {
+            const size_t thisSeq = getSeq(r, c);
+            const size_t neighSeq = getSeq(nr, nc);
+            if (thisSeq >= neighSeq) {
+                return {w, color, thisSeq};
+            } else {
+                auto [nw, nc2] = effectiveBorder(nr, nc);
+                return {nw, nc2, neighSeq};
+            }
+        } else if (thisOvr) {
+            return {w, color, getSeq(r, c)};
+        } else if (neighOvr) {
+            auto [nw, nc2] = effectiveBorder(nr, nc);
+            return {nw, nc2, getSeq(nr, nc)};
+        }
+        return {w, color, 0};
+    };
+
     for (size_t r = 0; r < numRows; ++r) {
         for (size_t c = 0; c < numCols; ++c) {
             auto* pCell = static_cast<CtRichCell*>(_tableMatrix.at(r).at(c));
-            auto it = _tableStyle.cellBgColors.find({r, c});
-            if (it != _tableStyle.cellBgColors.end()) {
-                pCell->applyCellBgColor(it->second);
+
+            // Background
+            auto bgIt = _tableStyle.cellBgColors.find({r, c});
+            if (bgIt != _tableStyle.cellBgColors.end()) {
+                pCell->applyCellBgColor(bgIt->second);
             } else if (!_tableStyle.tableBgColor.empty()) {
                 pCell->applyCellBgColor(_tableStyle.tableBgColor);
             } else {
                 pCell->applyCellBgColor("");
             }
-            auto bwIt = _tableStyle.cellBorderWidths.find({r, c});
-            auto bcIt = _tableStyle.cellBorderColors.find({r, c});
-            if (bwIt != _tableStyle.cellBorderWidths.end()) {
-                const std::string& color = (bcIt != _tableStyle.cellBorderColors.end()) ? bcIt->second : _tableStyle.borderColor;
-                pCell->applyCellBorder(bwIt->second, color);
-            } else if (bcIt != _tableStyle.cellBorderColors.end()) {
-                pCell->applyCellBorder(_tableStyle.borderWidth, bcIt->second);
+
+            // Collapsed border: each cell draws right+bottom always, top only
+            // if row 0, left only if col 0.  Each shared edge is drawn by one
+            // cell.  For shared edges, the most recently applied override wins.
+            auto [w, color] = effectiveBorder(r, c);
+            const size_t cellSeq = getSeq(r, c);
+
+            // Top edge: only row 0 (outer edge), use this cell's style
+            const int wTop    = (r == 0) ? w : 0;
+            const std::string colorTop = color;
+            const size_t seqTop = (r == 0) ? cellSeq : 0;
+
+            // Left edge: only col 0 (outer edge), use this cell's style
+            const int wLeft   = (c == 0) ? w : 0;
+            const std::string colorLeft = color;
+            const size_t seqLeft = (c == 0) ? cellSeq : 0;
+
+            // Right edge: shared with cell (r, c+1).
+            int wRight; std::string colorRight; size_t seqRight;
+            if (c + 1 < numCols) {
+                std::tie(wRight, colorRight, seqRight) = resolveSharedEdge(r, c, r, c + 1, w, color);
             } else {
-                pCell->applyCellBorder(0, "");
+                wRight = w; colorRight = color; seqRight = cellSeq;
             }
+
+            // Bottom edge: shared with cell (r+1, c).
+            int wBottom; std::string colorBottom; size_t seqBottom;
+            if (r + 1 < numRows) {
+                std::tie(wBottom, colorBottom, seqBottom) = resolveSharedEdge(r, c, r + 1, c, w, color);
+            } else {
+                wBottom = w; colorBottom = color; seqBottom = cellSeq;
+            }
+
+            // Corner color: pick the color of whichever visible edge was styled
+            // most recently so that junctions reflect the last operation.
+            std::string crnColor = color; // fallback = this cell's default
+            size_t crnSeq = 0;
+            if (wTop > 0 && seqTop >= crnSeq) { crnSeq = seqTop; crnColor = colorTop; }
+            if (wLeft > 0 && seqLeft >= crnSeq) { crnSeq = seqLeft; crnColor = colorLeft; }
+            if (wRight > 0 && seqRight >= crnSeq) { crnSeq = seqRight; crnColor = colorRight; }
+            if (wBottom > 0 && seqBottom >= crnSeq) { crnSeq = seqBottom; crnColor = colorBottom; }
+
+            pCell->applyCellBorder(wTop, wRight, wBottom, wLeft,
+                                   colorTop, colorRight, colorBottom, colorLeft,
+                                   crnColor);
         }
     }
 }

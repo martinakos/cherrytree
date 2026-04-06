@@ -48,12 +48,21 @@ public:
     // Pass empty string to remove the override.
     void applyCellBgColor(const std::string& hexColor);
 
-    // Apply (or clear) a border on this cell's text view.
-    // Pass width <= 0 to remove the override.
-    void applyCellBorder(int width, const std::string& hexColor);
+    // Apply (or clear) per-side borders on this cell's text view.
+    // Each side width <= 0 means no border on that side.
+    // Per-side colors allow different colors on shared edges (collapsed-border model).
+    // cornerColor fills the corner gaps where border windows meet; caller should
+    // pass the color of the most-recently-styled visible edge.
+    void applyCellBorder(int wTop, int wRight, int wBottom, int wLeft,
+                         const std::string& colorTop, const std::string& colorRight,
+                         const std::string& colorBottom, const std::string& colorLeft,
+                         const std::string& cornerColor);
 
     // Apply or remove the multi-cell selection highlight overlay.
     void applySelectionHighlight(bool selected);
+
+    // Returns the corner color last set by applyCellBorder (for testing).
+    const std::string& getCornerColor() const { return _cornerColor; }
 
 protected:
     std::string _syntaxHighlighting;
@@ -63,6 +72,7 @@ protected:
     Glib::RefPtr<Gtk::CssProvider> _rCssProviderCellBg;
     Glib::RefPtr<Gtk::CssProvider> _rCssProviderCellBorder;
     Glib::RefPtr<Gtk::CssProvider> _rCssProviderSelHighlight;
+    std::string _cornerColor;
 };
 
 class CtCodebox : public CtAnchoredWidget, public CtTextCell

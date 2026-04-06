@@ -204,6 +204,10 @@ private:
     void _test_embfile_insert_in_rich_cell(CtMainWin* pWin);
     void _test_toc_insert_in_rich_cell(CtMainWin* pWin);
     void _test_table_codebox_blocked_in_rich_cell(CtMainWin* pWin);
+
+    // Rich table style tests
+    void _test_rich_table_style_preserves_cell_width(CtMainWin* pWin);
+    void _test_rich_table_junction_colors_follow_last_operation(CtMainWin* pWin);
 };
 
 void TestGuiSimulationApp::on_activate()
@@ -304,6 +308,10 @@ void TestGuiSimulationApp::_run_tests(CtMainWin* pWin)
     _test_embfile_insert_in_rich_cell(pWin);
     _test_toc_insert_in_rich_cell(pWin);
     _test_table_codebox_blocked_in_rich_cell(pWin);
+
+    // Rich table style tests
+    _test_rich_table_style_preserves_cell_width(pWin);
+    _test_rich_table_junction_colors_follow_last_operation(pWin);
 
     spdlog::info("=== GUI simulation test passed! ===");
 }
@@ -5798,6 +5806,397 @@ void TestGuiSimulationApp::_test_table_codebox_blocked_in_rich_cell(CtMainWin* p
     GuiEventSimulator::process_pending_events();
 
     spdlog::info("  Table/codebox blocked in rich cell verified");
+}
+
+// Helper: capture the size_request width for every cell's text view in a rich table.
+// This is the minimum width set by set_size_request(), which controls the column width.
+static std::vector<std::vector<int>> captureAllCellSizeRequestWidths(CtTableRich* pTable)
+{
+    const size_t numRows = pTable->get_num_rows();
+    const size_t numCols = pTable->get_num_columns();
+    std::vector<std::vector<int>> widths(numRows, std::vector<int>(numCols));
+    for (size_t r = 0; r < numRows; ++r) {
+        for (size_t c = 0; c < numCols; ++c) {
+            auto* pCell = pTable->getCellAt(r, c);
+            int w, h;
+            pCell->get_text_view().mm().get_size_request(w, h);
+            widths[r][c] = w;
+        }
+    }
+    return widths;
+}
+
+// Helper: capture per-cell total visual width = size_request + left_border + right_border.
+// This is what the user actually sees on screen as the "column width."
+static std::vector<std::vector<int>> captureAllCellVisualWidths(CtTableRich* pTable)
+{
+    const size_t numRows = pTable->get_num_rows();
+    const size_t numCols = pTable->get_num_columns();
+    std::vector<std::vector<int>> widths(numRows, std::vector<int>(numCols));
+    for (size_t r = 0; r < numRows; ++r) {
+        for (size_t c = 0; c < numCols; ++c) {
+            auto* pCell = pTable->getCellAt(r, c);
+            auto& tv = pCell->get_text_view().mm();
+            int w, h;
+            tv.get_size_request(w, h);
+            w += tv.get_border_window_size(Gtk::TEXT_WINDOW_LEFT);
+            w += tv.get_border_window_size(Gtk::TEXT_WINDOW_RIGHT);
+            widths[r][c] = w;
+        }
+    }
+    return widths;
+}
+
+void TestGuiSimulationApp::_test_rich_table_style_preserves_cell_width(CtMainWin* pWin)
+{
+    spdlog::info("Test: Rich table style changes must not alter cell widths");
+
+    auto pBridge = pWin->get_command_bridge();
+    ASSERT_TRUE(pBridge);
+    auto pActions = pWin->get_ct_actions();
+
+    // Navigate to a node
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    // Create a 3x3 rich table
+    std::vector<std::vector<CtCellContent>> richData;
+    for (int r = 0; r < 3; ++r) {
+        std::vector<CtCellContent> row;
+        for (int c = 0; c < 3; ++c) {
+            CtCellContent cell;
+            CtTextSpan span;
+            span.text = Glib::ustring{"r"} + std::to_string(r) + "c" + std::to_string(c);
+            cell.textSpans.push_back(span);
+            row.push_back(std::move(cell));
+        }
+        richData.push_back(std::move(row));
+    }
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+    ASSERT_EQ(3u, pTable->get_num_rows());
+    ASSERT_EQ(3u, pTable->get_num_columns());
+
+    // Capture initial baseline
+    const auto initialSizeReq = captureAllCellSizeRequestWidths(pTable);
+    for (size_t r = 0; r < 3; ++r) {
+        for (size_t c = 0; c < 3; ++c) {
+            EXPECT_GT(initialSizeReq[r][c], 0)
+                << "Cell (" << r << "," << c << ") should have positive size_request width";
+        }
+    }
+
+    // Asserts that size_request widths (the column width) haven't changed.
+    // This catches the bug where applying a style change reset column widths.
+    auto assertSizeRequestPreserved = [&](const std::string& afterWhat) {
+        pTable = findFirstRichTable(pWin);
+        ASSERT_TRUE(pTable) << "Table lost after " << afterWhat;
+        auto cur = captureAllCellSizeRequestWidths(pTable);
+        for (size_t r = 0; r < 3; ++r) {
+            for (size_t c = 0; c < 3; ++c) {
+                EXPECT_EQ(initialSizeReq[r][c], cur[r][c])
+                    << "Cell (" << r << "," << c << ") size_request width changed after " << afterWhat;
+            }
+        }
+    };
+
+    // Asserts that total visual widths (size_request + border windows) haven't changed.
+    // Use this for operations that should not change any dimensions (color-only, bg-only).
+    auto assertVisualWidthPreserved = [&](const std::vector<std::vector<int>>& baseline,
+                                          const std::string& afterWhat) {
+        pTable = findFirstRichTable(pWin);
+        ASSERT_TRUE(pTable) << "Table lost after " << afterWhat;
+        auto cur = captureAllCellVisualWidths(pTable);
+        for (size_t r = 0; r < 3; ++r) {
+            for (size_t c = 0; c < 3; ++c) {
+                EXPECT_EQ(baseline[r][c], cur[r][c])
+                    << "Cell (" << r << "," << c << ") visual width changed after " << afterWhat;
+            }
+        }
+    };
+
+    // --- Test 1: Set border color for a single cell ---
+    {
+        auto vizBefore = captureAllCellVisualWidths(pTable);
+        CtTableStyle style = pTable->getTableStyle();
+        style.cellBorderColors[{1, 1}] = "#ff0000";
+        ++style.borderSeqCounter;
+        style.cellBorderSeq[{1, 1}] = style.borderSeqCounter;
+        pTable->setTableStyle(style);
+        GuiEventSimulator::process_pending_events();
+        assertSizeRequestPreserved("setting border color on cell (1,1)");
+        assertVisualWidthPreserved(vizBefore, "setting border color on cell (1,1)");
+    }
+
+    // --- Test 2: Set border color for a full column ---
+    {
+        auto vizBefore = captureAllCellVisualWidths(pTable);
+        CtTableStyle style = pTable->getTableStyle();
+        ++style.borderSeqCounter;
+        for (size_t r = 0; r < 3; ++r) {
+            style.cellBorderColors[{r, 1}] = "#00ff00";
+            style.cellBorderSeq[{r, 1}] = style.borderSeqCounter;
+        }
+        pTable->setTableStyle(style);
+        GuiEventSimulator::process_pending_events();
+        assertSizeRequestPreserved("setting border color on column 1");
+        assertVisualWidthPreserved(vizBefore, "setting border color on column 1");
+    }
+
+    // --- Test 3: Set border color for a full row ---
+    {
+        auto vizBefore = captureAllCellVisualWidths(pTable);
+        CtTableStyle style = pTable->getTableStyle();
+        ++style.borderSeqCounter;
+        for (size_t c = 0; c < 3; ++c) {
+            style.cellBorderColors[{1, c}] = "#0000ff";
+            style.cellBorderSeq[{1, c}] = style.borderSeqCounter;
+        }
+        pTable->setTableStyle(style);
+        GuiEventSimulator::process_pending_events();
+        assertSizeRequestPreserved("setting border color on row 1");
+        assertVisualWidthPreserved(vizBefore, "setting border color on row 1");
+    }
+
+    // --- Test 4: Set border width for a column ---
+    // Only check size_request (border windows will change with border width, which is expected)
+    {
+        CtTableStyle style = pTable->getTableStyle();
+        ++style.borderSeqCounter;
+        for (size_t r = 0; r < 3; ++r) {
+            style.cellBorderWidths[{r, 0}] = 2;
+            style.cellBorderSeq[{r, 0}] = style.borderSeqCounter;
+        }
+        pTable->setTableStyle(style);
+        GuiEventSimulator::process_pending_events();
+        assertSizeRequestPreserved("setting border width on column 0");
+    }
+
+    // --- Test 5: Set background color for a cell ---
+    {
+        auto vizBefore = captureAllCellVisualWidths(pTable);
+        CtTableStyle style = pTable->getTableStyle();
+        style.cellBgColors[{0, 0}] = "#ffff00";
+        pTable->setTableStyle(style);
+        GuiEventSimulator::process_pending_events();
+        assertSizeRequestPreserved("setting background color on cell (0,0)");
+        assertVisualWidthPreserved(vizBefore, "setting background color on cell (0,0)");
+    }
+
+    // --- Test 6: Set background color for entire table ---
+    {
+        auto vizBefore = captureAllCellVisualWidths(pTable);
+        CtTableStyle style = pTable->getTableStyle();
+        style.tableBgColor = "#eeeeff";
+        pTable->setTableStyle(style);
+        GuiEventSimulator::process_pending_events();
+        assertSizeRequestPreserved("setting table background color");
+        assertVisualWidthPreserved(vizBefore, "setting table background color");
+    }
+
+    // --- Test 7: Set border color for entire table (clear per-cell, keep same width) ---
+    {
+        CtTableStyle style = pTable->getTableStyle();
+        style.borderColor = "#333333";
+        style.cellBorderWidths.clear();
+        style.cellBorderColors.clear();
+        style.cellBorderSeq.clear();
+        pTable->setTableStyle(style);
+        GuiEventSimulator::process_pending_events();
+        assertSizeRequestPreserved("setting table-level border color");
+    }
+
+    // --- Test 8: Multiple overlapping color scopes (column green, then row red) ---
+    {
+        auto vizBefore = captureAllCellVisualWidths(pTable);
+        CtTableStyle style = pTable->getTableStyle();
+        // Apply green to column 1 (color only, same width)
+        ++style.borderSeqCounter;
+        for (size_t r = 0; r < 3; ++r) {
+            style.cellBorderColors[{r, 1}] = "#00ff00";
+            style.cellBorderSeq[{r, 1}] = style.borderSeqCounter;
+        }
+        // Apply red to row 1 (color only, same width)
+        ++style.borderSeqCounter;
+        for (size_t c = 0; c < 3; ++c) {
+            style.cellBorderColors[{1, c}] = "#ff0000";
+            style.cellBorderSeq[{1, c}] = style.borderSeqCounter;
+        }
+        pTable->setTableStyle(style);
+        GuiEventSimulator::process_pending_events();
+        assertSizeRequestPreserved("overlapping column + row border color changes");
+        assertVisualWidthPreserved(vizBefore, "overlapping column + row border color changes");
+    }
+
+    // Cleanup
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("  Rich table style preserves cell width - all checks passed");
+}
+
+void TestGuiSimulationApp::_test_rich_table_junction_colors_follow_last_operation(CtMainWin* pWin)
+{
+    spdlog::info("Test: Rich table junction (corner) colors follow last styling operation");
+
+    auto pBridge = pWin->get_command_bridge();
+    ASSERT_TRUE(pBridge);
+    auto pActions = pWin->get_ct_actions();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    // Create a 3x3 rich table
+    std::vector<std::vector<CtCellContent>> richData;
+    for (int r = 0; r < 3; ++r) {
+        std::vector<CtCellContent> row;
+        for (int c = 0; c < 3; ++c) {
+            CtCellContent cell;
+            CtTextSpan span;
+            span.text = Glib::ustring{"r"} + std::to_string(r) + "c" + std::to_string(c);
+            cell.textSpans.push_back(span);
+            row.push_back(std::move(cell));
+        }
+        richData.push_back(std::move(row));
+    }
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+
+    // Helper to get corner color of cell (r,c)
+    auto getCorner = [&](size_t r, size_t c) -> std::string {
+        return pTable->getCellAt(r, c)->getCornerColor();
+    };
+
+    // --- Scenario 1: Color middle column green, then middle row red ---
+    // The last operation (row red) should win at all junctions for row 1 cells.
+    {
+        CtTableStyle style = pTable->getTableStyle();
+        // Step 1: column 1 = green
+        ++style.borderSeqCounter;
+        for (size_t r = 0; r < 3; ++r) {
+            style.cellBorderColors[{r, 1}] = "#00ff00";
+            style.cellBorderWidths[{r, 1}] = style.borderWidth;
+            style.cellBorderSeq[{r, 1}] = style.borderSeqCounter;
+        }
+        // Step 2: row 1 = red (more recent)
+        ++style.borderSeqCounter;
+        for (size_t c = 0; c < 3; ++c) {
+            style.cellBorderColors[{1, c}] = "#ff0000";
+            style.cellBorderWidths[{1, c}] = style.borderWidth;
+            style.cellBorderSeq[{1, c}] = style.borderSeqCounter;
+        }
+        pTable->setTableStyle(style);
+        GuiEventSimulator::process_pending_events();
+
+        // Row 1 cells should all have red corner (row was styled last)
+        EXPECT_EQ("#ff0000", getCorner(1, 0))
+            << "Cell (1,0) corner should be red (row 1 styled after column 1)";
+        EXPECT_EQ("#ff0000", getCorner(1, 1))
+            << "Cell (1,1) corner should be red (row 1 styled after column 1)";
+        EXPECT_EQ("#ff0000", getCorner(1, 2))
+            << "Cell (1,2) corner should be red (row 1 styled after column 1)";
+
+        // Cell (0,1) has green override (column), but its bottom edge is shared
+        // with (1,1) which has red override (row, higher seq). The corner picks
+        // the most recent visible edge, so it should be red.
+        EXPECT_EQ("#ff0000", getCorner(0, 1))
+            << "Cell (0,1) corner should be red (bottom edge from row 1 is more recent)";
+        // Cell (2,1) has green override (column), and its bottom edge is the
+        // table outer edge (green). No neighbor has a higher seq. Corner = green.
+        EXPECT_EQ("#00ff00", getCorner(2, 1))
+            << "Cell (2,1) corner should be green (no more-recent neighbor edges)";
+    }
+
+    // --- Scenario 2: Reverse order — row first, then column ---
+    {
+        CtTableStyle style = pTable->getTableStyle();
+        // Clear previous per-cell overrides
+        style.cellBorderColors.clear();
+        style.cellBorderWidths.clear();
+        style.cellBorderSeq.clear();
+
+        // Step 1: row 1 = blue
+        ++style.borderSeqCounter;
+        for (size_t c = 0; c < 3; ++c) {
+            style.cellBorderColors[{1, c}] = "#0000ff";
+            style.cellBorderWidths[{1, c}] = style.borderWidth;
+            style.cellBorderSeq[{1, c}] = style.borderSeqCounter;
+        }
+        // Step 2: column 1 = yellow (more recent)
+        ++style.borderSeqCounter;
+        for (size_t r = 0; r < 3; ++r) {
+            style.cellBorderColors[{r, 1}] = "#ffff00";
+            style.cellBorderWidths[{r, 1}] = style.borderWidth;
+            style.cellBorderSeq[{r, 1}] = style.borderSeqCounter;
+        }
+        pTable->setTableStyle(style);
+        GuiEventSimulator::process_pending_events();
+
+        // Column 1 cells should all have yellow corner
+        EXPECT_EQ("#ffff00", getCorner(0, 1))
+            << "Cell (0,1) corner should be yellow (column 1 styled after row 1)";
+        EXPECT_EQ("#ffff00", getCorner(1, 1))
+            << "Cell (1,1) corner should be yellow (column 1 styled after row 1)";
+        EXPECT_EQ("#ffff00", getCorner(2, 1))
+            << "Cell (2,1) corner should be yellow (column 1 styled after row 1)";
+
+        // Cell (1,0) has blue override (row), but its right edge is shared with
+        // (1,1) which has yellow (column, higher seq). Corner = yellow.
+        EXPECT_EQ("#ffff00", getCorner(1, 0))
+            << "Cell (1,0) corner should be yellow (right edge from column 1 is more recent)";
+        // Cell (1,2) has blue override (row), and its right edge is the outer
+        // edge (blue). No neighbor with higher seq. Corner = blue.
+        EXPECT_EQ("#0000ff", getCorner(1, 2))
+            << "Cell (1,2) corner should be blue (no more-recent neighbor edges)";
+    }
+
+    // --- Scenario 3: Single cell override after column ---
+    {
+        CtTableStyle style = pTable->getTableStyle();
+        style.cellBorderColors.clear();
+        style.cellBorderWidths.clear();
+        style.cellBorderSeq.clear();
+
+        // Step 1: column 0 = green
+        ++style.borderSeqCounter;
+        for (size_t r = 0; r < 3; ++r) {
+            style.cellBorderColors[{r, 0}] = "#00ff00";
+            style.cellBorderWidths[{r, 0}] = style.borderWidth;
+            style.cellBorderSeq[{r, 0}] = style.borderSeqCounter;
+        }
+        // Step 2: cell (1,0) = magenta (more recent)
+        ++style.borderSeqCounter;
+        style.cellBorderColors[{1, 0}] = "#ff00ff";
+        style.cellBorderWidths[{1, 0}] = style.borderWidth;
+        style.cellBorderSeq[{1, 0}] = style.borderSeqCounter;
+
+        pTable->setTableStyle(style);
+        GuiEventSimulator::process_pending_events();
+
+        EXPECT_EQ("#ff00ff", getCorner(1, 0))
+            << "Cell (1,0) corner should be magenta (single cell override after column)";
+        // Cell (0,0) has green (seq=1). Its bottom edge is shared with (1,0)
+        // which has magenta (seq=2). Corner picks the most recent = magenta.
+        EXPECT_EQ("#ff00ff", getCorner(0, 0))
+            << "Cell (0,0) corner should be magenta (bottom edge from (1,0) is more recent)";
+        // Cell (2,0) has green (seq=1). Bottom edge is outer (green). No higher seq neighbor.
+        EXPECT_EQ("#00ff00", getCorner(2, 0))
+            << "Cell (2,0) corner should be green (no more-recent neighbor edges)";
+    }
+
+    // Cleanup
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("  Rich table junction colors follow last operation - all checks passed");
 }
 
 TEST(CommandGuiSimulationTests, Phase6_3_GuiEventSimulation)
