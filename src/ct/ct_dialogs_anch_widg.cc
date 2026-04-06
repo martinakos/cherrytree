@@ -831,9 +831,11 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
         };
         dialog.signal_key_press_event().connect(on_key_press_dialog2, false);
 
+        const int oldColWidthDefault = pCtConfig->tableColWidthDefault;
         const auto resp2 = dialog.run();
         pCtConfig->tableColWidthDefault = spinbutton_col_width.get_value_as_int();
         if (Gtk::RESPONSE_ACCEPT == resp2) {
+            const bool colWidthChanged = (pCtConfig->tableColWidthDefault != oldColWidthDefault);
             const auto borderScope = borderScopeFromCombo();
             if (borderScope != PropScope::None) {
                 const int newBW = spinbutton_bw.get_value_as_int();
@@ -878,7 +880,7 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
                 }
             }
 
-            if (borderScope != PropScope::None || bgScope != PropScope::None) {
+            if (borderScope != PropScope::None || bgScope != PropScope::None || colWidthChanged) {
                 return TableHandleResp::Ok;
             }
             return TableHandleResp::Cancel;
