@@ -130,7 +130,6 @@ public:
 
     const CtTableStyle& getTableStyle() const { return _tableStyle; }
     void setTableStyle(const CtTableStyle& style);
-    const std::set<std::pair<size_t,size_t>>& getSelectedCells() const { return _selectedCells; }
 
     // Returns the CtTextCell* at (row, col). Light tables return nullptr.
     virtual CtTextCell* getCellAt(size_t /*row*/, size_t /*col*/) { return nullptr; }
@@ -141,15 +140,6 @@ public:
     bool on_cell_key_press_event(GdkEventKey* event);
     bool on_rich_cell_key_release_event(GdkEventKey* event);
     #endif
-
-    // Update visual selection highlights for all cells
-    void _updateSelectionHighlights();
-    // Clear multi-cell selection (and remove highlights)
-    void _clearCellSelection();
-    // Find which (row, col) a child widget belongs to, or (-1,-1)
-    std::pair<int,int> _findCellAt(Gtk::Widget* pWidget) const;
-    // Hit-test: find cell at grid-relative coordinates
-    std::pair<int,int> _cellAtGridCoords(int gridX, int gridY) const;
 
 protected:
     virtual void _populate_xml_rows_cells(xmlpp::Element* p_table_node) const = 0;
@@ -165,11 +155,6 @@ protected:
     size_t           _currentRow{0u};
     size_t           _currentColumn{0u};
     CtTableStyle     _tableStyle;
-
-    // Multi-cell selection state
-    std::set<std::pair<size_t,size_t>> _selectedCells;
-    bool _isSelecting{false};
-    std::pair<size_t,size_t> _selectionAnchor{0u, 0u};
 };
 
 struct CtTableLightColumns : public Gtk::TreeModelColumnRecord

@@ -58,9 +58,6 @@ public:
                          const std::string& colorBottom, const std::string& colorLeft,
                          const std::string& cornerColor);
 
-    // Apply or remove the multi-cell selection highlight overlay.
-    void applySelectionHighlight(bool selected);
-
     // Returns the corner color last set by applyCellBorder (for testing).
     const std::string& getCornerColor() const { return _cornerColor; }
 
@@ -71,7 +68,6 @@ protected:
     std::unique_ptr<CtPairCodeboxMainWin> _uCtPairCodeboxMainWin;
     Glib::RefPtr<Gtk::CssProvider> _rCssProviderCellBg;
     Glib::RefPtr<Gtk::CssProvider> _rCssProviderCellBorder;
-    Glib::RefPtr<Gtk::CssProvider> _rCssProviderSelHighlight;
     std::string _cornerColor;
 };
 
