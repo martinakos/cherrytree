@@ -218,84 +218,6 @@ bool CtTableCommon::on_table_button_press_event(GdkEventButton* event)
     return false;
 }
 
-void CtTableCommon::_updateSelectionHighlights()
-{
-    const size_t numRows = get_num_rows();
-    const size_t numCols = get_num_columns();
-    for (size_t r = 0; r < numRows; ++r) {
-        for (size_t c = 0; c < numCols; ++c) {
-            CtTextCell* pCell = getCellAt(r, c);
-            if (pCell) {
-                pCell->applySelectionHighlight(_selectedCells.count({r, c}) > 0);
-            }
-        }
-    }
-}
-
-void CtTableCommon::_clearCellSelection()
-{
-    if (_selectedCells.empty()) return;
-    _selectedCells.clear();
-    _updateSelectionHighlights();
-}
-
-std::pair<int,int> CtTableCommon::_findCellAt(Gtk::Widget* pWidget) const
-{
-    // Walk up from pWidget to find a direct child of the grid, then get its grid position.
-    // The grid holds text views directly.
-    const size_t numRows = get_num_rows();
-    const size_t numCols = get_num_columns();
-    for (size_t r = 0; r < numRows; ++r) {
-        for (size_t c = 0; c < numCols; ++c) {
-            CtTextCell* pCell = const_cast<CtTableCommon*>(this)->getCellAt(r, c);
-            if (pCell && &pCell->get_text_view().mm() == pWidget) {
-                return {(int)r, (int)c};
-            }
-        }
-    }
-    return {-1, -1};
-}
-
-std::pair<int,int> CtTableCommon::_cellAtGridCoords(int gridX, int gridY) const
-{
-    const size_t numRows = get_num_rows();
-    const size_t numCols = get_num_columns();
-    for (size_t r = 0; r < numRows; ++r) {
-        for (size_t c = 0; c < numCols; ++c) {
-            CtTextCell* pCell = const_cast<CtTableCommon*>(this)->getCellAt(r, c);
-            if (!pCell) continue;
-            Gtk::Allocation alloc = pCell->get_text_view().mm().get_allocation();
-            if (gridX >= alloc.get_x() && gridX < alloc.get_x() + alloc.get_width() &&
-                gridY >= alloc.get_y() && gridY < alloc.get_y() + alloc.get_height())
-            {
-                return {(int)r, (int)c};
-            }
-        }
-    }
-    // Clamp to nearest edge cell for drag beyond grid bounds
-    if (numRows > 0 && numCols > 0) {
-        int bestR = 0, bestC = 0;
-        int bestDist = INT_MAX;
-        for (size_t r = 0; r < numRows; ++r) {
-            for (size_t c = 0; c < numCols; ++c) {
-                CtTextCell* pCell = const_cast<CtTableCommon*>(this)->getCellAt(r, c);
-                if (!pCell) continue;
-                Gtk::Allocation alloc = pCell->get_text_view().mm().get_allocation();
-                int cx = alloc.get_x() + alloc.get_width()/2;
-                int cy = alloc.get_y() + alloc.get_height()/2;
-                int dist = std::abs(gridX - cx) + std::abs(gridY - cy);
-                if (dist < bestDist) {
-                    bestDist = dist;
-                    bestR = (int)r;
-                    bestC = (int)c;
-                }
-            }
-        }
-        return {bestR, bestC};
-    }
-    return {-1, -1};
-}
-
 void CtTableCommon::on_cell_populate_popup(Gtk::Menu* menu)
 {
     if (not _pCtMainWin->user_active()) return;
@@ -653,57 +575,6 @@ void CtTableHeavy::_new_text_cell_attach(const size_t rowIdx, const size_t colId
     }
     textView.signal_populate_popup().connect(sigc::mem_fun(*this, &CtTableCommon::on_cell_populate_popup));
     textView.signal_key_press_event().connect(sigc::mem_fun(*this, &CtTableCommon::on_cell_key_press_event), false);
-#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
-    textView.signal_button_press_event().connect([this, rowIdx, colIdx](GdkEventButton* event) -> bool {
-        if (event->button == 1 && (event->state & GDK_CONTROL_MASK)) {
-            const auto cell = std::make_pair(rowIdx, colIdx);
-            if (_selectedCells.count(cell)) {
-                _selectedCells.erase(cell);
-            } else {
-                _selectedCells.insert(cell);
-            }
-            _selectionAnchor = {rowIdx, colIdx};
-            _isSelecting = true;
-            _updateSelectionHighlights();
-            return true; // consume — don't let the text view handle Ctrl+click as cursor placement
-        }
-        if (event->button == 1 && !(event->state & GDK_SHIFT_MASK)) {
-            _clearCellSelection();
-        }
-        return false; // propagate
-    }, false);
-    textView.signal_motion_notify_event().connect([this, pTextCell](GdkEventMotion* event) -> bool {
-        if (!_isSelecting || !(event->state & GDK_BUTTON1_MASK)) return false;
-        // Translate from cell-local to grid-relative coordinates
-        int gridX, gridY;
-        pTextCell->get_text_view().mm().translate_coordinates(_grid, (int)event->x, (int)event->y, gridX, gridY);
-        auto [r, c] = _cellAtGridCoords(gridX, gridY);
-        if (r < 0) return false;
-        // Rectangular selection from anchor to hovered cell
-        const size_t r0 = std::min(_selectionAnchor.first, (size_t)r);
-        const size_t r1 = std::max(_selectionAnchor.first, (size_t)r);
-        const size_t c0 = std::min(_selectionAnchor.second, (size_t)c);
-        const size_t c1 = std::max(_selectionAnchor.second, (size_t)c);
-        std::set<std::pair<size_t,size_t>> newSel;
-        for (size_t ri = r0; ri <= r1; ++ri) {
-            for (size_t ci = c0; ci <= c1; ++ci) {
-                newSel.insert({ri, ci});
-            }
-        }
-        if (newSel != _selectedCells) {
-            _selectedCells = std::move(newSel);
-            _updateSelectionHighlights();
-        }
-        return true;
-    }, false);
-    textView.signal_button_release_event().connect([this](GdkEventButton* event) -> bool {
-        if (event->button == 1) {
-            _isSelecting = false;
-        }
-        return false;
-    }, false);
-#endif
-
     _grid.attach(pTextCell->get_text_view().mm(), colIdx, rowIdx, 1/*# cell horiz*/, 1/*# cell vert*/);
 
     _pCtMainWin->apply_syntax_highlighting(pTextCell->get_buffer(), pTextCell->get_syntax_highlighting(), false/*forceReApply*/);
@@ -1352,59 +1223,12 @@ void CtTableRich::_new_rich_cell_attach(const size_t rowIdx, const size_t colIdx
     textView.signal_key_press_event().connect(sigc::mem_fun(*this, &CtTableCommon::on_cell_key_press_event), false);
     textView.signal_key_release_event().connect(sigc::mem_fun(*this, &CtTableCommon::on_rich_cell_key_release_event), false);
 #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
-    textView.signal_button_press_event().connect([this, rowIdx, colIdx](GdkEventButton* event) -> bool {
-        if (event->button == 1 && (event->state & GDK_CONTROL_MASK)) {
-            const auto cell = std::make_pair(rowIdx, colIdx);
-            if (_selectedCells.count(cell)) {
-                _selectedCells.erase(cell);
-            } else {
-                _selectedCells.insert(cell);
-            }
-            _selectionAnchor = {rowIdx, colIdx};
-            _isSelecting = true;
-            _updateSelectionHighlights();
-            return true; // consume
-        }
-        if (event->button == 1 && !(event->state & GDK_SHIFT_MASK)) {
-            _clearCellSelection();
-        }
-        return false; // propagate
-    }, false);
     textView.signal_motion_notify_event().connect([this, pCell](GdkEventMotion* event) -> bool {
-        // Multi-cell drag selection
-        if (_isSelecting && (event->state & GDK_BUTTON1_MASK)) {
-            int gridX, gridY;
-            pCell->get_text_view().mm().translate_coordinates(_grid, (int)event->x, (int)event->y, gridX, gridY);
-            auto [r, c] = _cellAtGridCoords(gridX, gridY);
-            if (r < 0) return false;
-            const size_t r0 = std::min(_selectionAnchor.first, (size_t)r);
-            const size_t r1 = std::max(_selectionAnchor.first, (size_t)r);
-            const size_t c0 = std::min(_selectionAnchor.second, (size_t)c);
-            const size_t c1 = std::max(_selectionAnchor.second, (size_t)c);
-            std::set<std::pair<size_t,size_t>> newSel;
-            for (size_t ri = r0; ri <= r1; ++ri) {
-                for (size_t ci = c0; ci <= c1; ++ci) {
-                    newSel.insert({ri, ci});
-                }
-            }
-            if (newSel != _selectedCells) {
-                _selectedCells = std::move(newSel);
-                _updateSelectionHighlights();
-            }
-            return true;
-        }
-        // Normal cursor/tooltip handling
         if (not _pCtMainWin->user_active()) return false;
         CtTextView& cellTV = pCell->get_text_view();
         int x, y;
         cellTV.mm().window_to_buffer_coords(Gtk::TEXT_WINDOW_TEXT, int(event->x), int(event->y), x, y);
         cellTV.cursor_and_tooltips_handler(x, y);
-        return false;
-    }, false);
-    textView.signal_button_release_event().connect([this](GdkEventButton* event) -> bool {
-        if (event->button == 1) {
-            _isSelecting = false;
-        }
         return false;
     }, false);
     // Handle link clicks and cursor/tooltip changes in rich cell text views
@@ -1420,11 +1244,8 @@ void CtTableRich::_new_rich_cell_attach(const size_t rowIdx, const size_t colIdx
             cellTV.for_event_after_double_click_button12(event);
         }
         else if (event->type == GDK_BUTTON_PRESS) {
-            // Skip if Ctrl is held — handled by multi-cell selection
-            if (!(event->button.state & GDK_CONTROL_MASK)) {
-                spdlog::debug("Rich cell: button press detected, calling for_event_after_button_press");
-                cellTV.for_event_after_button_press(event);
-            }
+            spdlog::debug("Rich cell: button press detected, calling for_event_after_button_press");
+            cellTV.for_event_after_button_press(event);
         }
     });
 #endif
