@@ -119,7 +119,8 @@ void CtTextCell::applyCellBgColor(const std::string& hexColor)
 void CtTextCell::applyCellBorder(int wTop, int wRight, int wBottom, int wLeft,
                                  const std::string& colorTop, const std::string& colorRight,
                                  const std::string& colorBottom, const std::string& colorLeft,
-                                 const std::string& cornerColor)
+                                 const std::string& cornerColorTL, const std::string& cornerColorTR,
+                                 const std::string& cornerColorBL, const std::string& cornerColorBR)
 {
     auto& textView = _ctTextview.mm();
     auto styleCtx = textView.get_style_context();
@@ -128,24 +129,54 @@ void CtTextCell::applyCellBorder(int wTop, int wRight, int wBottom, int wLeft,
         styleCtx->remove_provider(_rCssProviderCellBorder);
         _rCssProviderCellBorder.reset();
     }
+    _drawConn.disconnect();
 
     textView.set_border_window_size(Gtk::TEXT_WINDOW_TOP,    std::max(0, wTop));
     textView.set_border_window_size(Gtk::TEXT_WINDOW_RIGHT,  std::max(0, wRight));
     textView.set_border_window_size(Gtk::TEXT_WINDOW_BOTTOM, std::max(0, wBottom));
     textView.set_border_window_size(Gtk::TEXT_WINDOW_LEFT,   std::max(0, wLeft));
 
-    _cornerColor = cornerColor;
+    _cornerColorTL = cornerColorTL;
+    _cornerColorTR = cornerColorTR;
+    _cornerColorBL = cornerColorBL;
+    _cornerColorBR = cornerColorBR;
+
     if (wTop > 0 || wRight > 0 || wBottom > 0 || wLeft > 0) {
         _rCssProviderCellBorder = Gtk::CssProvider::create();
-        // cornerColor (caller-computed from sequence numbers) fills the corner
-        // gaps between border windows so junctions show the most recent style.
-        std::string css = "textview { background-color: " + cornerColor + "; } ";
+        // CSS handles the per-side border stripe colors; corners are painted
+        // independently via signal_draw so each junction reflects the correct color.
+        std::string css;
         if (wTop > 0)    css += "textview border.top { background-color: " + colorTop + "; } ";
         if (wRight > 0)  css += "textview border.right { background-color: " + colorRight + "; } ";
         if (wBottom > 0) css += "textview border.bottom { background-color: " + colorBottom + "; } ";
         if (wLeft > 0)   css += "textview border.left { background-color: " + colorLeft + "; } ";
         _rCssProviderCellBorder->load_from_data(css);
         styleCtx->add_provider(_rCssProviderCellBorder, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
+        // Paint each corner rectangle with its specific color after default rendering.
+        _drawConn = textView.signal_draw().connect(
+            [this](const Cairo::RefPtr<Cairo::Context>& cr) -> bool {
+                const int totalW = _ctTextview.mm().get_allocated_width();
+                const int totalH = _ctTextview.mm().get_allocated_height();
+                const int bTop   = _ctTextview.mm().get_border_window_size(Gtk::TEXT_WINDOW_TOP);
+                const int bBot   = _ctTextview.mm().get_border_window_size(Gtk::TEXT_WINDOW_BOTTOM);
+                const int bLeft  = _ctTextview.mm().get_border_window_size(Gtk::TEXT_WINDOW_LEFT);
+                const int bRight = _ctTextview.mm().get_border_window_size(Gtk::TEXT_WINDOW_RIGHT);
+                auto paintCorner = [&](const std::string& color, int cx, int cy, int cw, int ch) {
+                    if (color.empty() || cw <= 0 || ch <= 0) return;
+                    Gdk::RGBA rgba{color};
+                    cr->set_source_rgb(rgba.get_red(), rgba.get_green(), rgba.get_blue());
+                    cr->rectangle(cx, cy, cw, ch);
+                    cr->fill();
+                };
+                if (bTop > 0 && bLeft > 0)   paintCorner(_cornerColorTL, 0, 0, bLeft, bTop);
+                if (bTop > 0 && bRight > 0)  paintCorner(_cornerColorTR, totalW - bRight, 0, bRight, bTop);
+                if (bBot > 0 && bLeft > 0)   paintCorner(_cornerColorBL, 0, totalH - bBot, bLeft, bBot);
+                if (bBot > 0 && bRight > 0)  paintCorner(_cornerColorBR, totalW - bRight, totalH - bBot, bRight, bBot);
+                return false;
+            });
+#endif
     }
 }
 

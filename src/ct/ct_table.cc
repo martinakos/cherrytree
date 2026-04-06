@@ -1382,18 +1382,23 @@ void CtTableRich::_applyTableStyle()
                 wBottom = w; colorBottom = color; seqBottom = cellSeq;
             }
 
-            // Corner color: pick the color of whichever visible edge was styled
-            // most recently so that junctions reflect the last operation.
-            std::string crnColor = color; // fallback = this cell's default
-            size_t crnSeq = 0;
-            if (wTop > 0 && seqTop >= crnSeq) { crnSeq = seqTop; crnColor = colorTop; }
-            if (wLeft > 0 && seqLeft >= crnSeq) { crnSeq = seqLeft; crnColor = colorLeft; }
-            if (wRight > 0 && seqRight >= crnSeq) { crnSeq = seqRight; crnColor = colorRight; }
-            if (wBottom > 0 && seqBottom >= crnSeq) { crnSeq = seqBottom; crnColor = colorBottom; }
+            // Per-corner colors: each corner is determined independently by the
+            // two edges meeting there. The edge with the higher sequence number wins.
+            auto pickCorner = [](int wA, const std::string& cA, size_t sA,
+                                 int wB, const std::string& cB, size_t sB) -> std::string {
+                if (wA > 0 && wB > 0) return (sA >= sB) ? cA : cB;
+                if (wA > 0) return cA;
+                if (wB > 0) return cB;
+                return {};
+            };
+            const std::string crnTL = pickCorner(wTop, colorTop, seqTop, wLeft, colorLeft, seqLeft);
+            const std::string crnTR = pickCorner(wTop, colorTop, seqTop, wRight, colorRight, seqRight);
+            const std::string crnBL = pickCorner(wBottom, colorBottom, seqBottom, wLeft, colorLeft, seqLeft);
+            const std::string crnBR = pickCorner(wBottom, colorBottom, seqBottom, wRight, colorRight, seqRight);
 
             pCell->applyCellBorder(wTop, wRight, wBottom, wLeft,
                                    colorTop, colorRight, colorBottom, colorLeft,
-                                   crnColor);
+                                   crnTL, crnTR, crnBL, crnBR);
         }
     }
 }
