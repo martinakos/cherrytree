@@ -588,7 +588,8 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
                                                           bool& is_light,
                                                           bool& is_rich,
                                                           CtTableStyle* pTableStyle,
-                                                          const std::set<std::pair<size_t,size_t>>& selectedCells,
+                                                          size_t currentRow,
+                                                          size_t currentCol,
                                                           size_t numRows,
                                                           size_t numCols)
 {
@@ -669,47 +670,26 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
         // Edit mode: show border / background style controls
         enum class PropScope { None = 0, Cell, Row, Column, Table };
 
-        const bool hasSelection = !selectedCells.empty();
-
         auto expandScope = [&](PropScope scope) -> std::set<std::pair<size_t,size_t>> {
             if (scope == PropScope::Table || scope == PropScope::None) return {};
-            if (scope == PropScope::Cell) return selectedCells;
-            std::set<std::pair<size_t,size_t>> expanded;
-            if (scope == PropScope::Row) {
-                std::set<size_t> rows;
-                for (const auto& [r, c] : selectedCells) rows.insert(r);
-                for (size_t r : rows)
-                    for (size_t c = 0; c < numCols; ++c)
-                        expanded.emplace(r, c);
+            std::set<std::pair<size_t,size_t>> result;
+            if (scope == PropScope::Cell) {
+                result.emplace(currentRow, currentCol);
+            } else if (scope == PropScope::Row) {
+                for (size_t c = 0; c < numCols; ++c) result.emplace(currentRow, c);
             } else { // Column
-                std::set<size_t> cols;
-                for (const auto& [r, c] : selectedCells) cols.insert(c);
-                for (size_t c : cols)
-                    for (size_t r = 0; r < numRows; ++r)
-                        expanded.emplace(r, c);
+                for (size_t r = 0; r < numRows; ++r) result.emplace(r, currentCol);
             }
-            return expanded;
+            return result;
         };
 
-        // Initialize border controls from selection or table defaults
-        int initialBorderWidth = pTableStyle->borderWidth;
-        std::string initialBorderColor = pTableStyle->borderColor.empty() ? "#000000" : pTableStyle->borderColor;
-        if (hasSelection) {
-            bool bwFirst{true}, bcFirst{true}, bwMixed{false}, bcMixed{false};
-            for (const auto& cell : selectedCells) {
-                auto bwIt = pTableStyle->cellBorderWidths.find(cell);
-                int cellBw = (bwIt != pTableStyle->cellBorderWidths.end()) ? bwIt->second : pTableStyle->borderWidth;
-                if (bwFirst) { initialBorderWidth = cellBw; bwFirst = false; }
-                else if (cellBw != initialBorderWidth) { bwMixed = true; }
+        // Initialize border controls from current cell (or table defaults)
+        auto bwIt = pTableStyle->cellBorderWidths.find({currentRow, currentCol});
+        int initialBorderWidth = (bwIt != pTableStyle->cellBorderWidths.end()) ? bwIt->second : pTableStyle->borderWidth;
 
-                auto bcIt = pTableStyle->cellBorderColors.find(cell);
-                const std::string& cellBc = (bcIt != pTableStyle->cellBorderColors.end()) ? bcIt->second : pTableStyle->borderColor;
-                if (bcFirst) { initialBorderColor = cellBc; bcFirst = false; }
-                else if (cellBc != initialBorderColor) { bcMixed = true; }
-            }
-            if (bwMixed) initialBorderWidth = pTableStyle->borderWidth;
-            if (bcMixed) initialBorderColor = pTableStyle->borderColor.empty() ? "#000000" : pTableStyle->borderColor;
-        }
+        auto bcIt = pTableStyle->cellBorderColors.find({currentRow, currentCol});
+        std::string initialBorderColor = (bcIt != pTableStyle->cellBorderColors.end()) ? bcIt->second
+            : (pTableStyle->borderColor.empty() ? "#000000" : pTableStyle->borderColor);
 
         auto adj_bw = Gtk::Adjustment::create(initialBorderWidth, 0, 10, 1);
         auto spinbutton_bw = Gtk::SpinButton{adj_bw};
@@ -729,21 +709,10 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
         colorbutton_border.set_use_alpha(false);
         colorbutton_border.set_sensitive(false);
 
-        // Initialize background controls from selection or table defaults
+        // Initialize background controls from current cell (or table defaults)
         Gdk::RGBA bgRgba;
-        std::string initialBgColor;
-        if (hasSelection) {
-            bool bgFirst{true}, bgMixed{false};
-            for (const auto& cell : selectedCells) {
-                auto it = pTableStyle->cellBgColors.find(cell);
-                const std::string& clr = (it != pTableStyle->cellBgColors.end()) ? it->second : std::string{};
-                if (bgFirst) { initialBgColor = clr; bgFirst = false; }
-                else if (initialBgColor != clr) { bgMixed = true; }
-            }
-            if (bgMixed) initialBgColor.clear();
-        } else {
-            initialBgColor = pTableStyle->tableBgColor;
-        }
+        auto bgIt = pTableStyle->cellBgColors.find({currentRow, currentCol});
+        std::string initialBgColor = (bgIt != pTableStyle->cellBgColors.end()) ? bgIt->second : pTableStyle->tableBgColor;
         if (!initialBgColor.empty()) bgRgba.set(initialBgColor);
         else bgRgba.set("#ffffff");
 
@@ -1014,12 +983,13 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
                                                           bool& is_light,
                                                           bool& is_rich,
                                                           CtTableStyle* pTableStyle,
-                                                          const std::set<std::pair<size_t,size_t>>& selectedCells,
+                                                          size_t currentRow,
+                                                          size_t currentCol,
                                                           size_t numRows,
                                                           size_t numCols)
 {
     (void)pCtMainWin; (void)title; (void)is_insert; (void)is_light; (void)is_rich; (void)pTableStyle;
-    (void)selectedCells; (void)numRows; (void)numCols;
+    (void)currentRow; (void)currentCol; (void)numRows; (void)numCols;
     return TableHandleResp::Cancel;
 }
 #endif

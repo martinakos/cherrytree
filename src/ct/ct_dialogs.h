@@ -325,7 +325,8 @@ TableHandleResp table_handle_dialog(CtMainWin* pCtMainWin,
                                     bool& is_light,
                                     bool& is_rich,
                                     CtTableStyle* pTableStyle = nullptr,
-                                    const std::set<std::pair<size_t,size_t>>& selectedCells = {},
+                                    size_t currentRow = 0,
+                                    size_t currentCol = 0,
                                     size_t numRows = 0,
                                     size_t numCols = 0);
 
