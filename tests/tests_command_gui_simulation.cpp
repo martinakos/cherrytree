@@ -208,6 +208,9 @@ private:
     // Rich table style tests
     void _test_rich_table_style_preserves_cell_width(CtMainWin* pWin);
     void _test_rich_table_junction_colors_follow_last_operation(CtMainWin* pWin);
+    void _test_rich_table_per_corner_colors_independent(CtMainWin* pWin);
+    void _test_rich_table_border_window_sizes(CtMainWin* pWin);
+    void _test_rich_table_default_style_and_overrides(CtMainWin* pWin);
 };
 
 void TestGuiSimulationApp::on_activate()
@@ -312,6 +315,9 @@ void TestGuiSimulationApp::_run_tests(CtMainWin* pWin)
     // Rich table style tests
     _test_rich_table_style_preserves_cell_width(pWin);
     _test_rich_table_junction_colors_follow_last_operation(pWin);
+    _test_rich_table_per_corner_colors_independent(pWin);
+    _test_rich_table_border_window_sizes(pWin);
+    _test_rich_table_default_style_and_overrides(pWin);
 
     spdlog::info("=== GUI simulation test passed! ===");
 }
@@ -6197,6 +6203,278 @@ void TestGuiSimulationApp::_test_rich_table_junction_colors_follow_last_operatio
     GuiEventSimulator::process_pending_events();
 
     spdlog::info("  Rich table junction colors follow last operation - all checks passed");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Per-corner independence: verifies that every one of the four junction pixels
+// at a cell's corners is computed only from the two edges that meet there, not
+// from the globally highest-sequence edge (the old bug).
+// ─────────────────────────────────────────────────────────────────────────────
+void TestGuiSimulationApp::_test_rich_table_per_corner_colors_independent(CtMainWin* pWin)
+{
+    spdlog::info("Test: Rich table per-corner colors are computed independently");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    // ── Scenario A: two neighbors painted in sequence ─────────────────────
+    // 2×2 table, no per-cell overrides on cell (0,0).
+    //   seq=1: cell (0,1) = green  → (0,0)'s right edge becomes green
+    //   seq=2: cell (1,0) = blue   → (0,0)'s bottom edge becomes blue
+    //
+    // Expected corners for cell (0,0):
+    //   TL: top=black(seq=0) + left=black(seq=0)  → tie → black
+    //   TR: top=black(seq=0) + right=green(seq=1) → green wins
+    //   BL: bottom=blue(seq=2) + left=black(seq=0) → blue wins
+    //   BR: bottom=blue(seq=2) + right=green(seq=1) → blue wins
+    {
+        std::vector<std::vector<CtCellContent>> richData(2, std::vector<CtCellContent>(2));
+        insertRichTableAtEnd(pWin, pBridge, richData);
+
+        auto* pTable = findFirstRichTable(pWin);
+        ASSERT_TRUE(pTable);
+
+        CtTableStyle style = pTable->getTableStyle();
+        const std::string tableColor = style.borderColor;
+
+        ++style.borderSeqCounter;
+        style.cellBorderColors[{0, 1}] = "#00ff00";
+        style.cellBorderWidths[{0, 1}] = style.borderWidth;
+        style.cellBorderSeq[{0, 1}]    = style.borderSeqCounter;
+
+        ++style.borderSeqCounter;
+        style.cellBorderColors[{1, 0}] = "#0000ff";
+        style.cellBorderWidths[{1, 0}] = style.borderWidth;
+        style.cellBorderSeq[{1, 0}]    = style.borderSeqCounter;
+
+        pTable->setTableStyle(style);
+        GuiEventSimulator::process_pending_events();
+
+        auto* c = pTable->getCellAt(0, 0);
+        EXPECT_EQ(tableColor, c->getCornerColorTL())
+            << "Scenario A: TL must be table-default (top+left both seq=0)";
+        EXPECT_EQ("#00ff00", c->getCornerColorTR())
+            << "Scenario A: TR must be green (right edge seq=1 beats top seq=0)";
+        EXPECT_EQ("#0000ff", c->getCornerColorBL())
+            << "Scenario A: BL must be blue (bottom edge seq=2 beats left seq=0)";
+        EXPECT_EQ("#0000ff", c->getCornerColorBR())
+            << "Scenario A: BR must be blue (bottom edge seq=2 beats right seq=1)";
+
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        GuiEventSimulator::process_pending_events();
+    }
+
+    // ── Scenario B: original bug regression ──────────────────────────────
+    // All cells red (seq=1), then cell (0,1) = green (seq=2).
+    // Cell (0,0): right edge resolves to green; top+left+bottom stay red.
+    // Old bug: ALL four corners of (0,0) turned green (highest-seq edge bled).
+    // Correct: TL=red, TR=green, BL=red, BR=green.
+    {
+        std::vector<std::vector<CtCellContent>> richData(2, std::vector<CtCellContent>(2));
+        insertRichTableAtEnd(pWin, pBridge, richData);
+
+        auto* pTable = findFirstRichTable(pWin);
+        ASSERT_TRUE(pTable);
+
+        CtTableStyle style = pTable->getTableStyle();
+
+        ++style.borderSeqCounter;
+        for (size_t r = 0; r < 2; ++r) {
+            for (size_t c = 0; c < 2; ++c) {
+                style.cellBorderColors[{r, c}] = "#ff0000";
+                style.cellBorderWidths[{r, c}] = style.borderWidth;
+                style.cellBorderSeq[{r, c}]    = style.borderSeqCounter;
+            }
+        }
+
+        ++style.borderSeqCounter;
+        style.cellBorderColors[{0, 1}] = "#00ff00";
+        style.cellBorderWidths[{0, 1}] = style.borderWidth;
+        style.cellBorderSeq[{0, 1}]    = style.borderSeqCounter;
+
+        pTable->setTableStyle(style);
+        GuiEventSimulator::process_pending_events();
+
+        auto* c = pTable->getCellAt(0, 0);
+        EXPECT_EQ("#ff0000", c->getCornerColorTL())
+            << "Scenario B: TL must be red (top=red, left=red — must not bleed green)";
+        EXPECT_EQ("#00ff00", c->getCornerColorTR())
+            << "Scenario B: TR must be green (right=green seq=2 beats top=red seq=1)";
+        EXPECT_EQ("#ff0000", c->getCornerColorBL())
+            << "Scenario B: BL must be red (bottom=red, left=red)";
+        EXPECT_EQ("#00ff00", c->getCornerColorBR())
+            << "Scenario B: BR must be green (right=green seq=2 beats bottom=red seq=1)";
+
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        GuiEventSimulator::process_pending_events();
+    }
+
+    spdlog::info("  Per-corner color independence - all checks passed");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Border window sizes: verifies the collapsed-border model assigns the correct
+// GTK border-window widths to each cell position in the grid.
+// ─────────────────────────────────────────────────────────────────────────────
+void TestGuiSimulationApp::_test_rich_table_border_window_sizes(CtMainWin* pWin)
+{
+    spdlog::info("Test: Rich table border window sizes match collapsed-border model");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    // 2×2 table; set borderWidth=3 so sizes are unambiguous.
+    std::vector<std::vector<CtCellContent>> richData(2, std::vector<CtCellContent>(2));
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+
+    CtTableStyle style = pTable->getTableStyle();
+    style.borderWidth = 3;
+    pTable->setTableStyle(style);
+    GuiEventSimulator::process_pending_events();
+
+    // Collapsed-border rules:
+    //   top border window:   only row 0 cells
+    //   left border window:  only col 0 cells
+    //   right border window: all cells (each draws its own right edge)
+    //   bottom border window:all cells (each draws its own bottom edge)
+
+    struct CellExpect { size_t r, c; int T, L, R, B; };
+    const std::vector<CellExpect> expectations = {
+        {0, 0,  3, 3, 3, 3},   // top-left corner: all four sides
+        {0, 1,  3, 0, 3, 3},   // top-right: no left window
+        {1, 0,  0, 3, 3, 3},   // bottom-left: no top window
+        {1, 1,  0, 0, 3, 3},   // interior: only right+bottom
+    };
+
+    for (auto& e : expectations) {
+        auto& tv = pTable->getCellAt(e.r, e.c)->get_text_view().mm();
+        EXPECT_EQ(e.T, tv.get_border_window_size(Gtk::TEXT_WINDOW_TOP))
+            << "Cell (" << e.r << "," << e.c << ") top window";
+        EXPECT_EQ(e.L, tv.get_border_window_size(Gtk::TEXT_WINDOW_LEFT))
+            << "Cell (" << e.r << "," << e.c << ") left window";
+        EXPECT_EQ(e.R, tv.get_border_window_size(Gtk::TEXT_WINDOW_RIGHT))
+            << "Cell (" << e.r << "," << e.c << ") right window";
+        EXPECT_EQ(e.B, tv.get_border_window_size(Gtk::TEXT_WINDOW_BOTTOM))
+            << "Cell (" << e.r << "," << e.c << ") bottom window";
+    }
+
+    // Verify that setting borderWidth=0 clears all border windows.
+    style.borderWidth = 0;
+    pTable->setTableStyle(style);
+    GuiEventSimulator::process_pending_events();
+
+    for (size_t r = 0; r < 2; ++r) {
+        for (size_t c = 0; c < 2; ++c) {
+            auto& tv = pTable->getCellAt(r, c)->get_text_view().mm();
+            EXPECT_EQ(0, tv.get_border_window_size(Gtk::TEXT_WINDOW_TOP))
+                << "borderWidth=0: cell (" << r << "," << c << ") top should be 0";
+            EXPECT_EQ(0, tv.get_border_window_size(Gtk::TEXT_WINDOW_LEFT))
+                << "borderWidth=0: cell (" << r << "," << c << ") left should be 0";
+            EXPECT_EQ(0, tv.get_border_window_size(Gtk::TEXT_WINDOW_RIGHT))
+                << "borderWidth=0: cell (" << r << "," << c << ") right should be 0";
+            EXPECT_EQ(0, tv.get_border_window_size(Gtk::TEXT_WINDOW_BOTTOM))
+                << "borderWidth=0: cell (" << r << "," << c << ") bottom should be 0";
+        }
+    }
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("  Border window sizes - all checks passed");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Default style and per-cell overrides: verifies that (a) a fresh table uses
+// the table-level borderColor for all corners, and (b) clearing per-cell
+// overrides restores cells to the table default.
+// ─────────────────────────────────────────────────────────────────────────────
+void TestGuiSimulationApp::_test_rich_table_default_style_and_overrides(CtMainWin* pWin)
+{
+    spdlog::info("Test: Rich table default style and per-cell override clearing");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    // 2×2 table with a non-default table-level color.
+    std::vector<std::vector<CtCellContent>> richData(2, std::vector<CtCellContent>(2));
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+
+    // Set a distinctive table-level color so we can tell it from overrides.
+    CtTableStyle style = pTable->getTableStyle();
+    style.borderColor = "#123456";
+    pTable->setTableStyle(style);
+    GuiEventSimulator::process_pending_events();
+
+    // With no per-cell overrides, every corner of every cell should use the
+    // table-level color (all sequence numbers are 0 → tie → colorTop wins,
+    // which is the table-level color).
+    for (size_t r = 0; r < 2; ++r) {
+        for (size_t c = 0; c < 2; ++c) {
+            auto* cell = pTable->getCellAt(r, c);
+            // BR corner always exists (right+bottom both drawn by every cell).
+            EXPECT_EQ("#123456", cell->getCornerColorBR())
+                << "Default style: cell (" << r << "," << c << ") BR should be table color";
+        }
+    }
+
+    // Cell (0,0) top-left corner: top=tableColor(seq=0), left=tableColor(seq=0).
+    EXPECT_EQ("#123456", pTable->getCellAt(0, 0)->getCornerColorTL())
+        << "Default style: cell (0,0) TL should be table color";
+
+    // Override cell (1,1) with magenta at seq=1.
+    ++style.borderSeqCounter;
+    style.cellBorderColors[{1, 1}] = "#ff00ff";
+    style.cellBorderWidths[{1, 1}] = style.borderWidth;
+    style.cellBorderSeq[{1, 1}]    = style.borderSeqCounter;
+    pTable->setTableStyle(style);
+    GuiEventSimulator::process_pending_events();
+
+    EXPECT_EQ("#ff00ff", pTable->getCellAt(1, 1)->getCornerColorBR())
+        << "After override: cell (1,1) BR should be magenta";
+    // Cell (0,1)'s bottom edge is shared with (1,1); magenta seq=1 wins.
+    EXPECT_EQ("#ff00ff", pTable->getCellAt(0, 1)->getCornerColorBR())
+        << "After override: cell (0,1) BR bottom edge shared with (1,1) → magenta";
+    // Unaffected cell (0,0) should still show the table color everywhere.
+    EXPECT_EQ("#123456", pTable->getCellAt(0, 0)->getCornerColorTL())
+        << "Unaffected cell (0,0) TL must remain table color after (1,1) override";
+
+    // Clear the per-cell overrides and verify reversion to table default.
+    style.cellBorderColors.clear();
+    style.cellBorderWidths.clear();
+    style.cellBorderSeq.clear();
+    pTable->setTableStyle(style);
+    GuiEventSimulator::process_pending_events();
+
+    EXPECT_EQ("#123456", pTable->getCellAt(1, 1)->getCornerColorBR())
+        << "After clearing overrides: cell (1,1) BR should revert to table color";
+    EXPECT_EQ("#123456", pTable->getCellAt(0, 1)->getCornerColorBR())
+        << "After clearing overrides: cell (0,1) BR should revert to table color";
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("  Default style and override clearing - all checks passed");
 }
 
 TEST(CommandGuiSimulationTests, Phase6_3_GuiEventSimulation)
