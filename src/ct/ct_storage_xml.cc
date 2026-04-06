@@ -769,6 +769,8 @@ static CtTableStyle _parseTableStyle(xmlpp::Element* xml_element)
             size_t col = static_cast<size_t>(std::stoul(coords.substr(comma + 1)));
             if constexpr (std::is_same_v<typename std::decay_t<decltype(targetMap)>::mapped_type, int>) {
                 targetMap[{row, col}] = std::stoi(value);
+            } else if constexpr (std::is_same_v<typename std::decay_t<decltype(targetMap)>::mapped_type, size_t>) {
+                targetMap[{row, col}] = static_cast<size_t>(std::stoul(value));
             } else {
                 targetMap[{row, col}] = value;
             }
@@ -777,6 +779,9 @@ static CtTableStyle _parseTableStyle(xmlpp::Element* xml_element)
     parseCellMap("cell_bg_colors", style.cellBgColors);
     parseCellMap("cell_border_widths", style.cellBorderWidths);
     parseCellMap("cell_border_colors", style.cellBorderColors);
+    parseCellMap("cell_border_seq", style.cellBorderSeq);
+    const Glib::ustring seqCounterStr = xml_element->get_attribute_value("border_seq_counter");
+    if (!seqCounterStr.empty()) style.borderSeqCounter = static_cast<size_t>(std::stoul(seqCounterStr.raw()));
     return style;
 }
 
