@@ -885,7 +885,11 @@ void CtCommandBridge::beginWidgetEdit(gint64 nodeId, CtAnchoredWidget* widget, i
 
     _currentOp = BridgeOp::TrackingWidget;
     _widgetEditNodeId = nodeId;
-    _widgetEditOldCursorPos = buffer->get_insert()->get_iter().get_offset();
+    // When focus is inside a child widget (table cell, codebox), the node
+    // buffer's insert mark is stale (often 0).  Use the widget's char offset
+    // so that undo scrolls to the widget rather than jumping to the top.
+    _widgetEditOldCursorPos = widget ? widget->getOffset()
+                                     : buffer->get_insert()->get_iter().get_offset();
     {
         auto adj = _pMainWin->getScrolledwindowText().get_vadjustment();
         _widgetEditOldScrollPos = adj ? adj->get_value() : -1.0;
@@ -995,7 +999,10 @@ void CtCommandBridge::endWidgetEdit()
         return;
     }
 
-    int newCursorPos = buffer->get_insert()->get_iter().get_offset();
+    // When focus is inside a child widget the node buffer insert mark is stale;
+    // use the widget's char offset so undo/redo scrolls to the widget.
+    int newCursorPos = (_widgetEditCharOffset >= 0) ? _widgetEditCharOffset
+                     : buffer->get_insert()->get_iter().get_offset();
 
     // Save state before clearState() zeroes it
     const gint64 savedNodeId = _widgetEditNodeId;
@@ -1225,8 +1232,11 @@ void CtCommandBridge::flushRichCellSession()
 
     // End the session to get a compound command (used for its description only)
     std::list<CtAnchoredWidget*> emptyWidgets;
-    int cursorPos = cellBuf ? cellBuf->get_insert()->get_iter().get_offset() : -1;
-    auto compound = _richCellSession->end(cellBuf, emptyWidgets, cursorPos);
+    int cellCursorPos = cellBuf ? cellBuf->get_insert()->get_iter().get_offset() : -1;
+    auto compound = _richCellSession->end(cellBuf, emptyWidgets, cellCursorPos);
+    // Use the widget's char offset in the node buffer for undo/redo cursor
+    // positioning — the cell buffer cursor offset is meaningless in the node buffer.
+    int cursorPos = _widgetEditCharOffset;
 
     // Extract current cell content
     CtCellContent newContent = cell->extractContent();
@@ -1363,7 +1373,9 @@ void CtCommandBridge::commitRichCellFormatChange(std::string description)
     }
 
     auto cellBuffer = cell->get_buffer();
-    int cursorPos = cellBuffer ? cellBuffer->get_insert()->get_iter().get_offset() : -1;
+    // Use the widget's char offset in the node buffer for undo/redo cursor
+    // positioning — the cell buffer cursor offset is meaningless in the node buffer.
+    int cursorPos = _widgetEditCharOffset;
 
     auto cmd = std::make_unique<EditRichCellCommand>(
         _docModel,
