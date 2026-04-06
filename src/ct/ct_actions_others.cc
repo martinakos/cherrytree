@@ -1297,15 +1297,13 @@ void CtActions::table_edit_properties()
     bool is_rich{was_rich};
     CtTableStyle tableStyle = curr_table_anchor->getTableStyle();
     CtTableStyle* pTableStyle = was_rich ? &tableStyle : nullptr;
-    const auto& rawSelectedCells = curr_table_anchor->getSelectedCells();
-    const std::set<std::pair<size_t,size_t>> selectedCells = rawSelectedCells.empty()
-        ? std::set<std::pair<size_t,size_t>>{{curr_table_anchor->current_row(), curr_table_anchor->current_column()}}
-        : rawSelectedCells;
+    const size_t currentRow = curr_table_anchor->current_row();
+    const size_t currentCol = curr_table_anchor->current_column();
     const size_t numRows = curr_table_anchor->get_num_rows();
     const size_t numCols = curr_table_anchor->get_num_columns();
     if (CtDialogs::TableHandleResp::Cancel == CtDialogs::table_handle_dialog(
         _pCtMainWin, _("Edit Table Properties"), false/*is_insert*/, is_light, is_rich, pTableStyle,
-        selectedCells, numRows, numCols))
+        currentRow, currentCol, numRows, numCols))
     {
         return;
     }
