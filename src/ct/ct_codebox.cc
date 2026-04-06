@@ -113,7 +113,10 @@ void CtTextCell::applyCellBgColor(const std::string& hexColor)
     styleCtx->add_provider(_rCssProviderCellBg, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 }
 
-void CtTextCell::applyCellBorder(int width, const std::string& hexColor)
+void CtTextCell::applyCellBorder(int wTop, int wRight, int wBottom, int wLeft,
+                                 const std::string& colorTop, const std::string& colorRight,
+                                 const std::string& colorBottom, const std::string& colorLeft,
+                                 const std::string& cornerColor)
 {
     auto& textView = _ctTextview.mm();
     auto styleCtx = textView.get_style_context();
@@ -122,23 +125,25 @@ void CtTextCell::applyCellBorder(int width, const std::string& hexColor)
         styleCtx->remove_provider(_rCssProviderCellBorder);
         _rCssProviderCellBorder.reset();
     }
-    if (width <= 0) {
-        textView.set_border_window_size(Gtk::TEXT_WINDOW_LEFT, 0);
-        textView.set_border_window_size(Gtk::TEXT_WINDOW_RIGHT, 0);
-        textView.set_border_window_size(Gtk::TEXT_WINDOW_TOP, 0);
-        textView.set_border_window_size(Gtk::TEXT_WINDOW_BOTTOM, 0);
-        return;
+
+    textView.set_border_window_size(Gtk::TEXT_WINDOW_TOP,    std::max(0, wTop));
+    textView.set_border_window_size(Gtk::TEXT_WINDOW_RIGHT,  std::max(0, wRight));
+    textView.set_border_window_size(Gtk::TEXT_WINDOW_BOTTOM, std::max(0, wBottom));
+    textView.set_border_window_size(Gtk::TEXT_WINDOW_LEFT,   std::max(0, wLeft));
+
+    _cornerColor = cornerColor;
+    if (wTop > 0 || wRight > 0 || wBottom > 0 || wLeft > 0) {
+        _rCssProviderCellBorder = Gtk::CssProvider::create();
+        // cornerColor (caller-computed from sequence numbers) fills the corner
+        // gaps between border windows so junctions show the most recent style.
+        std::string css = "textview { background-color: " + cornerColor + "; } ";
+        if (wTop > 0)    css += "textview border.top { background-color: " + colorTop + "; } ";
+        if (wRight > 0)  css += "textview border.right { background-color: " + colorRight + "; } ";
+        if (wBottom > 0) css += "textview border.bottom { background-color: " + colorBottom + "; } ";
+        if (wLeft > 0)   css += "textview border.left { background-color: " + colorLeft + "; } ";
+        _rCssProviderCellBorder->load_from_data(css);
+        styleCtx->add_provider(_rCssProviderCellBorder, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
     }
-
-    textView.set_border_window_size(Gtk::TEXT_WINDOW_LEFT, width);
-    textView.set_border_window_size(Gtk::TEXT_WINDOW_RIGHT, width);
-    textView.set_border_window_size(Gtk::TEXT_WINDOW_TOP, width);
-    textView.set_border_window_size(Gtk::TEXT_WINDOW_BOTTOM, width);
-
-    _rCssProviderCellBorder = Gtk::CssProvider::create();
-    const std::string css = "textview border { background-color: " + hexColor + "; }";
-    _rCssProviderCellBorder->load_from_data(css);
-    styleCtx->add_provider(_rCssProviderCellBorder, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 }
 
 void CtTextCell::applySelectionHighlight(bool selected)

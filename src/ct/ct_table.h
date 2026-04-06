@@ -32,13 +32,17 @@
 
 struct CtTableStyle {
     int borderWidth{1};
-    std::string borderColor{"#808080"};
+    std::string borderColor{"#000000"};
     std::string tableBgColor;
     // sparse map: (row,col) -> hex color string. Missing key = use tableBgColor/default.
     std::map<std::pair<size_t,size_t>, std::string> cellBgColors;
     // sparse maps: per-cell border overrides. Missing key = use table-level borderWidth/borderColor.
     std::map<std::pair<size_t,size_t>, int> cellBorderWidths;
     std::map<std::pair<size_t,size_t>, std::string> cellBorderColors;
+    // Per-cell sequence numbers for border override ordering.
+    // Higher sequence = more recent operation; used to resolve shared-edge priority.
+    std::map<std::pair<size_t,size_t>, size_t> cellBorderSeq;
+    size_t borderSeqCounter{0};
 
     void remapAfterRowDelete(size_t row);
     void remapAfterRowInsert(size_t afterRow);

@@ -667,19 +667,33 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
         content_area->pack_start(checkbutton_is_light);
     } else if (pTableStyle) {
         // Edit mode: show border / background style controls
-        auto label_border = Gtk::Label{std::string("<b>") + _("Border") + "</b>"};
-        label_border.set_use_markup();
-        label_border.set_halign(Gtk::Align::ALIGN_START);
-        label_border.set_margin_top(8);
+        enum class PropScope { None = 0, Cell, Row, Column, Table };
 
         const bool hasSelection = !selectedCells.empty();
 
-        auto label_bw = Gtk::Label{_("Border Width")};
-        label_bw.set_halign(Gtk::Align::ALIGN_START);
+        auto expandScope = [&](PropScope scope) -> std::set<std::pair<size_t,size_t>> {
+            if (scope == PropScope::Table || scope == PropScope::None) return {};
+            if (scope == PropScope::Cell) return selectedCells;
+            std::set<std::pair<size_t,size_t>> expanded;
+            if (scope == PropScope::Row) {
+                std::set<size_t> rows;
+                for (const auto& [r, c] : selectedCells) rows.insert(r);
+                for (size_t r : rows)
+                    for (size_t c = 0; c < numCols; ++c)
+                        expanded.emplace(r, c);
+            } else { // Column
+                std::set<size_t> cols;
+                for (const auto& [r, c] : selectedCells) cols.insert(c);
+                for (size_t c : cols)
+                    for (size_t r = 0; r < numRows; ++r)
+                        expanded.emplace(r, c);
+            }
+            return expanded;
+        };
 
-        // When cells are selected, initialize border controls from per-cell values
+        // Initialize border controls from selection or table defaults
         int initialBorderWidth = pTableStyle->borderWidth;
-        std::string initialBorderColor = pTableStyle->borderColor.empty() ? "#808080" : pTableStyle->borderColor;
+        std::string initialBorderColor = pTableStyle->borderColor.empty() ? "#000000" : pTableStyle->borderColor;
         if (hasSelection) {
             bool bwFirst{true}, bcFirst{true}, bwMixed{false}, bcMixed{false};
             for (const auto& cell : selectedCells) {
@@ -694,68 +708,135 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
                 else if (cellBc != initialBorderColor) { bcMixed = true; }
             }
             if (bwMixed) initialBorderWidth = pTableStyle->borderWidth;
-            if (bcMixed) initialBorderColor = pTableStyle->borderColor.empty() ? "#808080" : pTableStyle->borderColor;
+            if (bcMixed) initialBorderColor = pTableStyle->borderColor.empty() ? "#000000" : pTableStyle->borderColor;
         }
 
         auto adj_bw = Gtk::Adjustment::create(initialBorderWidth, 0, 10, 1);
         auto spinbutton_bw = Gtk::SpinButton{adj_bw};
         spinbutton_bw.set_value(initialBorderWidth);
+        spinbutton_bw.set_sensitive(false);
+
+        auto label_bw = Gtk::Label{_("Border Width")};
+        label_bw.set_halign(Gtk::Align::ALIGN_START);
+        label_bw.set_sensitive(false);
 
         auto label_bc = Gtk::Label{_("Border Color")};
         label_bc.set_halign(Gtk::Align::ALIGN_START);
+        label_bc.set_sensitive(false);
         Gdk::RGBA borderRgba;
         borderRgba.set(initialBorderColor);
         auto colorbutton_border = Gtk::ColorButton{borderRgba};
         colorbutton_border.set_use_alpha(false);
+        colorbutton_border.set_sensitive(false);
 
-        auto label_bg = Gtk::Label{std::string("<b>") + _("Background") + "</b>"};
-        label_bg.set_use_markup();
-        label_bg.set_halign(Gtk::Align::ALIGN_START);
-        label_bg.set_margin_top(8);
-
-        // When cells are selected: show their common color; otherwise show table bg
+        // Initialize background controls from selection or table defaults
         Gdk::RGBA bgRgba;
         std::string initialBgColor;
-        bool bgMixed{false};
         if (hasSelection) {
+            bool bgFirst{true}, bgMixed{false};
             for (const auto& cell : selectedCells) {
                 auto it = pTableStyle->cellBgColors.find(cell);
                 const std::string& clr = (it != pTableStyle->cellBgColors.end()) ? it->second : std::string{};
-                if (initialBgColor.empty() && !bgMixed) {
-                    initialBgColor = clr;
-                } else if (initialBgColor != clr) {
-                    bgMixed = true;
-                }
+                if (bgFirst) { initialBgColor = clr; bgFirst = false; }
+                else if (initialBgColor != clr) { bgMixed = true; }
             }
+            if (bgMixed) initialBgColor.clear();
         } else {
             initialBgColor = pTableStyle->tableBgColor;
         }
-        if (!initialBgColor.empty() && !bgMixed) bgRgba.set(initialBgColor);
+        if (!initialBgColor.empty()) bgRgba.set(initialBgColor);
         else bgRgba.set("#ffffff");
 
         auto label_bgc = Gtk::Label{_("Background Color")};
         label_bgc.set_halign(Gtk::Align::ALIGN_START);
+        label_bgc.set_sensitive(false);
         auto colorbutton_bg = Gtk::ColorButton{bgRgba};
         colorbutton_bg.set_use_alpha(false);
+        colorbutton_bg.set_sensitive(false);
         auto button_clear_bg = Gtk::Button{_("Clear")};
+        button_clear_bg.set_sensitive(false);
 
-        Gtk::Grid style_grid;
-        style_grid.property_margin() = 6;
-        style_grid.set_row_spacing(4);
-        style_grid.set_column_spacing(8);
-        style_grid.set_row_homogeneous(true);
-        style_grid.attach(label_border,         0, 0, 4, 1);
-        style_grid.attach(label_bw,             0, 1, 1, 1);
-        style_grid.attach(spinbutton_bw,        1, 1, 1, 1);
-        style_grid.attach(label_bc,             2, 1, 1, 1);
-        style_grid.attach(colorbutton_border,   3, 1, 1, 1);
-        style_grid.attach(label_bg,             0, 2, 4, 1);
-        style_grid.attach(label_bgc,            0, 3, 1, 1);
-        style_grid.attach(colorbutton_bg,       1, 3, 1, 1);
-        style_grid.attach(button_clear_bg,      2, 3, 1, 1);
+        // Border frame
+        auto label_border_frame = Gtk::Label{std::string("<b>") + _("Border") + "</b>"};
+        label_border_frame.set_use_markup();
+        auto frame_border = Gtk::Frame{};
+        frame_border.set_label_widget(label_border_frame);
+        frame_border.set_margin_top(8);
 
-        content_area->pack_start(style_grid);
+        auto label_apply_border = Gtk::Label{_("Apply to:")};
+        label_apply_border.set_halign(Gtk::Align::ALIGN_START);
+        auto combo_scope_border = Gtk::ComboBoxText{};
+        combo_scope_border.append(_("None"));
+        combo_scope_border.append(_("Cell"));
+        combo_scope_border.append(_("Row"));
+        combo_scope_border.append(_("Column"));
+        combo_scope_border.append(_("Table"));
+        combo_scope_border.set_active(0);
+
+        Gtk::Grid border_grid;
+        border_grid.property_margin() = 6;
+        border_grid.set_row_spacing(4);
+        border_grid.set_column_spacing(8);
+        border_grid.attach(label_apply_border,  0, 0, 1, 1);
+        border_grid.attach(combo_scope_border,  1, 0, 3, 1);
+        border_grid.attach(label_bw,            0, 1, 1, 1);
+        border_grid.attach(spinbutton_bw,       1, 1, 1, 1);
+        border_grid.attach(label_bc,            2, 1, 1, 1);
+        border_grid.attach(colorbutton_border,  3, 1, 1, 1);
+        frame_border.add(border_grid);
+
+        // Background frame
+        auto label_bg_frame = Gtk::Label{std::string("<b>") + _("Background") + "</b>"};
+        label_bg_frame.set_use_markup();
+        auto frame_bg = Gtk::Frame{};
+        frame_bg.set_label_widget(label_bg_frame);
+        frame_bg.set_margin_top(8);
+
+        auto label_apply_bg = Gtk::Label{_("Apply to:")};
+        label_apply_bg.set_halign(Gtk::Align::ALIGN_START);
+        auto combo_scope_bg = Gtk::ComboBoxText{};
+        combo_scope_bg.append(_("None"));
+        combo_scope_bg.append(_("Cell"));
+        combo_scope_bg.append(_("Row"));
+        combo_scope_bg.append(_("Column"));
+        combo_scope_bg.append(_("Table"));
+        combo_scope_bg.set_active(0);
+
+        Gtk::Grid bg_grid;
+        bg_grid.property_margin() = 6;
+        bg_grid.set_row_spacing(4);
+        bg_grid.set_column_spacing(8);
+        bg_grid.attach(label_apply_bg,   0, 0, 1, 1);
+        bg_grid.attach(combo_scope_bg,   1, 0, 3, 1);
+        bg_grid.attach(label_bgc,        0, 1, 1, 1);
+        bg_grid.attach(colorbutton_bg,   1, 1, 1, 1);
+        bg_grid.attach(button_clear_bg,  2, 1, 1, 1);
+        frame_bg.add(bg_grid);
+
+        content_area->pack_start(frame_border);
+        content_area->pack_start(frame_bg);
         content_area->show_all();
+
+        auto borderScopeFromCombo = [&]() -> PropScope {
+            return static_cast<PropScope>(combo_scope_border.get_active_row_number());
+        };
+        auto bgScopeFromCombo = [&]() -> PropScope {
+            return static_cast<PropScope>(combo_scope_bg.get_active_row_number());
+        };
+
+        combo_scope_border.signal_changed().connect([&](){
+            const bool active = borderScopeFromCombo() != PropScope::None;
+            spinbutton_bw.set_sensitive(active);
+            colorbutton_border.set_sensitive(active);
+            label_bw.set_sensitive(active);
+            label_bc.set_sensitive(active);
+        });
+        combo_scope_bg.signal_changed().connect([&](){
+            const bool active = bgScopeFromCombo() != PropScope::None;
+            colorbutton_bg.set_sensitive(active);
+            button_clear_bg.set_sensitive(active);
+            label_bgc.set_sensitive(active);
+        });
 
         bool bgCleared{false};
         button_clear_bg.signal_clicked().connect([&](){
@@ -784,57 +865,54 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
         const auto resp2 = dialog.run();
         pCtConfig->tableColWidthDefault = spinbutton_col_width.get_value_as_int();
         if (Gtk::RESPONSE_ACCEPT == resp2) {
-            const int newBorderWidth = spinbutton_bw.get_value_as_int();
-            auto bc = colorbutton_border.get_rgba();
-            char hex[8];
-            snprintf(hex, sizeof(hex), "#%02x%02x%02x",
-                     (int)(bc.get_red()*255), (int)(bc.get_green()*255), (int)(bc.get_blue()*255));
-            const std::string newBorderColor{hex};
-            if (hasSelection) {
-                // Per-cell border: store overrides only if actually changed
-                const bool borderChanged = (newBorderWidth != initialBorderWidth) ||
-                                           (newBorderColor != initialBorderColor);
-                if (borderChanged) {
-                    for (const auto& cell : selectedCells) {
-                        pTableStyle->cellBorderWidths[cell] = newBorderWidth;
-                        pTableStyle->cellBorderColors[cell] = newBorderColor;
-                    }
-                }
-            } else {
-                // Table-wide border: update table defaults and clear per-cell overrides
-                pTableStyle->borderWidth = newBorderWidth;
-                pTableStyle->borderColor = newBorderColor;
-                pTableStyle->cellBorderWidths.clear();
-                pTableStyle->cellBorderColors.clear();
-            }
-            // Background: applies to selected cells or whole table
-            auto bg = colorbutton_bg.get_rgba();
-            char bhex[8];
-            snprintf(bhex, sizeof(bhex), "#%02x%02x%02x",
-                     (int)(bg.get_red()*255), (int)(bg.get_green()*255), (int)(bg.get_blue()*255));
-            if (hasSelection) {
-                if (bgCleared) {
-                    for (const auto& cell : selectedCells) {
-                        pTableStyle->cellBgColors.erase(cell);
-                    }
+            const auto borderScope = borderScopeFromCombo();
+            if (borderScope != PropScope::None) {
+                const int newBW = spinbutton_bw.get_value_as_int();
+                auto bc = colorbutton_border.get_rgba();
+                char hex[8];
+                snprintf(hex, sizeof(hex), "#%02x%02x%02x",
+                         (int)(bc.get_red()*255), (int)(bc.get_green()*255), (int)(bc.get_blue()*255));
+                const std::string newBC{hex};
+                if (borderScope == PropScope::Table) {
+                    pTableStyle->borderWidth = newBW;
+                    pTableStyle->borderColor = newBC;
+                    pTableStyle->cellBorderWidths.clear();
+                    pTableStyle->cellBorderColors.clear();
+                    pTableStyle->cellBorderSeq.clear();
                 } else {
-                    const bool colorChanged = bgMixed || std::string{bhex} != initialBgColor;
-                    if (colorChanged) {
-                        for (const auto& cell : selectedCells) {
-                            pTableStyle->cellBgColors[cell] = bhex;
-                        }
+                    ++pTableStyle->borderSeqCounter;
+                    for (const auto& cell : expandScope(borderScope)) {
+                        pTableStyle->cellBorderWidths[cell] = newBW;
+                        pTableStyle->cellBorderColors[cell] = newBC;
+                        pTableStyle->cellBorderSeq[cell] = pTableStyle->borderSeqCounter;
                     }
-                }
-            } else {
-                // Whole table: clear all per-cell colors and set table bg
-                pTableStyle->cellBgColors.clear();
-                if (bgCleared) {
-                    pTableStyle->tableBgColor.clear();
-                } else {
-                    pTableStyle->tableBgColor = bhex;
                 }
             }
-            return TableHandleResp::Ok;
+
+            const auto bgScope = bgScopeFromCombo();
+            if (bgScope != PropScope::None) {
+                auto bg = colorbutton_bg.get_rgba();
+                char bhex[8];
+                snprintf(bhex, sizeof(bhex), "#%02x%02x%02x",
+                         (int)(bg.get_red()*255), (int)(bg.get_green()*255), (int)(bg.get_blue()*255));
+                if (bgScope == PropScope::Table) {
+                    pTableStyle->cellBgColors.clear();
+                    if (bgCleared) pTableStyle->tableBgColor.clear();
+                    else pTableStyle->tableBgColor = bhex;
+                } else {
+                    const auto cells = expandScope(bgScope);
+                    if (bgCleared) {
+                        for (const auto& cell : cells) pTableStyle->cellBgColors.erase(cell);
+                    } else {
+                        for (const auto& cell : cells) pTableStyle->cellBgColors[cell] = bhex;
+                    }
+                }
+            }
+
+            if (borderScope != PropScope::None || bgScope != PropScope::None) {
+                return TableHandleResp::Ok;
+            }
+            return TableHandleResp::Cancel;
         }
         return TableHandleResp::Cancel;
     }
