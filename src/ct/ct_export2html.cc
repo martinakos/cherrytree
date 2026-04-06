@@ -448,7 +448,7 @@ Glib::ustring CtExport2Html::_get_table_html(CtTableCommon* table)
     const CtTableStyle& style = table->getTableStyle();
 
     // Only emit inline styles when they differ from the default appearance
-    const bool hasCustomBorder = (style.borderWidth != 1 || style.borderColor != "#808080");
+    const bool hasCustomBorder = (style.borderWidth != 1 || style.borderColor != "#000000");
     const bool hasCustomBg = !style.tableBgColor.empty();
     const bool hasCustomCellBg = !style.cellBgColors.empty();
 
