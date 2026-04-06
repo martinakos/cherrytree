@@ -51,15 +51,20 @@ public:
     // Apply (or clear) per-side borders on this cell's text view.
     // Each side width <= 0 means no border on that side.
     // Per-side colors allow different colors on shared edges (collapsed-border model).
-    // cornerColor fills the corner gaps where border windows meet; caller should
-    // pass the color of the most-recently-styled visible edge.
+    // The four cornerColor* args fill the corner gaps independently: each corner
+    // is determined by the two edges meeting there (highest sequence wins).
     void applyCellBorder(int wTop, int wRight, int wBottom, int wLeft,
                          const std::string& colorTop, const std::string& colorRight,
                          const std::string& colorBottom, const std::string& colorLeft,
-                         const std::string& cornerColor);
+                         const std::string& cornerColorTL, const std::string& cornerColorTR,
+                         const std::string& cornerColorBL, const std::string& cornerColorBR);
 
-    // Returns the corner color last set by applyCellBorder (for testing).
-    const std::string& getCornerColor() const { return _cornerColor; }
+    // Returns the BR corner color last set by applyCellBorder (for testing).
+    const std::string& getCornerColor() const { return _cornerColorBR; }
+    const std::string& getCornerColorTL() const { return _cornerColorTL; }
+    const std::string& getCornerColorTR() const { return _cornerColorTR; }
+    const std::string& getCornerColorBL() const { return _cornerColorBL; }
+    const std::string& getCornerColorBR() const { return _cornerColorBR; }
 
 protected:
     std::string _syntaxHighlighting;
@@ -68,7 +73,11 @@ protected:
     std::unique_ptr<CtPairCodeboxMainWin> _uCtPairCodeboxMainWin;
     Glib::RefPtr<Gtk::CssProvider> _rCssProviderCellBg;
     Glib::RefPtr<Gtk::CssProvider> _rCssProviderCellBorder;
-    std::string _cornerColor;
+    std::string _cornerColorTL;
+    std::string _cornerColorTR;
+    std::string _cornerColorBL;
+    std::string _cornerColorBR;
+    sigc::connection _drawConn;
 };
 
 class CtCodebox : public CtAnchoredWidget, public CtTextCell
