@@ -48,6 +48,12 @@ struct CtTableStyle {
     void remapAfterRowInsert(size_t afterRow);
     void remapAfterColDelete(size_t col);
     void remapAfterColInsert(size_t afterCol);
+
+    // Copy per-cell style from srcRow into dstRow (for all columns < numCols).
+    // Used after row insert so a new row inherits the format of the source row.
+    void cloneRowStyle(size_t srcRow, size_t dstRow, size_t numCols);
+    // Copy per-cell style from srcCol into dstCol (for all rows < numRows).
+    void cloneColStyle(size_t srcCol, size_t dstCol, size_t numRows);
 };
 
 class CtAnchoredWidgetState_TableCommon;
