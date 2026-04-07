@@ -122,6 +122,47 @@ void CtTableStyle::remapAfterColInsert(size_t afterCol)
     _remapColInsert(cellBorderSeq, afterCol);
 }
 
+namespace {
+template<typename V>
+static void _cloneRowEntries(std::map<std::pair<size_t,size_t>, V>& m,
+                             size_t srcRow, size_t dstRow, size_t numCols) {
+    std::vector<std::pair<size_t, V>> toAdd;
+    for (size_t c = 0; c < numCols; ++c) {
+        auto it = m.find({srcRow, c});
+        if (it != m.end()) toAdd.emplace_back(c, it->second);
+    }
+    for (auto& [c, v] : toAdd) m[{dstRow, c}] = v;
+}
+template<typename V>
+static void _cloneColEntries(std::map<std::pair<size_t,size_t>, V>& m,
+                             size_t srcCol, size_t dstCol, size_t numRows) {
+    std::vector<std::pair<size_t, V>> toAdd;
+    for (size_t r = 0; r < numRows; ++r) {
+        auto it = m.find({r, srcCol});
+        if (it != m.end()) toAdd.emplace_back(r, it->second);
+    }
+    for (auto& [r, v] : toAdd) m[{r, dstCol}] = v;
+}
+} // namespace
+
+void CtTableStyle::cloneRowStyle(size_t srcRow, size_t dstRow, size_t numCols)
+{
+    if (srcRow == dstRow) return;
+    _cloneRowEntries(cellBgColors, srcRow, dstRow, numCols);
+    _cloneRowEntries(cellBorderWidths, srcRow, dstRow, numCols);
+    _cloneRowEntries(cellBorderColors, srcRow, dstRow, numCols);
+    _cloneRowEntries(cellBorderSeq, srcRow, dstRow, numCols);
+}
+
+void CtTableStyle::cloneColStyle(size_t srcCol, size_t dstCol, size_t numRows)
+{
+    if (srcCol == dstCol) return;
+    _cloneColEntries(cellBgColors, srcCol, dstCol, numRows);
+    _cloneColEntries(cellBorderWidths, srcCol, dstCol, numRows);
+    _cloneColEntries(cellBorderColors, srcCol, dstCol, numRows);
+    _cloneColEntries(cellBorderSeq, srcCol, dstCol, numRows);
+}
+
 // ─── CtTableCommon style helpers ─────────────────────────────────────────────
 
 void CtTableCommon::setTableStyle(const CtTableStyle& style)
@@ -660,6 +701,8 @@ void CtTableHeavy::column_add(const size_t afterColIdx, const std::vector<Glib::
         _new_text_cell_attach(rowIdx, newColIdx, pTextCell);
     }
     _tableStyle.remapAfterColInsert(afterColIdx);
+    _tableStyle.cloneColStyle(afterColIdx, newColIdx, num_rows);
+    _applyTableStyle();
 }
 
 void CtTableHeavy::column_delete(const size_t colIdx)
@@ -723,6 +766,8 @@ void CtTableHeavy::row_add(const size_t afterRowIdx, const std::vector<Glib::ust
         _new_text_cell_attach(newRowIdx, colIdx, pTextCell);
     }
     _tableStyle.remapAfterRowInsert(afterRowIdx);
+    _tableStyle.cloneRowStyle(afterRowIdx, newRowIdx, num_columns);
+    _applyTableStyle();
 }
 
 void CtTableHeavy::row_delete(const size_t rowIdx)
@@ -1557,7 +1602,13 @@ void CtTableRich::column_add(const size_t afterColIdx, const std::vector<Glib::u
         _tableMatrix.at(r).insert(_tableMatrix.at(r).begin() + newColIdx, pCell);
         _new_rich_cell_attach(r, newColIdx, pCell);
     }
+    // Inherit width of source column so the new column matches visually.
+    _colWidths[newColIdx] = _colWidths[afterColIdx];
     _tableStyle.remapAfterColInsert(afterColIdx);
+    // Clone per-cell formatting (bg colors, border overrides) from the source
+    // column so the new column matches the column where the cursor was.
+    _tableStyle.cloneColStyle(afterColIdx, newColIdx, numRows);
+    _applyTableStyle();
 }
 
 void CtTableRich::column_delete(const size_t colIdx)
@@ -1610,6 +1661,10 @@ void CtTableRich::row_add(const size_t afterRowIdx, const std::vector<Glib::ustr
         _new_rich_cell_attach(newRowIdx, c, pCell);
     }
     _tableStyle.remapAfterRowInsert(afterRowIdx);
+    // Clone per-cell formatting (bg colors, border overrides) from the source
+    // row so the new row matches the row where the cursor was.
+    _tableStyle.cloneRowStyle(afterRowIdx, newRowIdx, numCols);
+    _applyTableStyle();
 }
 
 void CtTableRich::row_delete(const size_t rowIdx)
