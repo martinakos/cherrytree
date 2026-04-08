@@ -1591,14 +1591,18 @@ void CtTableRich::write_strings_matrix(std::vector<std::vector<Glib::ustring>>& 
     }
 }
 
-void CtTableRich::column_add(const size_t afterColIdx, const std::vector<Glib::ustring>* /*pNewColumn*/)
+void CtTableRich::column_add(const size_t afterColIdx, const std::vector<Glib::ustring>* pNewColumn)
 {
     const size_t newColIdx = afterColIdx + 1;
     _grid.insert_column(newColIdx);
     _colWidths.insert(_colWidths.begin() + newColIdx, 0);
     const size_t numRows = get_num_rows();
     for (size_t r = 0u; r < numRows; ++r) {
-        auto* pCell = new CtRichCell{_pCtMainWin, CtCellContent{}};
+        CtCellContent content;
+        if (pNewColumn && r < pNewColumn->size() && !pNewColumn->at(r).empty()) {
+            content.textSpans.push_back(CtTextSpan{pNewColumn->at(r)});
+        }
+        auto* pCell = new CtRichCell{_pCtMainWin, content};
         _tableMatrix.at(r).insert(_tableMatrix.at(r).begin() + newColIdx, pCell);
         _new_rich_cell_attach(r, newColIdx, pCell);
     }
@@ -1649,14 +1653,18 @@ void CtTableRich::column_move_right(const size_t colIdx)
     grab_focus();
 }
 
-void CtTableRich::row_add(const size_t afterRowIdx, const std::vector<Glib::ustring>* /*pNewRow*/)
+void CtTableRich::row_add(const size_t afterRowIdx, const std::vector<Glib::ustring>* pNewRow)
 {
     const size_t newRowIdx = afterRowIdx + 1;
     _tableMatrix.insert(_tableMatrix.begin() + newRowIdx, CtTableRow{});
     _grid.insert_row(newRowIdx);
     const size_t numCols = get_num_columns();
     for (size_t c = 0u; c < numCols; ++c) {
-        auto* pCell = new CtRichCell{_pCtMainWin, CtCellContent{}};
+        CtCellContent content;
+        if (pNewRow && c < pNewRow->size() && !pNewRow->at(c).empty()) {
+            content.textSpans.push_back(CtTextSpan{pNewRow->at(c)});
+        }
+        auto* pCell = new CtRichCell{_pCtMainWin, content};
         _tableMatrix.at(newRowIdx).push_back(pCell);
         _new_rich_cell_attach(newRowIdx, c, pCell);
     }

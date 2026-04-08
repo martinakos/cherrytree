@@ -970,12 +970,110 @@ void CtClipboard::on_received_to_table(const Gtk::SelectionData& selection_data,
     }
 
     if (parentTable) {
+        auto* tableElem = static_cast<xmlpp::Element*>(parser.get_document()->get_root_node()->get_first_child("table"));
+        const bool clipboardIsRich = CtStrUtil::is_str_true(tableElem->get_attribute_value("is_rich"));
+        auto* parentRich = dynamic_cast<CtTableRich*>(parentTable);
+
+        // Rich-to-rich path: preserve formatting (spans + embedded widgets + per-cell style).
+        if (parentRich && clipboardIsRich) {
+            // Parse the clipboard XML into a temporary CtTableRich so we can use
+            // its already-built rich-cell content extraction.
+            std::unique_ptr<CtTableRich> tmpRich{
+                static_cast<CtTableRich*>(
+                    CtStorageXmlHelper{_pCtMainWin}._create_rich_table_from_xml(
+                        tableElem, 0/*charOffset*/, CtConst::TAG_PROP_VAL_LEFT,
+                        parentRich->get_col_width_default(), CtTableColWidths{}))};
+            const CtTableStyle& srcStyle = tmpRich->getTableStyle();
+            CtTableStyle dstStyle = parentRich->getTableStyle();
+
+            if (is_column) {
+                // Column paste: insert one new column after current column,
+                // populate from temp single-column data, copy per-cell style.
+                const size_t insert_after = parentRich->current_column();
+                const size_t newColIdx = insert_after + 1;
+                parentRich->column_add(insert_after);
+                const size_t srcRows = tmpRich->get_num_rows();
+                const size_t copyRows = std::min(srcRows, parentRich->get_num_rows());
+                for (size_t r = 0; r < copyRows; ++r) {
+                    parentRich->getRichCell(r, newColIdx)->populateFromContent(
+                        tmpRich->getRichCell(r, 0)->extractContent());
+                }
+                // Replace any cloned style at the new column with the source column's style.
+                auto stripCol = [](auto& m, size_t col){
+                    for (auto it = m.begin(); it != m.end();) {
+                        if (it->first.second == col) it = m.erase(it); else ++it;
+                    }
+                };
+                stripCol(dstStyle.cellBgColors, newColIdx);
+                stripCol(dstStyle.cellBorderWidths, newColIdx);
+                stripCol(dstStyle.cellBorderColors, newColIdx);
+                stripCol(dstStyle.cellBorderSeq, newColIdx);
+                auto remapCol = [&](const auto& srcMap, auto& dstMap){
+                    for (const auto& [key, val] : srcMap) {
+                        if (key.first < copyRows) dstMap[{key.first, newColIdx}] = val;
+                    }
+                };
+                remapCol(srcStyle.cellBgColors, dstStyle.cellBgColors);
+                remapCol(srcStyle.cellBorderWidths, dstStyle.cellBorderWidths);
+                remapCol(srcStyle.cellBorderColors, dstStyle.cellBorderColors);
+                remapCol(srcStyle.cellBorderSeq, dstStyle.cellBorderSeq);
+                parentRich->setTableStyle(dstStyle);
+            }
+            else {
+                // Row paste: table_row_copy puts the selected row into row 0
+                // of a 1-row CtTableRich clipboard temp. Insert exactly one
+                // row into the destination and copy from temp row 0.
+                const size_t insert_after = parentRich->current_row();
+                const size_t newRowIdx = insert_after + 1;
+                parentRich->row_add(insert_after);
+                const size_t srcRowIdx = 0;
+                const size_t copyCols = std::min(tmpRich->get_num_columns(), parentRich->get_num_columns());
+                for (size_t c = 0; c < copyCols; ++c) {
+                    parentRich->getRichCell(newRowIdx, c)->populateFromContent(
+                        tmpRich->getRichCell(srcRowIdx, c)->extractContent());
+                }
+                // Refresh dstStyle (row_add may have shifted entries via
+                // remapAfterRowInsert) and strip cloned entries at newRowIdx
+                // that we are about to replace.
+                dstStyle = parentRich->getTableStyle();
+                auto stripRow = [](auto& m, size_t row){
+                    for (auto it = m.begin(); it != m.end();) {
+                        if (it->first.first == row) it = m.erase(it); else ++it;
+                    }
+                };
+                stripRow(dstStyle.cellBgColors, newRowIdx);
+                stripRow(dstStyle.cellBorderWidths, newRowIdx);
+                stripRow(dstStyle.cellBorderColors, newRowIdx);
+                stripRow(dstStyle.cellBorderSeq, newRowIdx);
+                const size_t copyColsStyle = parentRich->get_num_columns();
+                auto remapRow = [&](const auto& srcMap, auto& dstMap){
+                    for (const auto& [key, val] : srcMap) {
+                        if (key.first != srcRowIdx) continue;
+                        if (key.second >= copyColsStyle) continue;
+                        dstMap[{newRowIdx, key.second}] = val;
+                    }
+                };
+                remapRow(srcStyle.cellBgColors, dstStyle.cellBgColors);
+                remapRow(srcStyle.cellBorderWidths, dstStyle.cellBorderWidths);
+                remapRow(srcStyle.cellBorderColors, dstStyle.cellBorderColors);
+                remapRow(srcStyle.cellBorderSeq, dstStyle.cellBorderSeq);
+                parentRich->setTableStyle(dstStyle);
+            }
+            _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
+            // End paste operation for command tracking
+            if (pBridge && pBridge->isActive()) {
+                pBridge->endPaste();
+                pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+            }
+            return;
+        }
+
         CtTableMatrix tableFromClipboardMatrix;
         CtTableColWidths tableColWidths;
         bool is_light{parentTable->get_is_light()};
         CtStorageXmlHelper{_pCtMainWin}.populate_table_matrix(
             tableFromClipboardMatrix,
-            static_cast<xmlpp::Element*>(parser.get_document()->get_root_node()->get_first_child("table")),
+            tableElem,
             tableColWidths,
             is_light);
 

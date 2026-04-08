@@ -910,11 +910,49 @@ void CtActions::table_column_copy()
 {
     if (not _is_there_anch_widg_selection_or_error('t')) return;
 
-    // Extract current column into a new single-column table
+    const size_t curr_col = curr_table_anchor->current_column();
+
+    // Rich table: preserve formatting by building a CtTableRich for the clipboard.
+    if (auto* pSrcRich = dynamic_cast<CtTableRich*>(curr_table_anchor)) {
+        const size_t num_rows = pSrcRich->get_num_rows();
+        std::vector<std::vector<CtCellContent>> richData;
+        richData.reserve(num_rows);
+        for (size_t r = 0; r < num_rows; ++r) {
+            richData.push_back({pSrcRich->getRichCell(r, curr_col)->extractContent()});
+        }
+        CtTableColWidths col_widths{curr_table_anchor->get_col_width()};
+        auto* pNewRich = new CtTableRich{
+            _pCtMainWin, richData, curr_table_anchor->get_col_width_default(),
+            0/*charOffset*/, CtConst::TAG_PROP_VAL_LEFT, col_widths};
+
+        // Carry over per-cell style entries for the selected column,
+        // re-indexed to column 0 in the temp table.
+        const CtTableStyle& srcStyle = pSrcRich->getTableStyle();
+        CtTableStyle dstStyle;
+        dstStyle.borderWidth = srcStyle.borderWidth;
+        dstStyle.borderColor = srcStyle.borderColor;
+        dstStyle.tableBgColor = srcStyle.tableBgColor;
+        dstStyle.borderSeqCounter = srcStyle.borderSeqCounter;
+        auto copyColEntries = [&](const auto& srcMap, auto& dstMap) {
+            for (const auto& [key, val] : srcMap) {
+                if (key.second == curr_col) dstMap[{key.first, 0}] = val;
+            }
+        };
+        copyColEntries(srcStyle.cellBgColors, dstStyle.cellBgColors);
+        copyColEntries(srcStyle.cellBorderWidths, dstStyle.cellBorderWidths);
+        copyColEntries(srcStyle.cellBorderColors, dstStyle.cellBorderColors);
+        copyColEntries(srcStyle.cellBorderSeq, dstStyle.cellBorderSeq);
+        pNewRich->setTableStyle(dstStyle);
+
+        CtClipboard{_pCtMainWin}.table_column_to_clipboard(pNewRich);
+        delete pNewRich;
+        return;
+    }
+
+    // Heavy / Light: extract plain strings and build a heavy/light temp table.
     std::vector<std::vector<Glib::ustring>> string_rows;
     curr_table_anchor->write_strings_matrix(string_rows);
 
-    const size_t curr_col = curr_table_anchor->current_column();
     const size_t num_rows = string_rows.size();
 
     // Build single-column matrix with current column
@@ -1115,11 +1153,56 @@ void CtActions::table_row_copy()
 {
     if (not _is_there_anch_widg_selection_or_error('t')) return;
 
-    // Extract header + current row into a new two-row table
+    const size_t curr_row = curr_table_anchor->current_row();
+
+    // Rich table: preserve formatting by building a CtTableRich for the clipboard.
+    if (auto* pSrcRich = dynamic_cast<CtTableRich*>(curr_table_anchor)) {
+        const size_t num_cols = pSrcRich->get_num_columns();
+        // Single-row matrix containing only the selected row's content.
+        // CtTableRich treats _tableMatrix[0] as the header row, so this row
+        // becomes both header and only data row of the temp clipboard table.
+        // This means: (a) Ctrl+V into the document body inserts a 1-row table
+        // widget, and (b) Edit > Paste Row into a rich table pastes exactly
+        // the selected row (the rich-rich paste path knows to read row 0).
+        std::vector<std::vector<CtCellContent>> richData(1);
+        richData[0].reserve(num_cols);
+        for (size_t c = 0; c < num_cols; ++c) {
+            richData[0].push_back(pSrcRich->getRichCell(curr_row, c)->extractContent());
+        }
+        CtTableColWidths col_widths = curr_table_anchor->get_col_widths();
+        auto* pNewRich = new CtTableRich{
+            _pCtMainWin, richData, curr_table_anchor->get_col_width_default(),
+            0/*charOffset*/, CtConst::TAG_PROP_VAL_LEFT, col_widths};
+
+        // Carry over per-cell style entries from the selected row, re-indexed
+        // to row 0 of the temp clipboard table.
+        const CtTableStyle& srcStyle = pSrcRich->getTableStyle();
+        CtTableStyle dstStyle;
+        dstStyle.borderWidth = srcStyle.borderWidth;
+        dstStyle.borderColor = srcStyle.borderColor;
+        dstStyle.tableBgColor = srcStyle.tableBgColor;
+        dstStyle.borderSeqCounter = srcStyle.borderSeqCounter;
+        auto copyRowEntries = [&](const auto& srcMap, auto& dstMap) {
+            for (const auto& [key, val] : srcMap) {
+                if (key.first == curr_row) {
+                    dstMap[{0, key.second}] = val;
+                }
+            }
+        };
+        copyRowEntries(srcStyle.cellBgColors, dstStyle.cellBgColors);
+        copyRowEntries(srcStyle.cellBorderWidths, dstStyle.cellBorderWidths);
+        copyRowEntries(srcStyle.cellBorderColors, dstStyle.cellBorderColors);
+        copyRowEntries(srcStyle.cellBorderSeq, dstStyle.cellBorderSeq);
+        pNewRich->setTableStyle(dstStyle);
+
+        CtClipboard{_pCtMainWin}.table_row_to_clipboard(pNewRich);
+        delete pNewRich;
+        return;
+    }
+
+    // Heavy / Light: extract plain strings and build a heavy/light temp table.
     std::vector<std::vector<Glib::ustring>> string_rows;
     curr_table_anchor->write_strings_matrix(string_rows);
-
-    const size_t curr_row = curr_table_anchor->current_row();
 
     // Build matrix with header row (row 0) and current row
     std::vector<std::vector<Glib::ustring>> new_rows;
