@@ -33,6 +33,13 @@ public:
     {
         _no_gui = true;
         _on_startup(); // so that _uCtTmp is ready straight away
+        // Override style schemes from the user's config so the exported HTML
+        // (syntax-highlighted code) matches the expected reference regardless
+        // of the local environment.
+        _pCtConfig->coStyleScheme = "cobalt-darkened";
+        _pCtConfig->rtStyleScheme = "classic";
+        _pCtConfig->ptStyleScheme = "classic";
+        _pCtConfig->taStyleScheme = "classic";
     }
     CtTmp* getCtTmp() { return _uCtTmp.get(); }
     void register_args(const std::vector<std::string>* pVecArgs) { _pVecArgs = pVecArgs; }
