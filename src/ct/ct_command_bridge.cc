@@ -905,8 +905,8 @@ void CtCommandBridge::beginWidgetEdit(gint64 nodeId, CtAnchoredWidget* widget, i
         _widgetEditCol = -1;
         _widgetEditIsRichCell = false;
         _widgetEditOldContent = codebox->get_text_content().raw();
-        // Capture initial XML as a fallback in case setWidgetContentData fails later.
-        _widgetEditInitialXml = getBufferContentAsXml(buffer, &treeIter);
+        // Delta path tracks codebox text directly; no XML snapshot needed.
+        _widgetEditInitialXml.clear();
         spdlog::debug("CtCommandBridge: beginWidgetEdit (delta path) codebox at offset {}",
                       _widgetEditCharOffset);
     } else if (widget && row >= 0 && col >= 0 &&
@@ -926,7 +926,9 @@ void CtCommandBridge::beginWidgetEdit(gint64 nodeId, CtAnchoredWidget* widget, i
                 }
             }
         }
-        _widgetEditInitialXml = getBufferContentAsXml(buffer, &treeIter);
+        // Rich-cell edits are tracked via _richCellSession + EditRichCellCommand;
+        // no XML snapshot needed (and it would re-encode every image in the table).
+        _widgetEditInitialXml.clear();
         // Start a cell-level edit session for per-word undo granularity
         auto* richTable = static_cast<CtTableRich*>(widget);
         auto cellBuf = richTable->get_buffer(row, col);
@@ -949,8 +951,8 @@ void CtCommandBridge::beginWidgetEdit(gint64 nodeId, CtAnchoredWidget* widget, i
             auto buf = static_cast<CtTableHeavy*>(widget)->get_buffer(row, col);
             _widgetEditOldContent = buf ? buf->get_text().raw() : std::string{};
         }
-        // Capture initial XML as a fallback.
-        _widgetEditInitialXml = getBufferContentAsXml(buffer, &treeIter);
+        // Delta path tracks the cell text directly; no XML snapshot needed.
+        _widgetEditInitialXml.clear();
         spdlog::debug("CtCommandBridge: beginWidgetEdit (delta path) table cell ({},{}) at offset {}",
                       row, col, _widgetEditCharOffset);
     } else {
