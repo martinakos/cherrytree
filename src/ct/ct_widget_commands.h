@@ -28,6 +28,8 @@
 #include <glibmm/ustring.h>
 #include <memory>
 
+class CtCommandBridge;
+
 // Lightweight delta command for inserting a widget.
 // Stores only the CtWidgetDesc (~1-50KB) instead of two full node XML snapshots (~200KB).
 class InsertWidgetDeltaCommand : public CtCommand {
@@ -162,6 +164,7 @@ class EditRichCellCommand : public CtCommand {
 public:
     EditRichCellCommand(
         std::shared_ptr<CtDocumentModel> docModel,
+        CtCommandBridge* bridge,
         gint64 nodeId,
         int widgetCharOffset,
         size_t row,
@@ -191,6 +194,7 @@ private:
     void _applyContent(const CtCellContent& content);
 
     std::shared_ptr<CtDocumentModel> _docModel;
+    CtCommandBridge* _bridge;
     gint64 _nodeId;
     int _widgetCharOffset;
     size_t _row;

@@ -190,6 +190,16 @@ public:
     // Helper to get XML content from GTK buffer (public for CtTextEditSession)
     Glib::ustring getBufferContentAsXml(Glib::RefPtr<Gtk::TextBuffer> buffer, const CtTreeIter* treeIter = nullptr);
 
+    // Apply a rich-cell content change to both the model and the live cell widget
+    // in-place, bypassing the full buffer/widget rebuild path. Used by
+    // EditRichCellCommand undo/redo to avoid the GTK assertion that triggers
+    // when destroying the focused cell text view as part of a rebuild.
+    void applyRichCellInPlace(gint64 nodeId,
+                              int charOffset,
+                              size_t row,
+                              size_t col,
+                              const CtCellContent& content);
+
 private:
 
     // Helper to update buffer from XML
@@ -284,6 +294,11 @@ private:
 
     // When true, the next beginTextEditSession skips the buffer→model re-sync.
     bool _skipNextModelSync{false};
+
+    // When set to a node id, the next BridgeObserver::onNodeChanged for that
+    // node skips the full buffer rebuild — used by applyRichCellInPlace which
+    // updates the live cell widget directly.
+    gint64 _skipNextRebuildNodeId{-1};
 
     // Node ID whose model was last kept in sync by a clean session end.
     // When beginTextEditSession is called for the same node, the expensive

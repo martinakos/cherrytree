@@ -1297,6 +1297,7 @@ void CtCommandBridge::flushRichCellSession()
 
     auto cmd = std::make_unique<EditRichCellCommand>(
         _docModel,
+        this,
         _widgetEditNodeId,
         _widgetEditCharOffset,
         (size_t)_widgetEditRow,
@@ -1331,6 +1332,83 @@ void CtCommandBridge::cancelRichCellSession()
     if (_richCellSession && _richCellSession->isActive()) {
         _richCellSession->cancel();
     }
+}
+
+void CtCommandBridge::applyRichCellInPlace(gint64 nodeId,
+                                           int charOffset,
+                                           size_t row,
+                                           size_t col,
+                                           const CtCellContent& content)
+{
+    spdlog::debug("applyRichCellInPlace: node={} off={} ({},{}) widgets={} spans={}",
+                  nodeId, charOffset, row, col,
+                  content.embeddedWidgets.size(), content.textSpans.size());
+    // Update the model first.
+    if (_docModel) {
+        if (auto node = _docModel->getNodeById(nodeId)) {
+            node->getContent().setWidgetRichTableCell(charOffset, row, col, content);
+        }
+    }
+
+    // Update the live CtRichCell widget directly so we don't have to tear
+    // down and rebuild the whole table widget tree (which crashes when the
+    // focused cell text view is destroyed mid-rebuild).
+    Glib::RefPtr<Gtk::TextBuffer> cellBuf;
+    bool foundCell = false;
+    if (_pMainWin) {
+        auto treeIter = _pMainWin->get_tree_store().get_node_from_node_id(nodeId);
+        if (treeIter) {
+            for (auto* w : treeIter.get_anchored_widgets()) {
+                if (w->getOffset() == charOffset && w->get_type() == CtAnchWidgType::TableRich) {
+                    auto* richTable = static_cast<CtTableRich*>(w);
+                    if (auto* cell = richTable->getRichCell(row, col)) {
+                        foundCell = true;
+                        spdlog::debug("applyRichCellInPlace: calling populateFromContent on cell {:p}", (void*)cell);
+                        // Cancel any active rich cell signal capture before
+                        // mutating the cell buffer — populateFromContent fires
+                        // erase/insert signals that would otherwise be captured
+                        // as edits and turn into a spurious EditRichCellCommand
+                        // on the next flushRichCellSession (clobbering the redo
+                        // stack via addCommandToStack).
+                        if (_richCellSession && _richCellSession->isActive()) {
+                            _richCellSession->cancel();
+                        }
+                        cell->populateFromContent(content);
+                        cellBuf = cell->get_buffer();
+                        spdlog::debug("applyRichCellInPlace: after populateFromContent, cell buffer char count={}",
+                                      cellBuf ? cellBuf->get_char_count() : -1);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    if (!foundCell) {
+        spdlog::warn("applyRichCellInPlace: did NOT find rich cell at ({},{}) off={} for node {}",
+                     row, col, charOffset, nodeId);
+    }
+
+    // If we're still tracking this cell, resync the baseline so that the next
+    // flushRichCellSession sees newContent == baseline and bails out cleanly,
+    // and restart the session against the (now-rewritten) cell buffer.
+    if (_widgetEditNodeId == nodeId &&
+        _widgetEditCharOffset == charOffset &&
+        _widgetEditRow == (int)row &&
+        _widgetEditCol == (int)col)
+    {
+        _widgetEditOldCellContent = content;
+        if (_richCellSession && cellBuf) {
+            _richCellSession->begin(nodeId, cellBuf);
+        }
+    }
+
+    // Tell the observer to skip the full rebuild for this notification —
+    // we've already brought GTK in line with the model above.
+    _skipNextRebuildNodeId = nodeId;
+    if (_docModel) {
+        _docModel->notifyNodeChanged(nodeId);
+    }
+    _skipNextRebuildNodeId = -1;
 }
 
 void CtCommandBridge::commitRichCellFormatChange(std::string description)
@@ -1381,6 +1459,7 @@ void CtCommandBridge::commitRichCellFormatChange(std::string description)
 
     auto cmd = std::make_unique<EditRichCellCommand>(
         _docModel,
+        this,
         _widgetEditNodeId,
         _widgetEditCharOffset,
         _widgetEditRow,
@@ -2180,6 +2259,14 @@ void CtCommandBridge::BridgeObserver::onNodeChanged(gint64 nodeId)
     spdlog::debug("BridgeObserver::onNodeChanged: node {} changed, inCommandExecution={}, pendingCursorPos={}",
                  nodeId, _bridge->_inCommandExecution, _bridge->_pendingCursorPos);
 
+    // applyRichCellInPlace already updated the live cell widget; skip the
+    // full rebuild path so we don't tear down and recreate the focused cell
+    // text view (which triggers a GTK assertion).
+    if (_bridge->_skipNextRebuildNodeId == nodeId) {
+        spdlog::debug("BridgeObserver::onNodeChanged: skipping rebuild for node {} (in-place rich cell update)", nodeId);
+        return;
+    }
+
     auto curr_iter = _bridge->_pMainWin->curr_tree_iter();
     if (!curr_iter) {
         return;
@@ -2262,6 +2349,17 @@ void CtCommandBridge::BridgeObserver::buildBufferForNode(
     CtTreeIter& iter,
     bool attachToView)
 {
+    // Suspend user_active for the duration of the programmatic rebuild so
+    // signal handlers (focus-out, motion, button-press) on cells about to be
+    // destroyed bail out early instead of touching marks on buffers that
+    // are mid-teardown.
+    bool const prevUserActive = _bridge->_pMainWin->user_active();
+    _bridge->_pMainWin->user_active() = false;
+    struct UserActiveRestore {
+        CtMainWin* win; bool prev;
+        ~UserActiveRestore() { win->user_active() = prev; }
+    } userActiveRestore{_bridge->_pMainWin, prevUserActive};
+
     // Grab focus back to the main text view before deleting widgets — if a
     // rich cell's text view still has focus, destroying it triggers GTK to
     // access the cell buffer's insert mark whose internal line pointer is
