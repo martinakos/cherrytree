@@ -1034,7 +1034,17 @@ CtAnchoredWidget* CtRichCell::_createWidgetFromDesc(const CtWidgetDesc& desc, in
             std::string rawBlob;
             const std::string encodedBlob = desc.getContent();
             if (!encodedBlob.empty()) rawBlob = Glib::Base64::decode(encodedBlob);
-            return new CtImagePng{_pCtMainWin, rawBlob, desc.getLink(), charOffset, justification};
+            auto* pImage = new CtImagePng{_pCtMainWin, rawBlob, desc.getLink(), charOffset, justification};
+            const std::string displayWidthStr = desc.getProperty("display_width");
+            const std::string displayHeightStr = desc.getProperty("display_height");
+            if (!displayWidthStr.empty() && !displayHeightStr.empty()) {
+                const int displayWidth = std::stoi(displayWidthStr);
+                const int displayHeight = std::stoi(displayHeightStr);
+                if (displayWidth > 0 && displayHeight > 0) {
+                    pImage->set_display_size(displayWidth, displayHeight);
+                }
+            }
+            return pImage;
         }
         if (desc.type == CtAnchWidgType::ImageAnchor) {
             return new CtImageAnchor{_pCtMainWin, desc.getAnchorName(),
@@ -1295,7 +1305,8 @@ void CtTableRich::_new_rich_cell_attach(const size_t rowIdx, const size_t colIdx
     });
 #endif
     // Clear in-cell text selection when this cell loses focus
-    textView.signal_focus_out_event().connect([pCell](GdkEventFocus*) {
+    textView.signal_focus_out_event().connect([this, pCell](GdkEventFocus*) {
+        if (not _pCtMainWin->user_active()) return false;
         auto buffer = pCell->get_buffer();
         buffer->place_cursor(buffer->get_iter_at_mark(buffer->get_insert()));
         return false;
