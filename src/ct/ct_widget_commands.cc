@@ -22,6 +22,7 @@
  */
 
 #include "ct_widget_commands.h"
+#include "ct_command_bridge.h"
 #include "ct_logging.h"
 
 // InsertWidgetDeltaCommand implementation
@@ -174,6 +175,7 @@ std::string EditTableCellCommand::getDescription() const
 
 EditRichCellCommand::EditRichCellCommand(
     std::shared_ptr<CtDocumentModel> docModel,
+    CtCommandBridge* bridge,
     gint64 nodeId,
     int widgetCharOffset,
     size_t row,
@@ -184,6 +186,7 @@ EditRichCellCommand::EditRichCellCommand(
     int newCursorPos,
     std::string description)
     : _docModel(std::move(docModel))
+    , _bridge(bridge)
     , _nodeId(nodeId)
     , _widgetCharOffset(widgetCharOffset)
     , _row(row)
@@ -198,6 +201,13 @@ EditRichCellCommand::EditRichCellCommand(
 
 void EditRichCellCommand::_applyContent(const CtCellContent& content)
 {
+    if (_bridge) {
+        // In-place path: updates model + live cell widget directly,
+        // without rebuilding the whole node buffer.
+        _bridge->applyRichCellInPlace(_nodeId, _widgetCharOffset, _row, _col, content);
+        return;
+    }
+    // Fallback (e.g. unit tests): model-only path.
     auto node = _docModel->getNodeById(_nodeId);
     if (!node) return;
     node->getContent().setWidgetRichTableCell(_widgetCharOffset, _row, _col, content);
