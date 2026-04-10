@@ -211,6 +211,10 @@ private:
     void _test_rich_table_per_corner_colors_independent(CtMainWin* pWin);
     void _test_rich_table_border_window_sizes(CtMainWin* pWin);
     void _test_rich_table_default_style_and_overrides(CtMainWin* pWin);
+
+    // Cursor position regression tests
+    void _test_cursor_pos_after_node_switch_undo(CtMainWin* pWin);
+    void _test_cursor_pos_after_rich_cell_undo(CtMainWin* pWin);
 };
 
 void TestGuiSimulationApp::on_activate()
@@ -318,6 +322,10 @@ void TestGuiSimulationApp::_run_tests(CtMainWin* pWin)
     _test_rich_table_per_corner_colors_independent(pWin);
     _test_rich_table_border_window_sizes(pWin);
     _test_rich_table_default_style_and_overrides(pWin);
+
+    // Cursor position regression tests
+    _test_cursor_pos_after_node_switch_undo(pWin);
+    _test_cursor_pos_after_rich_cell_undo(pWin);
 
     spdlog::info("=== GUI simulation test passed! ===");
 }
@@ -6475,6 +6483,198 @@ void TestGuiSimulationApp::_test_rich_table_default_style_and_overrides(CtMainWi
     GuiEventSimulator::process_pending_events();
 
     spdlog::info("  Default style and override clearing - all checks passed");
+}
+
+// Regression test: after switching nodes, the cursor position stored in undo
+// commands should reflect where the user actually typed, not the buffer's
+// default position right after the node switch.
+void TestGuiSimulationApp::_test_cursor_pos_after_node_switch_undo(CtMainWin* pWin)
+{
+    spdlog::info("Test: Cursor position after node switch + undo");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    // Clear undo stack
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    // Select node "b"
+    auto ctIterB = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIterB);
+    gint64 nodeIdB = ctIterB.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIterB));
+    GuiEventSimulator::process_pending_events();
+
+    auto buffer = pWin->curr_buffer();
+    Gtk::TextView* textView = &pWin->get_text_view().mm();
+
+    // Type some initial text to push cursor away from position 0
+    pBridge->beginTextEditSession(nodeIdB);
+    GuiEventSimulator::simulate_text_typed(textView, "aaaa bbbb cccc ");
+    buffer->set_modified(true);
+    GuiEventSimulator::process_pending_events();
+    pBridge->endTextEditSession();
+
+    int cursorAfterInitial = buffer->property_cursor_position();
+    spdlog::info("  Cursor after initial text: {}", cursorAfterInitial);
+    ASSERT_GT(cursorAfterInitial, 5) << "Should have typed enough text to move cursor";
+
+    // Switch to a different node
+    auto ctIterHtml = pWin->get_tree_store().get_node_from_node_name("html");
+    ASSERT_TRUE(ctIterHtml);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIterHtml));
+    GuiEventSimulator::process_pending_events();
+
+    // Switch back — this is where the bug was: beginTextEditSession captured
+    // the cursor position before it was restored to the saved location.
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIterB));
+    GuiEventSimulator::process_pending_events();
+
+    buffer = pWin->curr_buffer();
+    textView = &pWin->get_text_view().mm();
+
+    // Place cursor at a known mid-buffer offset and type
+    int typingOffset = cursorAfterInitial;  // end of "aaaa bbbb cccc "
+    auto iter = buffer->get_iter_at_offset(typingOffset);
+    buffer->place_cursor(iter);
+
+    // Now type — this creates a new session that captures _initialCursorPos.
+    // Before the fix, the session from the node switch would have captured
+    // position 0/1 from the buffer's default state.
+    pBridge->endTextEditSession();
+    pBridge->beginTextEditSession(nodeIdB);
+    GuiEventSimulator::simulate_text_typed(textView, "XY");
+    buffer->set_modified(true);
+    GuiEventSimulator::process_pending_events();
+    pBridge->endTextEditSession();
+
+    int cursorAfterXY = buffer->property_cursor_position();
+    spdlog::info("  Cursor after typing 'XY': {}", cursorAfterXY);
+
+    // Undo the "XY" typing — cursor should go back to typingOffset, NOT 0 or 1
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    int cursorAfterUndo = buffer->property_cursor_position();
+    spdlog::info("  Cursor after undo: {} (expected near {})", cursorAfterUndo, typingOffset);
+
+    // The cursor should be at or very near typingOffset (where we placed it before typing).
+    // Before the fix, this would be 0 or 1.
+    EXPECT_GE(cursorAfterUndo, typingOffset - 1)
+        << "After undo, cursor should be near the typing position, not at the top";
+
+    // Redo and verify cursor goes forward
+    pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+
+    int cursorAfterRedo = buffer->property_cursor_position();
+    spdlog::info("  Cursor after redo: {} (expected {})", cursorAfterRedo, cursorAfterXY);
+    EXPECT_EQ(cursorAfterRedo, cursorAfterXY)
+        << "After redo, cursor should be at end of reinserted text";
+
+    // Cleanup
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("  Cursor position after node switch + undo test passed");
+}
+
+// Regression test: after undo/redo of an in-place rich cell edit, the cursor
+// should be placed at the widget's offset, not left at the top of the page.
+// The bug was that onNodeChanged's "skip rebuild" path returned early without
+// consuming _pendingCursorPos.
+void TestGuiSimulationApp::_test_cursor_pos_after_rich_cell_undo(CtMainWin* pWin)
+{
+    spdlog::info("Test: Cursor position after rich cell in-place undo/redo");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    // Clear undo stack
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    auto buffer = pWin->curr_buffer();
+    auto docModel = pBridge->getDocumentModel();
+    Gtk::TextView* textView = &pWin->get_text_view().mm();
+
+    // Type enough text so the table is placed far from position 0
+    pBridge->beginTextEditSession(nodeId);
+    GuiEventSimulator::simulate_text_typed(textView, "aaa bbb ccc ddd eee ");
+    buffer->set_modified(true);
+    GuiEventSimulator::process_pending_events();
+    pBridge->endTextEditSession();
+
+    // Insert a rich table at end of buffer (well past offset 0)
+    buffer->place_cursor(buffer->end());
+    int charOffset = buffer->get_insert()->get_iter().get_offset();
+    spdlog::info("  Rich table inserted at offset {}", charOffset);
+    ASSERT_GT(charOffset, 10) << "Table should be far enough from top to detect cursor jump";
+
+    std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+    richData[0][0].textSpans.push_back(CtTextSpan{"hello"});
+
+    auto* pTable = new CtTableRich{pWin, richData, 60, charOffset, "", CtTableColWidths{}};
+    pTable->insertInTextBuffer(buffer);
+    pWin->get_tree_store().addAnchoredWidgets(
+        pWin->curr_tree_iter(), {pTable}, &pWin->get_text_view().mm());
+
+    auto desc = extractWidgetDesc(pTable, charOffset);
+    auto insertCmd = std::make_unique<InsertWidgetDeltaCommand>(
+        docModel, nodeId, charOffset, desc, "Insert rich table");
+    pBridge->addCommandToStack(std::move(insertCmd));
+    auto node = docModel->getNodeById(nodeId);
+    if (node) node->getContent().insertWidget(charOffset, desc);
+    GuiEventSimulator::process_pending_events();
+
+    // Edit cell (0,0): apply bold formatting (creates EditRichCellCommand)
+    pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+    ASSERT_TRUE(pBridge->isTrackingRichCell());
+
+    auto cellBuf = pTable->get_buffer(0, 0);
+    ASSERT_TRUE(cellBuf);
+    cellBuf->select_range(cellBuf->begin(), cellBuf->end());
+    pActions->apply_tag_bold();
+    GuiEventSimulator::process_pending_events();
+
+    pBridge->endWidgetEdit();
+
+    // Undo the bold formatting — this goes through the in-place
+    // (skip-rebuild) path in onNodeChanged.
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    int cursorAfterUndo = buffer->property_cursor_position();
+    spdlog::info("  Cursor after undo: {} (expected near {})", cursorAfterUndo, charOffset);
+
+    // Before the fix, cursor would be at 0 because onNodeChanged returned
+    // early without consuming _pendingCursorPos.
+    EXPECT_GE(cursorAfterUndo, charOffset)
+        << "After undo of rich cell edit, cursor should be at the widget offset, not at top";
+
+    // Redo and verify cursor is still at the widget
+    pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+
+    int cursorAfterRedo = buffer->property_cursor_position();
+    spdlog::info("  Cursor after redo: {} (expected near {})", cursorAfterRedo, charOffset);
+    EXPECT_GE(cursorAfterRedo, charOffset)
+        << "After redo of rich cell edit, cursor should be at the widget offset, not at top";
+
+    // Cleanup
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("  Cursor position after rich cell in-place undo/redo test passed");
 }
 
 TEST(CommandGuiSimulationTests, Phase6_3_GuiEventSimulation)
