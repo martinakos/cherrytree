@@ -2264,6 +2264,28 @@ void CtCommandBridge::BridgeObserver::onNodeChanged(gint64 nodeId)
     // text view (which triggers a GTK assertion).
     if (_bridge->_skipNextRebuildNodeId == nodeId) {
         spdlog::debug("BridgeObserver::onNodeChanged: skipping rebuild for node {} (in-place rich cell update)", nodeId);
+        // Still consume pending cursor/scroll so they don't get lost or applied
+        // to a later, unrelated notification.
+        if (_bridge->_pendingCursorPos >= 0) {
+            auto treeIter = _bridge->_pMainWin->get_tree_store().get_node_from_node_id(nodeId);
+            if (treeIter) {
+                auto buf = treeIter.get_node_text_buffer();
+                if (buf) {
+                    int cursor_offset = _bridge->_pendingCursorPos;
+                    int max_offset = buf->get_char_count();
+                    auto restore_iter = buf->get_iter_at_offset(std::min(cursor_offset, max_offset));
+                    buf->place_cursor(restore_iter);
+                }
+            }
+            _bridge->_pendingCursorPos = -1;
+        }
+        if (_bridge->_pendingScrollPos >= 0) {
+            auto adj = _bridge->_pMainWin->getScrolledwindowText().get_vadjustment();
+            if (adj) {
+                adj->set_value(_bridge->_pendingScrollPos);
+            }
+            _bridge->_pendingScrollPos = -1.0;
+        }
         return;
     }
 

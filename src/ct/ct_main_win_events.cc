@@ -66,9 +66,6 @@ void CtMainWin::_on_treeview_cursor_changed()
     }
     _uCtTreestore->text_view_apply_textbuffer(treeIter, &_ctTextview);
 
-    // Begin new edit session for command bridge (always active now)
-    _pCtCommandBridge->beginTextEditSession(nodeId);
-
     if (user_active() && !_pCtCommandBridge->isInUndoRedo()) {
         auto mapScrIter = _nodesVScrollPos.find(nodeIdDataHolder);
         auto mapCurIter = _nodesCursorPos.find(nodeIdDataHolder);
@@ -120,6 +117,13 @@ void CtMainWin::_on_treeview_cursor_changed()
             _visitedNodes.pop_front();
             if (_visitedNodesIdx > 0) _visitedNodesIdx--;
         }
+    }
+
+    // Begin new edit session for command bridge AFTER cursor restoration,
+    // so the session captures the correct initial cursor position.
+    // Skip during undo/redo — those operations restart the session themselves.
+    if (!_pCtCommandBridge->isInUndoRedo()) {
+        _pCtCommandBridge->beginTextEditSession(nodeId);
     }
 
     _prevTreeIter = treeIter;
