@@ -125,212 +125,156 @@ public:
     }
 };
 
-class TestGuiSimulationApp : public CtApp
-{
-public:
-    TestGuiSimulationApp() : CtApp{"_test_gui_simulation"} { _no_gui = true; }
-    ~TestGuiSimulationApp() override {}
+// Forward declarations — implementations follow as free functions below
+static void _test_gui_complex_operations_undo_redo(CtMainWin* pWin);
+static void _test_buffer_signal_handlers_direct(CtMainWin* pWin);
+static void _test_cursor_restoration_after_undo_redo(CtMainWin* pWin);
+static void _test_gtk_accelerator_bindings(CtMainWin* pWin);
+static void _test_focus_out_session_ending(CtMainWin* pWin);
+static void _test_mainwin_event_handlers_direct(CtMainWin* pWin);
+static void _test_undo_redo_description_format(CtMainWin* pWin);
+static void _test_cut_undo_redo_content_restoration(CtMainWin* pWin);
+static void _test_scroll_position_captured_in_commands(CtMainWin* pWin);
+static void _test_paste_delta_plain_text_undo_redo(CtMainWin* pWin);
+static void _test_paste_delta_creates_correct_command_type(CtMainWin* pWin);
+static void _test_codebox_edit_delta_undo_redo(CtMainWin* pWin);
+static void _test_table_cell_edit_delta_undo_redo(CtMainWin* pWin);
+static void _test_widget_edit_no_change_no_command(CtMainWin* pWin);
+static void _test_codebox_edit_then_table_edit_separate_commands(CtMainWin* pWin);
+static void _test_modify_widget_delta_undo_redo(CtMainWin* pWin);
+static void _test_rich_table_insert_undo_redo(CtMainWin* pWin);
+static void _test_rich_cell_edit_session_undo_redo(CtMainWin* pWin);
+static void _test_rich_cell_format_undo_redo(CtMainWin* pWin);
+static void _test_rich_cell_edit_description_format(CtMainWin* pWin);
+static void _test_rich_cell_scroll_position_captured(CtMainWin* pWin);
+static void _test_rich_cell_multiple_formats_undo_redo(CtMainWin* pWin);
+static void _test_rich_cell_edit_multiple_cells_separate_commands(CtMainWin* pWin);
+static void _test_rich_cell_no_change_no_command(CtMainWin* pWin);
+static void _test_rich_cell_edit_then_format_separate_commands(CtMainWin* pWin);
+static void _test_rich_table_full_undo_redo_cycle(CtMainWin* pWin);
+static void _test_format_underline_undo_redo(CtMainWin* pWin);
+static void _test_format_strikethrough_undo_redo(CtMainWin* pWin);
+static void _test_format_monospace_undo_redo(CtMainWin* pWin);
+static void _test_format_small_undo_redo(CtMainWin* pWin);
+static void _test_format_superscript_undo_redo(CtMainWin* pWin);
+static void _test_format_subscript_undo_redo(CtMainWin* pWin);
+static void _test_format_h1_undo_redo(CtMainWin* pWin);
+static void _test_format_justify_undo_redo(CtMainWin* pWin);
+static void _test_format_indent_undo_redo(CtMainWin* pWin);
+static void _test_format_toggle_bold_off(CtMainWin* pWin);
+static void _test_format_remove_formatting_undo_redo(CtMainWin* pWin);
+static void _test_format_bold_then_italic_undo_each(CtMainWin* pWin);
+static void _test_format_bold_italic_underline_stack(CtMainWin* pWin);
+static void _test_format_overlapping_ranges(CtMainWin* pWin);
+static void _test_format_then_type_separate_undo(CtMainWin* pWin);
+static void _test_rich_cell_list_insertion(CtMainWin* pWin);
+static void _test_rich_cell_indent_free_text(CtMainWin* pWin);
+static void _test_rich_cell_tab_inserts_tab(CtMainWin* pWin);
+static void _test_rich_cell_tab_indents_list(CtMainWin* pWin);
+static void _test_link_all_types_insert_in_node(CtMainWin* pWin);
+static void _test_anchor_insert_in_node(CtMainWin* pWin);
+static void _test_link_insert_in_rich_cell(CtMainWin* pWin);
+static void _test_anchor_insert_in_rich_cell(CtMainWin* pWin);
+static void _test_anchor_in_rich_cell_discoverable(CtMainWin* pWin);
+static void _test_link_to_anchor_in_rich_cell_navigates(CtMainWin* pWin);
+static void _test_link_insert_in_node_functional(CtMainWin* pWin);
+static void _test_anchor_insert_in_node_undo_description(CtMainWin* pWin);
+static void _test_link_to_anchor_in_node_navigates(CtMainWin* pWin);
+static void _test_link_click_navigates_between_nodes(CtMainWin* pWin);
+static void _test_link_undo_removes_link_in_node(CtMainWin* pWin);
+static void _test_anchor_undo_removes_anchor_in_rich_cell(CtMainWin* pWin);
+static void _test_latex_insert_in_rich_cell(CtMainWin* pWin);
+static void _test_embfile_insert_in_rich_cell(CtMainWin* pWin);
+static void _test_toc_insert_in_rich_cell(CtMainWin* pWin);
+static void _test_table_codebox_blocked_in_rich_cell(CtMainWin* pWin);
+static void _test_rich_table_style_preserves_cell_width(CtMainWin* pWin);
+static void _test_rich_table_junction_colors_follow_last_operation(CtMainWin* pWin);
+static void _test_rich_table_per_corner_colors_independent(CtMainWin* pWin);
+static void _test_rich_table_border_window_sizes(CtMainWin* pWin);
+static void _test_rich_table_default_style_and_overrides(CtMainWin* pWin);
+static void _test_cursor_pos_after_node_switch_undo(CtMainWin* pWin);
+static void _test_cursor_pos_after_rich_cell_undo(CtMainWin* pWin);
 
+// --- Isolated App classes, one per test group ---
+
+class TestRandomizedStressApp : public CtApp {
+public:
+    TestRandomizedStressApp() : CtApp{"_test_gui_randomized"} { _no_gui = true; }
 private:
     void on_activate() final;
-    void _run_tests(CtMainWin* pWin);
-
-    void _test_gui_complex_operations_undo_redo(CtMainWin* pWin);
-    void _test_buffer_signal_handlers_direct(CtMainWin* pWin);
-    void _test_cursor_restoration_after_undo_redo(CtMainWin* pWin);
-    void _test_gtk_accelerator_bindings(CtMainWin* pWin);
-    void _test_focus_out_session_ending(CtMainWin* pWin);
-    void _test_mainwin_event_handlers_direct(CtMainWin* pWin);
-    void _test_undo_redo_description_format(CtMainWin* pWin);
-    void _test_cut_undo_redo_content_restoration(CtMainWin* pWin);
-    void _test_scroll_position_captured_in_commands(CtMainWin* pWin);
-    void _test_paste_delta_plain_text_undo_redo(CtMainWin* pWin);
-    void _test_paste_delta_creates_correct_command_type(CtMainWin* pWin);
-    void _test_codebox_edit_delta_undo_redo(CtMainWin* pWin);
-    void _test_table_cell_edit_delta_undo_redo(CtMainWin* pWin);
-    void _test_widget_edit_no_change_no_command(CtMainWin* pWin);
-    void _test_codebox_edit_then_table_edit_separate_commands(CtMainWin* pWin);
-    void _test_modify_widget_delta_undo_redo(CtMainWin* pWin);
-    void _test_rich_table_insert_undo_redo(CtMainWin* pWin);
-    void _test_rich_cell_edit_session_undo_redo(CtMainWin* pWin);
-    void _test_rich_cell_format_undo_redo(CtMainWin* pWin);
-    void _test_rich_cell_edit_description_format(CtMainWin* pWin);
-    void _test_rich_cell_scroll_position_captured(CtMainWin* pWin);
-    void _test_rich_cell_multiple_formats_undo_redo(CtMainWin* pWin);
-    void _test_rich_cell_edit_multiple_cells_separate_commands(CtMainWin* pWin);
-    void _test_rich_cell_no_change_no_command(CtMainWin* pWin);
-    void _test_rich_cell_edit_then_format_separate_commands(CtMainWin* pWin);
-    void _test_rich_table_full_undo_redo_cycle(CtMainWin* pWin);
-
-    // Signal-based format undo/redo tests (10.5d)
-    void _test_format_underline_undo_redo(CtMainWin* pWin);
-    void _test_format_strikethrough_undo_redo(CtMainWin* pWin);
-    void _test_format_monospace_undo_redo(CtMainWin* pWin);
-    void _test_format_small_undo_redo(CtMainWin* pWin);
-    void _test_format_superscript_undo_redo(CtMainWin* pWin);
-    void _test_format_subscript_undo_redo(CtMainWin* pWin);
-    void _test_format_h1_undo_redo(CtMainWin* pWin);
-    void _test_format_justify_undo_redo(CtMainWin* pWin);
-    void _test_format_indent_undo_redo(CtMainWin* pWin);
-    void _test_format_toggle_bold_off(CtMainWin* pWin);
-    void _test_format_remove_formatting_undo_redo(CtMainWin* pWin);
-    void _test_format_bold_then_italic_undo_each(CtMainWin* pWin);
-    void _test_format_bold_italic_underline_stack(CtMainWin* pWin);
-    void _test_format_overlapping_ranges(CtMainWin* pWin);
-    void _test_format_then_type_separate_undo(CtMainWin* pWin);
-
-    // Rich cell list and indentation tests
-    void _test_rich_cell_list_insertion(CtMainWin* pWin);
-    void _test_rich_cell_indent_free_text(CtMainWin* pWin);
-    void _test_rich_cell_tab_inserts_tab(CtMainWin* pWin);
-    void _test_rich_cell_tab_indents_list(CtMainWin* pWin);
-
-    // Link and anchor tests
-    void _test_link_all_types_insert_in_node(CtMainWin* pWin);
-    void _test_anchor_insert_in_node(CtMainWin* pWin);
-    void _test_link_insert_in_rich_cell(CtMainWin* pWin);
-    void _test_anchor_insert_in_rich_cell(CtMainWin* pWin);
-    void _test_anchor_in_rich_cell_discoverable(CtMainWin* pWin);
-    void _test_link_to_anchor_in_rich_cell_navigates(CtMainWin* pWin);
-    void _test_link_insert_in_node_functional(CtMainWin* pWin);
-    void _test_anchor_insert_in_node_undo_description(CtMainWin* pWin);
-    void _test_link_to_anchor_in_node_navigates(CtMainWin* pWin);
-    void _test_link_click_navigates_between_nodes(CtMainWin* pWin);
-    void _test_link_undo_removes_link_in_node(CtMainWin* pWin);
-    void _test_anchor_undo_removes_anchor_in_rich_cell(CtMainWin* pWin);
-
-    // Widget insert routing tests for rich cells
-    void _test_latex_insert_in_rich_cell(CtMainWin* pWin);
-    void _test_embfile_insert_in_rich_cell(CtMainWin* pWin);
-    void _test_toc_insert_in_rich_cell(CtMainWin* pWin);
-    void _test_table_codebox_blocked_in_rich_cell(CtMainWin* pWin);
-
-    // Rich table style tests
-    void _test_rich_table_style_preserves_cell_width(CtMainWin* pWin);
-    void _test_rich_table_junction_colors_follow_last_operation(CtMainWin* pWin);
-    void _test_rich_table_per_corner_colors_independent(CtMainWin* pWin);
-    void _test_rich_table_border_window_sizes(CtMainWin* pWin);
-    void _test_rich_table_default_style_and_overrides(CtMainWin* pWin);
-
-    // Cursor position regression tests
-    void _test_cursor_pos_after_node_switch_undo(CtMainWin* pWin);
-    void _test_cursor_pos_after_rich_cell_undo(CtMainWin* pWin);
 };
 
-void TestGuiSimulationApp::on_activate()
-{
-    _on_startup();
+class TestBufferAndSessionApp : public CtApp {
+public:
+    TestBufferAndSessionApp() : CtApp{"_test_gui_buffer_session"} { _no_gui = true; }
+private:
+    void on_activate() final;
+};
 
-    // Create window (hidden but with GUI enabled for event processing)
-    CtMainWin* pWin = _create_window(true/*start_hidden*/);
-    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
-    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+class TestCutPasteApp : public CtApp {
+public:
+    TestCutPasteApp() : CtApp{"_test_gui_cut_paste"} { _no_gui = true; }
+private:
+    void on_activate() final;
+};
 
-    // Make the window realize its widgets so events can be processed
-    pWin->show_all();
-    pWin->hide();
-    GuiEventSimulator::process_pending_events();
+class TestWidgetEditApp : public CtApp {
+public:
+    TestWidgetEditApp() : CtApp{"_test_gui_widget_edit"} { _no_gui = true; }
+private:
+    void on_activate() final;
+};
 
-    _run_tests(pWin);
+class TestRichTableApp : public CtApp {
+public:
+    TestRichTableApp() : CtApp{"_test_gui_rich_table"} { _no_gui = true; }
+private:
+    void on_activate() final;
+};
 
-    // Cleanup
-    pWin->force_exit() = true;
-    remove_window(*pWin);
-}
+class TestFormatApp : public CtApp {
+public:
+    TestFormatApp() : CtApp{"_test_gui_format"} { _no_gui = true; }
+private:
+    void on_activate() final;
+};
 
-void TestGuiSimulationApp::_run_tests(CtMainWin* pWin)
-{
-    auto pBridge = pWin->get_command_bridge();
-    ASSERT_TRUE(pBridge);
-    ASSERT_TRUE(pBridge->isActive());
+class TestRichCellListIndentApp : public CtApp {
+public:
+    TestRichCellListIndentApp() : CtApp{"_test_gui_rich_cell_list"} { _no_gui = true; }
+private:
+    void on_activate() final;
+};
 
-    spdlog::info("=== GUI Event Simulation Testing ===");
+class TestLinkAnchorApp : public CtApp {
+public:
+    TestLinkAnchorApp() : CtApp{"_test_gui_link_anchor"} { _no_gui = true; }
+private:
+    void on_activate() final;
+};
 
-    _test_gui_complex_operations_undo_redo(pWin);
-    _test_buffer_signal_handlers_direct(pWin);
-    _test_cursor_restoration_after_undo_redo(pWin);
-    _test_gtk_accelerator_bindings(pWin);
-    _test_focus_out_session_ending(pWin);
-    _test_mainwin_event_handlers_direct(pWin);
-    _test_undo_redo_description_format(pWin);
-    _test_cut_undo_redo_content_restoration(pWin);
-    _test_scroll_position_captured_in_commands(pWin);
-    _test_paste_delta_plain_text_undo_redo(pWin);
-    _test_paste_delta_creates_correct_command_type(pWin);
-    _test_codebox_edit_delta_undo_redo(pWin);
-    _test_table_cell_edit_delta_undo_redo(pWin);
-    _test_widget_edit_no_change_no_command(pWin);
-    _test_codebox_edit_then_table_edit_separate_commands(pWin);
-    _test_modify_widget_delta_undo_redo(pWin);
-    _test_rich_table_insert_undo_redo(pWin);
-    _test_rich_cell_edit_session_undo_redo(pWin);
-    _test_rich_cell_format_undo_redo(pWin);
-    _test_rich_cell_edit_description_format(pWin);
-    _test_rich_cell_scroll_position_captured(pWin);
-    _test_rich_cell_multiple_formats_undo_redo(pWin);
-    _test_rich_cell_edit_multiple_cells_separate_commands(pWin);
-    _test_rich_cell_no_change_no_command(pWin);
-    _test_rich_cell_edit_then_format_separate_commands(pWin);
-    _test_rich_table_full_undo_redo_cycle(pWin);
+class TestWidgetInsertRoutingApp : public CtApp {
+public:
+    TestWidgetInsertRoutingApp() : CtApp{"_test_gui_widget_routing"} { _no_gui = true; }
+private:
+    void on_activate() final;
+};
 
-    // Signal-based format undo/redo tests
-    _test_format_underline_undo_redo(pWin);
-    _test_format_strikethrough_undo_redo(pWin);
-    _test_format_monospace_undo_redo(pWin);
-    _test_format_small_undo_redo(pWin);
-    _test_format_superscript_undo_redo(pWin);
-    _test_format_subscript_undo_redo(pWin);
-    _test_format_h1_undo_redo(pWin);
-    _test_format_justify_undo_redo(pWin);
-    _test_format_indent_undo_redo(pWin);
-    _test_format_toggle_bold_off(pWin);
-    _test_format_remove_formatting_undo_redo(pWin);
-    _test_format_bold_then_italic_undo_each(pWin);
-    _test_format_bold_italic_underline_stack(pWin);
-    _test_format_overlapping_ranges(pWin);
-    _test_format_then_type_separate_undo(pWin);
+class TestRichTableStyleApp : public CtApp {
+public:
+    TestRichTableStyleApp() : CtApp{"_test_gui_rich_table_style"} { _no_gui = true; }
+private:
+    void on_activate() final;
+};
 
-    // Rich cell list and indentation tests
-    _test_rich_cell_list_insertion(pWin);
-    _test_rich_cell_indent_free_text(pWin);
-    _test_rich_cell_tab_inserts_tab(pWin);
-    _test_rich_cell_tab_indents_list(pWin);
+class TestCursorPositionApp : public CtApp {
+public:
+    TestCursorPositionApp() : CtApp{"_test_gui_cursor_pos"} { _no_gui = true; }
+private:
+    void on_activate() final;
+};
 
-    // Link and anchor tests
-    _test_link_all_types_insert_in_node(pWin);
-    _test_anchor_insert_in_node(pWin);
-    _test_link_insert_in_rich_cell(pWin);
-    _test_anchor_insert_in_rich_cell(pWin);
-    _test_anchor_in_rich_cell_discoverable(pWin);
-    _test_link_to_anchor_in_rich_cell_navigates(pWin);
-    _test_link_insert_in_node_functional(pWin);
-    _test_anchor_insert_in_node_undo_description(pWin);
-    _test_link_to_anchor_in_node_navigates(pWin);
-    _test_link_click_navigates_between_nodes(pWin);
-    _test_link_undo_removes_link_in_node(pWin);
-    _test_anchor_undo_removes_anchor_in_rich_cell(pWin);
-
-    // Widget insert routing tests for rich cells
-    _test_latex_insert_in_rich_cell(pWin);
-    _test_embfile_insert_in_rich_cell(pWin);
-    _test_toc_insert_in_rich_cell(pWin);
-    _test_table_codebox_blocked_in_rich_cell(pWin);
-
-    // Rich table style tests
-    _test_rich_table_style_preserves_cell_width(pWin);
-    _test_rich_table_junction_colors_follow_last_operation(pWin);
-    _test_rich_table_per_corner_colors_independent(pWin);
-    _test_rich_table_border_window_sizes(pWin);
-    _test_rich_table_default_style_and_overrides(pWin);
-
-    // Cursor position regression tests
-    _test_cursor_pos_after_node_switch_undo(pWin);
-    _test_cursor_pos_after_rich_cell_undo(pWin);
-
-    spdlog::info("=== GUI simulation test passed! ===");
-}
-
-void TestGuiSimulationApp::_test_gui_complex_operations_undo_redo(CtMainWin* pWin)
+static void _test_gui_complex_operations_undo_redo(CtMainWin* pWin)
 {
     spdlog::info("Test: Randomized complex operations (~50 ops) - full undo/redo cycle");
     spdlog::info("  Using pActions->requested_step_back/ahead for undo/redo");
@@ -362,10 +306,13 @@ void TestGuiSimulationApp::_test_gui_complex_operations_undo_redo(CtMainWin* pWi
     Glib::ustring initialXml = node->getContentXml();
     spdlog::info("  Initial XML length: {}", initialXml.size());
 
-    // Random seed based on current time for different sequences each run
-    unsigned seed = static_cast<unsigned>(std::chrono::system_clock::now().time_since_epoch().count());
+    // Fixed default seed for reproducibility; override with CT_TEST_SEED env var
+    unsigned seed = 42;
+    if (const char* envSeed = std::getenv("CT_TEST_SEED")) {
+        seed = static_cast<unsigned>(std::stoul(envSeed));
+    }
     std::mt19937 rng(seed);
-    spdlog::info("  Random seed: {}", seed);
+    spdlog::info("  Random seed: {} (set CT_TEST_SEED to override)", seed);
 
     // Operation types - each creates its own command
     enum OpType {
@@ -822,7 +769,7 @@ void TestGuiSimulationApp::_test_gui_complex_operations_undo_redo(CtMainWin* pWi
                  totalOps, totalCommands);
 }
 
-void TestGuiSimulationApp::_test_buffer_signal_handlers_direct(CtMainWin* pWin)
+static void _test_buffer_signal_handlers_direct(CtMainWin* pWin)
 {
     spdlog::info("Test: Direct buffer signal handler invocation");
     spdlog::info("  Testing that signal handlers properly trigger command creation");
@@ -906,7 +853,7 @@ void TestGuiSimulationApp::_test_buffer_signal_handlers_direct(CtMainWin* pWin)
     spdlog::info("✓ Buffer signal handler test passed");
 }
 
-void TestGuiSimulationApp::_test_cursor_restoration_after_undo_redo(CtMainWin* pWin)
+static void _test_cursor_restoration_after_undo_redo(CtMainWin* pWin)
 {
     spdlog::info("Test: Cursor position restoration after undo/redo");
     spdlog::info("  Verifying cursor moves to correct position after undo/redo");
@@ -1016,7 +963,7 @@ void TestGuiSimulationApp::_test_cursor_restoration_after_undo_redo(CtMainWin* p
     spdlog::info("✓ Cursor restoration test passed");
 }
 
-void TestGuiSimulationApp::_test_gtk_accelerator_bindings(CtMainWin* /*pWin*/)
+static void _test_gtk_accelerator_bindings(CtMainWin* /*pWin*/)
 {
     spdlog::info("Test: GTK accelerator bindings verification");
     spdlog::info("  Checking that keyboard shortcuts are properly registered");
@@ -1068,7 +1015,7 @@ void TestGuiSimulationApp::_test_gtk_accelerator_bindings(CtMainWin* /*pWin*/)
     spdlog::info("✓ Accelerator bindings test completed (informational)");
 }
 
-void TestGuiSimulationApp::_test_focus_out_session_ending(CtMainWin* pWin)
+static void _test_focus_out_session_ending(CtMainWin* pWin)
 {
     spdlog::info("Test: Focus-out event ending edit session");
     spdlog::info("  Verifying that losing focus properly ends edit session");
@@ -1138,7 +1085,7 @@ void TestGuiSimulationApp::_test_focus_out_session_ending(CtMainWin* pWin)
     spdlog::info("✓ Focus-out session ending test passed");
 }
 
-void TestGuiSimulationApp::_test_mainwin_event_handlers_direct(CtMainWin* pWin)
+static void _test_mainwin_event_handlers_direct(CtMainWin* pWin)
 {
     spdlog::info("Test: Direct CtMainWin event handler invocation");
     spdlog::info("  Testing event handlers directly instead of through gtk_widget_event()");
@@ -1246,7 +1193,7 @@ void TestGuiSimulationApp::_test_mainwin_event_handlers_direct(CtMainWin* pWin)
     spdlog::info("✓ CtMainWin event handler test passed");
 }
 
-void TestGuiSimulationApp::_test_undo_redo_description_format(CtMainWin* pWin)
+static void _test_undo_redo_description_format(CtMainWin* pWin)
 {
     spdlog::info("Test: Undo/redo dropdown list description format");
 
@@ -1477,7 +1424,7 @@ void TestGuiSimulationApp::_test_undo_redo_description_format(CtMainWin* pWin)
     spdlog::info("✓ Undo/redo description format test passed");
 }
 
-void TestGuiSimulationApp::_test_cut_undo_redo_content_restoration(CtMainWin* pWin)
+static void _test_cut_undo_redo_content_restoration(CtMainWin* pWin)
 {
     spdlog::info("Test: Cut-as-delta — undo/redo restores and removes content");
 
@@ -1500,6 +1447,10 @@ void TestGuiSimulationApp::_test_cut_undo_redo_content_restoration(CtMainWin* pW
 
     // Capture state before any typing
     Glib::ustring initialText = buffer->get_text();
+
+    // Ensure cursor is at end so typed text lands at a predictable position
+    // and backward_chars(4) reliably hits the last 4 typed chars.
+    buffer->place_cursor(buffer->end());
 
     // Type "ABCDEFGH" in one session, then end it
     pBridge->beginTextEditSession(nodeId);
@@ -1566,7 +1517,7 @@ void TestGuiSimulationApp::_test_cut_undo_redo_content_restoration(CtMainWin* pW
     spdlog::info("✓ Cut-as-delta undo/redo content restoration test passed");
 }
 
-void TestGuiSimulationApp::_test_scroll_position_captured_in_commands(CtMainWin* pWin)
+static void _test_scroll_position_captured_in_commands(CtMainWin* pWin)
 {
     spdlog::info("Test: Scroll position captured in CompoundCommand after text edit and cut");
 
@@ -1635,7 +1586,7 @@ void TestGuiSimulationApp::_test_scroll_position_captured_in_commands(CtMainWin*
     spdlog::info("✓ Scroll position captured in commands test passed");
 }
 
-void TestGuiSimulationApp::_test_paste_delta_plain_text_undo_redo(CtMainWin* pWin)
+static void _test_paste_delta_plain_text_undo_redo(CtMainWin* pWin)
 {
     spdlog::info("Test: Plain text paste (delta path) — undo/redo restores content");
 
@@ -1715,7 +1666,7 @@ void TestGuiSimulationApp::_test_paste_delta_plain_text_undo_redo(CtMainWin* pWi
     spdlog::info("✓ Plain text paste delta undo/redo test passed");
 }
 
-void TestGuiSimulationApp::_test_paste_delta_creates_correct_command_type(CtMainWin* pWin)
+static void _test_paste_delta_creates_correct_command_type(CtMainWin* pWin)
 {
     spdlog::info("Test: Delta paste vs XML paste create correct command types");
 
@@ -1780,7 +1731,7 @@ void TestGuiSimulationApp::_test_paste_delta_creates_correct_command_type(CtMain
     spdlog::info("✓ Paste delta vs XML command type test passed");
 }
 
-void TestGuiSimulationApp::_test_codebox_edit_delta_undo_redo(CtMainWin* pWin)
+static void _test_codebox_edit_delta_undo_redo(CtMainWin* pWin)
 {
     spdlog::info("Test: Codebox edit delta — undo/redo restores codebox content");
 
@@ -1891,7 +1842,7 @@ void TestGuiSimulationApp::_test_codebox_edit_delta_undo_redo(CtMainWin* pWin)
     spdlog::info("✓ Codebox edit delta undo/redo test passed");
 }
 
-void TestGuiSimulationApp::_test_table_cell_edit_delta_undo_redo(CtMainWin* pWin)
+static void _test_table_cell_edit_delta_undo_redo(CtMainWin* pWin)
 {
     spdlog::info("Test: Table cell edit delta — undo/redo restores cell content");
 
@@ -2013,7 +1964,7 @@ void TestGuiSimulationApp::_test_table_cell_edit_delta_undo_redo(CtMainWin* pWin
     spdlog::info("✓ Table cell edit delta undo/redo test passed");
 }
 
-void TestGuiSimulationApp::_test_widget_edit_no_change_no_command(CtMainWin* pWin)
+static void _test_widget_edit_no_change_no_command(CtMainWin* pWin)
 {
     spdlog::info("Test: Widget edit with no content change creates no undo command");
 
@@ -2073,7 +2024,7 @@ void TestGuiSimulationApp::_test_widget_edit_no_change_no_command(CtMainWin* pWi
     spdlog::info("✓ Widget edit no-change no-command test passed");
 }
 
-void TestGuiSimulationApp::_test_codebox_edit_then_table_edit_separate_commands(CtMainWin* pWin)
+static void _test_codebox_edit_then_table_edit_separate_commands(CtMainWin* pWin)
 {
     spdlog::info("Test: Codebox edit then table cell edit create separate undo commands");
 
@@ -2201,7 +2152,7 @@ void TestGuiSimulationApp::_test_codebox_edit_then_table_edit_separate_commands(
     spdlog::info("✓ Codebox + table edit separate commands test passed");
 }
 
-void TestGuiSimulationApp::_test_modify_widget_delta_undo_redo(CtMainWin* pWin)
+static void _test_modify_widget_delta_undo_redo(CtMainWin* pWin)
 {
     spdlog::info("Test: ModifyWidgetDeltaCommand — table row add undo/redo");
 
@@ -2325,7 +2276,7 @@ void TestGuiSimulationApp::_test_modify_widget_delta_undo_redo(CtMainWin* pWin)
     spdlog::info("✓ ModifyWidgetDeltaCommand undo/redo test passed");
 }
 
-void TestGuiSimulationApp::_test_rich_table_insert_undo_redo(CtMainWin* pWin)
+static void _test_rich_table_insert_undo_redo(CtMainWin* pWin)
 {
     spdlog::info("Test: RT-2 CtTableRich — insert, cell content, undo/redo");
 
@@ -2462,7 +2413,7 @@ static CtTableRich* findFirstRichTable(CtMainWin* pWin)
     return nullptr;
 }
 
-void TestGuiSimulationApp::_test_rich_cell_edit_session_undo_redo(CtMainWin* pWin)
+static void _test_rich_cell_edit_session_undo_redo(CtMainWin* pWin)
 {
     spdlog::info("Test: RT-3 — rich cell edit session undo/redo");
 
@@ -2550,7 +2501,7 @@ void TestGuiSimulationApp::_test_rich_cell_edit_session_undo_redo(CtMainWin* pWi
     spdlog::info("✓ RT-3 rich cell edit session undo/redo test passed");
 }
 
-void TestGuiSimulationApp::_test_rich_cell_format_undo_redo(CtMainWin* pWin)
+static void _test_rich_cell_format_undo_redo(CtMainWin* pWin)
 {
     spdlog::info("Test: RT-4 — rich cell format (bold) undo/redo");
 
@@ -2691,7 +2642,7 @@ static int insertRichTableAtEnd(CtMainWin* pWin, CtCommandBridge* pBridge,
     return charOffset;
 }
 
-void TestGuiSimulationApp::_test_rich_cell_edit_description_format(CtMainWin* pWin)
+static void _test_rich_cell_edit_description_format(CtMainWin* pWin)
 {
     spdlog::info("Test: Rich cell undo descriptions match main-page format");
 
@@ -2955,7 +2906,7 @@ void TestGuiSimulationApp::_test_rich_cell_edit_description_format(CtMainWin* pW
     spdlog::info("✓ Rich cell edit description format test passed");
 }
 
-void TestGuiSimulationApp::_test_rich_cell_scroll_position_captured(CtMainWin* pWin)
+static void _test_rich_cell_scroll_position_captured(CtMainWin* pWin)
 {
     spdlog::info("Test: Rich cell commands capture scroll position");
 
@@ -3027,7 +2978,7 @@ void TestGuiSimulationApp::_test_rich_cell_scroll_position_captured(CtMainWin* p
     spdlog::info("✓ Rich cell scroll position captured test passed");
 }
 
-void TestGuiSimulationApp::_test_rich_cell_multiple_formats_undo_redo(CtMainWin* pWin)
+static void _test_rich_cell_multiple_formats_undo_redo(CtMainWin* pWin)
 {
     spdlog::info("Test: Multiple format operations in rich cell — each produces separate undo entry");
 
@@ -3187,7 +3138,7 @@ void TestGuiSimulationApp::_test_rich_cell_multiple_formats_undo_redo(CtMainWin*
     spdlog::info("✓ Multiple formats in rich cell undo/redo test passed");
 }
 
-void TestGuiSimulationApp::_test_rich_cell_edit_multiple_cells_separate_commands(CtMainWin* pWin)
+static void _test_rich_cell_edit_multiple_cells_separate_commands(CtMainWin* pWin)
 {
     spdlog::info("Test: Editing different cells creates separate undo commands");
 
@@ -3283,7 +3234,7 @@ void TestGuiSimulationApp::_test_rich_cell_edit_multiple_cells_separate_commands
     spdlog::info("✓ Multiple cells separate commands test passed");
 }
 
-void TestGuiSimulationApp::_test_rich_cell_no_change_no_command(CtMainWin* pWin)
+static void _test_rich_cell_no_change_no_command(CtMainWin* pWin)
 {
     spdlog::info("Test: Rich cell focus-in/focus-out with no change produces no command");
 
@@ -3331,7 +3282,7 @@ void TestGuiSimulationApp::_test_rich_cell_no_change_no_command(CtMainWin* pWin)
     spdlog::info("✓ Rich cell no-change no-command test passed");
 }
 
-void TestGuiSimulationApp::_test_rich_cell_edit_then_format_separate_commands(CtMainWin* pWin)
+static void _test_rich_cell_edit_then_format_separate_commands(CtMainWin* pWin)
 {
     spdlog::info("Test: Text edit then format in same cell creates separate undo entries");
 
@@ -3422,7 +3373,7 @@ void TestGuiSimulationApp::_test_rich_cell_edit_then_format_separate_commands(Ct
     spdlog::info("✓ Edit then format separate commands test passed");
 }
 
-void TestGuiSimulationApp::_test_rich_table_full_undo_redo_cycle(CtMainWin* pWin)
+static void _test_rich_table_full_undo_redo_cycle(CtMainWin* pWin)
 {
     spdlog::info("Test: Full rich table lifecycle — insert, edit cells, format, undo all, redo all");
 
@@ -3626,7 +3577,7 @@ void expectAttr(const std::shared_ptr<CtDocumentModel>& docModel, gint64 nodeId,
 
 // ─── Individual format tests ──────────────────────────────────────────────────
 
-void TestGuiSimulationApp::_test_format_underline_undo_redo(CtMainWin* pWin)
+static void _test_format_underline_undo_redo(CtMainWin* pWin)
 {
     spdlog::info("Test: Format underline undo/redo (signal-based)");
     auto pBridge  = pWin->get_command_bridge();
@@ -3649,7 +3600,7 @@ void TestGuiSimulationApp::_test_format_underline_undo_redo(CtMainWin* pWin)
     spdlog::info("✓ underline undo/redo");
 }
 
-void TestGuiSimulationApp::_test_format_strikethrough_undo_redo(CtMainWin* pWin)
+static void _test_format_strikethrough_undo_redo(CtMainWin* pWin)
 {
     spdlog::info("Test: Format strikethrough undo/redo (signal-based)");
     auto pBridge  = pWin->get_command_bridge();
@@ -3672,7 +3623,7 @@ void TestGuiSimulationApp::_test_format_strikethrough_undo_redo(CtMainWin* pWin)
     spdlog::info("✓ strikethrough undo/redo");
 }
 
-void TestGuiSimulationApp::_test_format_monospace_undo_redo(CtMainWin* pWin)
+static void _test_format_monospace_undo_redo(CtMainWin* pWin)
 {
     spdlog::info("Test: Format monospace undo/redo (signal-based)");
     auto pBridge  = pWin->get_command_bridge();
@@ -3695,7 +3646,7 @@ void TestGuiSimulationApp::_test_format_monospace_undo_redo(CtMainWin* pWin)
     spdlog::info("✓ monospace undo/redo");
 }
 
-void TestGuiSimulationApp::_test_format_small_undo_redo(CtMainWin* pWin)
+static void _test_format_small_undo_redo(CtMainWin* pWin)
 {
     spdlog::info("Test: Format small undo/redo (signal-based)");
     auto pBridge  = pWin->get_command_bridge();
@@ -3718,7 +3669,7 @@ void TestGuiSimulationApp::_test_format_small_undo_redo(CtMainWin* pWin)
     spdlog::info("✓ small undo/redo");
 }
 
-void TestGuiSimulationApp::_test_format_superscript_undo_redo(CtMainWin* pWin)
+static void _test_format_superscript_undo_redo(CtMainWin* pWin)
 {
     spdlog::info("Test: Format superscript undo/redo (signal-based)");
     auto pBridge  = pWin->get_command_bridge();
@@ -3741,7 +3692,7 @@ void TestGuiSimulationApp::_test_format_superscript_undo_redo(CtMainWin* pWin)
     spdlog::info("✓ superscript undo/redo");
 }
 
-void TestGuiSimulationApp::_test_format_subscript_undo_redo(CtMainWin* pWin)
+static void _test_format_subscript_undo_redo(CtMainWin* pWin)
 {
     spdlog::info("Test: Format subscript undo/redo (signal-based)");
     auto pBridge  = pWin->get_command_bridge();
@@ -3764,7 +3715,7 @@ void TestGuiSimulationApp::_test_format_subscript_undo_redo(CtMainWin* pWin)
     spdlog::info("✓ subscript undo/redo");
 }
 
-void TestGuiSimulationApp::_test_format_h1_undo_redo(CtMainWin* pWin)
+static void _test_format_h1_undo_redo(CtMainWin* pWin)
 {
     spdlog::info("Test: Format h1 heading undo/redo (signal-based, paragraph-level)");
     auto pBridge  = pWin->get_command_bridge();
@@ -3804,7 +3755,7 @@ void TestGuiSimulationApp::_test_format_h1_undo_redo(CtMainWin* pWin)
     spdlog::info("✓ h1 heading undo/redo");
 }
 
-void TestGuiSimulationApp::_test_format_justify_undo_redo(CtMainWin* pWin)
+static void _test_format_justify_undo_redo(CtMainWin* pWin)
 {
     spdlog::info("Test: Format justify_center undo/redo (signal-based, paragraph-level)");
     auto pBridge  = pWin->get_command_bridge();
@@ -3842,7 +3793,7 @@ void TestGuiSimulationApp::_test_format_justify_undo_redo(CtMainWin* pWin)
     spdlog::info("✓ justify_center undo/redo");
 }
 
-void TestGuiSimulationApp::_test_format_indent_undo_redo(CtMainWin* pWin)
+static void _test_format_indent_undo_redo(CtMainWin* pWin)
 {
     spdlog::info("Test: Format indent undo/redo (signal-based, paragraph-level)");
     auto pBridge  = pWin->get_command_bridge();
@@ -3882,7 +3833,7 @@ void TestGuiSimulationApp::_test_format_indent_undo_redo(CtMainWin* pWin)
 
 // ─── Toggle and removal tests ─────────────────────────────────────────────────
 
-void TestGuiSimulationApp::_test_format_toggle_bold_off(CtMainWin* pWin)
+static void _test_format_toggle_bold_off(CtMainWin* pWin)
 {
     spdlog::info("Test: Toggle bold off (apply bold to already-bold text removes it)");
     auto pBridge  = pWin->get_command_bridge();
@@ -3915,7 +3866,7 @@ void TestGuiSimulationApp::_test_format_toggle_bold_off(CtMainWin* pWin)
     spdlog::info("✓ toggle bold off");
 }
 
-void TestGuiSimulationApp::_test_format_remove_formatting_undo_redo(CtMainWin* pWin)
+static void _test_format_remove_formatting_undo_redo(CtMainWin* pWin)
 {
     spdlog::info("Test: Remove all formatting is now undoable (10.5d fix)");
     auto pBridge  = pWin->get_command_bridge();
@@ -3960,7 +3911,7 @@ void TestGuiSimulationApp::_test_format_remove_formatting_undo_redo(CtMainWin* p
 
 // ─── Combination tests ────────────────────────────────────────────────────────
 
-void TestGuiSimulationApp::_test_format_bold_then_italic_undo_each(CtMainWin* pWin)
+static void _test_format_bold_then_italic_undo_each(CtMainWin* pWin)
 {
     spdlog::info("Test: Bold then italic — two separate undo entries");
     auto pBridge  = pWin->get_command_bridge();
@@ -4007,7 +3958,7 @@ void TestGuiSimulationApp::_test_format_bold_then_italic_undo_each(CtMainWin* pW
     spdlog::info("✓ bold then italic undo each");
 }
 
-void TestGuiSimulationApp::_test_format_bold_italic_underline_stack(CtMainWin* pWin)
+static void _test_format_bold_italic_underline_stack(CtMainWin* pWin)
 {
     spdlog::info("Test: Bold+italic+underline stack — 3 separate undo entries");
     auto pBridge  = pWin->get_command_bridge();
@@ -4051,7 +4002,7 @@ void TestGuiSimulationApp::_test_format_bold_italic_underline_stack(CtMainWin* p
     spdlog::info("✓ bold+italic+underline stack");
 }
 
-void TestGuiSimulationApp::_test_format_overlapping_ranges(CtMainWin* pWin)
+static void _test_format_overlapping_ranges(CtMainWin* pWin)
 {
     spdlog::info("Test: Overlapping format ranges — bold 0-3, italic 2-5");
     auto pBridge  = pWin->get_command_bridge();
@@ -4122,7 +4073,7 @@ void TestGuiSimulationApp::_test_format_overlapping_ranges(CtMainWin* pWin)
     spdlog::info("✓ overlapping ranges");
 }
 
-void TestGuiSimulationApp::_test_format_then_type_separate_undo(CtMainWin* pWin)
+static void _test_format_then_type_separate_undo(CtMainWin* pWin)
 {
     spdlog::info("Test: Format + type creates two separate undo entries");
     auto pBridge  = pWin->get_command_bridge();
@@ -4243,7 +4194,7 @@ static void cleanupRichCellTest(CtMainWin* pWin)
     GuiEventSimulator::process_pending_events();
 }
 
-void TestGuiSimulationApp::_test_rich_cell_list_insertion(CtMainWin* pWin)
+static void _test_rich_cell_list_insertion(CtMainWin* pWin)
 {
     spdlog::info("Test: Rich cell — list insertion (bulleted, numbered, todo)");
 
@@ -4301,7 +4252,7 @@ void TestGuiSimulationApp::_test_rich_cell_list_insertion(CtMainWin* pWin)
     spdlog::info("✓ Rich cell list insertion test passed");
 }
 
-void TestGuiSimulationApp::_test_rich_cell_indent_free_text(CtMainWin* pWin)
+static void _test_rich_cell_indent_free_text(CtMainWin* pWin)
 {
     spdlog::info("Test: Rich cell — toolbar indent/unindent on free text");
 
@@ -4356,7 +4307,7 @@ void TestGuiSimulationApp::_test_rich_cell_indent_free_text(CtMainWin* pWin)
     spdlog::info("✓ Rich cell indent free text test passed");
 }
 
-void TestGuiSimulationApp::_test_rich_cell_tab_inserts_tab(CtMainWin* pWin)
+static void _test_rich_cell_tab_inserts_tab(CtMainWin* pWin)
 {
     spdlog::info("Test: Rich cell — Tab on non-list text does not navigate away");
 
@@ -4383,7 +4334,7 @@ void TestGuiSimulationApp::_test_rich_cell_tab_inserts_tab(CtMainWin* pWin)
     spdlog::info("✓ Rich cell tab inserts tab test passed");
 }
 
-void TestGuiSimulationApp::_test_rich_cell_tab_indents_list(CtMainWin* pWin)
+static void _test_rich_cell_tab_indents_list(CtMainWin* pWin)
 {
     spdlog::info("Test: Rich cell — Tab on list item indents it");
 
@@ -4450,7 +4401,7 @@ void TestGuiSimulationApp::_test_rich_cell_tab_indents_list(CtMainWin* pWin)
 
 // ─── Link and anchor tests ────────────────────────────────────────────────────
 
-void TestGuiSimulationApp::_test_link_all_types_insert_in_node(CtMainWin* pWin)
+static void _test_link_all_types_insert_in_node(CtMainWin* pWin)
 {
     spdlog::info("Test: Insert all link types (webs, file, fold, node, node+anchor) in node buffer");
 
@@ -4532,7 +4483,7 @@ void TestGuiSimulationApp::_test_link_all_types_insert_in_node(CtMainWin* pWin)
     spdlog::info("  All link types inserted and verified");
 }
 
-void TestGuiSimulationApp::_test_anchor_insert_in_node(CtMainWin* pWin)
+static void _test_anchor_insert_in_node(CtMainWin* pWin)
 {
     spdlog::info("Test: Insert anchor in node buffer and scroll to it");
 
@@ -4594,7 +4545,7 @@ void TestGuiSimulationApp::_test_anchor_insert_in_node(CtMainWin* pWin)
     spdlog::info("  Anchor insert and navigation verified");
 }
 
-void TestGuiSimulationApp::_test_link_insert_in_rich_cell(CtMainWin* pWin)
+static void _test_link_insert_in_rich_cell(CtMainWin* pWin)
 {
     spdlog::info("Test: Insert link in rich table cell — stays in cell, not main buffer");
 
@@ -4698,7 +4649,7 @@ void TestGuiSimulationApp::_test_link_insert_in_rich_cell(CtMainWin* pWin)
     spdlog::info("  Link in rich cell verified (stays in cell, not main buffer)");
 }
 
-void TestGuiSimulationApp::_test_anchor_insert_in_rich_cell(CtMainWin* pWin)
+static void _test_anchor_insert_in_rich_cell(CtMainWin* pWin)
 {
     spdlog::info("Test: Insert anchor in rich table cell — stays in cell, not main buffer");
 
@@ -4797,7 +4748,7 @@ void TestGuiSimulationApp::_test_anchor_insert_in_rich_cell(CtMainWin* pWin)
     spdlog::info("  Anchor in rich cell verified (stays in cell, not main buffer)");
 }
 
-void TestGuiSimulationApp::_test_anchor_in_rich_cell_discoverable(CtMainWin* pWin)
+static void _test_anchor_in_rich_cell_discoverable(CtMainWin* pWin)
 {
     spdlog::info("Test: Anchors inside rich cells are discoverable via get_anchored_widgets_fast");
 
@@ -4876,7 +4827,7 @@ void TestGuiSimulationApp::_test_anchor_in_rich_cell_discoverable(CtMainWin* pWi
     spdlog::info("  Anchor in rich cell discoverable verified");
 }
 
-void TestGuiSimulationApp::_test_link_to_anchor_in_rich_cell_navigates(CtMainWin* pWin)
+static void _test_link_to_anchor_in_rich_cell_navigates(CtMainWin* pWin)
 {
     spdlog::info("Test: Navigate to anchor inside rich cell via current_node_scroll_to_anchor");
 
@@ -5046,7 +4997,7 @@ void TestGuiSimulationApp::_test_link_to_anchor_in_rich_cell_navigates(CtMainWin
     spdlog::info("  Navigate to anchor in rich cell verified");
 }
 
-void TestGuiSimulationApp::_test_link_insert_in_node_functional(CtMainWin* pWin)
+static void _test_link_insert_in_node_functional(CtMainWin* pWin)
 {
     spdlog::info("Test: Link insert on main buffer — tag applied, text correct, undo description");
 
@@ -5110,7 +5061,7 @@ void TestGuiSimulationApp::_test_link_insert_in_node_functional(CtMainWin* pWin)
     spdlog::info("  Link insert on main buffer verified");
 }
 
-void TestGuiSimulationApp::_test_anchor_insert_in_node_undo_description(CtMainWin* pWin)
+static void _test_anchor_insert_in_node_undo_description(CtMainWin* pWin)
 {
     spdlog::info("Test: Anchor insert on main buffer — undo description says 'Insert anchor'");
 
@@ -5160,7 +5111,7 @@ void TestGuiSimulationApp::_test_anchor_insert_in_node_undo_description(CtMainWi
     spdlog::info("  Anchor insert undo description verified");
 }
 
-void TestGuiSimulationApp::_test_link_to_anchor_in_node_navigates(CtMainWin* pWin)
+static void _test_link_to_anchor_in_node_navigates(CtMainWin* pWin)
 {
     spdlog::info("Test: Link click navigates to anchor on main buffer (same node)");
 
@@ -5229,7 +5180,7 @@ void TestGuiSimulationApp::_test_link_to_anchor_in_node_navigates(CtMainWin* pWi
     spdlog::info("  Link to anchor on main buffer navigation verified");
 }
 
-void TestGuiSimulationApp::_test_link_click_navigates_between_nodes(CtMainWin* pWin)
+static void _test_link_click_navigates_between_nodes(CtMainWin* pWin)
 {
     spdlog::info("Test: Link click navigates between different nodes");
 
@@ -5303,7 +5254,7 @@ void TestGuiSimulationApp::_test_link_click_navigates_between_nodes(CtMainWin* p
     spdlog::info("  Cross-node link navigation verified");
 }
 
-void TestGuiSimulationApp::_test_link_undo_removes_link_in_node(CtMainWin* pWin)
+static void _test_link_undo_removes_link_in_node(CtMainWin* pWin)
 {
     spdlog::info("Test: Link undo round-trip — undo removes tag, redo restores it");
 
@@ -5376,7 +5327,7 @@ void TestGuiSimulationApp::_test_link_undo_removes_link_in_node(CtMainWin* pWin)
     spdlog::info("  Link undo/redo round-trip verified");
 }
 
-void TestGuiSimulationApp::_test_anchor_undo_removes_anchor_in_rich_cell(CtMainWin* pWin)
+static void _test_anchor_undo_removes_anchor_in_rich_cell(CtMainWin* pWin)
 {
     spdlog::info("Test: Anchor undo round-trip in rich cell — undo removes, redo restores");
 
@@ -5485,7 +5436,7 @@ void TestGuiSimulationApp::_test_anchor_undo_removes_anchor_in_rich_cell(CtMainW
     spdlog::info("  Anchor undo/redo in rich cell verified");
 }
 
-void TestGuiSimulationApp::_test_latex_insert_in_rich_cell(CtMainWin* pWin)
+static void _test_latex_insert_in_rich_cell(CtMainWin* pWin)
 {
     spdlog::info("Test: Insert LaTeX in rich table cell — stays in cell, not main buffer");
 
@@ -5561,7 +5512,7 @@ void TestGuiSimulationApp::_test_latex_insert_in_rich_cell(CtMainWin* pWin)
     spdlog::info("  LaTeX in rich cell verified (stays in cell, not main buffer)");
 }
 
-void TestGuiSimulationApp::_test_embfile_insert_in_rich_cell(CtMainWin* pWin)
+static void _test_embfile_insert_in_rich_cell(CtMainWin* pWin)
 {
     spdlog::info("Test: Insert embedded file in rich table cell — stays in cell, not main buffer");
 
@@ -5695,7 +5646,7 @@ void TestGuiSimulationApp::_test_embfile_insert_in_rich_cell(CtMainWin* pWin)
     spdlog::info("  Embedded file in rich cell undo/redo verified");
 }
 
-void TestGuiSimulationApp::_test_toc_insert_in_rich_cell(CtMainWin* pWin)
+static void _test_toc_insert_in_rich_cell(CtMainWin* pWin)
 {
     spdlog::info("Test: TOC insert blocked in rich table cell (creates header anchors incompatible with cells)");
 
@@ -5753,7 +5704,7 @@ void TestGuiSimulationApp::_test_toc_insert_in_rich_cell(CtMainWin* pWin)
     spdlog::info("  TOC blocked in rich cell verified");
 }
 
-void TestGuiSimulationApp::_test_table_codebox_blocked_in_rich_cell(CtMainWin* pWin)
+static void _test_table_codebox_blocked_in_rich_cell(CtMainWin* pWin)
 {
     spdlog::info("Test: Table and codebox insert blocked in rich table cell");
 
@@ -5861,7 +5812,7 @@ static std::vector<std::vector<int>> captureAllCellVisualWidths(CtTableRich* pTa
     return widths;
 }
 
-void TestGuiSimulationApp::_test_rich_table_style_preserves_cell_width(CtMainWin* pWin)
+static void _test_rich_table_style_preserves_cell_width(CtMainWin* pWin)
 {
     spdlog::info("Test: Rich table style changes must not alter cell widths");
 
@@ -6053,7 +6004,7 @@ void TestGuiSimulationApp::_test_rich_table_style_preserves_cell_width(CtMainWin
     spdlog::info("  Rich table style preserves cell width - all checks passed");
 }
 
-void TestGuiSimulationApp::_test_rich_table_junction_colors_follow_last_operation(CtMainWin* pWin)
+static void _test_rich_table_junction_colors_follow_last_operation(CtMainWin* pWin)
 {
     spdlog::info("Test: Rich table junction (corner) colors follow last styling operation");
 
@@ -6218,7 +6169,7 @@ void TestGuiSimulationApp::_test_rich_table_junction_colors_follow_last_operatio
 // at a cell's corners is computed only from the two edges that meet there, not
 // from the globally highest-sequence edge (the old bug).
 // ─────────────────────────────────────────────────────────────────────────────
-void TestGuiSimulationApp::_test_rich_table_per_corner_colors_independent(CtMainWin* pWin)
+static void _test_rich_table_per_corner_colors_independent(CtMainWin* pWin)
 {
     spdlog::info("Test: Rich table per-corner colors are computed independently");
 
@@ -6329,7 +6280,7 @@ void TestGuiSimulationApp::_test_rich_table_per_corner_colors_independent(CtMain
 // Border window sizes: verifies the collapsed-border model assigns the correct
 // GTK border-window widths to each cell position in the grid.
 // ─────────────────────────────────────────────────────────────────────────────
-void TestGuiSimulationApp::_test_rich_table_border_window_sizes(CtMainWin* pWin)
+static void _test_rich_table_border_window_sizes(CtMainWin* pWin)
 {
     spdlog::info("Test: Rich table border window sizes match collapsed-border model");
 
@@ -6409,7 +6360,7 @@ void TestGuiSimulationApp::_test_rich_table_border_window_sizes(CtMainWin* pWin)
 // the table-level borderColor for all corners, and (b) clearing per-cell
 // overrides restores cells to the table default.
 // ─────────────────────────────────────────────────────────────────────────────
-void TestGuiSimulationApp::_test_rich_table_default_style_and_overrides(CtMainWin* pWin)
+static void _test_rich_table_default_style_and_overrides(CtMainWin* pWin)
 {
     spdlog::info("Test: Rich table default style and per-cell override clearing");
 
@@ -6488,7 +6439,7 @@ void TestGuiSimulationApp::_test_rich_table_default_style_and_overrides(CtMainWi
 // Regression test: after switching nodes, the cursor position stored in undo
 // commands should reflect where the user actually typed, not the buffer's
 // default position right after the node switch.
-void TestGuiSimulationApp::_test_cursor_pos_after_node_switch_undo(CtMainWin* pWin)
+static void _test_cursor_pos_after_node_switch_undo(CtMainWin* pWin)
 {
     spdlog::info("Test: Cursor position after node switch + undo");
 
@@ -6585,7 +6536,7 @@ void TestGuiSimulationApp::_test_cursor_pos_after_node_switch_undo(CtMainWin* pW
 // should be placed at the widget's offset, not left at the top of the page.
 // The bug was that onNodeChanged's "skip rebuild" path returned early without
 // consuming _pendingCursorPos.
-void TestGuiSimulationApp::_test_cursor_pos_after_rich_cell_undo(CtMainWin* pWin)
+static void _test_cursor_pos_after_rich_cell_undo(CtMainWin* pWin)
 {
     spdlog::info("Test: Cursor position after rich cell in-place undo/redo");
 
@@ -6677,26 +6628,391 @@ void TestGuiSimulationApp::_test_cursor_pos_after_rich_cell_undo(CtMainWin* pWin
     spdlog::info("  Cursor position after rich cell in-place undo/redo test passed");
 }
 
-TEST(CommandGuiSimulationTests, Phase6_3_GuiEventSimulation)
-{
-    // Suppress GTK warnings during tests
-    g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
+// --- on_activate implementations for each isolated test group ---
 
-    TestGuiSimulationApp app;
+void TestRandomizedStressApp::on_activate()
+{
+    _on_startup();
+    CtMainWin* pWin = _create_window(true/*start_hidden*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+    pWin->show_all();
+    pWin->hide();
+    GuiEventSimulator::process_pending_events();
+
+    _test_gui_complex_operations_undo_redo(pWin);
+
+    pWin->force_exit() = true;
+    remove_window(*pWin);
+}
+
+void TestBufferAndSessionApp::on_activate()
+{
+    _on_startup();
+    CtMainWin* pWin = _create_window(true/*start_hidden*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+    pWin->show_all();
+    pWin->hide();
+    GuiEventSimulator::process_pending_events();
+
+    _test_buffer_signal_handlers_direct(pWin);
+    _test_cursor_restoration_after_undo_redo(pWin);
+    _test_gtk_accelerator_bindings(pWin);
+    _test_focus_out_session_ending(pWin);
+    _test_mainwin_event_handlers_direct(pWin);
+    _test_undo_redo_description_format(pWin);
+    _test_scroll_position_captured_in_commands(pWin);
+
+    pWin->force_exit() = true;
+    remove_window(*pWin);
+}
+
+void TestCutPasteApp::on_activate()
+{
+    _on_startup();
+    CtMainWin* pWin = _create_window(true/*start_hidden*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+    pWin->show_all();
+    pWin->hide();
+    GuiEventSimulator::process_pending_events();
+
+    // Pre-settle cursor on node "b" and end any auto-started session,
+    // mirroring the state the monolithic test established via prior test runs.
+    {
+        auto bIter = pWin->get_tree_store().get_node_from_node_name("b");
+        if (bIter)
+            pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(bIter));
+        GuiEventSimulator::process_pending_events();
+        pWin->get_command_bridge()->endTextEditSession();
+    }
+
+    _test_cut_undo_redo_content_restoration(pWin);
+    _test_paste_delta_plain_text_undo_redo(pWin);
+    _test_paste_delta_creates_correct_command_type(pWin);
+
+    pWin->force_exit() = true;
+    remove_window(*pWin);
+}
+
+void TestWidgetEditApp::on_activate()
+{
+    _on_startup();
+    CtMainWin* pWin = _create_window(true/*start_hidden*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+    pWin->show_all();
+    pWin->hide();
+    GuiEventSimulator::process_pending_events();
+
+    _test_codebox_edit_delta_undo_redo(pWin);
+    _test_table_cell_edit_delta_undo_redo(pWin);
+    _test_widget_edit_no_change_no_command(pWin);
+    _test_codebox_edit_then_table_edit_separate_commands(pWin);
+    _test_modify_widget_delta_undo_redo(pWin);
+
+    pWin->force_exit() = true;
+    remove_window(*pWin);
+}
+
+void TestRichTableApp::on_activate()
+{
+    _on_startup();
+    CtMainWin* pWin = _create_window(true/*start_hidden*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+    pWin->show_all();
+    pWin->hide();
+    GuiEventSimulator::process_pending_events();
+
+    _test_rich_table_insert_undo_redo(pWin);
+    _test_rich_cell_edit_session_undo_redo(pWin);
+    _test_rich_cell_format_undo_redo(pWin);
+    _test_rich_cell_edit_description_format(pWin);
+    _test_rich_cell_scroll_position_captured(pWin);
+    _test_rich_cell_multiple_formats_undo_redo(pWin);
+    _test_rich_cell_edit_multiple_cells_separate_commands(pWin);
+    _test_rich_cell_no_change_no_command(pWin);
+    _test_rich_cell_edit_then_format_separate_commands(pWin);
+    _test_rich_table_full_undo_redo_cycle(pWin);
+
+    pWin->force_exit() = true;
+    remove_window(*pWin);
+}
+
+void TestFormatApp::on_activate()
+{
+    _on_startup();
+    CtMainWin* pWin = _create_window(true/*start_hidden*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+    pWin->show_all();
+    pWin->hide();
+    GuiEventSimulator::process_pending_events();
+
+    _test_format_underline_undo_redo(pWin);
+    _test_format_strikethrough_undo_redo(pWin);
+    _test_format_monospace_undo_redo(pWin);
+    _test_format_small_undo_redo(pWin);
+    _test_format_superscript_undo_redo(pWin);
+    _test_format_subscript_undo_redo(pWin);
+    _test_format_h1_undo_redo(pWin);
+    _test_format_justify_undo_redo(pWin);
+    _test_format_indent_undo_redo(pWin);
+    _test_format_toggle_bold_off(pWin);
+    _test_format_remove_formatting_undo_redo(pWin);
+    _test_format_bold_then_italic_undo_each(pWin);
+    _test_format_bold_italic_underline_stack(pWin);
+    _test_format_overlapping_ranges(pWin);
+    _test_format_then_type_separate_undo(pWin);
+
+    pWin->force_exit() = true;
+    remove_window(*pWin);
+}
+
+void TestRichCellListIndentApp::on_activate()
+{
+    _on_startup();
+    CtMainWin* pWin = _create_window(true/*start_hidden*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+    pWin->show_all();
+    pWin->hide();
+    GuiEventSimulator::process_pending_events();
+
+    _test_rich_cell_list_insertion(pWin);
+    _test_rich_cell_indent_free_text(pWin);
+    _test_rich_cell_tab_inserts_tab(pWin);
+    _test_rich_cell_tab_indents_list(pWin);
+
+    pWin->force_exit() = true;
+    remove_window(*pWin);
+}
+
+void TestLinkAnchorApp::on_activate()
+{
+    _on_startup();
+    CtMainWin* pWin = _create_window(true/*start_hidden*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+    pWin->show_all();
+    pWin->hide();
+    GuiEventSimulator::process_pending_events();
+
+    _test_link_all_types_insert_in_node(pWin);
+    _test_anchor_insert_in_node(pWin);
+    _test_link_insert_in_rich_cell(pWin);
+    _test_anchor_insert_in_rich_cell(pWin);
+    _test_anchor_in_rich_cell_discoverable(pWin);
+    _test_link_to_anchor_in_rich_cell_navigates(pWin);
+    _test_link_insert_in_node_functional(pWin);
+    _test_anchor_insert_in_node_undo_description(pWin);
+    _test_link_to_anchor_in_node_navigates(pWin);
+    _test_link_click_navigates_between_nodes(pWin);
+    _test_link_undo_removes_link_in_node(pWin);
+    _test_anchor_undo_removes_anchor_in_rich_cell(pWin);
+
+    pWin->force_exit() = true;
+    remove_window(*pWin);
+}
+
+void TestWidgetInsertRoutingApp::on_activate()
+{
+    _on_startup();
+    CtMainWin* pWin = _create_window(true/*start_hidden*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+    pWin->show_all();
+    pWin->hide();
+    GuiEventSimulator::process_pending_events();
+
+    _test_latex_insert_in_rich_cell(pWin);
+    _test_embfile_insert_in_rich_cell(pWin);
+    _test_toc_insert_in_rich_cell(pWin);
+    _test_table_codebox_blocked_in_rich_cell(pWin);
+
+    pWin->force_exit() = true;
+    remove_window(*pWin);
+}
+
+void TestRichTableStyleApp::on_activate()
+{
+    _on_startup();
+    CtMainWin* pWin = _create_window(true/*start_hidden*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+    pWin->show_all();
+    pWin->hide();
+    GuiEventSimulator::process_pending_events();
+
+    _test_rich_table_style_preserves_cell_width(pWin);
+    _test_rich_table_junction_colors_follow_last_operation(pWin);
+    _test_rich_table_per_corner_colors_independent(pWin);
+    _test_rich_table_border_window_sizes(pWin);
+    _test_rich_table_default_style_and_overrides(pWin);
+
+    pWin->force_exit() = true;
+    remove_window(*pWin);
+}
+
+void TestCursorPositionApp::on_activate()
+{
+    _on_startup();
+    CtMainWin* pWin = _create_window(true/*start_hidden*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+    pWin->show_all();
+    pWin->hide();
+    GuiEventSimulator::process_pending_events();
+
+    _test_cursor_pos_after_node_switch_undo(pWin);
+    _test_cursor_pos_after_rich_cell_undo(pWin);
+
+    pWin->force_exit() = true;
+    remove_window(*pWin);
+}
+
+// --- Helper to flush pending GTK events after each TEST ---
+static void flush_gtk_events()
+{
+    int processed = 0;
+    while (gtk_events_pending()) {
+        gtk_main_iteration();
+        if (++processed > 1000) break;
+    }
+}
+
+// --- Isolated TEST cases, one per feature group ---
+
+TEST(CommandGuiSimulationTests, RandomizedStressTest)
+{
+    g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
+    TestRandomizedStressApp app;
     const std::vector<std::string> vecArgs{"cherrytree"};
     gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
     const int ret_val = app.run(vecArgs.size(), pp_args);
     g_strfreev(pp_args);
     ASSERT_EQ(0, ret_val);
+    flush_gtk_events();
+}
 
-    // Process all pending GTK events before test exits
-    // This is critical to prevent interference with Google Test's teardown
-    int processed = 0;
-    while (gtk_events_pending()) {
-        gtk_main_iteration();
-        processed++;
-        if (processed > 1000) {
-            break;
-        }
-    }
+TEST(CommandGuiSimulationTests, BufferAndSessionTests)
+{
+    g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
+    TestBufferAndSessionApp app;
+    const std::vector<std::string> vecArgs{"cherrytree"};
+    gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
+    const int ret_val = app.run(vecArgs.size(), pp_args);
+    g_strfreev(pp_args);
+    ASSERT_EQ(0, ret_val);
+    flush_gtk_events();
+}
+
+TEST(CommandGuiSimulationTests, CutPasteTests)
+{
+    g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
+    TestCutPasteApp app;
+    const std::vector<std::string> vecArgs{"cherrytree"};
+    gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
+    const int ret_val = app.run(vecArgs.size(), pp_args);
+    g_strfreev(pp_args);
+    ASSERT_EQ(0, ret_val);
+    flush_gtk_events();
+}
+
+TEST(CommandGuiSimulationTests, WidgetEditTests)
+{
+    g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
+    TestWidgetEditApp app;
+    const std::vector<std::string> vecArgs{"cherrytree"};
+    gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
+    const int ret_val = app.run(vecArgs.size(), pp_args);
+    g_strfreev(pp_args);
+    ASSERT_EQ(0, ret_val);
+    flush_gtk_events();
+}
+
+TEST(CommandGuiSimulationTests, RichTableTests)
+{
+    g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
+    TestRichTableApp app;
+    const std::vector<std::string> vecArgs{"cherrytree"};
+    gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
+    const int ret_val = app.run(vecArgs.size(), pp_args);
+    g_strfreev(pp_args);
+    ASSERT_EQ(0, ret_val);
+    flush_gtk_events();
+}
+
+TEST(CommandGuiSimulationTests, FormatTests)
+{
+    g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
+    TestFormatApp app;
+    const std::vector<std::string> vecArgs{"cherrytree"};
+    gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
+    const int ret_val = app.run(vecArgs.size(), pp_args);
+    g_strfreev(pp_args);
+    ASSERT_EQ(0, ret_val);
+    flush_gtk_events();
+}
+
+TEST(CommandGuiSimulationTests, RichCellListIndentTests)
+{
+    g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
+    TestRichCellListIndentApp app;
+    const std::vector<std::string> vecArgs{"cherrytree"};
+    gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
+    const int ret_val = app.run(vecArgs.size(), pp_args);
+    g_strfreev(pp_args);
+    ASSERT_EQ(0, ret_val);
+    flush_gtk_events();
+}
+
+TEST(CommandGuiSimulationTests, LinkAnchorTests)
+{
+    g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
+    TestLinkAnchorApp app;
+    const std::vector<std::string> vecArgs{"cherrytree"};
+    gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
+    const int ret_val = app.run(vecArgs.size(), pp_args);
+    g_strfreev(pp_args);
+    ASSERT_EQ(0, ret_val);
+    flush_gtk_events();
+}
+
+TEST(CommandGuiSimulationTests, WidgetInsertRoutingTests)
+{
+    g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
+    TestWidgetInsertRoutingApp app;
+    const std::vector<std::string> vecArgs{"cherrytree"};
+    gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
+    const int ret_val = app.run(vecArgs.size(), pp_args);
+    g_strfreev(pp_args);
+    ASSERT_EQ(0, ret_val);
+    flush_gtk_events();
+}
+
+TEST(CommandGuiSimulationTests, RichTableStyleTests)
+{
+    g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
+    TestRichTableStyleApp app;
+    const std::vector<std::string> vecArgs{"cherrytree"};
+    gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
+    const int ret_val = app.run(vecArgs.size(), pp_args);
+    g_strfreev(pp_args);
+    ASSERT_EQ(0, ret_val);
+    flush_gtk_events();
+}
+
+TEST(CommandGuiSimulationTests, CursorPositionTests)
+{
+    g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
+    TestCursorPositionApp app;
+    const std::vector<std::string> vecArgs{"cherrytree"};
+    gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
+    const int ret_val = app.run(vecArgs.size(), pp_args);
+    g_strfreev(pp_args);
+    ASSERT_EQ(0, ret_val);
+    flush_gtk_events();
 }

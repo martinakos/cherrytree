@@ -13,7 +13,7 @@
 class TestUndoRedoApp : public CtApp
 {
 public:
-    TestUndoRedoApp() : CtApp{"_test_undo_redo"} { _no_gui = true; }
+    TestUndoRedoApp() : CtApp{"_test_undo_redo", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 
 private:
     void on_activate() final;
@@ -29,6 +29,11 @@ void TestUndoRedoApp::on_activate()
     const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
     ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
 
+    // Realize the window (required for cursor/buffer operations) then hide it
+    pWin->show_all();
+    pWin->hide();
+    while (gtk_events_pending()) gtk_main_iteration_do(false);
+
     _run_tests(pWin);
 
     // Cleanup
@@ -38,6 +43,10 @@ void TestUndoRedoApp::on_activate()
 
 void TestUndoRedoApp::_run_tests(CtMainWin* pWin)
 {
+    auto drainEvents = [](){
+        while (gtk_events_pending()) gtk_main_iteration_do(false);
+    };
+
     auto pBridge = pWin->get_command_bridge();
     ASSERT_TRUE(pBridge);
     ASSERT_TRUE(pBridge->isActive());
@@ -48,13 +57,15 @@ void TestUndoRedoApp::_run_tests(CtMainWin* pWin)
     {
         spdlog::info("Test 1: Text editing → undo → redo (command pattern verification)");
 
-        // Find a rich text node without complex widgets (node "e" has Cyrillic in widgets which causes corruption)
+        // Find a rich text node without complex widgets
         auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
         ASSERT_TRUE(ctIter);
         gint64 nodeId = ctIter.get_node_id();
 
-        // Select it (this automatically starts an edit session via cursor change event)
+        // Select node "b" and let GTK settle
         pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+        drainEvents();
+
         auto buffer = pWin->curr_buffer();
         ASSERT_TRUE(buffer);
 
@@ -64,53 +75,41 @@ void TestUndoRedoApp::_run_tests(CtMainWin* pWin)
         ASSERT_TRUE(node);
         Glib::ustring originalXml = node->getContentXml();
 
-        // Type some text (edit session is already active from cursor change)
-        buffer->insert(buffer->end(), "\nTest undo/redo");
-        buffer->set_modified(true); // Mark as modified so cursor change will end session
+        // End any session that was auto-started by the cursor change, then
+        // start a fresh session explicitly so we control exactly what's captured.
+        pBridge->endTextEditSession();
+        pBridge->beginTextEditSession(nodeId);
 
-        // Switch to another node to trigger session end
-        auto htmlIter = pWin->get_tree_store().get_node_from_node_name("html");
-        if (htmlIter) {
-            pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(htmlIter));
-        }
+        // Insert text — the active session captures this
+        buffer->insert(buffer->end(), "\nTest undo/redo");
+
+        // End session explicitly (creates the undo command)
+        pBridge->endTextEditSession();
+        drainEvents();
 
         // Verify model was modified
         Glib::ustring modifiedXml = node->getContentXml();
         ASSERT_NE(originalXml, modifiedXml);
 
-        // Undo - verify model reverts
+        // Undo — still on node "b", so no node-switch happens during undo
         ASSERT_TRUE(pBridge->canUndo());
         pBridge->undo();
+        drainEvents();
+
         Glib::ustring afterUndoXml = node->getContentXml();
 
-        // Debug: Write XMLs to files for comparison if they differ
-        if (originalXml != afterUndoXml) {
-            std::ofstream orig("/tmp/original.xml");
-            orig << originalXml.raw();
-            orig.close();
-            std::ofstream after("/tmp/after_undo.xml");
-            after << afterUndoXml.raw();
-            after.close();
-            spdlog::error("XMLs differ! Written to /tmp/original.xml and /tmp/after_undo.xml");
-            spdlog::error("Lengths: original={}, after_undo={}", originalXml.size(), afterUndoXml.size());
-        }
-
-        // Note: XML attribute ordering may differ (semantically equivalent)
-        // Verify content length matches and our added text is gone
-        ASSERT_EQ(originalXml.size(), afterUndoXml.size());
+        // Verify undo fully restored the original content
+        ASSERT_EQ(originalXml, afterUndoXml);
         ASSERT_TRUE(afterUndoXml.find("Test undo/redo") == Glib::ustring::npos);
 
-        // Redo - verify model re-applies change
+        // Redo — verify model re-applies change
         ASSERT_TRUE(pBridge->canRedo());
         pBridge->redo();
+        drainEvents();
 
-        // After XML-based redo, the node's XML comes from the buffer-captured finalXml,
-        // not from toXml(). These may differ slightly in formatting, so we just verify
-        // the undo/redo worked by checking a round-trip: undo returns to original, redo
-        // returns to a state that includes the inserted text.
         Glib::ustring afterRedoXml = node->getContentXml();
         ASSERT_TRUE(afterRedoXml.find("Test undo/redo") != Glib::ustring::npos);
-        ASSERT_NE(originalXml, afterRedoXml);  // Should be different from original
+        ASSERT_NE(originalXml, afterRedoXml);
 
         spdlog::info("✓ Test 1 passed: Text undo/redo works at model level");
     }
@@ -123,6 +122,7 @@ void TestUndoRedoApp::_run_tests(CtMainWin* pWin)
         int undoCount = 0;
         while (pBridge->canUndo()) {
             pBridge->undo();
+            drainEvents();
             undoCount++;
         }
         ASSERT_GT(undoCount, 0); // Should have at least the edit from Test 1
@@ -134,6 +134,7 @@ void TestUndoRedoApp::_run_tests(CtMainWin* pWin)
         int redoCount = 0;
         while (pBridge->canRedo()) {
             pBridge->redo();
+            drainEvents();
             redoCount++;
         }
         ASSERT_EQ(undoCount, redoCount); // Should match
