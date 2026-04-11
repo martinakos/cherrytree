@@ -2386,7 +2386,9 @@ void CtCommandBridge::BridgeObserver::buildBufferForNode(
     // rich cell's text view still has focus, destroying it triggers GTK to
     // access the cell buffer's insert mark whose internal line pointer is
     // already NULL, causing an assertion crash.
-    if (attachToView) {
+    // Skip when no_gui=true (headless tests): no rich cells have focus, and
+    // grab_focus() on a hidden window can hang waiting for X11 focus events.
+    if (attachToView && !_bridge->_pMainWin->no_gui()) {
         _bridge->_pMainWin->get_text_view().mm().grab_focus();
     }
 
