@@ -203,7 +203,8 @@ std::string folder_save_as_dialog(Gtk::Window* pParentWin, const CtFileSelectArg
 
 // Insert/Edit Image
 Glib::RefPtr<Gdk::Pixbuf> image_handle_dialog(Gtk::Window& father_win,
-                                              Glib::RefPtr<Gdk::Pixbuf> rOriginalPixbuf);
+                                              Glib::RefPtr<Gdk::Pixbuf> rOriginalPixbuf,
+                                              Glib::RefPtr<Gdk::Pixbuf> rHighResPixbuf = {});
 // Insert/Edit Latex
 Glib::ustring latex_handle_dialog(CtMainWin* pCtMainWin,
                                   const Glib::ustring& latex_text);
