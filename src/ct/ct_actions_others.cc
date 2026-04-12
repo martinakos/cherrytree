@@ -356,19 +356,81 @@ void CtActions::image_edit()
 
 void CtActions::image_cut()
 {
-    Gtk::TextIter iter = _curr_buffer()->get_iter_at_child_anchor(curr_image_anchor->getTextChildAnchor());
-    Gtk::TextIter iter_b = iter;
-    iter_b.forward_char();
-    _curr_buffer()->select_range(iter, iter_b);
+    // Check if image lives inside a rich table cell (same detection as image_edit).
+    for (auto* w = curr_image_anchor->get_parent(); w; w = w->get_parent()) {
+        if (auto* pTable = dynamic_cast<CtTableRich*>(w)) {
+            for (size_t r = 0; r < pTable->get_num_rows(); ++r) {
+                for (size_t c = 0; c < pTable->get_num_columns(); ++c) {
+                    CtRichCell* cell = pTable->getRichCell(r, c);
+                    for (auto* emb : cell->getEmbeddedWidgets()) {
+                        if (emb == curr_image_anchor) {
+                            // Restore rich-cell bridge tracking so _cut_clipboard
+                            // uses cell widgets for the clipboard data AND the rich-cell
+                            // undo path (cancelRichCellSession/commitRichCellFormatChange).
+                            // Without this, a prior click may have started a plain text
+                            // edit session, leaving isTrackingRichCell()=false.
+                            auto pBridge = _pCtMainWin->get_command_bridge();
+                            if (pBridge && pBridge->isActive()) {
+                                gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+                                pBridge->beginWidgetEdit(nodeId, pTable, (int)r, (int)c);
+                            }
+                            auto cellBuffer = cell->get_buffer();
+                            Gtk::TextIter iter_obj = cellBuffer->get_iter_at_child_anchor(curr_image_anchor->getTextChildAnchor());
+                            Gtk::TextIter iter_bound = iter_obj;
+                            iter_bound.forward_char();
+                            cellBuffer->select_range(iter_obj, iter_bound);
+                            g_signal_emit_by_name(G_OBJECT(cell->get_text_view().mm().gobj()), "cut-clipboard");
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    object_set_selection(curr_image_anchor);
     g_signal_emit_by_name(G_OBJECT(_pCtMainWin->get_text_view().gobj()), "cut-clipboard");
 }
 
 void CtActions::image_copy()
 {
-    Gtk::TextIter iter = _curr_buffer()->get_iter_at_child_anchor(curr_image_anchor->getTextChildAnchor());
-    Gtk::TextIter iter_b = iter;
-    iter_b.forward_char();
-    _curr_buffer()->select_range(iter, iter_b);
+    // Check if image lives inside a rich table cell (same detection as image_edit).
+    for (auto* w = curr_image_anchor->get_parent(); w; w = w->get_parent()) {
+        if (auto* pTable = dynamic_cast<CtTableRich*>(w)) {
+            for (size_t r = 0; r < pTable->get_num_rows(); ++r) {
+                for (size_t c = 0; c < pTable->get_num_columns(); ++c) {
+                    CtRichCell* cell = pTable->getRichCell(r, c);
+                    for (auto* emb : cell->getEmbeddedWidgets()) {
+                        if (emb == curr_image_anchor) {
+                            // Restore rich-cell bridge tracking so _copy_clipboard
+                            // uses cell widgets for the clipboard data (isTrackingRichCell
+                            // must be true when _selection_to_clipboard runs).
+                            // Then immediately call endWidgetEdit so the bridge returns
+                            // to text-edit mode — without this the paste after the copy
+                            // would land in the cell instead of wherever the cursor is.
+                            auto pBridge = _pCtMainWin->get_command_bridge();
+                            if (pBridge && pBridge->isActive()) {
+                                gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+                                pBridge->beginWidgetEdit(nodeId, pTable, (int)r, (int)c);
+                            }
+                            auto cellBuffer = cell->get_buffer();
+                            Gtk::TextIter iter_obj = cellBuffer->get_iter_at_child_anchor(curr_image_anchor->getTextChildAnchor());
+                            Gtk::TextIter iter_bound = iter_obj;
+                            iter_bound.forward_char();
+                            cellBuffer->select_range(iter_obj, iter_bound);
+                            g_signal_emit_by_name(G_OBJECT(cell->get_text_view().mm().gobj()), "copy-clipboard");
+                            // Restore bridge state: copy changed nothing so endWidgetEdit
+                            // will produce no undo entry but clears isTrackingRichCell().
+                            if (pBridge && pBridge->isActive()) {
+                                pBridge->endWidgetEdit();
+                            }
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    object_set_selection(curr_image_anchor);
     g_signal_emit_by_name(G_OBJECT(_pCtMainWin->get_text_view().gobj()), "copy-clipboard");
 }
 
