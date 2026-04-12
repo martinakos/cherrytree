@@ -269,6 +269,8 @@ void CtClipboard::table_row_to_clipboard(CtTableCommon* pTable)
 {
     CtClipboardData* clip_data = new CtClipboardData{};
     pTable->to_xml(clip_data->xml_doc.create_root_node("root"), 0, nullptr, std::string{});
+    if (auto* tn = static_cast<xmlpp::Element*>(clip_data->xml_doc.get_root_node()->get_first_child("table")))
+        tn->set_attribute("clip_orientation", "row");
     clip_data->html_text = CtExport2Html{_pCtMainWin}.table_export_to_html(pTable);
 
     _set_clipboard_data({CtConst::TARGET_CTD_TABLE, CtConst::TARGETS_HTML[0], CtConst::TARGETS_HTML[1]}, clip_data);
@@ -295,6 +297,8 @@ void CtClipboard::table_column_to_clipboard(CtTableCommon* pTable)
 {
     CtClipboardData* clip_data = new CtClipboardData{};
     pTable->to_xml(clip_data->xml_doc.create_root_node("root"), 0, nullptr, std::string{});
+    if (auto* tn = static_cast<xmlpp::Element*>(clip_data->xml_doc.get_root_node()->get_first_child("table")))
+        tn->set_attribute("clip_orientation", "col");
     clip_data->html_text = CtExport2Html{_pCtMainWin}.table_export_to_html(pTable);
 
     _set_clipboard_data({CtConst::TARGET_CTD_TABLE, CtConst::TARGETS_HTML[0], CtConst::TARGETS_HTML[1]}, clip_data);
@@ -945,23 +949,37 @@ void CtClipboard::on_received_to_table(const Gtk::SelectionData& selection_data,
         return;
     }
 
-    // Nested tables (pasting a table into a rich table cell) are not supported.
+    // Nested tables (pasting a table widget into a rich table cell) are not supported.
+    // Row/column paste (parentTable != nullptr) always proceeds regardless of rich-cell tracking.
     auto pBridge = _pCtMainWin->get_command_bridge();
-    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) return;
-
-    // Begin paste operation for command tracking
-    if (pBridge && pBridge->isActive()) {
-        pBridge->endTextEditSession();
-        pBridge->beginPaste(_pCtMainWin->curr_tree_iter().get_node_id());
-    }
+    if (!parentTable && pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) return;
 
     if (parentTable) {
         auto* tableElem = static_cast<xmlpp::Element*>(parser.get_document()->get_root_node()->get_first_child("table"));
+
+        // Reject orientation mismatches (e.g. pasting a copied column as a row).
+        const Glib::ustring clipOrientation = tableElem->get_attribute_value("clip_orientation");
+        if (!clipOrientation.empty() && (clipOrientation == "col") != is_column) return;
+
         const bool clipboardIsRich = CtStrUtil::is_str_true(tableElem->get_attribute_value("is_rich"));
         auto* parentRich = dynamic_cast<CtTableRich*>(parentTable);
 
         // Rich-to-rich path: preserve formatting (spans + embedded widgets + per-cell style).
+        // Uses commitWidgetModification (same pattern as table_column_add/delete) so the paste
+        // is recorded as a single undoable command.
         if (parentRich && clipboardIsRich) {
+            const gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+            const int widgetOffset = parentRich->getOffset();
+            CtWidgetDesc oldDesc;
+            if (pBridge && pBridge->isActive()) {
+                pBridge->endTextEditSession();
+                if (auto dm = pBridge->getDocumentModel()) {
+                    if (auto dn = dm->getNodeById(nodeId)) {
+                        oldDesc = dn->getContent().getWidgetDescAt(widgetOffset);
+                    }
+                }
+            }
+
             // Parse the clipboard XML into a temporary CtTableRich so we can use
             // its already-built rich-cell content extraction.
             std::unique_ptr<CtTableRich> tmpRich{
@@ -969,6 +987,10 @@ void CtClipboard::on_received_to_table(const Gtk::SelectionData& selection_data,
                     CtStorageXmlHelper{_pCtMainWin}._create_rich_table_from_xml(
                         tableElem, 0/*charOffset*/, CtConst::TAG_PROP_VAL_LEFT,
                         parentRich->get_col_width_default(), CtTableColWidths{}))};
+            // Reject if row/column count doesn't match.
+            if (is_column && tmpRich->get_num_rows() != parentRich->get_num_rows()) return;
+            if (!is_column && tmpRich->get_num_columns() != parentRich->get_num_columns()) return;
+
             const CtTableStyle& srcStyle = tmpRich->getTableStyle();
             CtTableStyle dstStyle = parentRich->getTableStyle();
 
@@ -1046,12 +1068,18 @@ void CtClipboard::on_received_to_table(const Gtk::SelectionData& selection_data,
                 parentRich->setTableStyle(dstStyle);
             }
             _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
-            // End paste operation for command tracking
             if (pBridge && pBridge->isActive()) {
-                pBridge->endPaste();
-                pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+                const auto newDesc = extractWidgetDesc(parentRich, widgetOffset);
+                pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc,
+                    is_column ? "Paste table column" : "Paste table row");
             }
             return;
+        }
+
+        // Heavy/light path: use beginPaste/endPaste (XML snapshot).
+        if (pBridge && pBridge->isActive()) {
+            pBridge->endTextEditSession();
+            pBridge->beginPaste(_pCtMainWin->curr_tree_iter().get_node_id());
         }
 
         CtTableMatrix tableFromClipboardMatrix;
@@ -1062,6 +1090,23 @@ void CtClipboard::on_received_to_table(const Gtk::SelectionData& selection_data,
             tableElem,
             tableColWidths,
             is_light);
+
+        auto f_freeMatrix = [is_light](CtTableMatrix& m){
+            for (auto& row : m)
+                for (void* cell : row)
+                    if (is_light) delete static_cast<Glib::ustring*>(cell);
+                    else delete static_cast<CtTextCell*>(cell);
+        };
+
+        // Reject if row/column count doesn't match.
+        const size_t clipRows = tableFromClipboardMatrix.size();
+        const size_t clipCols = clipRows > 0 ? tableFromClipboardMatrix[0].size() : 0;
+        if (is_column && clipRows != parentTable->get_num_rows()) {
+            f_freeMatrix(tableFromClipboardMatrix); return;
+        }
+        if (!is_column && clipCols != parentTable->get_num_columns()) {
+            f_freeMatrix(tableFromClipboardMatrix); return;
+        }
 
         auto f_cellToString = [is_light](void* cell){
             if (is_light) {
@@ -1101,6 +1146,11 @@ void CtClipboard::on_received_to_table(const Gtk::SelectionData& selection_data,
         _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
     }
     else {
+        // New widget paste into text view.
+        if (pBridge && pBridge->isActive()) {
+            pBridge->endTextEditSession();
+            pBridge->beginPaste(_pCtMainWin->curr_tree_iter().get_node_id());
+        }
         std::list<CtAnchoredWidget*> widgets;
         Gtk::TextIter insert_iter = pTextView->get_buffer()->get_insert()->get_iter();
         CtStorageXmlHelper{_pCtMainWin}.get_text_buffer_one_slot_from_xml(
