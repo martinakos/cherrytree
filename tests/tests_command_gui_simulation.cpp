@@ -197,6 +197,7 @@ static void _test_cursor_pos_after_rich_cell_undo(CtMainWin* pWin);
 static void _test_rich_cell_copy_image_no_stranded_tracking(CtMainWin* pWin);
 static void _test_rich_cell_cut_image_undo_redo(CtMainWin* pWin);
 static void _test_rich_cell_image_resize_uses_original(CtMainWin* pWin);
+static void _test_rich_table_row_col_copy_paste(CtMainWin* pWin);
 
 // --- Isolated App classes, one per test group ---
 
@@ -280,6 +281,13 @@ private:
 class TestRichCellImageCopyPasteApp : public CtApp {
 public:
     TestRichCellImageCopyPasteApp() : CtApp{"_test_gui_rich_cell_img_copy_paste"} { _no_gui = true; }
+private:
+    void on_activate() final;
+};
+
+class TestRichTableCopyPasteApp : public CtApp {
+public:
+    TestRichTableCopyPasteApp() : CtApp{"_test_gui_rich_table_copy_paste"} { _no_gui = true; }
 private:
     void on_activate() final;
 };
@@ -2419,6 +2427,19 @@ static CtTableRich* findFirstRichTable(CtMainWin* pWin)
     for (auto* w : pWin->curr_tree_iter().get_anchored_widgets()) {
         if (w->get_type() == CtAnchWidgType::TableRich)
             return static_cast<CtTableRich*>(w);
+    }
+    return nullptr;
+}
+
+// Helper: find the N-th CtTableRich (0-based) in the current node's widgets
+static CtTableRich* findRichTableN(CtMainWin* pWin, size_t n)
+{
+    size_t count = 0;
+    for (auto* w : pWin->curr_tree_iter().get_anchored_widgets()) {
+        if (w->get_type() == CtAnchWidgType::TableRich) {
+            if (count == n) return static_cast<CtTableRich*>(w);
+            ++count;
+        }
     }
     return nullptr;
 }
@@ -7213,6 +7234,336 @@ void TestRichCellImageCopyPasteApp::on_activate()
     remove_window(*pWin);
 }
 
+static void _test_rich_table_row_col_copy_paste(CtMainWin* pWin)
+{
+    spdlog::info("Test: Rich table row/column copy-paste");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    auto resetState = [&]() {
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        while (pBridge->canRedo()) pActions->requested_step_ahead();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        GuiEventSimulator::process_pending_events();
+    };
+
+    auto makeRichData = [](size_t rows, size_t cols, const std::string& prefix = "") {
+        std::vector<std::vector<CtCellContent>> data(rows, std::vector<CtCellContent>(cols));
+        for (size_t r = 0; r < rows; ++r)
+            for (size_t c = 0; c < cols; ++c) {
+                std::string text = (prefix.empty() ? "" : prefix + "_") +
+                                   "r" + std::to_string(r) + "c" + std::to_string(c);
+                data[r][c].textSpans.push_back(CtTextSpan{text});
+            }
+        return data;
+    };
+
+    auto cellText = [](CtTableRich* t, size_t r, size_t c) -> Glib::ustring {
+        auto buf = t->get_buffer(r, c);
+        return buf ? buf->get_text() : Glib::ustring{};
+    };
+
+    auto activateTable = [&](CtTableRich* t, size_t row, size_t col) {
+        gint64 nodeId = pWin->curr_tree_iter().get_node_id();
+        pBridge->endWidgetEdit();
+        pActions->curr_table_anchor = t;
+        t->set_current_row_column(row, col);
+        pWin->curr_buffer()->place_cursor(pWin->curr_buffer()->get_iter_at_offset(t->getOffset()));
+        pBridge->beginWidgetEdit(nodeId, t, static_cast<int>(row), static_cast<int>(col));
+        GuiEventSimulator::process_pending_events();
+    };
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+    resetState();
+
+    const std::string nodePrefix = "Node " + std::to_string(pWin->curr_tree_iter().get_node_id()) + ": ";
+
+    // -----------------------------------------------------------------------
+    // T1: Copy row, paste row into same table (matching cols) → inserts new row
+    // -----------------------------------------------------------------------
+    // Paste inserts a new row after the current row rather than replacing it.
+    // Copying row 0 of a 2×3 table and pasting after row 1 yields a 3×3 table
+    // where the new row at index 2 carries the copied content.
+    spdlog::info("  T1: Copy row → paste row (matching cols)");
+    {
+        auto richData = makeRichData(2, 3);
+        insertRichTableAtEnd(pWin, pBridge, richData);
+        auto* pTable = findFirstRichTable(pWin);
+        ASSERT_TRUE(pTable);
+
+        // Copy row 0 (3 cols)
+        activateTable(pTable, 0, 0);
+        pActions->table_row_copy();
+        GuiEventSimulator::process_pending_events();
+
+        // Paste after row 1 → new row inserted at index 2
+        activateTable(pTable, 1, 0);
+        pActions->table_row_paste();
+        GuiEventSimulator::process_pending_events();
+
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+
+        auto* rt = findFirstRichTable(pWin);
+        ASSERT_TRUE(rt);
+        ASSERT_EQ(3u, rt->get_num_rows()) << "T1: table should have 3 rows after paste";
+        // New row at index 2 should carry copied row 0's content
+        EXPECT_EQ(Glib::ustring{"r0c0"}, cellText(rt, 2, 0)) << "T1: (2,0) should be r0c0";
+        EXPECT_EQ(Glib::ustring{"r0c1"}, cellText(rt, 2, 1)) << "T1: (2,1) should be r0c1";
+        EXPECT_EQ(Glib::ustring{"r0c2"}, cellText(rt, 2, 2)) << "T1: (2,2) should be r0c2";
+        // Original rows unchanged
+        EXPECT_EQ(Glib::ustring{"r0c0"}, cellText(rt, 0, 0)) << "T1: row 0 should be unchanged";
+        EXPECT_EQ(Glib::ustring{"r1c0"}, cellText(rt, 1, 0)) << "T1: row 1 should be unchanged";
+
+        auto descs = pBridge->getUndoStackDescriptions();
+        ASSERT_FALSE(descs.empty()) << "T1: Should have undo entry after paste";
+        EXPECT_EQ(nodePrefix + "Paste table row", descs[0]) << "T1: undo description mismatch";
+
+        // Undo → 3-row table reverts to 2-row table
+        pActions->requested_step_back();
+        GuiEventSimulator::process_pending_events();
+        rt = findFirstRichTable(pWin);
+        ASSERT_TRUE(rt);
+        ASSERT_EQ(2u, rt->get_num_rows()) << "T1: undo should restore 2-row table";
+        EXPECT_EQ(Glib::ustring{"r0c0"}, cellText(rt, 0, 0)) << "T1: row 0 unchanged after undo";
+        EXPECT_EQ(Glib::ustring{"r1c0"}, cellText(rt, 1, 0)) << "T1: row 1 unchanged after undo";
+
+        resetState();
+    }
+    spdlog::info("  ✓ T1 passed");
+
+    // -----------------------------------------------------------------------
+    // T2: Copy column, paste column into same table (matching rows) → inserts new column
+    // -----------------------------------------------------------------------
+    // Paste inserts a new column after the current column.
+    // Copying col 0 of a 2×3 table and pasting after col 2 yields a 2×4 table
+    // where the new column at index 3 carries the copied content.
+    spdlog::info("  T2: Copy column → paste column (matching rows)");
+    {
+        auto richData = makeRichData(2, 3);
+        insertRichTableAtEnd(pWin, pBridge, richData);
+        auto* pTable = findFirstRichTable(pWin);
+        ASSERT_TRUE(pTable);
+
+        // Copy column 0 (2 rows)
+        activateTable(pTable, 0, 0);
+        pActions->table_column_copy();
+        GuiEventSimulator::process_pending_events();
+
+        // Paste after column 2 → new column inserted at index 3
+        activateTable(pTable, 0, 2);
+        pActions->table_column_paste();
+        GuiEventSimulator::process_pending_events();
+
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+
+        auto* rt = findFirstRichTable(pWin);
+        ASSERT_TRUE(rt);
+        ASSERT_EQ(4u, rt->get_num_columns()) << "T2: table should have 4 cols after paste";
+        // New column at index 3 should carry copied col 0's content
+        EXPECT_EQ(Glib::ustring{"r0c0"}, cellText(rt, 0, 3)) << "T2: (0,3) should be r0c0";
+        EXPECT_EQ(Glib::ustring{"r1c0"}, cellText(rt, 1, 3)) << "T2: (1,3) should be r1c0";
+        // Original columns unchanged
+        EXPECT_EQ(Glib::ustring{"r0c0"}, cellText(rt, 0, 0)) << "T2: col 0 should be unchanged";
+        EXPECT_EQ(Glib::ustring{"r0c2"}, cellText(rt, 0, 2)) << "T2: col 2 should be unchanged";
+
+        auto descs = pBridge->getUndoStackDescriptions();
+        ASSERT_FALSE(descs.empty()) << "T2: Should have undo entry after paste";
+        EXPECT_EQ(nodePrefix + "Paste table column", descs[0]) << "T2: undo description mismatch";
+
+        // Undo → 2×4 table reverts to 2×3 table
+        pActions->requested_step_back();
+        GuiEventSimulator::process_pending_events();
+        rt = findFirstRichTable(pWin);
+        ASSERT_TRUE(rt);
+        ASSERT_EQ(3u, rt->get_num_columns()) << "T2: undo should restore 3-col table";
+        EXPECT_EQ(Glib::ustring{"r0c2"}, cellText(rt, 0, 2)) << "T2: col 2 unchanged after undo";
+        EXPECT_EQ(Glib::ustring{"r1c2"}, cellText(rt, 1, 2)) << "T2: col 2 unchanged after undo";
+
+        resetState();
+    }
+    spdlog::info("  ✓ T2 passed");
+
+    // -----------------------------------------------------------------------
+    // T3: Orientation mismatch — copy row, paste as column → table unchanged
+    // -----------------------------------------------------------------------
+    spdlog::info("  T3: Orientation mismatch — copy row, paste as column");
+    {
+        auto richData = makeRichData(2, 2);
+        insertRichTableAtEnd(pWin, pBridge, richData);
+        auto* pTable = findFirstRichTable(pWin);
+        ASSERT_TRUE(pTable);
+
+        // Copy row 0 (clip_orientation="row")
+        activateTable(pTable, 0, 0);
+        pActions->table_row_copy();
+        GuiEventSimulator::process_pending_events();
+
+        const size_t undoSizeBefore = pBridge->getUndoStackDescriptions().size();
+
+        // Try to paste as column → rejected
+        activateTable(pTable, 0, 1);
+        pActions->table_column_paste();
+        GuiEventSimulator::process_pending_events();
+
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+
+        auto* rt = findFirstRichTable(pWin);
+        ASSERT_TRUE(rt);
+        EXPECT_EQ(Glib::ustring{"r0c1"}, cellText(rt, 0, 1)) << "T3: (0,1) should be unchanged";
+        EXPECT_EQ(Glib::ustring{"r1c1"}, cellText(rt, 1, 1)) << "T3: (1,1) should be unchanged";
+        EXPECT_EQ(undoSizeBefore, pBridge->getUndoStackDescriptions().size())
+            << "T3: No new undo entry should be added";
+
+        resetState();
+    }
+    spdlog::info("  ✓ T3 passed");
+
+    // -----------------------------------------------------------------------
+    // T4: Orientation mismatch — copy column, paste as row → table unchanged
+    // -----------------------------------------------------------------------
+    spdlog::info("  T4: Orientation mismatch — copy column, paste as row");
+    {
+        auto richData = makeRichData(2, 2);
+        insertRichTableAtEnd(pWin, pBridge, richData);
+        auto* pTable = findFirstRichTable(pWin);
+        ASSERT_TRUE(pTable);
+
+        // Copy column 0 (clip_orientation="col")
+        activateTable(pTable, 0, 0);
+        pActions->table_column_copy();
+        GuiEventSimulator::process_pending_events();
+
+        const size_t undoSizeBefore = pBridge->getUndoStackDescriptions().size();
+
+        // Try to paste as row → rejected
+        activateTable(pTable, 1, 0);
+        pActions->table_row_paste();
+        GuiEventSimulator::process_pending_events();
+
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+
+        auto* rt = findFirstRichTable(pWin);
+        ASSERT_TRUE(rt);
+        EXPECT_EQ(Glib::ustring{"r1c0"}, cellText(rt, 1, 0)) << "T4: (1,0) should be unchanged";
+        EXPECT_EQ(Glib::ustring{"r1c1"}, cellText(rt, 1, 1)) << "T4: (1,1) should be unchanged";
+        EXPECT_EQ(undoSizeBefore, pBridge->getUndoStackDescriptions().size())
+            << "T4: No new undo entry should be added";
+
+        resetState();
+    }
+    spdlog::info("  ✓ T4 passed");
+
+    // -----------------------------------------------------------------------
+    // T5: Dimension mismatch — column of 3 rows pasted into 2-row table → rejected
+    // -----------------------------------------------------------------------
+    spdlog::info("  T5: Dimension mismatch — column 3 rows → 2-row table");
+    {
+        // Insert 3×2 source table, copy column 0 (3 cells)
+        auto srcData = makeRichData(3, 2);
+        insertRichTableAtEnd(pWin, pBridge, srcData);
+        auto* pSrc = findRichTableN(pWin, 0);
+        ASSERT_TRUE(pSrc);
+        activateTable(pSrc, 0, 0);
+        pActions->table_column_copy();
+        GuiEventSimulator::process_pending_events();
+
+        // Insert 2×2 destination table
+        auto dstData = makeRichData(2, 2, "dst");
+        insertRichTableAtEnd(pWin, pBridge, dstData);
+        auto* pDst = findRichTableN(pWin, 1);
+        ASSERT_TRUE(pDst);
+
+        const size_t undoSizeBefore = pBridge->getUndoStackDescriptions().size();
+
+        // Try to paste 3-row column into 2-row table → rejected
+        activateTable(pDst, 0, 0);
+        pActions->table_column_paste();
+        GuiEventSimulator::process_pending_events();
+
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+
+        pDst = findRichTableN(pWin, 1);
+        ASSERT_TRUE(pDst);
+        EXPECT_EQ(Glib::ustring{"dst_r0c0"}, cellText(pDst, 0, 0)) << "T5: dst (0,0) should be unchanged";
+        EXPECT_EQ(Glib::ustring{"dst_r1c0"}, cellText(pDst, 1, 0)) << "T5: dst (1,0) should be unchanged";
+        EXPECT_EQ(undoSizeBefore, pBridge->getUndoStackDescriptions().size())
+            << "T5: No new undo entry should be added";
+
+        resetState();
+    }
+    spdlog::info("  ✓ T5 passed");
+
+    // -----------------------------------------------------------------------
+    // T6: Dimension mismatch — row of 3 cols pasted into 2-col table → rejected
+    // -----------------------------------------------------------------------
+    spdlog::info("  T6: Dimension mismatch — row 3 cols → 2-col table");
+    {
+        // Insert 2×3 source table, copy row 0 (3 cells)
+        auto srcData = makeRichData(2, 3);
+        insertRichTableAtEnd(pWin, pBridge, srcData);
+        auto* pSrc = findRichTableN(pWin, 0);
+        ASSERT_TRUE(pSrc);
+        activateTable(pSrc, 0, 0);
+        pActions->table_row_copy();
+        GuiEventSimulator::process_pending_events();
+
+        // Insert 2×2 destination table
+        auto dstData = makeRichData(2, 2, "dst");
+        insertRichTableAtEnd(pWin, pBridge, dstData);
+        auto* pDst = findRichTableN(pWin, 1);
+        ASSERT_TRUE(pDst);
+
+        const size_t undoSizeBefore = pBridge->getUndoStackDescriptions().size();
+
+        // Try to paste 3-col row into 2-col table → rejected
+        activateTable(pDst, 1, 0);
+        pActions->table_row_paste();
+        GuiEventSimulator::process_pending_events();
+
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+
+        pDst = findRichTableN(pWin, 1);
+        ASSERT_TRUE(pDst);
+        EXPECT_EQ(Glib::ustring{"dst_r1c0"}, cellText(pDst, 1, 0)) << "T6: dst (1,0) should be unchanged";
+        EXPECT_EQ(Glib::ustring{"dst_r1c1"}, cellText(pDst, 1, 1)) << "T6: dst (1,1) should be unchanged";
+        EXPECT_EQ(undoSizeBefore, pBridge->getUndoStackDescriptions().size())
+            << "T6: No new undo entry should be added";
+
+        resetState();
+    }
+    spdlog::info("  ✓ T6 passed");
+
+    spdlog::info("✓ Rich table row/column copy-paste tests passed");
+}
+
+void TestRichTableCopyPasteApp::on_activate()
+{
+    _on_startup();
+    CtMainWin* pWin = _create_window(true/*start_hidden*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+    pWin->show_all();
+    pWin->hide();
+    GuiEventSimulator::process_pending_events();
+
+    _test_rich_table_row_col_copy_paste(pWin);
+
+    pWin->force_exit() = true;
+    remove_window(*pWin);
+}
+
 // --- Helper to flush pending GTK events after each TEST ---
 static void flush_gtk_events()
 {
@@ -7361,6 +7712,18 @@ TEST(CommandGuiSimulationTests, RichCellImageCopyPasteTests)
 {
     g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
     TestRichCellImageCopyPasteApp app;
+    const std::vector<std::string> vecArgs{"cherrytree"};
+    gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
+    const int ret_val = app.run(vecArgs.size(), pp_args);
+    g_strfreev(pp_args);
+    ASSERT_EQ(0, ret_val);
+    flush_gtk_events();
+}
+
+TEST(CommandGuiSimulationTests, RichTableCopyPasteTests)
+{
+    g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
+    TestRichTableCopyPasteApp app;
     const std::vector<std::string> vecArgs{"cherrytree"};
     gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
     const int ret_val = app.run(vecArgs.size(), pp_args);
