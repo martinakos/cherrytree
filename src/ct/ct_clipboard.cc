@@ -100,19 +100,25 @@ void CtClipboard::_cut_clipboard(Gtk::TextView* pTextView, CtCodebox* pCodebox)
             }
             _selection_to_clipboard(text_buffer, pTextView, iter_sel_start, iter_sel_end, num_chars, pCodebox);
             if (_pCtMainWin->get_ct_actions()->_is_curr_node_not_read_only_or_error()) {
-                // Begin cut operation for command tracking
                 auto pBridge = _pCtMainWin->get_command_bridge();
-                if (pBridge && pBridge->isActive()) {
-                    pBridge->endTextEditSession();  // Save any pending text as its own undo command
-                    pBridge->beginCut(_pCtMainWin->curr_tree_iter().get_node_id());
-                }
-
-                text_buffer->erase_selection(true, pTextView->get_editable());
-
-                // End cut operation for command tracking
-                if (pBridge && pBridge->isActive()) {
-                    pBridge->endCut();
-                    pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+                if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+                    // Rich cell cut: the deletion touches the cell buffer, not the main
+                    // node buffer, so beginCut/endCut would record no change.  Use the
+                    // cell-level undo path instead.
+                    pBridge->cancelRichCellSession();
+                    text_buffer->erase_selection(true, pTextView->get_editable());
+                    pBridge->commitRichCellFormatChange("Cut");
+                } else {
+                    // Main node cut: standard command-tracking path.
+                    if (pBridge && pBridge->isActive()) {
+                        pBridge->endTextEditSession();  // Save any pending text as its own undo command
+                        pBridge->beginCut(_pCtMainWin->curr_tree_iter().get_node_id());
+                    }
+                    text_buffer->erase_selection(true, pTextView->get_editable());
+                    if (pBridge && pBridge->isActive()) {
+                        pBridge->endCut();
+                        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
+                    }
                 }
 
                 pTextView->grab_focus();

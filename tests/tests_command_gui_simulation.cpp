@@ -194,6 +194,8 @@ static void _test_rich_table_border_window_sizes(CtMainWin* pWin);
 static void _test_rich_table_default_style_and_overrides(CtMainWin* pWin);
 static void _test_cursor_pos_after_node_switch_undo(CtMainWin* pWin);
 static void _test_cursor_pos_after_rich_cell_undo(CtMainWin* pWin);
+static void _test_rich_cell_copy_image_no_stranded_tracking(CtMainWin* pWin);
+static void _test_rich_cell_cut_image_undo_redo(CtMainWin* pWin);
 
 // --- Isolated App classes, one per test group ---
 
@@ -270,6 +272,13 @@ private:
 class TestCursorPositionApp : public CtApp {
 public:
     TestCursorPositionApp() : CtApp{"_test_gui_cursor_pos"} { _no_gui = true; }
+private:
+    void on_activate() final;
+};
+
+class TestRichCellImageCopyPasteApp : public CtApp {
+public:
+    TestRichCellImageCopyPasteApp() : CtApp{"_test_gui_rich_cell_img_copy_paste"} { _no_gui = true; }
 private:
     void on_activate() final;
 };
@@ -6873,6 +6882,204 @@ void TestCursorPositionApp::on_activate()
     remove_window(*pWin);
 }
 
+static void _test_rich_cell_copy_image_no_stranded_tracking(CtMainWin* pWin)
+{
+    spdlog::info("Test: image_copy in rich cell — bridge not left in rich-cell mode");
+    // Regression: beginWidgetEdit was called but endWidgetEdit was never called after the
+    // copy, leaving isTrackingRichCell()=true so any subsequent paste landed in the cell
+    // instead of wherever the cursor was in the main buffer.
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    // Insert a 1×1 rich table
+    std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+    richData[0][0].textSpans.push_back(CtTextSpan{"text"});
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+    CtRichCell* cell = pTable->getRichCell(0, 0);
+    ASSERT_TRUE(cell);
+
+    // Insert a PNG image into the cell
+    pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+    auto cellBuf = cell->get_buffer();
+    ASSERT_TRUE(cellBuf);
+    cellBuf->place_cursor(cellBuf->end());
+    const int imgOffset = cellBuf->get_insert()->get_iter().get_offset();
+    pBridge->cancelRichCellSession();
+    auto pixbuf = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB, false, 8, 4, 4);
+    pixbuf->fill(0xFF0000FF);
+    auto* pImage = new CtImagePng{pWin, pixbuf, "", imgOffset, ""};
+    pImage->insertInTextBuffer(cellBuf);
+    cell->addEmbeddedWidget(pImage);
+    pBridge->commitRichCellFormatChange("Insert image");
+    GuiEventSimulator::process_pending_events();
+
+    // Simulate the bug scenario: a click somewhere started a text edit session
+    // (isTrackingRichCell() = false) before the user opens the context menu.
+    pBridge->endWidgetEdit();
+    pBridge->beginTextEditSession(nodeId);
+    ASSERT_FALSE(pBridge->isTrackingRichCell())
+        << "Pre-condition: bridge should NOT be tracking rich cell (simulates bug scenario)";
+
+    // Invoke "Copy Image" as it would come from the context menu
+    pActions->curr_image_anchor = pImage;
+    pActions->image_copy();
+    GuiEventSimulator::process_pending_events();
+
+    // After copy the bridge must NOT be in rich-cell mode —
+    // if it were, the next paste would land inside the cell instead of the main buffer.
+    EXPECT_FALSE(pBridge->isTrackingRichCell())
+        << "isTrackingRichCell() must be false after image_copy so subsequent paste lands at cursor";
+
+    // The clipboard must carry the rich-text target so the image can be pasted back.
+    auto clipTargets = Gtk::Clipboard::get()->wait_for_targets();
+    EXPECT_NE(std::find(clipTargets.begin(), clipTargets.end(),
+                        Glib::ustring(CtConst::TARGET_CTD_RICH_TEXT)),
+              clipTargets.end())
+        << "Clipboard must carry " << CtConst::TARGET_CTD_RICH_TEXT
+        << " after copying an image from a rich cell";
+
+    // Cleanup
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+}
+
+static void _test_rich_cell_cut_image_undo_redo(CtMainWin* pWin)
+{
+    spdlog::info("Test: image_cut in rich cell — undo/redo round-trip");
+    // Regression: image_cut used beginCut/endCut which monitors the main buffer;
+    // the deletion happened in the cell buffer, so no change was detected and no
+    // undo command was ever pushed to the stack.
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    // Insert a 1×1 rich table with some text
+    std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+    richData[0][0].textSpans.push_back(CtTextSpan{"before"});
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+    CtRichCell* cell = pTable->getRichCell(0, 0);
+    ASSERT_TRUE(cell);
+
+    // Insert a PNG image into the cell
+    pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+    auto cellBuf = cell->get_buffer();
+    ASSERT_TRUE(cellBuf);
+    cellBuf->place_cursor(cellBuf->end());
+    const int imgOffset = cellBuf->get_insert()->get_iter().get_offset();
+    pBridge->cancelRichCellSession();
+    auto pixbuf = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB, false, 8, 4, 4);
+    pixbuf->fill(0x00FF00FF);
+    auto* pImage = new CtImagePng{pWin, pixbuf, "", imgOffset, ""};
+    pImage->insertInTextBuffer(cellBuf);
+    cell->addEmbeddedWidget(pImage);
+    pBridge->commitRichCellFormatChange("Insert image");
+    GuiEventSimulator::process_pending_events();
+
+    // Simulate the bug scenario: a click started a text edit session, making
+    // isTrackingRichCell() = false before the user opens the context menu.
+    pBridge->endWidgetEdit();
+    pBridge->beginTextEditSession(nodeId);
+    ASSERT_FALSE(pBridge->isTrackingRichCell())
+        << "Pre-condition: bridge should NOT be tracking rich cell";
+
+    // Image must be in the cell buffer before the cut (use extractContent — not
+    // _embeddedWidgets — so we query what the buffer actually contains).
+    ASSERT_EQ(1u, cell->extractContent().embeddedWidgets.size())
+        << "Cell must have 1 embedded widget before cut";
+
+    // Invoke "Cut Image" as it would come from the context menu
+    pActions->curr_image_anchor = pImage;
+    pActions->image_cut();
+    GuiEventSimulator::process_pending_events();
+
+    // Image must be gone from the cell buffer
+    {
+        auto* tbl = findFirstRichTable(pWin);
+        ASSERT_TRUE(tbl);
+        EXPECT_EQ(0u, tbl->getRichCell(0, 0)->extractContent().embeddedWidgets.size())
+            << "Image should be removed from cell buffer after image_cut";
+    }
+
+    // An undo command must have been pushed — regression: the stack was empty before the fix.
+    ASSERT_TRUE(pBridge->canUndo())
+        << "Undo stack must be non-empty after image_cut (was empty before fix)";
+    {
+        auto descs = pBridge->getUndoStackDescriptions();
+        ASSERT_FALSE(descs.empty());
+        EXPECT_NE(descs[0].find("Cut"), std::string::npos)
+            << "Top undo description should contain 'Cut', got: '" << descs[0] << "'";
+    }
+
+    // Undo: image must be restored in the cell
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    {
+        auto* tbl = findFirstRichTable(pWin);
+        ASSERT_TRUE(tbl);
+        EXPECT_EQ(1u, tbl->getRichCell(0, 0)->extractContent().embeddedWidgets.size())
+            << "Image must be restored in cell after undo of cut";
+    }
+
+    // Redo: image must be gone again
+    ASSERT_TRUE(pBridge->canRedo());
+    pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+    {
+        auto* tbl = findFirstRichTable(pWin);
+        ASSERT_TRUE(tbl);
+        EXPECT_EQ(0u, tbl->getRichCell(0, 0)->extractContent().embeddedWidgets.size())
+            << "Image must be gone again after redo of cut";
+    }
+
+    // Cleanup
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+}
+
+void TestRichCellImageCopyPasteApp::on_activate()
+{
+    _on_startup();
+    CtMainWin* pWin = _create_window(true/*start_hidden*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+    pWin->show_all();
+    pWin->hide();
+    GuiEventSimulator::process_pending_events();
+
+    _test_rich_cell_copy_image_no_stranded_tracking(pWin);
+    _test_rich_cell_cut_image_undo_redo(pWin);
+
+    pWin->force_exit() = true;
+    remove_window(*pWin);
+}
+
 // --- Helper to flush pending GTK events after each TEST ---
 static void flush_gtk_events()
 {
@@ -7009,6 +7216,18 @@ TEST(CommandGuiSimulationTests, CursorPositionTests)
 {
     g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
     TestCursorPositionApp app;
+    const std::vector<std::string> vecArgs{"cherrytree"};
+    gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
+    const int ret_val = app.run(vecArgs.size(), pp_args);
+    g_strfreev(pp_args);
+    ASSERT_EQ(0, ret_val);
+    flush_gtk_events();
+}
+
+TEST(CommandGuiSimulationTests, RichCellImageCopyPasteTests)
+{
+    g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
+    TestRichCellImageCopyPasteApp app;
     const std::vector<std::string> vecArgs{"cherrytree"};
     gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
     const int ret_val = app.run(vecArgs.size(), pp_args);
