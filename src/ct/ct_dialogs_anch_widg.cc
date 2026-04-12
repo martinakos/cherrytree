@@ -241,8 +241,21 @@ private:
 };
 
 Glib::RefPtr<Gdk::Pixbuf> CtDialogs::image_handle_dialog(Gtk::Window& parent_win,
-                                                         Glib::RefPtr<Gdk::Pixbuf> rOriginalPixbuf)
+                                                         Glib::RefPtr<Gdk::Pixbuf> rOriginalPixbuf,
+                                                         Glib::RefPtr<Gdk::Pixbuf> rHighResPixbuf)
 {
+    // In headless/test mode, simulate "accept without size change using the high-res source"
+    // — same logic as the real no-crop path below. This lets automated tests exercise the
+    // rHighResPixbuf code path without a real display or user interaction.
+    if (rHighResPixbuf) {
+        if (auto* pCtMainWin = dynamic_cast<CtMainWin*>(&parent_win)) {
+            if (pCtMainWin->no_gui()) {
+                return rHighResPixbuf->scale_simple(
+                    rOriginalPixbuf->get_width(), rOriginalPixbuf->get_height(), Gdk::INTERP_BILINEAR);
+            }
+        }
+    }
+
     int width = rOriginalPixbuf->get_width();
     int height = rOriginalPixbuf->get_height();
     double image_w_h_ration = static_cast<double>(width)/height;
@@ -386,6 +399,11 @@ Glib::RefPtr<Gdk::Pixbuf> CtDialogs::image_handle_dialog(Gtk::Window& parent_win
     if ( Gtk::RESPONSE_ACCEPT == dialog.run() ) {
         double x, y, w, h;
         image.get_crop( width, height, &x, &y, &w, &h );
+        // If a high-res original is available and no crop was applied, scale from it for better quality
+        const bool noCrop = (x < 0.5 && y < 0.5 && std::abs(w - width) < 0.5 && std::abs(h - height) < 0.5);
+        if (rHighResPixbuf && noCrop) {
+            return rHighResPixbuf->scale_simple(width, height, Gdk::INTERP_BILINEAR);
+        }
         Glib::RefPtr<Gdk::Pixbuf> rPixbuf = Gdk::Pixbuf::create(
             rOriginalPixbuf->get_colorspace(),
             rOriginalPixbuf->get_has_alpha(),
@@ -966,9 +984,11 @@ Glib::ustring CtDialogs::latex_handle_dialog(CtMainWin* pCtMainWin,
 }
 
 Glib::RefPtr<Gdk::Pixbuf> CtDialogs::image_handle_dialog(Gtk::Window& parent_win,
-                                                         Glib::RefPtr<Gdk::Pixbuf> rOriginalPixbuf)
+                                                         Glib::RefPtr<Gdk::Pixbuf> rOriginalPixbuf,
+                                                         Glib::RefPtr<Gdk::Pixbuf> rHighResPixbuf)
 {
     (void)parent_win;
+    (void)rHighResPixbuf;
     return rOriginalPixbuf;
 }
 

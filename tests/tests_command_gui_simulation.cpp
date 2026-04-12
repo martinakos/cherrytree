@@ -196,6 +196,7 @@ static void _test_cursor_pos_after_node_switch_undo(CtMainWin* pWin);
 static void _test_cursor_pos_after_rich_cell_undo(CtMainWin* pWin);
 static void _test_rich_cell_copy_image_no_stranded_tracking(CtMainWin* pWin);
 static void _test_rich_cell_cut_image_undo_redo(CtMainWin* pWin);
+static void _test_rich_cell_image_resize_uses_original(CtMainWin* pWin);
 
 // --- Isolated App classes, one per test group ---
 
@@ -7063,6 +7064,137 @@ static void _test_rich_cell_cut_image_undo_redo(CtMainWin* pWin)
     GuiEventSimulator::process_pending_events();
 }
 
+static void _test_rich_cell_image_resize_uses_original(CtMainWin* pWin)
+{
+    spdlog::info("Test: image resize in rich cell uses original pixbuf, not degraded zoom_base");
+    // Regression: the first time a shrunken image was enlarged in a rich cell, the result was
+    // upscaled from the already-degraded zoom_base pixbuf instead of from the full-res original.
+    // Fix: image_handle_dialog now accepts rHighResPixbuf and uses it (instead of the zoom_base)
+    // for the output when no crop is applied.  When running headless (no_gui=true), the dialog
+    // early-returns orig->scale_simple(zoom_base.w, zoom_base.h) so automated tests can verify
+    // the full image_edit() code path without user interaction.
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    // Create pixbufs:
+    //   origPixbuf    – 20×20, solid red   → the full-resolution original
+    //   degradedZoomBase – 10×10, solid blue → simulates a zoom_base that is NOT derived from
+    //                                           orig (the state the bug produces after a prior
+    //                                           shrink-then-edit cycle with the broken path)
+    auto origPixbuf = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB, false, 8, 20, 20);
+    origPixbuf->fill(0xFF0000FF);  // solid red
+    auto degradedZoomBase = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB, false, 8, 10, 10);
+    degradedZoomBase->fill(0x0000FFFF);  // solid blue (wrong colour — not derived from orig)
+
+    // ── Part 1: verify image_handle_dialog uses rHighResPixbuf in no_gui mode ──────────────
+    // Call the dialog directly (no_gui short-circuit → no actual window is shown).
+    // Without the fix the third argument was not passed and the dialog would use the degraded
+    // zoom_base (blue) as the scaling source; with the fix it scales from orig (red).
+    {
+        auto dialogResult = CtDialogs::image_handle_dialog(*pWin, degradedZoomBase, origPixbuf);
+        ASSERT_TRUE(dialogResult) << "image_handle_dialog must return a pixbuf in no_gui mode";
+        EXPECT_EQ(10, dialogResult->get_width())  << "output must match zoom_base dimensions";
+        EXPECT_EQ(10, dialogResult->get_height()) << "output must match zoom_base dimensions";
+        const guint8* px = dialogResult->get_pixels();
+        EXPECT_GT((int)px[0], 200) << "R channel should be ~255 (red from orig, not blue from degraded zoom_base)";
+        EXPECT_LT((int)px[2], 50)  << "B channel should be ~0 (not blue)";
+    }
+
+    // ── Part 2: full image_edit() round-trip via image_edit() → undo → redo ─────────────
+    // Insert a 1×1 rich table.
+    std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+    CtRichCell* cell = pTable->getRichCell(0, 0);
+    ASSERT_TRUE(cell);
+    auto cellBuf = cell->get_buffer();
+    ASSERT_TRUE(cellBuf);
+
+    // Insert the image with the degraded state: _rZoomBasePixbuf=blue 10×10,
+    // _rOrigPixbuf=red 20×20.  This replicates the buggy internal state that arose
+    // when the image had been shrunk and then edited through the broken code path.
+    pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+    cellBuf->place_cursor(cellBuf->end());
+    const int imgOffset = cellBuf->get_insert()->get_iter().get_offset();
+    pBridge->cancelRichCellSession();
+    auto* pImage = new CtImagePng{pWin, degradedZoomBase, "", imgOffset, ""};
+    pImage->set_orig_pixbuf(origPixbuf);  // _rZoomBasePixbuf=blue, _rOrigPixbuf=red
+    pImage->insertInTextBuffer(cellBuf);
+    cell->addEmbeddedWidget(pImage);
+    pBridge->commitRichCellFormatChange("Insert image");
+    GuiEventSimulator::process_pending_events();
+
+    ASSERT_EQ(1u, cell->extractContent().embeddedWidgets.size())
+        << "Cell must have 1 image before image_edit";
+
+    // Invoke image_edit() as the user would from the context menu.
+    // In no_gui mode the dialog returns orig->scale_simple(zoom_base.w, zoom_base.h).
+    // The result (10×10 red) differs from the pre-edit descriptor only in the pixel data
+    // stored in the rawBlob (both use the same orig), so commitRichCellFormatChange detects
+    // equal descriptors and does not push a separate undo entry — this is expected: no net
+    // change in stored state when dimensions are preserved.  The regression check is the pixel
+    // colour of the live zoom_base (Part 1 above and the check immediately below).
+    pBridge->endWidgetEdit();
+    pBridge->beginTextEditSession(nodeId);
+    pActions->curr_image_anchor = pImage;
+    pActions->image_edit();
+    GuiEventSimulator::process_pending_events();
+
+    // The live cell still contains exactly one image.
+    ASSERT_EQ(1u, cell->extractContent().embeddedWidgets.size())
+        << "Cell must still have 1 image after image_edit";
+
+    // Retrieve the new image widget via the buffer's child anchor (the old entry in
+    // _embeddedWidgets is stale — _image_edit_dialog erases the anchor but does not remove it
+    // from the list; the new widget is appended at the back).
+    {
+        auto it = cellBuf->get_iter_at_offset(imgOffset);
+        auto anchor = it.get_child_anchor();
+        ASSERT_TRUE(anchor) << "child anchor must exist at imgOffset after image_edit";
+        auto ws = anchor->get_widgets();
+        ASSERT_FALSE(ws.empty()) << "anchor must have a widget";
+        auto* pNew = dynamic_cast<CtImagePng*>(ws[0]);
+        ASSERT_TRUE(pNew) << "widget must be CtImagePng";
+
+        // zoom_base must be 10×10 (same display size as before — headless dialog keeps size).
+        auto zb = pNew->get_zoom_base_pixbuf();
+        ASSERT_TRUE(zb);
+        EXPECT_EQ(10, zb->get_width());
+        EXPECT_EQ(10, zb->get_height());
+
+        // Regression check: zoom_base pixel (0,0) must be RED (derived from orig), not BLUE
+        // (from the degraded zoom_base).  Before the fix image_handle_dialog used zoom_base as
+        // the scaling source, so the result would be 0x0000FF; the fix makes it use orig,
+        // giving 0xFF0000.
+        const guint8* px = zb->get_pixels();
+        EXPECT_GT((int)px[0], 200) << "R channel should be ~255 (red — zoom_base derived from orig)";
+        EXPECT_LT((int)px[2], 50)  << "B channel should be ~0 (not blue)";
+
+        // orig must still be the 20×20 red pixbuf.
+        auto orig = pNew->get_orig_pixbuf();
+        ASSERT_TRUE(orig);
+        EXPECT_EQ(20, orig->get_width());
+        EXPECT_EQ(20, orig->get_height());
+    }
+
+    // Cleanup
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+}
+
 void TestRichCellImageCopyPasteApp::on_activate()
 {
     _on_startup();
@@ -7075,6 +7207,7 @@ void TestRichCellImageCopyPasteApp::on_activate()
 
     _test_rich_cell_copy_image_no_stranded_tracking(pWin);
     _test_rich_cell_cut_image_undo_redo(pWin);
+    _test_rich_cell_image_resize_uses_original(pWin);
 
     pWin->force_exit() = true;
     remove_window(*pWin);

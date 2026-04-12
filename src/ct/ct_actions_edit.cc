@@ -1297,7 +1297,7 @@ void CtActions::_image_edit_dialog(Glib::RefPtr<Gdk::Pixbuf> rPixbuf,
                                    CtRichCell* pRichCell,
                                    Glib::RefPtr<Gdk::Pixbuf> rOrigPixbuf)
 {
-    Glib::RefPtr<Gdk::Pixbuf> ret_pixbuf = CtDialogs::image_handle_dialog(*_pCtMainWin, rPixbuf);
+    Glib::RefPtr<Gdk::Pixbuf> ret_pixbuf = CtDialogs::image_handle_dialog(*_pCtMainWin, rPixbuf, rOrigPixbuf);
     if (not ret_pixbuf) return;
     Glib::ustring image_justification;
 
