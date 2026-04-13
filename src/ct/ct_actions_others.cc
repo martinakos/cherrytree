@@ -263,19 +263,68 @@ void CtActions::latex_edit()
 
 void CtActions::latex_cut()
 {
-    Gtk::TextIter iter = _curr_buffer()->get_iter_at_child_anchor(curr_latex_anchor->getTextChildAnchor());
-    Gtk::TextIter iter_b = iter;
-    iter_b.forward_char();
-    _curr_buffer()->select_range(iter, iter_b);
+    // Check if latex lives inside a rich table cell (same detection as image_cut).
+    for (auto* w = curr_latex_anchor->get_parent(); w; w = w->get_parent()) {
+        if (auto* pTable = dynamic_cast<CtTableRich*>(w)) {
+            for (size_t r = 0; r < pTable->get_num_rows(); ++r) {
+                for (size_t c = 0; c < pTable->get_num_columns(); ++c) {
+                    CtRichCell* cell = pTable->getRichCell(r, c);
+                    for (auto* emb : cell->getEmbeddedWidgets()) {
+                        if (emb == curr_latex_anchor) {
+                            auto pBridge = _pCtMainWin->get_command_bridge();
+                            if (pBridge && pBridge->isActive()) {
+                                gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+                                pBridge->beginWidgetEdit(nodeId, pTable, (int)r, (int)c);
+                            }
+                            auto cellBuffer = cell->get_buffer();
+                            Gtk::TextIter iter_obj = cellBuffer->get_iter_at_child_anchor(curr_latex_anchor->getTextChildAnchor());
+                            Gtk::TextIter iter_bound = iter_obj;
+                            iter_bound.forward_char();
+                            cellBuffer->select_range(iter_obj, iter_bound);
+                            g_signal_emit_by_name(G_OBJECT(cell->get_text_view().mm().gobj()), "cut-clipboard");
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    object_set_selection(curr_latex_anchor);
     g_signal_emit_by_name(G_OBJECT(_pCtMainWin->get_text_view().gobj()), "cut-clipboard");
 }
 
 void CtActions::latex_copy()
 {
-    Gtk::TextIter iter = _curr_buffer()->get_iter_at_child_anchor(curr_latex_anchor->getTextChildAnchor());
-    Gtk::TextIter iter_b = iter;
-    iter_b.forward_char();
-    _curr_buffer()->select_range(iter, iter_b);
+    // Check if latex lives inside a rich table cell (same detection as image_copy).
+    for (auto* w = curr_latex_anchor->get_parent(); w; w = w->get_parent()) {
+        if (auto* pTable = dynamic_cast<CtTableRich*>(w)) {
+            for (size_t r = 0; r < pTable->get_num_rows(); ++r) {
+                for (size_t c = 0; c < pTable->get_num_columns(); ++c) {
+                    CtRichCell* cell = pTable->getRichCell(r, c);
+                    for (auto* emb : cell->getEmbeddedWidgets()) {
+                        if (emb == curr_latex_anchor) {
+                            auto pBridge = _pCtMainWin->get_command_bridge();
+                            if (pBridge && pBridge->isActive()) {
+                                gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+                                pBridge->beginWidgetEdit(nodeId, pTable, (int)r, (int)c);
+                            }
+                            auto cellBuffer = cell->get_buffer();
+                            Gtk::TextIter iter_obj = cellBuffer->get_iter_at_child_anchor(curr_latex_anchor->getTextChildAnchor());
+                            Gtk::TextIter iter_bound = iter_obj;
+                            iter_bound.forward_char();
+                            cellBuffer->select_range(iter_obj, iter_bound);
+                            g_signal_emit_by_name(G_OBJECT(cell->get_text_view().mm().gobj()), "copy-clipboard");
+                            if (pBridge && pBridge->isActive()) {
+                                pBridge->endWidgetEdit();
+                            }
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    object_set_selection(curr_latex_anchor);
     g_signal_emit_by_name(G_OBJECT(_pCtMainWin->get_text_view().gobj()), "copy-clipboard");
 }
 
