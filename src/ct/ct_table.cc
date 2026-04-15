@@ -497,6 +497,65 @@ void CtTableCommon::to_xml(xmlpp::Element* p_node_parent, const int offset_adjus
     }
 }
 
+CtWidgetDesc CtTableCommon::to_widget_desc(int charOffset)
+{
+    CtWidgetDesc desc(get_type());
+    desc.setProperty("char_offset", std::to_string(charOffset));
+    desc.setProperty(CtConst::TAG_JUSTIFICATION, _justification);
+    desc.setProperty("col_min", std::to_string(_colWidthDefault));
+    desc.setProperty("col_max", std::to_string(_colWidthDefault));
+    desc.setProperty("col_widths", str::join_numbers(_colWidths, ","));
+    if (CtAnchWidgType::TableLight == get_type()) {
+        desc.setProperty("is_light", "1");
+    }
+    // Style attributes (only non-default values, mirroring _serializeStyleAttrs)
+    if (_tableStyle.borderWidth != 1) {
+        desc.setProperty("border_width", std::to_string(_tableStyle.borderWidth));
+    }
+    if (_tableStyle.borderColor != "#000000") {
+        desc.setProperty("border_color", _tableStyle.borderColor);
+    }
+    if (!_tableStyle.tableBgColor.empty()) {
+        desc.setProperty("table_bg_color", _tableStyle.tableBgColor);
+    }
+    if (!_tableStyle.cellBgColors.empty()) {
+        std::string s;
+        for (const auto& [key, color] : _tableStyle.cellBgColors) {
+            if (!s.empty()) s += ";";
+            s += std::to_string(key.first) + "," + std::to_string(key.second) + ":" + color;
+        }
+        desc.setProperty("cell_bg_colors", s);
+    }
+    if (!_tableStyle.cellBorderWidths.empty()) {
+        std::string s;
+        for (const auto& [key, w] : _tableStyle.cellBorderWidths) {
+            if (!s.empty()) s += ";";
+            s += std::to_string(key.first) + "," + std::to_string(key.second) + ":" + std::to_string(w);
+        }
+        desc.setProperty("cell_border_widths", s);
+    }
+    if (!_tableStyle.cellBorderColors.empty()) {
+        std::string s;
+        for (const auto& [key, color] : _tableStyle.cellBorderColors) {
+            if (!s.empty()) s += ";";
+            s += std::to_string(key.first) + "," + std::to_string(key.second) + ":" + color;
+        }
+        desc.setProperty("cell_border_colors", s);
+    }
+    if (!_tableStyle.cellBorderSeq.empty()) {
+        std::string s;
+        for (const auto& [key, seq] : _tableStyle.cellBorderSeq) {
+            if (!s.empty()) s += ";";
+            s += std::to_string(key.first) + "," + std::to_string(key.second) + ":" + std::to_string(seq);
+        }
+        desc.setProperty("cell_border_seq", s);
+        desc.setProperty("border_seq_counter", std::to_string(_tableStyle.borderSeqCounter));
+    }
+    // Table cell data: write_strings_matrix returns rows in natural order (header first)
+    write_strings_matrix(desc.tableData);
+    return desc;
+}
+
 bool CtTableCommon::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offset_adjustment, CtStorageCache*)
 {
     bool retVal{true};
@@ -1500,6 +1559,69 @@ void CtTableRich::to_xml(xmlpp::Element* p_node_parent, const int offset_adjustm
     p_table_node->set_attribute("is_rich", "1");
     _serializeStyleAttrs(p_table_node);
     _populate_xml_rows_cells(p_table_node);
+}
+
+CtWidgetDesc CtTableRich::to_widget_desc(int charOffset)
+{
+    CtWidgetDesc desc(CtAnchWidgType::TableRich);
+    desc.setProperty("char_offset", std::to_string(charOffset));
+    desc.setProperty(CtConst::TAG_JUSTIFICATION, _justification);
+    desc.setProperty("col_min", std::to_string(_colWidthDefault));
+    desc.setProperty("col_max", std::to_string(_colWidthDefault));
+    desc.setProperty("col_widths", str::join_numbers(_colWidths, ","));
+    desc.setProperty("is_rich", "1");
+    // Style attributes (only non-default values, mirroring _serializeStyleAttrs)
+    if (_tableStyle.borderWidth != 1) {
+        desc.setProperty("border_width", std::to_string(_tableStyle.borderWidth));
+    }
+    if (_tableStyle.borderColor != "#000000") {
+        desc.setProperty("border_color", _tableStyle.borderColor);
+    }
+    if (!_tableStyle.tableBgColor.empty()) {
+        desc.setProperty("table_bg_color", _tableStyle.tableBgColor);
+    }
+    if (!_tableStyle.cellBgColors.empty()) {
+        std::string s;
+        for (const auto& [key, color] : _tableStyle.cellBgColors) {
+            if (!s.empty()) s += ";";
+            s += std::to_string(key.first) + "," + std::to_string(key.second) + ":" + color;
+        }
+        desc.setProperty("cell_bg_colors", s);
+    }
+    if (!_tableStyle.cellBorderWidths.empty()) {
+        std::string s;
+        for (const auto& [key, w] : _tableStyle.cellBorderWidths) {
+            if (!s.empty()) s += ";";
+            s += std::to_string(key.first) + "," + std::to_string(key.second) + ":" + std::to_string(w);
+        }
+        desc.setProperty("cell_border_widths", s);
+    }
+    if (!_tableStyle.cellBorderColors.empty()) {
+        std::string s;
+        for (const auto& [key, color] : _tableStyle.cellBorderColors) {
+            if (!s.empty()) s += ";";
+            s += std::to_string(key.first) + "," + std::to_string(key.second) + ":" + color;
+        }
+        desc.setProperty("cell_border_colors", s);
+    }
+    if (!_tableStyle.cellBorderSeq.empty()) {
+        std::string s;
+        for (const auto& [key, seq] : _tableStyle.cellBorderSeq) {
+            if (!s.empty()) s += ";";
+            s += std::to_string(key.first) + "," + std::to_string(key.second) + ":" + std::to_string(seq);
+        }
+        desc.setProperty("cell_border_seq", s);
+        desc.setProperty("border_seq_counter", std::to_string(_tableStyle.borderSeqCounter));
+    }
+    // Rich cell data: iterate matrix in natural order (header = _tableMatrix[0])
+    for (const auto& row : _tableMatrix) {
+        std::vector<CtCellContent> richRow;
+        for (void* pCell : row) {
+            richRow.push_back(static_cast<CtRichCell*>(pCell)->extractContent());
+        }
+        desc.richTableData.push_back(std::move(richRow));
+    }
+    return desc;
 }
 
 void CtTableRich::_populate_xml_rows_cells(xmlpp::Element* p_table_node) const

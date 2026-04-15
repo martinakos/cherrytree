@@ -88,6 +88,7 @@ public:
     }
     void to_xml(xmlpp::Element* p_node_parent, const int offset_adjustment, CtStorageCache* cache, const std::string& multifile_dir) override;
     bool to_sqlite(sqlite3* pDb, const gint64 node_id, const int offset_adjustment, CtStorageCache* cache) override;
+    CtWidgetDesc to_widget_desc(int charOffset) override;
 
     // Build a table from csv; The input csv should be compatable with the excel csv format
     static void populate_table_matrix_from_csv(const std::string& filepath,
@@ -358,6 +359,7 @@ public:
     void apply_syntax_highlighting(const bool forceReApply) override;
     void to_xml(xmlpp::Element* p_node_parent, const int offset_adjustment,
                 CtStorageCache* cache, const std::string& multifile_dir) override;
+    CtWidgetDesc to_widget_desc(int charOffset) override;
     std::string to_csv() const override;
     Glib::ustring get_line_content(const size_t rowIdx, const size_t colIdx,
                                    const int match_end_offset) const override;
