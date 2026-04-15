@@ -109,7 +109,7 @@ public:
 
     // Paste helpers (captures before/after for undo).
     // pasteContainsWidgets=false: use session-based delta path (same as cut).
-    // pasteContainsWidgets=true (default): use XML snapshot path.
+    // pasteContainsWidgets=true (default): use structured snapshot path.
     void beginPaste(gint64 nodeId, bool pasteContainsWidgets = true);
     void endPaste();
 
@@ -159,9 +159,6 @@ public:
     // signals aren't captured as separate undo entries.
     void cancelRichCellSession();
 
-    // Widget operation helpers
-    Glib::ustring getCurrentBufferXml();
-
     // Commit a widget structural modification: create ModifyWidgetDeltaCommand and sync model.
     // Call AFTER modifying the live GTK widget. oldDesc must have been captured BEFORE modification.
     void commitWidgetModification(
@@ -187,9 +184,6 @@ public:
     // Access to document model (for testing)
     std::shared_ptr<CtDocumentModel> getDocumentModel() const { return _docModel; }
 
-    // Helper to get XML content from GTK buffer (public for CtTextEditSession)
-    Glib::ustring getBufferContentAsXml(Glib::RefPtr<Gtk::TextBuffer> buffer, const CtTreeIter* treeIter = nullptr);
-
     // Apply a rich-cell content change to both the model and the live cell widget
     // in-place, bypassing the full buffer/widget rebuild path. Used by
     // EditRichCellCommand undo/redo to avoid the GTK assertion that triggers
@@ -206,7 +200,7 @@ private:
     void updateBufferFromXml(Glib::RefPtr<Gtk::TextBuffer> buffer, const Glib::ustring& xml, const std::string& syntax = "custom-colors", const CtTreeIter* treeIter = nullptr);
 
     // Shared implementation for paste/cut begin: flush widget edit, guard against re-entry,
-    // snapshot initial XML.
+    // snapshot initial structured content.
     void beginXmlCapture(BridgeOp op, gint64 nodeId);
 
     // Shared implementation for paste/cut end: diff initial vs final, create command.
@@ -258,7 +252,7 @@ private:
     // Widget edit tracking (focus-in / focus-out snapshot approach)
     // _widgetEditNodeId != 0 serves as the "tracking" guard (replaces _trackingWidgetEdit)
     gint64 _widgetEditNodeId{0};
-    Glib::ustring _widgetEditInitialXml;
+    CtNodeContent _widgetEditInitialContent;
     int _widgetEditOldCursorPos{-1};
     double _widgetEditOldScrollPos{-1.0};
     // Widget delta path (active when _widgetEditCharOffset != -1)
@@ -272,7 +266,7 @@ private:
 
     // Unified paste/cut capture fields (shared between CapturingPaste and CapturingCut)
     gint64 _captureNodeId{0};
-    Glib::ustring _captureInitialXml;
+    CtNodeContent _captureInitialContent;
     int _captureOldCursorPos{-1};
     int _captureNewCursorPos{-1};
 

@@ -131,17 +131,15 @@ void CtCommandBridge::syncModelFromTree()
         Glib::ustring nodeName = treeIter.get_node_name();
         std::string syntax = treeIter.get_node_syntax_highlighting();
 
-        // Get buffer content as XML
+        // Get buffer content
         auto buffer = treeIter.get_node_text_buffer();
-        Glib::ustring contentXml;
-        if (buffer) {
-            contentXml = getBufferContentAsXml(buffer, &treeIter);
-        }
 
         // Create node model
         auto nodeModel = std::make_shared<CtNodeModel>(nodeId);
         nodeModel->setName(nodeName);
-        nodeModel->setContentXml(contentXml);
+        if (buffer) {
+            nodeModel->setContent(buildContentFromBuffer(buffer, treeIter.get_anchored_widgets()));
+        }
         nodeModel->setSyntax(syntax);
 
         // Add to document model
@@ -636,18 +634,11 @@ void CtCommandBridge::beginTextEditSession(gint64 nodeId)
 
     spdlog::debug("CtCommandBridge: node {} buffer address = {}", nodeId, static_cast<void*>(buffer.get()));
 
-    // Check if node has embedded widgets (tables, images, codeboxes)
-    // Widget nodes must use the XML-based undo path
-    bool hasWidgets = !treeIter.get_anchored_widgets().empty();
-    spdlog::debug("CtCommandBridge: node {} hasWidgets={}", nodeId, hasWidgets);
-
     // Re-sync the node model from the buffer to ensure model matches buffer.
     // This handles cases where the buffer was modified without an active session
     // (e.g., widget insertion, key events not captured by session).
     // After undo/redo, skip this — the model is the source of truth and the buffer
     // was rebuilt from it. Re-syncing would overwrite the correct model state.
-    // Also skip if the model already has xmlBackup — it already has good XML and
-    // getBufferContentAsXml cannot fully reconstruct complex widgets like tables.
     if (_skipNextModelSync) {
         _skipNextModelSync = false;
         // Defensive: verify model and buffer agree on content length.
@@ -659,8 +650,7 @@ void CtCommandBridge::beginTextEditSession(gint64 nodeId)
         if (node && modelLen != bufferLen) {
             spdlog::warn("CtCommandBridge: model/buffer length mismatch for node {} "
                          "(model={}, buffer={}) — forcing re-sync", nodeId, modelLen, bufferLen);
-            Glib::ustring currentXml = getBufferContentAsXml(buffer, &treeIter);
-            node->setContentXml(currentXml);
+            node->setContent(buildContentFromBuffer(buffer, treeIter.get_anchored_widgets()));
         } else {
             spdlog::info("CtCommandBridge: SKIPPING model re-sync after undo/redo for node {}", nodeId);
         }
@@ -672,7 +662,7 @@ void CtCommandBridge::beginTextEditSession(gint64 nodeId)
             auto newNode = std::make_shared<CtNodeModel>(nodeId);
             newNode->setName(treeIter.get_node_name());
             newNode->setSyntax(treeIter.get_node_syntax_highlighting());
-            newNode->setContentXml(getBufferContentAsXml(buffer, &treeIter));
+            newNode->setContent(buildContentFromBuffer(buffer, treeIter.get_anchored_widgets()));
             _docModel->addNode(newNode, 0 /* flat model — no hierarchy needed for undo */);
             spdlog::info("CtCommandBridge: lazy-added node {} to model on first edit visit", nodeId);
         } else if (nodeId == _lastSyncedNodeId) {
@@ -684,8 +674,7 @@ void CtCommandBridge::beginTextEditSession(gint64 nodeId)
             // Buffer was modified outside a tracked session (e.g., switched back from
             // another node, or widget edit changed the buffer).  Re-sync from XML.
             spdlog::info("CtCommandBridge: re-syncing model from buffer for node {} (buffer modified)", nodeId);
-            Glib::ustring currentXml = getBufferContentAsXml(buffer, &treeIter);
-            node->setContentXml(currentXml);
+            node->setContent(buildContentFromBuffer(buffer, treeIter.get_anchored_widgets()));
         }
     }
 
@@ -695,8 +684,8 @@ void CtCommandBridge::beginTextEditSession(gint64 nodeId)
         _sessionScrollPosOld = adj ? adj->get_value() : -1.0;
     }
 
-    // Begin signal-based capture, passing treeIter to capture initial XML from buffer
-    _editSession->begin(nodeId, buffer, hasWidgets, &treeIter);
+    // Begin signal-based capture
+    _editSession->begin(nodeId, buffer, &treeIter);
 
     // Also capture tag apply/remove signals so that link insertion and other
     // tag-only operations within a text edit session produce proper undo entries.
@@ -905,8 +894,8 @@ void CtCommandBridge::beginWidgetEdit(gint64 nodeId, CtAnchoredWidget* widget, i
         _widgetEditCol = -1;
         _widgetEditIsRichCell = false;
         _widgetEditOldContent = codebox->get_text_content().raw();
-        // Delta path tracks codebox text directly; no XML snapshot needed.
-        _widgetEditInitialXml.clear();
+        // Delta path tracks codebox text directly; no content snapshot needed.
+        _widgetEditInitialContent = CtNodeContent{};
         spdlog::debug("CtCommandBridge: beginWidgetEdit (delta path) codebox at offset {}",
                       _widgetEditCharOffset);
     } else if (widget && row >= 0 && col >= 0 &&
@@ -927,8 +916,8 @@ void CtCommandBridge::beginWidgetEdit(gint64 nodeId, CtAnchoredWidget* widget, i
             }
         }
         // Rich-cell edits are tracked via _richCellSession + EditRichCellCommand;
-        // no XML snapshot needed (and it would re-encode every image in the table).
-        _widgetEditInitialXml.clear();
+        // no content snapshot needed (and re-encoding every image would be expensive).
+        _widgetEditInitialContent = CtNodeContent{};
         // Start a cell-level edit session for per-word undo granularity
         auto* richTable = static_cast<CtTableRich*>(widget);
         auto cellBuf = richTable->get_buffer(row, col);
@@ -951,8 +940,8 @@ void CtCommandBridge::beginWidgetEdit(gint64 nodeId, CtAnchoredWidget* widget, i
             auto buf = static_cast<CtTableHeavy*>(widget)->get_buffer(row, col);
             _widgetEditOldContent = buf ? buf->get_text().raw() : std::string{};
         }
-        // Delta path tracks the cell text directly; no XML snapshot needed.
-        _widgetEditInitialXml.clear();
+        // Delta path tracks the cell text directly; no content snapshot needed.
+        _widgetEditInitialContent = CtNodeContent{};
         spdlog::debug("CtCommandBridge: beginWidgetEdit (delta path) table cell ({},{}) at offset {}",
                       row, col, _widgetEditCharOffset);
     } else {
@@ -961,7 +950,7 @@ void CtCommandBridge::beginWidgetEdit(gint64 nodeId, CtAnchoredWidget* widget, i
         _widgetEditCol = -1;
         _widgetEditIsRichCell = false;
         _widgetEditOldContent.clear();
-        _widgetEditInitialXml = getBufferContentAsXml(buffer, &treeIter);
+        _widgetEditInitialContent = buildContentFromBuffer(buffer, treeIter.get_anchored_widgets());
     }
 }
 
@@ -976,7 +965,7 @@ void CtCommandBridge::endWidgetEdit()
 
     auto clearState = [&]() {
         _widgetEditNodeId = 0;
-        _widgetEditInitialXml.clear();
+        _widgetEditInitialContent = CtNodeContent{};
         _widgetEditOldCursorPos = -1;
         _widgetEditOldScrollPos = -1.0;
         _widgetEditCharOffset = -1;
@@ -1148,15 +1137,15 @@ void CtCommandBridge::endWidgetEdit()
     }
 
     // Fallback for unknown/unsupported widget types — no delta command available.
-    // Sync model XML so display stays coherent, but undo is not recorded.
-    Glib::ustring finalXml = getBufferContentAsXml(buffer, &treeIter);
+    // Sync model so display stays coherent, but undo is not recorded.
+    CtNodeContent finalContent = buildContentFromBuffer(buffer, treeIter.get_anchored_widgets());
 
-    if (_widgetEditInitialXml == finalXml) {
+    if (_widgetEditInitialContent == finalContent) {
         spdlog::debug("CtCommandBridge: endWidgetEdit - no changes detected");
     } else {
         spdlog::warn("CtCommandBridge: endWidgetEdit - unknown widget type modified; model synced but undo not available");
         auto node = _docModel->getNodeById(_widgetEditNodeId);
-        if (node) node->setContentXml(finalXml);
+        if (node) node->setContent(finalContent);
     }
     clearState();
 
@@ -1682,10 +1671,10 @@ void CtCommandBridge::beginPaste(gint64 nodeId, bool pasteContainsWidgets)
                 auto newNode = std::make_shared<CtNodeModel>(nodeId);
                 newNode->setName(treeIter.get_node_name());
                 newNode->setSyntax(treeIter.get_node_syntax_highlighting());
-                newNode->setContentXml(getBufferContentAsXml(buffer, &treeIter));
+                newNode->setContent(buildContentFromBuffer(buffer, treeIter.get_anchored_widgets()));
                 _docModel->addNode(newNode, 0);
             } else if (buffer->get_modified()) {
-                node->setContentXml(getBufferContentAsXml(buffer, &treeIter));
+                node->setContent(buildContentFromBuffer(buffer, treeIter.get_anchored_widgets()));
             }
         }
         _skipNextModelSync = false;
@@ -1697,8 +1686,7 @@ void CtCommandBridge::beginPaste(gint64 nodeId, bool pasteContainsWidgets)
 
         _currentOp = BridgeOp::CapturingPaste;
         _captureNodeId = nodeId;
-        bool hasWidgets = !treeIter.get_anchored_widgets().empty();
-        _editSession->begin(nodeId, buffer, hasWidgets, &treeIter);
+        _editSession->begin(nodeId, buffer, &treeIter);
     } else {
         // XML snapshot path (default, safe for all paste types)
         beginXmlCapture(BridgeOp::CapturingPaste, nodeId);
@@ -1786,10 +1774,10 @@ void CtCommandBridge::beginCut(gint64 nodeId)
             auto newNode = std::make_shared<CtNodeModel>(nodeId);
             newNode->setName(treeIter.get_node_name());
             newNode->setSyntax(treeIter.get_node_syntax_highlighting());
-            newNode->setContentXml(getBufferContentAsXml(buffer, &treeIter));
+            newNode->setContent(buildContentFromBuffer(buffer, treeIter.get_anchored_widgets()));
             _docModel->addNode(newNode, 0);
         } else if (buffer->get_modified()) {
-            node->setContentXml(getBufferContentAsXml(buffer, &treeIter));
+            node->setContent(buildContentFromBuffer(buffer, treeIter.get_anchored_widgets()));
         }
     }
     _skipNextModelSync = false;
@@ -1803,8 +1791,7 @@ void CtCommandBridge::beginCut(gint64 nodeId)
     // Mark cut in progress and open a session so the deletion is captured as a delta.
     _currentOp = BridgeOp::CapturingCut;
     _captureNodeId = nodeId;
-    bool hasWidgets = !treeIter.get_anchored_widgets().empty();
-    _editSession->begin(nodeId, buffer, hasWidgets, &treeIter);
+    _editSession->begin(nodeId, buffer, &treeIter);
 }
 
 void CtCommandBridge::endCut()
@@ -1884,18 +1871,18 @@ void CtCommandBridge::beginXmlCapture(BridgeOp op, gint64 nodeId)
         return;
     }
 
-    // Lazy: ensure node is in model before capturing initial XML.
+    // Lazy: ensure node is in model before capturing initial state.
     if (!_docModel->getNodeById(nodeId) && treeIter) {
         auto newNode = std::make_shared<CtNodeModel>(nodeId);
         newNode->setName(treeIter.get_node_name());
         newNode->setSyntax(treeIter.get_node_syntax_highlighting());
-        newNode->setContentXml(getBufferContentAsXml(buffer, &treeIter));
+        newNode->setContent(buildContentFromBuffer(buffer, treeIter.get_anchored_widgets()));
         _docModel->addNode(newNode, 0);
     }
 
     _currentOp = op;
     _captureNodeId = nodeId;
-    _captureInitialXml = getCurrentBufferXml();
+    _captureInitialContent = buildContentFromBuffer(buffer, treeIter.get_anchored_widgets());
     _captureOldCursorPos = buffer->property_cursor_position();
 }
 
@@ -1920,10 +1907,10 @@ void CtCommandBridge::endXmlCapture(const std::string& description)
         return;
     }
 
-    Glib::ustring finalXml = getCurrentBufferXml();
+    CtNodeContent finalContent = buildContentFromBuffer(buffer, treeIter.get_anchored_widgets());
     _captureNewCursorPos = buffer->property_cursor_position();
 
-    if (_captureInitialXml == finalXml) {
+    if (_captureInitialContent == finalContent) {
         _currentOp = BridgeOp::None;
         return;
     }
@@ -1931,8 +1918,8 @@ void CtCommandBridge::endXmlCapture(const std::string& description)
     auto cmd = std::make_unique<TextEditCommand>(
         _docModel,
         _captureNodeId,
-        _captureInitialXml,
-        finalXml,
+        _captureInitialContent,
+        finalContent,
         _captureOldCursorPos,
         _captureNewCursorPos,
         description
@@ -1944,13 +1931,13 @@ void CtCommandBridge::endXmlCapture(const std::string& description)
     // Update document model
     auto node = _docModel->getNodeById(_captureNodeId);
     if (node) {
-        node->setContentXml(finalXml);
+        node->setContent(finalContent);
         _docModel->notifyNodeChanged(_captureNodeId);
     }
 
     _currentOp = BridgeOp::None;
     _captureNodeId = 0;
-    _captureInitialXml.clear();
+    _captureInitialContent = CtNodeContent{};
 }
 
 void CtCommandBridge::commitWidgetModification(
@@ -1982,20 +1969,6 @@ void CtCommandBridge::commitWidgetModification(
     }
 }
 
-Glib::ustring CtCommandBridge::getCurrentBufferXml()
-{
-    if (!_active || !_pMainWin) {
-        return "";
-    }
-
-    auto buffer = _pMainWin->curr_buffer();
-    if (!buffer) {
-        return "";
-    }
-
-    return getBufferContentAsXml(buffer);
-}
-
 void CtCommandBridge::registerNewNode(gint64 nodeId, gint64 parentId)
 {
     if (!_active) {
@@ -2023,64 +1996,16 @@ void CtCommandBridge::registerNewNode(gint64 nodeId, gint64 parentId)
     // Get node data from tree
     Glib::ustring nodeName = treeIter.get_node_name();
     auto buffer = treeIter.get_node_text_buffer();
-    Glib::ustring contentXml;
-    if (buffer) {
-        contentXml = getBufferContentAsXml(buffer, &treeIter);
-    }
 
     // Create and add node to model
     auto nodeModel = std::make_shared<CtNodeModel>(nodeId);
     nodeModel->setName(nodeName);
-    nodeModel->setContentXml(contentXml);
+    if (buffer) {
+        nodeModel->setContent(buildContentFromBuffer(buffer, treeIter.get_anchored_widgets()));
+    }
 
     _docModel->addNode(nodeModel, parentId);
     spdlog::debug("CtCommandBridge: registered new node {} '{}' (parent: {})", nodeId, nodeName.c_str(), parentId);
-}
-
-Glib::ustring CtCommandBridge::getBufferContentAsXml(Glib::RefPtr<Gtk::TextBuffer> buffer, const CtTreeIter* treeIter)
-{
-    if (!buffer || !_pMainWin) {
-        return "";
-    }
-
-    // Get the actual text from the buffer
-    Glib::ustring bufferText = buffer->get_text();
-    spdlog::debug("CtCommandBridge: serializing buffer to XML - buffer text: '{}'", bufferText.c_str());
-
-    try {
-        // Create XML document
-        xmlpp::Document xml_doc;
-        xml_doc.create_root_node("node");
-        xmlpp::Element* p_root = xml_doc.get_root_node();
-
-        // Use existing storage helper to serialize buffer
-        CtStorageXmlHelper xml_helper(_pMainWin);
-
-        // Serialize the buffer content - need to specify full range (0 to buffer length)
-        int start_offset = 0;
-        int end_offset = buffer->get_char_count();
-        xml_helper.save_buffer_no_widgets_to_xml(p_root, buffer, start_offset, end_offset, 'n');
-
-        // Get the tree iter to serialize widgets - use provided treeIter or fall back to curr_tree_iter
-        CtTreeIter iter_to_use = treeIter ? *treeIter : _pMainWin->curr_tree_iter();
-        if (iter_to_use) {
-            // Serialize anchored widgets
-            auto widgets = iter_to_use.get_anchored_widgets();
-            spdlog::debug("CtCommandBridge: serializing {} anchored widgets from tree iter", widgets.size());
-            for (CtAnchoredWidget* widget : widgets) {
-                widget->to_xml(p_root, 0, nullptr, "");
-            }
-        }
-
-        // Convert XML document to string
-        Glib::ustring xmlResult = xml_doc.write_to_string();
-        spdlog::debug("CtCommandBridge: XML result: '{}'", xmlResult.substr(0, 200).c_str());
-        return xmlResult;
-    }
-    catch (const std::exception& e) {
-        spdlog::error("CtCommandBridge: XML serialization failed: {}", e.what());
-        return "";
-    }
 }
 
 void CtCommandBridge::updateBufferFromXml(Glib::RefPtr<Gtk::TextBuffer> buffer, const Glib::ustring& xml, const std::string& syntax, const CtTreeIter* treeIter)

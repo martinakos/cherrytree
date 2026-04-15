@@ -197,6 +197,24 @@ void CtImagePng::to_xml(xmlpp::Element* p_node_parent,
     }
 }
 
+CtWidgetDesc CtImagePng::to_widget_desc(int charOffset)
+{
+    CtWidgetDesc desc(CtAnchWidgType::ImagePng);
+    desc.setProperty("char_offset", std::to_string(charOffset));
+    desc.setProperty(CtConst::TAG_JUSTIFICATION, _justification);
+    desc.setProperty("link", _link);
+    if (_rZoomBasePixbuf and _rOrigPixbuf and
+        (_rZoomBasePixbuf->get_width() != _rOrigPixbuf->get_width() or
+         _rZoomBasePixbuf->get_height() != _rOrigPixbuf->get_height()))
+    {
+        desc.setProperty("display_width", std::to_string(_rZoomBasePixbuf->get_width()));
+        desc.setProperty("display_height", std::to_string(_rZoomBasePixbuf->get_height()));
+    }
+    desc.contentData = Glib::Base64::encode(get_raw_blob());
+    desc.setProperty("_content", desc.contentData);
+    return desc;
+}
+
 bool CtImagePng::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offset_adjustment, CtStorageCache* storage_cache)
 {
     bool retVal{true};
@@ -332,6 +350,18 @@ void CtImageAnchor::to_xml(xmlpp::Element* p_node_parent, const int offset_adjus
     if (CtAnchorExpCollState::Collapsed == _expCollState) {
         p_image_node->set_attribute("state", "coll");
     }
+}
+
+CtWidgetDesc CtImageAnchor::to_widget_desc(int charOffset)
+{
+    CtWidgetDesc desc(CtAnchWidgType::ImageAnchor);
+    desc.setProperty("char_offset", std::to_string(charOffset));
+    desc.setProperty(CtConst::TAG_JUSTIFICATION, _justification);
+    desc.setProperty("anchor", _anchorName);
+    if (CtAnchorExpCollState::Collapsed == _expCollState) {
+        desc.setProperty("state", "coll");
+    }
+    return desc;
 }
 
 bool CtImageAnchor::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offset_adjustment, CtStorageCache*)
@@ -491,6 +521,17 @@ void CtImageLatex::to_xml(xmlpp::Element* p_node_parent, const int offset_adjust
     p_image_node->set_attribute(CtConst::TAG_JUSTIFICATION, _justification);
     p_image_node->set_attribute("filename", CtImageLatex::LatexSpecialFilename);
     p_image_node->add_child_text(_latexText);
+}
+
+CtWidgetDesc CtImageLatex::to_widget_desc(int charOffset)
+{
+    CtWidgetDesc desc(CtAnchWidgType::ImageLatex);
+    desc.setProperty("char_offset", std::to_string(charOffset));
+    desc.setProperty(CtConst::TAG_JUSTIFICATION, _justification);
+    desc.setProperty("filename", CtImageLatex::LatexSpecialFilename);
+    desc.contentData = _latexText.raw();
+    desc.setProperty("_content", desc.contentData);
+    return desc;
 }
 
 bool CtImageLatex::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offset_adjustment, CtStorageCache*)
@@ -919,6 +960,19 @@ void CtImageEmbFile::to_xml(xmlpp::Element* p_node_parent,
             p_image_node->set_attribute("sha256sum", sha256sum);
         }
     }
+}
+
+CtWidgetDesc CtImageEmbFile::to_widget_desc(int charOffset)
+{
+    CtWidgetDesc desc(CtAnchWidgType::ImageEmbFile);
+    desc.setProperty("char_offset", std::to_string(charOffset));
+    desc.setProperty(CtConst::TAG_JUSTIFICATION, _justification);
+    desc.setProperty("filename", _fileName.string());
+    desc.setProperty("time", std::to_string(_timeSeconds));
+    _checkNonEmptyRawBlob(nullptr/*multifile_dir*/);
+    desc.contentData = Glib::Base64::encode(_rawBlob);
+    desc.setProperty("_content", desc.contentData);
+    return desc;
 }
 
 bool CtImageEmbFile::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offset_adjustment, CtStorageCache*)

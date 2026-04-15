@@ -32,15 +32,15 @@
 TextEditCommand::TextEditCommand(
     std::shared_ptr<CtDocumentModel> docModel,
     gint64 nodeId,
-    const Glib::ustring& oldContentXml,
-    const Glib::ustring& newContentXml,
+    CtNodeContent oldContent,
+    CtNodeContent newContent,
     int oldCursorPos,
     int newCursorPos,
     const std::string& description)
     : _docModel(docModel)
     , _nodeId(nodeId)
-    , _oldContentXml(oldContentXml)
-    , _newContentXml(newContentXml)
+    , _oldContent(std::move(oldContent))
+    , _newContent(std::move(newContent))
     , _oldCursorPos(oldCursorPos)
     , _newCursorPos(newCursorPos)
     , _description(description)
@@ -61,7 +61,7 @@ void TextEditCommand::execute()
     }
 
     spdlog::debug("TextEditCommand: executing for node {}", _nodeId);
-    node->setContentXml(_newContentXml);
+    node->setContent(_newContent);
     _docModel->notifyNodeChanged(_nodeId);
 }
 
@@ -79,7 +79,7 @@ void TextEditCommand::undo()
     }
 
     spdlog::debug("TextEditCommand: undoing for node {}", _nodeId);
-    node->setContentXml(_oldContentXml);
+    node->setContent(_oldContent);
     _docModel->notifyNodeChanged(_nodeId);
 }
 
@@ -96,31 +96,8 @@ std::string TextEditCommand::getDescription() const
 
     std::string description = "Node " + std::to_string(_nodeId) + ": ";
 
-    // Parse XML to get structured content and show what actually changed
-    CtNodeContent oldContent = CtNodeContent::fromXml(_oldContentXml, nullptr);
-    CtNodeContent newContent = CtNodeContent::fromXml(_newContentXml, nullptr);
-
-    Glib::ustring oldText = oldContent.getText();
-    Glib::ustring newText = newContent.getText();
-
-    spdlog::debug("TextEditCommand::getDescription - oldXml length: {}, newXml length: {}, oldText length: {}, newText length: {}",
-                  _oldContentXml.length(), _newContentXml.length(),
-                  oldText.length(), newText.length());
-
-    // Fallback to simple description if parsing failed (both texts empty but XMLs aren't)
-    if (oldText.empty() && newText.empty() && (!_oldContentXml.empty() || !_newContentXml.empty())) {
-        spdlog::warn("TextEditCommand::getDescription - XML parsing failed, using simple description");
-        size_t oldSize = _oldContentXml.size();
-        size_t newSize = _newContentXml.size();
-        if (newSize > oldSize + 10) {
-            description += "Type text";
-        } else if (oldSize > newSize + 10) {
-            description += "Delete text";
-        } else {
-            description += "Edit text";
-        }
-        return description;
-    }
+    Glib::ustring oldText = _oldContent.getText();
+    Glib::ustring newText = _newContent.getText();
 
     if (newText.length() > oldText.length()) {
         // Text was added
@@ -133,25 +110,19 @@ std::string TextEditCommand::getDescription() const
             diffPos++;
         }
 
-        // Extract the added text
         Glib::ustring addedText = newText.substr(diffPos, addedLen);
 
-        // Replace newlines with readable text
         if (addedText == "\n") {
             description += "Type newline";
         } else if (addedText.find('\n') != Glib::ustring::npos) {
-            // Contains newlines but has other text too
             description += "Type text with newlines";
         } else {
-            // Strip trailing single space from display (it's a word separator, not content)
             Glib::ustring displayText = addedText;
             if (displayText.length() > 1 && displayText[displayText.length() - 1] == ' ') {
-                // Check if only one trailing space (not multiple)
                 if (displayText.length() < 2 || displayText[displayText.length() - 2] != ' ') {
                     displayText = displayText.substr(0, displayText.length() - 1);
                 }
             }
-            // Limit to 30 characters for display
             if (displayText.length() > 30) {
                 description += "Type \"" + displayText.substr(0, 30).raw() + "...\"";
             } else {
@@ -160,12 +131,10 @@ std::string TextEditCommand::getDescription() const
         }
     }
     else if (oldText.length() > newText.length()) {
-        // Text was deleted
         size_t deletedLen = oldText.length() - newText.length();
         description += "Delete " + std::to_string(deletedLen) + " chars";
     }
     else {
-        // Same length - formatting or replacement
         description += "Edit text";
     }
 
@@ -184,7 +153,7 @@ CtTextEditSession::~CtTextEditSession()
     cancel();
 }
 
-void CtTextEditSession::begin(gint64 nodeId, const Glib::RefPtr<Gtk::TextBuffer>& buffer, bool hasWidgets, CtTreeIter* /*treeIter*/)
+void CtTextEditSession::begin(gint64 nodeId, const Glib::RefPtr<Gtk::TextBuffer>& buffer, CtTreeIter* /*treeIter*/)
 {
     // End any existing session first
     if (_active) {
@@ -195,7 +164,6 @@ void CtTextEditSession::begin(gint64 nodeId, const Glib::RefPtr<Gtk::TextBuffer>
     _nodeId = nodeId;
     _initialCursorPos = buffer->get_insert()->get_iter().get_offset();
     _active = true;
-    _hasWidgets = hasWidgets;
     _suppressCapture = false;
     _capturedCommands.clear();
 

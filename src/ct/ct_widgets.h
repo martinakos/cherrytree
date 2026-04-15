@@ -24,6 +24,7 @@
 #pragma once
 
 #include "ct_filesystem.h"
+#include "ct_node_content.h"
 
 #include <gtkmm.h>
 #include <libxml++/libxml++.h>
@@ -71,6 +72,7 @@ public:
     virtual void set_modified_false() = 0;
     virtual CtAnchWidgType get_type() const = 0;
     virtual std::shared_ptr<CtAnchoredWidgetState> get_state() = 0;
+    virtual CtWidgetDesc to_widget_desc(int charOffset) = 0;
 
     void updateOffset(int charOffset) { _charOffset = charOffset; }
     void updateJustification(const std::string& justification) { _justification = justification; }
@@ -133,6 +135,10 @@ public:
     std::shared_ptr<CtAnchoredWidgetState> get_state() override {
         spdlog::warn("!! {} UNEXP", __FUNCTION__);
         return std::shared_ptr<CtAnchoredWidgetState>{};
+    }
+    CtWidgetDesc to_widget_desc(int/*charOffset*/) override {
+        spdlog::warn("!! {} UNEXP", __FUNCTION__);
+        return CtWidgetDesc{};
     }
 
     const Glib::ustring& get_target_searchable() const {
