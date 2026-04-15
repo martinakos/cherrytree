@@ -108,6 +108,7 @@ public:
     void set_modified_false() override { set_text_buffer_modified_false(); }
     CtAnchWidgType get_type() const override { return CtAnchWidgType::CodeBox; }
     std::shared_ptr<CtAnchoredWidgetState> get_state() override;
+    CtWidgetDesc to_widget_desc(int charOffset) override;
 
     void apply_zoom(const double scaleFactor);
     void set_width_height(int newWidth, int newHeight);

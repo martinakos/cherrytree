@@ -431,10 +431,11 @@ void CtClipboard::from_xml_string_to_buffer(Glib::RefPtr<Gtk::TextBuffer> text_b
         pBridge->endTextEditSession();
     }
 
-    // Capture state before paste (only needed for the XML snapshot path).
-    Glib::ustring oldXml;
+    // Capture state before paste.
+    CtNodeContent oldContent;
     if (!pOutWidgets && pBridge && pBridge->isActive() && !pBridge->isSuppressingTextEdits()) {
-        oldXml = pBridge->getCurrentBufferXml();
+        CtTreeIter ctIter = _pCtMainWin->curr_tree_iter();
+        oldContent = buildContentFromBuffer(text_buffer, ctIter.get_anchored_widgets());
     }
 
     std::list<CtAnchoredWidget*> widgets;
@@ -475,21 +476,22 @@ void CtClipboard::from_xml_string_to_buffer(Glib::RefPtr<Gtk::TextBuffer> text_b
     // (those callers create their own command with the proper description).
     // Skip for rich cell pastes (pOutWidgets) — caller handles undo.
     if (!pOutWidgets && pBridge && pBridge->isActive() && !pBridge->isSuppressingTextEdits()) {
-        Glib::ustring newXml = pBridge->getCurrentBufferXml();
-        if (oldXml != newXml) {
-            gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+        CtTreeIter ctIter = _pCtMainWin->curr_tree_iter();
+        CtNodeContent newContent = buildContentFromBuffer(text_buffer, ctIter.get_anchored_widgets());
+        if (oldContent != newContent) {
+            gint64 nodeId = ctIter.get_node_id();
             auto cmd = std::make_unique<TextEditCommand>(
                 pBridge->getDocumentModel(),
                 nodeId,
-                oldXml,
-                newXml
+                std::move(oldContent),
+                newContent
             );
             pBridge->addCommandToStack(std::move(cmd));
 
-            // Update model XML without triggering observer (content already in buffer)
+            // Update model without triggering observer (content already in buffer)
             auto node = pBridge->getDocumentModel()->getNodeById(nodeId);
             if (node) {
-                node->setContentXml(newXml);
+                node->setContent(newContent);
             }
         }
     }

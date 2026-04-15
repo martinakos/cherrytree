@@ -12,8 +12,8 @@
  *   also captures tag-apply/remove signals for the format-change path
  * - Signal-based capture: GTK buffer changes captured in real-time during sessions
  *
- * XML SNAPSHOT COMMANDS (used by paste path):
- * - TextEditCommand: XML before/after snapshot (paste and widget fallback)
+ * STRUCTURED SNAPSHOT COMMANDS (used by paste path):
+ * - TextEditCommand: CtNodeContent before/after snapshot (paste and widget fallback)
  *
  * The delta-based approach provides:
  * - ~40x memory reduction (5KB vs 205KB per edit session)
@@ -58,15 +58,15 @@ class CtTreeIter;
 class CtCommandBridge;
 
 // Command for text editing operations
-// Stores before/after XML snapshots of node content
-// Batches rapid keystrokes into a single command via edit sessions
+// Stores before/after structured CtNodeContent snapshots of node content
+// Used for paste operations that may include widgets
 class TextEditCommand : public CtCommand {
 public:
     TextEditCommand(
         std::shared_ptr<CtDocumentModel> docModel,
         gint64 nodeId,
-        const Glib::ustring& oldContentXml,
-        const Glib::ustring& newContentXml,
+        CtNodeContent oldContent,
+        CtNodeContent newContent,
         int oldCursorPos = -1,
         int newCursorPos = -1,
         const std::string& description = ""
@@ -84,11 +84,11 @@ public:
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
     gint64 _nodeId;
-    Glib::ustring _oldContentXml;
-    Glib::ustring _newContentXml;
+    CtNodeContent _oldContent;
+    CtNodeContent _newContent;
     int _oldCursorPos;
     int _newCursorPos;
-    std::string _description;  // When set, bypasses XML-parsing description
+    std::string _description;
 };
 
 // Forward declaration for timeout callback
@@ -104,9 +104,7 @@ public:
     ~CtTextEditSession();
 
     // Begin tracking edits for a node with signal-based capture
-    // hasWidgets: true if the node contains tables/images/codeboxes (must use XML path)
-    // treeIter: optionally pass tree iter to capture initial XML from buffer instead of model
-    void begin(gint64 nodeId, const Glib::RefPtr<Gtk::TextBuffer>& buffer, bool hasWidgets = false, CtTreeIter* treeIter = nullptr);
+    void begin(gint64 nodeId, const Glib::RefPtr<Gtk::TextBuffer>& buffer, CtTreeIter* treeIter = nullptr);
 
     // End session and create command (if changes were made)
     // Returns the created command (or nullptr if no changes)
@@ -175,7 +173,6 @@ private:
     bool _active{false};
     bool _suppressCapture{false};
     bool _skipModelSync{false};
-    bool _hasWidgets{false};
     sigc::connection _insertConnection;
     sigc::connection _eraseConnection;
 
@@ -194,7 +191,6 @@ private:
 // Delta-based commands: store only the operation delta instead of full XML snapshots.
 
 // Insert text at a specific offset with formatting attributes
-// Note: For nodes with widgets, stores initial XML for proper undo (widgets not captured by toXml())
 class InsertTextCommand : public CtCommand {
 public:
     InsertTextCommand(
