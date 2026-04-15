@@ -187,6 +187,11 @@ struct CtContentElement {
 
     bool isTextSpan() const { return type == Type::TextSpan; }
     bool isWidget() const { return type == Type::Widget; }
+
+    bool operator==(const CtContentElement& other) const {
+        if (type != other.type) return false;
+        return type == Type::TextSpan ? textSpan == other.textSpan : widget == other.widget;
+    }
 };
 
 // Result of a deleteRange operation - contains deleted content for undo
@@ -302,6 +307,10 @@ public:
     static CtNodeContent fromXml(const Glib::ustring& xml, CtMainWin* pCtMainWin);
     Glib::ustring toXml() const;
 
+    // Equality comparison (element-wise)
+    bool operator==(const CtNodeContent& other) const { return _elements == other._elements; }
+    bool operator!=(const CtNodeContent& other) const { return !(*this == other); }
+
     // Clear all content
     void clear() { _elements.clear(); }
 
@@ -330,7 +339,7 @@ class CtAnchoredWidget;
 // Used during signal capture to determine formatting at insertion point
 std::map<std::string, std::string> extractAttributesFromIter(const Gtk::TextIter& iter);
 
-// Extract a CtWidgetDesc from a live anchored widget (uses to_xml() as intermediate).
+// Extract a CtWidgetDesc from a live anchored widget via to_widget_desc().
 // charOffset is the widget's position in the text buffer.
 CtWidgetDesc extractWidgetDesc(CtAnchoredWidget* widget, int charOffset);
 

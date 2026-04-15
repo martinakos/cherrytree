@@ -85,6 +85,7 @@ public:
     bool to_sqlite(sqlite3* pDb, const gint64 node_id, const int offset_adjustment, CtStorageCache* cache) override;
     CtAnchWidgType get_type() const override { return CtAnchWidgType::ImagePng; }
     std::shared_ptr<CtAnchoredWidgetState> get_state() override;
+    CtWidgetDesc to_widget_desc(int charOffset) override;
 
     const std::string get_raw_blob();
     void update_label_widget();
@@ -114,6 +115,7 @@ public:
     bool to_sqlite(sqlite3* pDb, const gint64 node_id, const int offset_adjustment, CtStorageCache* cache) override;
     CtAnchWidgType get_type() const override { return CtAnchWidgType::ImageAnchor; }
     std::shared_ptr<CtAnchoredWidgetState> get_state() override;
+    CtWidgetDesc to_widget_desc(int charOffset) override;
 
     const Glib::ustring& get_anchor_name() const { return _anchorName; }
     CtAnchorExpCollState get_exp_coll_state() const { return _expCollState; }
@@ -152,6 +154,7 @@ public:
     bool to_sqlite(sqlite3* pDb, const gint64 node_id, const int offset_adjustment, CtStorageCache* cache) override;
     CtAnchWidgType get_type() const override { return CtAnchWidgType::ImageLatex; }
     std::shared_ptr<CtAnchoredWidgetState> get_state() override;
+    CtWidgetDesc to_widget_desc(int charOffset) override;
 
     const Glib::ustring& get_latex_text() { return _latexText; }
     size_t               get_unique_id() { return _uniqueId; }
@@ -194,6 +197,7 @@ public:
     bool to_sqlite(sqlite3* pDb, const gint64 node_id, const int offset_adjustment, CtStorageCache* cache) override;
     CtAnchWidgType get_type() const override { return CtAnchWidgType::ImageEmbFile; }
     std::shared_ptr<CtAnchoredWidgetState> get_state() override;
+    CtWidgetDesc to_widget_desc(int charOffset) override;
 
     const fs::path&      get_file_name() const { return _fileName; }
     void                 set_file_name(const fs::path& path) { _fileName = path; }

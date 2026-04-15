@@ -445,6 +445,23 @@ void CtCodebox::to_xml(xmlpp::Element* p_node_parent, const int offset_adjustmen
     p_codebox_node->add_child_text(get_text_content());
 }
 
+CtWidgetDesc CtCodebox::to_widget_desc(int charOffset)
+{
+    CtWidgetDesc desc(CtAnchWidgType::CodeBox);
+    desc.setProperty("char_offset", std::to_string(charOffset));
+    desc.setProperty(CtConst::TAG_JUSTIFICATION, _justification);
+    desc.setProperty("frame_width", std::to_string(get_frame_width()));
+    desc.setProperty("frame_height", std::to_string(_frameHeight));
+    desc.setProperty("width_in_pixels", std::to_string(_widthInPixels));
+    desc.setProperty("syntax_highlighting", _syntaxHighlighting);
+    desc.setProperty("highlight_brackets", std::to_string(_highlightBrackets));
+    desc.setProperty("show_line_numbers", std::to_string(_showLineNumbers));
+    const Glib::ustring textContent = get_text_content();
+    desc.contentData = textContent.raw();
+    desc.setProperty("_content", desc.contentData);
+    return desc;
+}
+
 bool CtCodebox::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offset_adjustment, CtStorageCache*)
 {
     bool retVal{true};
