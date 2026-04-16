@@ -1091,6 +1091,11 @@ void CtClipboard::on_received_to_table(const Gtk::SelectionData& selection_data,
                 const size_t insert_after = parentRich->current_column();
                 const size_t newColIdx = insert_after + 1;
                 parentRich->column_add(insert_after);
+                // Refresh dstStyle so it reflects the index shift that column_add
+                // applied internally via remapAfterColInsert; without this the
+                // subsequent setTableStyle call would overwrite those shifts and
+                // the column to the right of the insert would lose its style.
+                dstStyle = parentRich->getTableStyle();
                 const size_t srcRows = tmpRich->get_num_rows();
                 const size_t copyRows = std::min(srcRows, parentRich->get_num_rows());
                 for (size_t r = 0; r < copyRows; ++r) {
