@@ -1315,13 +1315,24 @@ void CtActions::_image_edit_dialog(Glib::RefPtr<Gdk::Pixbuf> rPixbuf,
             }
 
             // Replace the image in the cell buffer.
+            // Capture the old widget pointer before erasing so we can clean it up.
+            CtAnchoredWidget* pOldWidget = curr_image_anchor;
             cellBuffer->erase(insert_iter, *pIterBound);
+            // Remove old widget from the cell's tracked list and delete it.
+            // Its TextChildAnchor is now deleted from the buffer; leaving it in the
+            // list would cause get_iter_at_child_anchor to assert on any subsequent
+            // image action that iterates getEmbeddedWidgets() and matches pOldWidget.
+            pRichCell->removeEmbeddedWidget(pOldWidget);
+            delete pOldWidget;
+            curr_image_anchor = nullptr;
+
             insert_iter = cellBuffer->get_iter_at_offset(image_offset);
             auto* pWidget = new CtImagePng{_pCtMainWin, ret_pixbuf, ""/*link*/, image_offset, ""};
             if (rOrigPixbuf) pWidget->set_orig_pixbuf(rOrigPixbuf);
             applyCurrentZoom(pWidget);
             pWidget->insertInTextBuffer(cellBuffer);
             pRichCell->addEmbeddedWidget(pWidget);
+            curr_image_anchor = pWidget;  // keep curr_image_anchor current
 
             // Record as a single undo step.
             if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {

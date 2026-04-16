@@ -1085,6 +1085,11 @@ void CtRichCell::addEmbeddedWidget(CtAnchoredWidget* pWidget)
     }
 }
 
+void CtRichCell::removeEmbeddedWidget(CtAnchoredWidget* pWidget)
+{
+    _embeddedWidgets.remove(pWidget);
+}
+
 CtAnchoredWidget* CtRichCell::_createWidgetFromDesc(const CtWidgetDesc& desc, int charOffset) const
 {
     const std::string justification = desc.getJustification();

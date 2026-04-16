@@ -332,6 +332,9 @@ public:
     // Register a widget (already inserted into the cell buffer) for display in this cell.
     void addEmbeddedWidget(CtAnchoredWidget* pWidget);
 
+    // Remove a widget from the embedded list without deleting it (caller is responsible for deletion).
+    void removeEmbeddedWidget(CtAnchoredWidget* pWidget);
+
     const std::list<CtAnchoredWidget*>& getEmbeddedWidgets() const { return _embeddedWidgets; }
 
 private:
