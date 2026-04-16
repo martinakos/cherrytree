@@ -81,6 +81,7 @@ struct CtCellContent {
     bool isPlainText() const;
 
     bool operator==(const CtCellContent& other) const;
+    bool operator!=(const CtCellContent& other) const { return !(*this == other); }
 };
 
 // Represents a run of text with uniform formatting attributes
