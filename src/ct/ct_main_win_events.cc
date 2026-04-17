@@ -670,15 +670,24 @@ bool CtMainWin::_on_textview_event(GdkEvent* event)
 #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
 void CtMainWin::_on_textview_event_after(GdkEvent* event)
 {
+    // Guard: GTK3 propagates event-after from embedded child anchor widgets (codeboxes,
+    // rich cells) up to the parent text view, rewriting event->button.window to the
+    // parent's own window in the process — so window-pointer comparison cannot distinguish
+    // "own" from "propagated" events.  Instead, use keyboard focus: embedded widgets take
+    // focus when clicked, so if the main text view no longer has focus the event came from
+    // an embedded widget that has its own event_after handler.
+    auto _isOwnButtonEvent = [&]() -> bool {
+        return _ctTextview.mm().has_focus();
+    };
     if (event->type == GDK_2BUTTON_PRESS and (1 == event->button.button or 2 == event->button.button)) {
-        _ctTextview.for_event_after_double_click_button12(event);
+        if (_isOwnButtonEvent()) _ctTextview.for_event_after_double_click_button12(event);
     }
     if (event->type == GDK_3BUTTON_PRESS and (1 == event->button.button or 2 == event->button.button)) {
-        _ctTextview.for_event_after_triple_click_button12(event);
+        if (_isOwnButtonEvent()) _ctTextview.for_event_after_triple_click_button12(event);
     }
     else if (event->type == GDK_BUTTON_PRESS or event->type == GDK_KEY_PRESS) {
         if (event->type == GDK_BUTTON_PRESS) {
-            _ctTextview.for_event_after_button_press(event);
+            if (_isOwnButtonEvent()) _ctTextview.for_event_after_button_press(event);
         }
         if (event->type == GDK_KEY_PRESS) {
             _ctTextview.for_event_after_key_press(event, curr_tree_iter().get_node_syntax_highlighting());
