@@ -17,6 +17,8 @@ A GTK-free in-memory representation of the document tree.
 - **CtWidgetDesc** — lightweight widget descriptor for images, anchors, LaTeX, codeboxes, and tables. Tables carry either `tableData` (plain) or `richTableData` (rich cells with formatting and embedded widgets)
 - **CtCellContent** — rich table cell content: text spans + embedded widget descriptors
 
+Mutation methods on `CtNodeContent` return the data needed for undo: `deleteRange()` returns `CtDeletedContent` (the deleted elements), `applyFormat()` returns `CtFormatChange` (old attribute values per span). Delta commands call these directly — `InsertTextCommand` calls `insertText()` on execute and `deleteRange()` on undo, keeping the model always in sync without snapshots.
+
 The model is the canonical source of truth. XML is generated on demand for file storage and clipboard, not held in memory for undo.
 
 ---
@@ -45,7 +47,7 @@ These update `CtNodeContent` directly, achieving ~40x memory reduction compared 
 
 ### Fallback
 
-- **TextEditCommand** — XML before/after snapshot, used for paste and edge cases where delta capture isn't practical
+- **TextEditCommand** — structured `CtNodeContent` before/after snapshot, used for paste and edge cases where delta capture isn't practical
 
 ### Widget Commands
 
@@ -65,6 +67,7 @@ These update `CtNodeContent` directly, achieving ~40x memory reduction compared 
 - Intercepts GTK buffer signals and routes them to the appropriate command or session
 - Uses a **BridgeOp** enum (`None`, `CapturingPaste`, `CapturingCut`, `CapturingFormat`, `TrackingWidget`, `ExecutingUndo`, `ExecutingRedo`) as a single state tracker, replacing the original scattered boolean flags
 - **BridgeObserver** (inner class implementing `CtDocumentObserver`) syncs model changes back to GTK widgets during undo/redo
+- Two buffer conversion functions bridge model and view: `buildContentFromBuffer()` extracts a `CtNodeContent` from a live GTK buffer (model sync), and `buildBufferFromContent()` rebuilds the buffer from the model (undo/redo). Both live in `ct_buffer_converter.cc`
 
 ### Widget Edit Tracking
 
@@ -90,7 +93,7 @@ A new table type (`CtTableRich`) supports per-cell rich text formatting and embe
 ## Key Design Decisions
 
 - **Model as source of truth** — `CtNodeContent` holds the canonical state, not the GTK TextBuffer. The buffer is a view that gets rebuilt during undo/redo
-- **Delta over snapshot** — most edits produce small delta commands instead of full-buffer copies. Only paste/fallback paths use XML snapshots
+- **Delta over snapshot** — most edits produce small delta commands instead of full-buffer copies. Only paste/fallback paths use structured `CtNodeContent` snapshots
 - **Single state enum** — `BridgeOp` replaced five independent boolean flags, eliminating a class of state-conflict bugs
 - **Signal-based sessions** — `CtTextEditSession` captures formatting changes (tag apply/remove) through GTK signals rather than XML diffing, making format undo reliable
 - **Unified command virtuals** — `CtCommand` base provides virtual `getNodeId()`, `getOldCursorPos()`, `getNewCursorPos()` so undo/redo navigation works without downcasting
@@ -104,10 +107,12 @@ A new table type (`CtTableRich`) supports per-cell rich text formatting and embe
 | Undo/redo system | Per-node state array | Global command stacks |
 | Source of truth | GTK TextBuffer | `CtNodeContent` (structured model) |
 | State capture | Full snapshot on word boundaries | Delta commands, coalesced per word |
-| Text undo storage | `xmlpp::Document` per snapshot | `InsertTextCommand` / `DeleteRangeCommand` (~150B per word, coalesced) |
+| Text undo storage | `xmlpp::Document` per snapshot | `InsertTextCommand` / `DeleteRangeCommand` (~150B per word, coalesced); paste/fallback uses `CtNodeContent` snapshot |
 | Widget undo storage | `CtAnchoredWidgetState_*` typed C++ objects | `CtWidgetDesc` with `contentData`/`tableData` |
+| Widget capture | `CtAnchoredWidgetState_*` from typed fields | `to_widget_desc()` virtual — direct field reads into `CtWidgetDesc` |
 | Widget reconstruction | `to_widget()` — direct C++ constructors | `buildBufferFromContent()` from `CtWidgetDesc` — direct C++ constructors |
 | Text reconstruction | Parse XML via `CtStorageXmlHelper` | Read `CtTextSpan` array, apply formatting tags |
+| Buffer → model sync | N/A (buffer was the model) | `buildContentFromBuffer()` — direct structured extraction, no XML intermediate |
 | Architecture pattern | State machine (imperative snapshot/restore) | Command + Observer + Model (declarative) |
 | Model-View separation | None (buffer IS the model) | Clean (`CtDocumentModel` is GTK-free) |
 | Undo granularity | Word boundary (alphanumeric transitions) | Word boundary (session-based, similar heuristic) |
@@ -154,4 +159,4 @@ A new table type (`CtTableRich`) supports per-cell rich text formatting and embe
 - **Bridge complexity.** `CtCommandBridge` manages state transitions via `BridgeOp` enum and tracking fields for each operation type. Coordinating global undo across nodes, session boundaries, widget tracking, and GTK event timing requires careful attention.
 - **Generic widget descriptor.** `CtWidgetDesc` uses `map<string, string> properties` instead of per-type classes with typed fields. This trades compile-time checking for a simpler, more extensible design — property keys are set in few places and any mistake surfaces immediately in tests.
 - **Two sync directions.** During editing, buffer signals update the model. During undo/redo, commands update the model and the observer rebuilds the buffer. These flows are mutually exclusive via `BridgeOp`, but maintaining two separate paths adds to the conceptual surface area.
-- **Hybrid command types.** Text-only pastes use delta commands, but pastes containing widgets fall back to XML-snapshot `TextEditCommand`, meaning two undo code paths coexist.
+- **Hybrid command types.** Text-only edits use delta commands, but paste and complex operations fall back to structured `CtNodeContent`-snapshot `TextEditCommand`, meaning two undo code paths coexist.
