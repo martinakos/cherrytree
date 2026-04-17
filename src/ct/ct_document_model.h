@@ -87,11 +87,6 @@ public:
     CtNodeContent& getContent() { return _content; }
     void setContent(const CtNodeContent& content) { _content = content; }
 
-    // XML access methods for storage and command system
-    // Generates XML from structured content on demand
-    Glib::ustring getContentXml() const;
-    void setContentXml(const Glib::ustring& xml);  // Parses XML and stores as CtNodeContent
-
     // Tree structure
     CtNodeModel* getParent() const { return _parent; }
     void setParent(CtNodeModel* parent) { _parent = parent; }
