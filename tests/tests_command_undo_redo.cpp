@@ -73,7 +73,7 @@ void TestUndoRedoApp::_run_tests(CtMainWin* pWin)
         auto docModel = pBridge->getDocumentModel();
         auto node = docModel->getNodeById(nodeId);
         ASSERT_TRUE(node);
-        Glib::ustring originalXml = node->getContentXml();
+        Glib::ustring originalXml = node->getContent().toXml();
 
         // End any session that was auto-started by the cursor change, then
         // start a fresh session explicitly so we control exactly what's captured.
@@ -88,7 +88,7 @@ void TestUndoRedoApp::_run_tests(CtMainWin* pWin)
         drainEvents();
 
         // Verify model was modified
-        Glib::ustring modifiedXml = node->getContentXml();
+        Glib::ustring modifiedXml = node->getContent().toXml();
         ASSERT_NE(originalXml, modifiedXml);
 
         // Undo — still on node "b", so no node-switch happens during undo
@@ -96,7 +96,7 @@ void TestUndoRedoApp::_run_tests(CtMainWin* pWin)
         pBridge->undo();
         drainEvents();
 
-        Glib::ustring afterUndoXml = node->getContentXml();
+        Glib::ustring afterUndoXml = node->getContent().toXml();
 
         // Verify undo fully restored the original content
         ASSERT_EQ(originalXml, afterUndoXml);
@@ -107,7 +107,7 @@ void TestUndoRedoApp::_run_tests(CtMainWin* pWin)
         pBridge->redo();
         drainEvents();
 
-        Glib::ustring afterRedoXml = node->getContentXml();
+        Glib::ustring afterRedoXml = node->getContent().toXml();
         ASSERT_TRUE(afterRedoXml.find("Test undo/redo") != Glib::ustring::npos);
         ASSERT_NE(originalXml, afterRedoXml);
 
