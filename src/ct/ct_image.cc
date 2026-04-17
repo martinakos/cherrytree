@@ -133,6 +133,7 @@ CtImagePng::CtImagePng(CtMainWin* pCtMainWin,
                        const std::string& justification)
  : CtImage{pCtMainWin, rawBlob, "image/png", charOffset, justification}
  , _link{link}
+ , _rawBlobCache{rawBlob}
 {
 #if GTKMM_MAJOR_VERSION < 4
     signal_button_press_event().connect(sigc::mem_fun(*this, &CtImagePng::_on_button_press_event), false);
@@ -154,14 +155,16 @@ CtImagePng::CtImagePng(CtMainWin* pCtMainWin,
     update_label_widget();
 }
 
-const std::string CtImagePng::get_raw_blob()
+const std::string& CtImagePng::get_raw_blob()
 {
-    g_autofree gchar* pBuffer{NULL};
-    gsize buffer_size;
-    const auto& source = _rOrigPixbuf ? _rOrigPixbuf : _rPixbuf;
-    source->save_to_buffer(pBuffer, buffer_size, "png");
-    const std::string rawBlob = std::string(pBuffer, buffer_size);
-    return rawBlob;
+    if (_rawBlobCache.empty()) {
+        g_autofree gchar* pBuffer{NULL};
+        gsize buffer_size;
+        const auto& source = _rOrigPixbuf ? _rOrigPixbuf : _rPixbuf;
+        source->save_to_buffer(pBuffer, buffer_size, "png");
+        _rawBlobCache.assign(pBuffer, buffer_size);
+    }
+    return _rawBlobCache;
 }
 
 void CtImagePng::to_xml(xmlpp::Element* p_node_parent,

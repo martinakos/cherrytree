@@ -29,6 +29,7 @@
 #include "ct_treestore.h"
 #include "ct_logging.h"
 #include "ct_command_bridge.h"
+#include "ct_table.h"
 #include <ctime>
 #include <gtkmm/dialog.h>
 
@@ -143,21 +144,40 @@ void CtActions::object_set_selection(CtAnchoredWidget* widget)
     if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
         return;
     }
-    spdlog::debug("object_set_selection enter");
-    const bool isImage = dynamic_cast<CtImage*>(widget) != nullptr;
-    Glib::RefPtr<Gtk::TextChildAnchor> anchor = widget->getTextChildAnchor();
-    if (_pCtConfig->objectNoSelOnClick) {
-        Glib::signal_idle().connect_once([this, anchor, isImage](){
-            spdlog::debug("place_cursor_idle");
-            Gtk::TextIter iter_object = _curr_buffer()->get_iter_at_child_anchor(anchor);
-            _curr_buffer()->place_cursor(iter_object);
-            if (isImage) {
-                auto& textView = _pCtMainWin->get_text_view().mm();
-                if (not textView.has_focus()) {
-                    textView.grab_focus();
+
+    // Detect widgets embedded in a rich cell (same walk as image_copy): their
+    // anchor lives in the cell buffer, so select there and track the cell —
+    // otherwise Ctrl+C from a fresh click copies a bogus 1-char slice of the
+    // main buffer and pastes whatever widget happens to sit at that offset.
+    for (auto* w = widget->get_parent(); w; w = w->get_parent()) {
+        auto* pTable = dynamic_cast<CtTableRich*>(w);
+        if (not pTable) continue;
+        for (size_t r = 0; r < pTable->get_num_rows(); ++r) {
+            for (size_t c = 0; c < pTable->get_num_columns(); ++c) {
+                CtRichCell* cell = pTable->getRichCell(r, c);
+                for (auto* emb : cell->getEmbeddedWidgets()) {
+                    if (emb != widget) continue;
+                    auto cellBuffer = cell->get_buffer();
+                    Gtk::TextIter iter_cell_obj = cellBuffer->get_iter_at_child_anchor(widget->getTextChildAnchor());
+                    Gtk::TextIter iter_cell_bound = iter_cell_obj;
+                    iter_cell_bound.forward_char();
+                    cellBuffer->select_range(iter_cell_obj, iter_cell_bound);
+                    cell->get_text_view().mm().grab_focus();
+                    if (pBridge && pBridge->isActive()) {
+                        pBridge->beginWidgetEdit(_pCtMainWin->curr_tree_iter().get_node_id(),
+                                                 pTable, (int)r, (int)c);
+                    }
+                    return;
                 }
             }
-        });
+        }
+    }
+
+    Gtk::TextIter iter_object = _curr_buffer()->get_iter_at_child_anchor(widget->getTextChildAnchor());
+    Gtk::TextIter iter_bound = iter_object;
+    iter_bound.forward_char();
+    if (dynamic_cast<CtImage*>(widget)) {
+        _pCtMainWin->get_text_view().mm().grab_focus();
     }
     else {
         Glib::signal_idle().connect_once([this, anchor, isImage](){
