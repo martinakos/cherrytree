@@ -54,7 +54,7 @@ public:
     void save(const fs::path& file_name, const Glib::ustring& type);
     Glib::RefPtr<Gdk::Pixbuf> get_pixbuf() const { return _rPixbuf; }
     Glib::RefPtr<Gdk::Pixbuf> get_orig_pixbuf() const { return _rOrigPixbuf; }
-    void set_orig_pixbuf(Glib::RefPtr<Gdk::Pixbuf> pixbuf) { _rOrigPixbuf = pixbuf; }
+    virtual void set_orig_pixbuf(Glib::RefPtr<Gdk::Pixbuf> pixbuf) { _rOrigPixbuf = pixbuf; }
     Glib::RefPtr<Gdk::Pixbuf> get_zoom_base_pixbuf() const { return _rZoomBasePixbuf; }
     void set_display_size(int w, int h);
     void apply_zoom(double scaleFactor);
@@ -87,7 +87,9 @@ public:
     std::shared_ptr<CtAnchoredWidgetState> get_state() override;
     CtWidgetDesc to_widget_desc(int charOffset) override;
 
-    const std::string get_raw_blob();
+    void set_orig_pixbuf(Glib::RefPtr<Gdk::Pixbuf> pixbuf) override { _rawBlobCache.clear(); CtImage::set_orig_pixbuf(pixbuf); }
+
+    const std::string& get_raw_blob();
     void update_label_widget();
     const Glib::ustring& get_link() const { return _link; }
     void set_link(const Glib::ustring& link) { _link = link; }
@@ -99,6 +101,10 @@ private:
 
 protected:
     Glib::ustring _link;
+    // Cached PNG-encoded blob. Recomputing from the pixbuf costs a full PNG
+    // re-encode per call, which snapshot-heavy paths (buildContentFromBuffer
+    // → CtWidgetDesc for undo) hit twice per edit.
+    std::string _rawBlobCache;
 };
 
 class CtImageAnchor : public CtImage
