@@ -137,11 +137,13 @@ void CtTextCell::applyCellBorder(int wTop, int wRight, int wBottom, int wLeft,
     _cornerColorTR = cornerColorTR;
     _cornerColorBL = cornerColorBL;
     _cornerColorBR = cornerColorBR;
+    _borderColorTop = (wTop > 0) ? colorTop : std::string{};
+    _borderColorRight = (wRight > 0) ? colorRight : std::string{};
+    _borderColorBottom = (wBottom > 0) ? colorBottom : std::string{};
+    _borderColorLeft = (wLeft > 0) ? colorLeft : std::string{};
 
     if (wTop > 0 || wRight > 0 || wBottom > 0 || wLeft > 0) {
         _rCssProviderCellBorder = Gtk::CssProvider::create();
-        // CSS handles the per-side border stripe colors; corners are painted
-        // independently via signal_draw so each junction reflects the correct color.
         std::string css;
         if (wTop > 0)    css += "textview border.top { background-color: " + colorTop + "; } ";
         if (wRight > 0)  css += "textview border.right { background-color: " + colorRight + "; } ";
@@ -151,7 +153,10 @@ void CtTextCell::applyCellBorder(int wTop, int wRight, int wBottom, int wLeft,
         styleCtx->add_provider(_rCssProviderCellBorder, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 
 #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
-        // Paint each corner rectangle with its specific color after default rendering.
+        // Paint border stripes and corner rectangles directly via signal_draw.
+        // GTK3 CSS on border windows can fail to repaint after scrolling or
+        // re-allocation, so this provides a reliable fallback that keeps all
+        // borders visible regardless of CSS invalidation issues.
         _drawConn = textView.signal_draw().connect(
             [this](const Cairo::RefPtr<Cairo::Context>& cr) -> bool {
                 const int totalW = _ctTextview.mm().get_allocated_width();
@@ -160,17 +165,25 @@ void CtTextCell::applyCellBorder(int wTop, int wRight, int wBottom, int wLeft,
                 const int bBot   = _ctTextview.mm().get_border_window_size(Gtk::TEXT_WINDOW_BOTTOM);
                 const int bLeft  = _ctTextview.mm().get_border_window_size(Gtk::TEXT_WINDOW_LEFT);
                 const int bRight = _ctTextview.mm().get_border_window_size(Gtk::TEXT_WINDOW_RIGHT);
-                auto paintCorner = [&](const std::string& color, int cx, int cy, int cw, int ch) {
+                auto paintRect = [&](const std::string& color, int cx, int cy, int cw, int ch) {
                     if (color.empty() || cw <= 0 || ch <= 0) return;
                     Gdk::RGBA rgba{color};
                     cr->set_source_rgb(rgba.get_red(), rgba.get_green(), rgba.get_blue());
                     cr->rectangle(cx, cy, cw, ch);
                     cr->fill();
                 };
-                if (bTop > 0 && bLeft > 0)   paintCorner(_cornerColorTL, 0, 0, bLeft, bTop);
-                if (bTop > 0 && bRight > 0)  paintCorner(_cornerColorTR, totalW - bRight, 0, bRight, bTop);
-                if (bBot > 0 && bLeft > 0)   paintCorner(_cornerColorBL, 0, totalH - bBot, bLeft, bBot);
-                if (bBot > 0 && bRight > 0)  paintCorner(_cornerColorBR, totalW - bRight, totalH - bBot, bRight, bBot);
+                // Border stripes (excluding corner areas)
+                const int innerW = totalW - bLeft - bRight;
+                const int innerH = totalH - bTop - bBot;
+                if (bTop > 0)    paintRect(_borderColorTop,    bLeft, 0,              innerW, bTop);
+                if (bBot > 0)    paintRect(_borderColorBottom, bLeft, totalH - bBot,   innerW, bBot);
+                if (bLeft > 0)   paintRect(_borderColorLeft,   0,     bTop,            bLeft,  innerH);
+                if (bRight > 0)  paintRect(_borderColorRight,  totalW - bRight, bTop,  bRight, innerH);
+                // Corner rectangles (each junction uses its own resolved color)
+                if (bTop > 0 && bLeft > 0)   paintRect(_cornerColorTL, 0, 0, bLeft, bTop);
+                if (bTop > 0 && bRight > 0)  paintRect(_cornerColorTR, totalW - bRight, 0, bRight, bTop);
+                if (bBot > 0 && bLeft > 0)   paintRect(_cornerColorBL, 0, totalH - bBot, bLeft, bBot);
+                if (bBot > 0 && bRight > 0)  paintRect(_cornerColorBR, totalW - bRight, totalH - bBot, bRight, bBot);
                 return false;
             });
 #endif
