@@ -667,8 +667,7 @@ void CtCommandBridge::beginTextEditSession(gint64 nodeId)
             spdlog::info("CtCommandBridge: lazy-added node {} to model on first edit visit", nodeId);
         } else if (nodeId == _lastSyncedNodeId) {
             // The previous session for this node ended cleanly — delta commands kept
-            // the model in sync.  Skip the expensive getBufferContentAsXml which
-            // re-encodes every PNG image in the buffer.
+            // the model in sync.  Skip re-syncing from the buffer.
             spdlog::debug("CtCommandBridge: skipping model re-sync for node {} (delta-synced)", nodeId);
         } else if (buffer->get_modified()) {
             // Buffer was modified outside a tracked session (e.g., switched back from
@@ -807,7 +806,7 @@ void CtCommandBridge::endTextEditSession()
 
     // Mark this node's model as in sync — delta commands maintained it.
     // The next beginTextEditSession for the same node can skip the expensive
-    // getBufferContentAsXml re-serialization (which re-encodes every PNG image).
+    // buffer re-serialization (which re-encodes every PNG image).
     _lastSyncedNodeId = nodeId;
 }
 

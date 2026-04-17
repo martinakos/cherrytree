@@ -1019,7 +1019,7 @@ CtNodeContent CtNodeContent::fromXml(const Glib::ustring& xml, CtMainWin* /*pCtM
 
                 // Insert widget at its char_offset position so the model
                 // is correct regardless of whether the XML has text and
-                // widgets interleaved or all text first (as getBufferContentAsXml generates).
+                // widgets interleaved or all text first.
                 {
                     const int charOff = widget.getCharOffset();
                     content.insertWidget(charOff, widget);

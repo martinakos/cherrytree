@@ -24,7 +24,6 @@
 #include "ct_document_model.h"
 #include "ct_logging.h"
 #include <algorithm>
-#include <libxml++/libxml++.h>
 
 // CtNodeModel implementation
 
@@ -33,28 +32,6 @@ CtNodeModel::CtNodeModel(gint64 nodeId)
 {
 }
 
-// Get content as XML - generates from structured content on demand
-Glib::ustring CtNodeModel::getContentXml() const
-{
-    // Generate XML from structured content
-    Glib::ustring xml = _content.toXml();
-
-    // Wrap with XML declaration and <node> root element to match format from getBufferContentAsXml()
-    if (!xml.empty()) {
-        return "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<node>" + xml + "</node>\n";
-    }
-
-    return xml;
-}
-
-// Parse XML into structured content
-void CtNodeModel::setContentXml(const Glib::ustring& xml)
-{
-    // Parse XML into structured model
-    _content = CtNodeContent::fromXml(xml, nullptr);
-
-    spdlog::debug("Set content for node {} from XML ({} bytes)", _nodeId, xml.size());
-}
 
 void CtNodeModel::addChild(std::shared_ptr<CtNodeModel> child)
 {

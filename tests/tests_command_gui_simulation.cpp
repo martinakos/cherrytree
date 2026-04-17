@@ -321,7 +321,7 @@ static void _test_gui_complex_operations_undo_redo(CtMainWin* pWin)
     auto node = docModel->getNodeById(nodeId);
 
     // Capture initial state
-    Glib::ustring initialXml = node->getContentXml();
+    Glib::ustring initialXml = node->getContent().toXml();
     spdlog::info("  Initial XML length: {}", initialXml.size());
 
     // Fixed default seed for reproducibility; override with CT_TEST_SEED env var
@@ -736,7 +736,7 @@ static void _test_gui_complex_operations_undo_redo(CtMainWin* pWin)
         }
         ASSERT_GT(cmdCount, 0) << "No commands created for complex operations";
 
-        Glib::ustring afterFirstUndo = node->getContentXml();
+        Glib::ustring afterFirstUndo = node->getContent().toXml();
         ASSERT_EQ(initialXml, afterFirstUndo) << "Full undo should restore initial state";
         spdlog::info("  Full undo restored initial state ({} commands)", cmdCount);
 
@@ -748,7 +748,7 @@ static void _test_gui_complex_operations_undo_redo(CtMainWin* pWin)
         ASSERT_EQ(cmdCount, redoCount) << "Redo count should match undo count";
 
         // Capture normalized finalXml after redo (observer re-serialization applied)
-        finalXml = node->getContentXml();
+        finalXml = node->getContent().toXml();
         spdlog::info("  Final XML length (normalized): {}", finalXml.size());
     }
 
@@ -762,7 +762,7 @@ static void _test_gui_complex_operations_undo_redo(CtMainWin* pWin)
     }
     spdlog::info("  Total commands created: {}", totalCommands);
 
-    Glib::ustring afterFullUndo = node->getContentXml();
+    Glib::ustring afterFullUndo = node->getContent().toXml();
     ASSERT_EQ(initialXml, afterFullUndo) << "Full undo should restore initial state";
     spdlog::info("  Full undo restored initial state");
 
@@ -774,14 +774,14 @@ static void _test_gui_complex_operations_undo_redo(CtMainWin* pWin)
     spdlog::info("  Redo count: {}", redoCount);
     ASSERT_EQ(totalCommands, redoCount) << "Redo count should match undo count";
 
-    Glib::ustring afterFullRedo = node->getContentXml();
+    Glib::ustring afterFullRedo = node->getContent().toXml();
     ASSERT_EQ(finalXml, afterFullRedo) << "Full redo should restore final state";
     spdlog::info("  Full redo restored final state");
 
     while (pBridge->canUndo()) {
         pActions->requested_step_back();
     }
-    ASSERT_EQ(initialXml, node->getContentXml()) << "Second full undo should restore initial state";
+    ASSERT_EQ(initialXml, node->getContent().toXml()) << "Second full undo should restore initial state";
 
     spdlog::info("✓ Test passed: {} ops, {} commands, full undo/redo cycle verified",
                  totalOps, totalCommands);
@@ -812,7 +812,7 @@ static void _test_buffer_signal_handlers_direct(CtMainWin* pWin)
     auto docModel = pBridge->getDocumentModel();
     auto node = docModel->getNodeById(nodeId);
 
-    Glib::ustring initialXml = node->getContentXml();
+    Glib::ustring initialXml = node->getContent().toXml();
 
     // Test 1: Insert text through buffer signal
     spdlog::info("  Test 1: Inserting text through buffer API");
@@ -865,7 +865,7 @@ static void _test_buffer_signal_handlers_direct(CtMainWin* pWin)
     spdlog::info("  Created {} commands from signal handlers", commandCount);
 
     // Verify undo restores initial state
-    Glib::ustring afterUndo = node->getContentXml();
+    Glib::ustring afterUndo = node->getContent().toXml();
     ASSERT_EQ(initialXml, afterUndo) << "Full undo should restore initial state";
 
     spdlog::info("✓ Buffer signal handler test passed");
