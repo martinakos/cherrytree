@@ -77,6 +77,10 @@ protected:
     std::string _cornerColorTR;
     std::string _cornerColorBL;
     std::string _cornerColorBR;
+    std::string _borderColorTop;
+    std::string _borderColorRight;
+    std::string _borderColorBottom;
+    std::string _borderColorLeft;
     sigc::connection _drawConn;
 };
 
