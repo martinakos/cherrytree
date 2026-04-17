@@ -1350,23 +1350,6 @@ void CtTableRich::_new_rich_cell_attach(const size_t rowIdx, const size_t colIdx
         cellTV.cursor_and_tooltips_handler(x, y);
         return false;
     }, false);
-    // Handle link clicks and cursor/tooltip changes in rich cell text views
-    // (same pattern as codebox — see ct_codebox.cc)
-    // NOTE: capture pCell (stable pointer in _tableMatrix), NOT &ctTextView (dangling local ref).
-    textView.signal_event_after().connect([this, pCell](GdkEvent* event){
-        spdlog::trace("Rich cell signal_event_after: type={} user_active={}",
-                      (int)event->type, _pCtMainWin->user_active());
-        if (not _pCtMainWin->user_active()) return;
-        CtTextView& cellTV = pCell->get_text_view();
-        if (event->type == GDK_2BUTTON_PRESS and (1 == event->button.button or 2 == event->button.button)) {
-            spdlog::debug("Rich cell: double-click detected, calling for_event_after_double_click_button12");
-            cellTV.for_event_after_double_click_button12(event);
-        }
-        else if (event->type == GDK_BUTTON_PRESS) {
-            spdlog::debug("Rich cell: button press detected, calling for_event_after_button_press");
-            cellTV.for_event_after_button_press(event);
-        }
-    });
 #endif
     // Clear in-cell text selection when this cell loses focus
     textView.signal_focus_out_event().connect([this, pCell](GdkEventFocus*) {
