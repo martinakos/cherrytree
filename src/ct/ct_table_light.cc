@@ -463,14 +463,15 @@ void CtTableLight::set_col_width_default(const int colWidthDefault)
     _colWidthDefault = colWidthDefault;
     bool has_default_widths = vec::exists(_colWidths, 0);
     if (has_default_widths) {
+        const int scaledWidth = static_cast<int>(colWidthDefault * _zoomFactor);
         const size_t numColumns = get_num_columns();
         for (size_t c = 0u; c < numColumns; ++c) {
             if (0u == _colWidths.at(c)) {
                 Gtk::TreeViewColumn* pTVColumn = _pManagedTreeView->get_column(c);
                 if (pTVColumn) {
                     auto pCellRendererText = static_cast<Gtk::CellRendererText*>(pTVColumn->get_first_cell());
-                    pCellRendererText->property_wrap_width() = colWidthDefault;
-                    pTVColumn->property_min_width() = colWidthDefault/2;
+                    pCellRendererText->property_wrap_width() = scaledWidth;
+                    pTVColumn->property_min_width() = scaledWidth/2;
                 }
             }
         }
@@ -498,9 +499,10 @@ void CtTableLight::set_col_width(const int colWidth, std::optional<size_t> optCo
     _colWidths[c] = colWidth;
     Gtk::TreeViewColumn* pTVColumn = _pManagedTreeView->get_column(c);
     if (pTVColumn) {
+        const int scaledWidth = static_cast<int>(colWidth * _zoomFactor);
         auto pCellRendererText = static_cast<Gtk::CellRendererText*>(pTVColumn->get_first_cell());
-        pCellRendererText->property_wrap_width() = colWidth;
-        pTVColumn->property_min_width() = colWidth/2;
+        pCellRendererText->property_wrap_width() = scaledWidth;
+        pTVColumn->property_min_width() = scaledWidth/2;
     }
 }
 
