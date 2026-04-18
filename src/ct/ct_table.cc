@@ -1207,6 +1207,19 @@ void CtRichCell::populateFromContent(const CtCellContent& content)
     }
     insertPendingWidgets(); // any trailing widgets after all text
 
+    // Apply current zoom to newly-created embedded images. Callers that rebuild
+    // the cell (column/row paste, undo/redo) must otherwise re-apply zoom
+    // themselves; fresh CtImagePng/CtImageLatex widgets default to 100% size.
+    const double scaleFactor = _pCtMainWin->get_rt_zoom_scale_factor();
+    if (scaleFactor != 1.0) {
+        for (auto* emb : _embeddedWidgets) {
+            const auto embType = emb->get_type();
+            if (embType == CtAnchWidgType::ImagePng or embType == CtAnchWidgType::ImageLatex) {
+                static_cast<CtImage*>(emb)->apply_zoom(scaleFactor);
+            }
+        }
+    }
+
     _rTextBuffer->set_modified(false);
 }
 
