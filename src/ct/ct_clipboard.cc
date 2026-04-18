@@ -457,6 +457,34 @@ void CtClipboard::from_xml_string_to_buffer(Glib::RefPtr<Gtk::TextBuffer> text_b
         }
     }
     if (not widgets.empty()) {
+        // Apply current zoom to the freshly-pasted widgets. Images/tables
+        // created from clipboard XML default to unzoomed size otherwise.
+        // Applies to both main-buffer and rich-cell paste paths — nested
+        // tables are skipped for rich-cell paste above, but images/codeboxes
+        // still flow through here and would otherwise end up at 100%.
+        const double scaleFactor = _pCtMainWin->get_rt_zoom_scale_factor();
+        if (scaleFactor != 1.0) {
+            for (auto* widget : widgets) {
+                const auto wtype = widget->get_type();
+                if (wtype == CtAnchWidgType::ImagePng or wtype == CtAnchWidgType::ImageLatex) {
+                    static_cast<CtImage*>(widget)->apply_zoom(scaleFactor);
+                }
+                else if (wtype == CtAnchWidgType::CodeBox) {
+                    static_cast<CtCodebox*>(widget)->apply_zoom(scaleFactor);
+                }
+                else if (wtype == CtAnchWidgType::TableHeavy) {
+                    static_cast<CtTableHeavy*>(widget)->apply_zoom(scaleFactor);
+                }
+                else if (wtype == CtAnchWidgType::TableLight) {
+                    static_cast<CtTableLight*>(widget)->apply_zoom(scaleFactor);
+                }
+                else if (wtype == CtAnchWidgType::TableRich) {
+                    static_cast<CtTableRich*>(widget)->apply_zoom(scaleFactor);
+                    // CtRichCell::populateFromContent already applies zoom to
+                    // its own embedded images during construction.
+                }
+            }
+        }
         if (pOutWidgets) {
             // Rich cell paste: hand ownership to caller; don't touch main tree store.
             pOutWidgets->splice(pOutWidgets->end(), widgets);
