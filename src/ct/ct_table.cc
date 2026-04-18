@@ -936,6 +936,7 @@ void CtTableHeavy::set_col_width_default(const int colWidthDefault)
     _colWidthDefault = colWidthDefault;
     bool has_default_widths = vec::exists(_colWidths, 0);
     if (has_default_widths) {
+        const int scaledWidth = static_cast<int>(colWidthDefault * _zoomFactor);
         const size_t numRows = get_num_rows();
         const size_t numColumns = get_num_columns();
         for (size_t r = 0u; r < numRows; ++r) {
@@ -943,7 +944,7 @@ void CtTableHeavy::set_col_width_default(const int colWidthDefault)
                 if (0u == _colWidths.at(c)) {
                     CtTextCell* pTextCell = static_cast<CtTextCell*>(_tableMatrix[r][c]);
                     CtTextView& textView = pTextCell->get_text_view();
-                    textView.mm().set_size_request(colWidthDefault, -1);
+                    textView.mm().set_size_request(scaledWidth, -1);
                 }
             }
         }
@@ -954,11 +955,12 @@ void CtTableHeavy::set_col_width(const int colWidth, std::optional<size_t> optCo
 {
     const size_t c = optColIdx.value_or(_currentColumn);
     _colWidths[c] = colWidth;
+    const int scaledWidth = static_cast<int>(colWidth * _zoomFactor);
     const size_t numRows = get_num_rows();
     for (size_t r = 0u; r < numRows; ++r) {
         CtTextCell* pTextCell = static_cast<CtTextCell*>(_tableMatrix[r][c]);
         CtTextView& textView = pTextCell->get_text_view();
-        textView.mm().set_size_request(colWidth, -1);
+        textView.mm().set_size_request(scaledWidth, -1);
     }
 }
 
@@ -1881,13 +1883,14 @@ void CtTableRich::set_col_width_default(const int colWidthDefault)
 {
     _colWidthDefault = colWidthDefault;
     if (vec::exists(_colWidths, 0)) {
+        const int scaledWidth = static_cast<int>(colWidthDefault * _zoomFactor);
         const size_t numRows = get_num_rows();
         const size_t numCols = get_num_columns();
         for (size_t r = 0u; r < numRows; ++r) {
             for (size_t c = 0u; c < numCols; ++c) {
                 if (0u == _colWidths.at(c)) {
                     static_cast<CtRichCell*>(_tableMatrix[r][c])->get_text_view().mm()
-                        .set_size_request(colWidthDefault, -1);
+                        .set_size_request(scaledWidth, -1);
                 }
             }
         }
@@ -1898,10 +1901,11 @@ void CtTableRich::set_col_width(const int colWidth, std::optional<size_t> optCol
 {
     const size_t c = optColIdx.value_or(_currentColumn);
     _colWidths[c] = colWidth;
+    const int scaledWidth = static_cast<int>(colWidth * _zoomFactor);
     const size_t numRows = get_num_rows();
     for (size_t r = 0u; r < numRows; ++r) {
         static_cast<CtRichCell*>(_tableMatrix[r][c])->get_text_view().mm()
-            .set_size_request(colWidth, -1);
+            .set_size_request(scaledWidth, -1);
     }
 }
 
