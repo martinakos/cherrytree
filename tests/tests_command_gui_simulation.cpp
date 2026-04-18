@@ -12,6 +12,7 @@
 #include "ct_table.h"
 #include "ct_list.h"
 #include "ct_image.h"
+#include "ct_clipboard.h"
 #include <gtest/gtest.h>
 #include <gdk/gdkkeysyms.h>
 #include <random>
@@ -7216,6 +7217,383 @@ static void _test_rich_cell_image_resize_uses_original(CtMainWin* pWin)
     GuiEventSimulator::process_pending_events();
 }
 
+// ─── Zoom-retention regressions: images inside rich cells must keep their ──
+// zoomed display size after buffer rebuild / column paste / paste-outside. ──
+
+namespace {
+
+// RAII: temporarily override rt font/zoom state on the shared CtConfig.
+// get_rt_zoom_scale_factor() reads these directly, so no refresh is needed.
+struct ScopedRtZoom {
+    CtConfig* cfg;
+    Glib::ustring prevFont;
+    int prevReset;
+    ScopedRtZoom(CtConfig* c, const Glib::ustring& font, int resetSize)
+     : cfg{c}, prevFont{c->rtFont}, prevReset{c->rtResetFontSize}
+    {
+        cfg->rtFont = font;
+        cfg->rtResetFontSize = resetSize;
+    }
+    ~ScopedRtZoom() {
+        cfg->rtFont = prevFont;
+        cfg->rtResetFontSize = prevReset;
+    }
+};
+
+// Insert a 1×1 rich table containing a single solid-color PNG image, then
+// mirror the live insertion path by applying the current zoom to the image.
+// Returns the (live) image widget pointer.
+CtImagePng* _insertRichTableWithZoomedImage(CtMainWin* pWin,
+                                             CtCommandBridge* pBridge,
+                                             gint64 nodeId,
+                                             int imgSize,
+                                             double scaleFactor,
+                                             guint32 fillColor = 0xFF0000FFu)
+{
+    std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+    insertRichTableAtEnd(pWin, pBridge, richData);
+    auto* pTable = findFirstRichTable(pWin);
+    CtRichCell* cell = pTable->getRichCell(0, 0);
+    auto cellBuf = cell->get_buffer();
+
+    pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+    cellBuf->place_cursor(cellBuf->end());
+    const int imgOffset = cellBuf->get_insert()->get_iter().get_offset();
+    pBridge->cancelRichCellSession();
+
+    auto pixbuf = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB, false, 8, imgSize, imgSize);
+    pixbuf->fill(fillColor);
+    auto* pImage = new CtImagePng{pWin, pixbuf, ""/*link*/, imgOffset, ""/*justif*/};
+    pImage->insertInTextBuffer(cellBuf);
+    cell->addEmbeddedWidget(pImage);
+    pBridge->commitRichCellFormatChange("Insert image");
+    GuiEventSimulator::process_pending_events();
+
+    if (scaleFactor != 1.0) pImage->apply_zoom(scaleFactor);
+    return pImage;
+}
+
+// Return the first CtImagePng embedded in the given rich cell, or nullptr.
+CtImagePng* _firstImageInRichCell(CtTableRich* pTable, size_t row, size_t col)
+{
+    for (auto* w : pTable->getRichCell(row, col)->getEmbeddedWidgets()) {
+        if (auto* p = dynamic_cast<CtImagePng*>(w)) return p;
+    }
+    return nullptr;
+}
+
+// Return the first CtImagePng anchored in the given node (main buffer), or nullptr.
+CtImagePng* _firstImageInMainBuffer(CtMainWin* pWin)
+{
+    for (auto* w : pWin->curr_tree_iter().get_anchored_widgets()) {
+        if (auto* p = dynamic_cast<CtImagePng*>(w)) return p;
+    }
+    return nullptr;
+}
+
+} // namespace
+
+static void _test_rich_cell_image_zoom_after_buffer_rebuild(CtMainWin* pWin)
+{
+    spdlog::info("Test: rich-cell image keeps zoomed size after undo rebuilds the buffer");
+    // Regression: after copying an image out of a rich cell and pasting to the
+    // main buffer, undoing the paste triggers buildBufferForNode, which freshly
+    // constructs every widget.  Without the fix, images inside rich cells
+    // revert to 100% display size until the user navigates away and back.
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    ScopedRtZoom zoom{pWin->get_ct_config(), "Sans 7", 11};
+    const double scaleFactor = pWin->get_rt_zoom_scale_factor();
+    ASSERT_NE(1.0, scaleFactor) << "zoom setup must yield non-unity scale factor";
+    const int baseSize = 40;
+    const int expectedW = std::max(16, (int)(baseSize * scaleFactor));
+
+    CtImagePng* pImage = _insertRichTableWithZoomedImage(pWin, pBridge, nodeId, baseSize, scaleFactor);
+    ASSERT_EQ(expectedW, pImage->get_pixbuf()->get_width())
+        << "pre-condition: image must start at zoomed width";
+
+    // Type a character into the main buffer — creates a TextEditCommand that,
+    // once undone, forces buildBufferForNode to rebuild the whole node.
+    auto mainBuf = pWin->curr_buffer();
+    mainBuf->place_cursor(mainBuf->end());
+    pBridge->beginTextEditSession(nodeId);
+    mainBuf->insert_at_cursor("x");
+    pBridge->endTextEditSession();
+    GuiEventSimulator::process_pending_events();
+
+    ASSERT_TRUE(pBridge->canUndo());
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    // After undo, the table and its image are freshly rebuilt.  The rebuilt
+    // image must be at the zoomed size, not the raw base size.
+    auto* pTable2 = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable2) << "rich table must survive the undo rebuild";
+    CtImagePng* pImage2 = _firstImageInRichCell(pTable2, 0, 0);
+    ASSERT_TRUE(pImage2) << "image must be present in rich cell after rebuild";
+    EXPECT_EQ(expectedW, pImage2->get_pixbuf()->get_width())
+        << "rebuilt image width should be zoomed (" << expectedW
+        << "), not unzoomed (" << baseSize << ")";
+    EXPECT_EQ(expectedW, pImage2->get_pixbuf()->get_height())
+        << "rebuilt image height should be zoomed";
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+}
+
+static void _test_rich_cell_image_zoom_after_column_paste(CtMainWin* pWin)
+{
+    spdlog::info("Test: image in pasted rich-table column keeps zoomed size");
+    // Regression: copy a column with an embedded image, paste it — the new
+    // column's cells are built via CtRichCell::populateFromContent, which
+    // freshly constructs widgets that defaulted to 100% before the fix.
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    ScopedRtZoom zoom{pWin->get_ct_config(), "Sans 7", 11};
+    const double scaleFactor = pWin->get_rt_zoom_scale_factor();
+    ASSERT_NE(1.0, scaleFactor);
+    const int baseSize = 40;
+    const int expectedW = std::max(16, (int)(baseSize * scaleFactor));
+
+    // Start with a 1×2 rich table; put a zoomed image into cell (0,0).
+    std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(2));
+    insertRichTableAtEnd(pWin, pBridge, richData);
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+    CtRichCell* cell = pTable->getRichCell(0, 0);
+    {
+        auto cellBuf = cell->get_buffer();
+        pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+        cellBuf->place_cursor(cellBuf->end());
+        const int imgOffset = cellBuf->get_insert()->get_iter().get_offset();
+        pBridge->cancelRichCellSession();
+        auto pixbuf = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB, false, 8, baseSize, baseSize);
+        pixbuf->fill(0xFF0000FFu);
+        auto* pImage = new CtImagePng{pWin, pixbuf, "", imgOffset, ""};
+        pImage->insertInTextBuffer(cellBuf);
+        cell->addEmbeddedWidget(pImage);
+        pBridge->commitRichCellFormatChange("Insert image");
+        GuiEventSimulator::process_pending_events();
+        pImage->apply_zoom(scaleFactor);
+        ASSERT_EQ(expectedW, pImage->get_pixbuf()->get_width());
+    }
+
+    // Copy column 0, then paste it after column 1 — this creates new column
+    // cells via populateFromContent; cell (0,2) will carry the copied image.
+    pActions->curr_table_anchor = pTable;
+    pTable->set_current_row_column(0, 0);
+    pWin->curr_buffer()->place_cursor(pWin->curr_buffer()->get_iter_at_offset(pTable->getOffset()));
+    pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+    pActions->table_column_copy();
+    GuiEventSimulator::process_pending_events();
+
+    pBridge->endWidgetEdit();
+    pActions->curr_table_anchor = pTable;
+    pTable->set_current_row_column(0, 1);
+    pWin->curr_buffer()->place_cursor(pWin->curr_buffer()->get_iter_at_offset(pTable->getOffset()));
+    pBridge->beginWidgetEdit(nodeId, pTable, 0, 1);
+    pActions->table_column_paste();
+    GuiEventSimulator::process_pending_events();
+    pBridge->endWidgetEdit();
+    GuiEventSimulator::process_pending_events();
+
+    auto* pTable2 = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable2);
+    ASSERT_EQ(3u, pTable2->get_num_columns()) << "paste should have added a new column";
+
+    CtImagePng* pasted = _firstImageInRichCell(pTable2, 0, 2);
+    ASSERT_TRUE(pasted) << "pasted column cell (0,2) must contain the copied image";
+    EXPECT_EQ(expectedW, pasted->get_pixbuf()->get_width())
+        << "image in pasted column should be at zoomed width (" << expectedW
+        << "), not raw base (" << baseSize << ")";
+    EXPECT_EQ(expectedW, pasted->get_pixbuf()->get_height())
+        << "image in pasted column should be at zoomed height";
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+}
+
+static void _test_rich_cell_image_zoom_after_paste_outside(CtMainWin* pWin)
+{
+    spdlog::info("Test: image pasted from rich cell into main buffer keeps zoomed size");
+    // Regression: copying a resized image out of a rich cell and pasting it in
+    // the main buffer routed through from_xml_string_to_buffer, which added
+    // widgets via addAnchoredWidgets but did not apply the current zoom —
+    // the pasted image reverted to 100% size.
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    ScopedRtZoom zoom{pWin->get_ct_config(), "Sans 7", 11};
+    const double scaleFactor = pWin->get_rt_zoom_scale_factor();
+    ASSERT_NE(1.0, scaleFactor);
+    const int baseSize = 40;
+    const int expectedW = std::max(16, (int)(baseSize * scaleFactor));
+
+    CtImagePng* pImage = _insertRichTableWithZoomedImage(pWin, pBridge, nodeId, baseSize, scaleFactor);
+    ASSERT_EQ(expectedW, pImage->get_pixbuf()->get_width());
+
+    // Copy the image from the rich cell to the clipboard.
+    pBridge->endWidgetEdit();
+    pBridge->beginTextEditSession(nodeId);
+    pActions->curr_image_anchor = pImage;
+    pActions->image_copy();
+    GuiEventSimulator::process_pending_events();
+
+    // Read the rich-text XML back from the clipboard.
+    auto clip = Gtk::Clipboard::get();
+    auto targets = clip->wait_for_targets();
+    ASSERT_NE(std::find(targets.begin(), targets.end(),
+                        Glib::ustring(CtConst::TARGET_CTD_RICH_TEXT)),
+              targets.end())
+        << "clipboard must carry CTD_RICH after image_copy";
+    auto sdata = clip->wait_for_contents(CtConst::TARGET_CTD_RICH_TEXT);
+    Glib::ustring xml = sdata.get_text();
+    ASSERT_FALSE(xml.empty());
+
+    // Paste into the main buffer at end (outside the table).  Driving
+    // from_xml_string_to_buffer directly bypasses the async clipboard callback
+    // but still exercises the exact code path that was fixed.
+    pBridge->endTextEditSession();
+    auto mainBuf = pWin->curr_buffer();
+    mainBuf->place_cursor(mainBuf->end());
+    CtClipboard{pWin}.from_xml_string_to_buffer(mainBuf, xml);
+    GuiEventSimulator::process_pending_events();
+
+    CtImagePng* pasted = _firstImageInMainBuffer(pWin);
+    ASSERT_TRUE(pasted) << "main buffer must contain the pasted image";
+    EXPECT_EQ(expectedW, pasted->get_pixbuf()->get_width())
+        << "pasted image should be at zoomed width (" << expectedW
+        << "), not raw base (" << baseSize << ")";
+    EXPECT_EQ(expectedW, pasted->get_pixbuf()->get_height())
+        << "pasted image should be at zoomed height";
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+}
+
+static void _test_rich_cell_image_zoom_after_paste_into_rich_cell(CtMainWin* pWin)
+{
+    spdlog::info("Test: image pasted from rich cell into another rich cell keeps zoomed size");
+    // Regression: copying a resized image out of a rich cell and pasting it
+    // into another rich cell routed through from_xml_string_to_buffer with a
+    // non-null pOutWidgets vector. The zoom-application loop used to live in
+    // the else-branch of `if (pOutWidgets)`, so rich-cell pastes skipped it
+    // entirely — the pasted image reverted to 100% size until undo/redo.
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    ScopedRtZoom zoom{pWin->get_ct_config(), "Sans 7", 11};
+    const double scaleFactor = pWin->get_rt_zoom_scale_factor();
+    ASSERT_NE(1.0, scaleFactor);
+    const int baseSize = 40;
+    const int expectedW = std::max(16, (int)(baseSize * scaleFactor));
+
+    // First rich table with a zoomed image in cell (0,0).
+    CtImagePng* pImage = _insertRichTableWithZoomedImage(pWin, pBridge, nodeId, baseSize, scaleFactor);
+    ASSERT_EQ(expectedW, pImage->get_pixbuf()->get_width());
+
+    // Copy the image to the clipboard.
+    pBridge->endWidgetEdit();
+    pBridge->beginTextEditSession(nodeId);
+    pActions->curr_image_anchor = pImage;
+    pActions->image_copy();
+    GuiEventSimulator::process_pending_events();
+
+    auto clip = Gtk::Clipboard::get();
+    auto sdata = clip->wait_for_contents(CtConst::TARGET_CTD_RICH_TEXT);
+    Glib::ustring xml = sdata.get_text();
+    ASSERT_FALSE(xml.empty());
+
+    // Insert a second rich table after the first.
+    pBridge->endTextEditSession();
+    std::vector<std::vector<CtCellContent>> richData2(1, std::vector<CtCellContent>(1));
+    insertRichTableAtEnd(pWin, pBridge, richData2);
+    GuiEventSimulator::process_pending_events();
+
+    // Find the (new) second rich table.  findFirstRichTable returns the first
+    // one, which is the one that still holds the source image — iterate the
+    // node's anchored widgets to grab the second.
+    CtTableRich* pTable2 = nullptr;
+    {
+        int count = 0;
+        for (auto* w : pWin->curr_tree_iter().get_anchored_widgets()) {
+            if (auto* t = dynamic_cast<CtTableRich*>(w)) {
+                if (count == 1) { pTable2 = t; break; }
+                ++count;
+            }
+        }
+    }
+    ASSERT_TRUE(pTable2) << "second rich table must be present";
+
+    CtRichCell* pCell2 = pTable2->getRichCell(0, 0);
+    ASSERT_TRUE(pCell2);
+
+    // Drive the rich-cell paste branch of from_xml_string_to_buffer directly.
+    // Matches the exact call pattern in on_received_to_rich_text.
+    std::list<CtAnchoredWidget*> pastedWidgets;
+    CtClipboard{pWin}.from_xml_string_to_buffer(pCell2->get_buffer(), xml, nullptr, &pastedWidgets);
+    for (auto* w : pastedWidgets) {
+        pCell2->addEmbeddedWidget(w);
+    }
+    GuiEventSimulator::process_pending_events();
+
+    CtImagePng* pasted = _firstImageInRichCell(pTable2, 0, 0);
+    ASSERT_TRUE(pasted) << "target rich cell must contain the pasted image";
+    EXPECT_EQ(expectedW, pasted->get_pixbuf()->get_width())
+        << "image pasted into rich cell should be at zoomed width (" << expectedW
+        << "), not raw base (" << baseSize << ")";
+    EXPECT_EQ(expectedW, pasted->get_pixbuf()->get_height())
+        << "image pasted into rich cell should be at zoomed height";
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+}
+
 void TestRichCellImageCopyPasteApp::on_activate()
 {
     _on_startup();
@@ -7229,6 +7607,10 @@ void TestRichCellImageCopyPasteApp::on_activate()
     _test_rich_cell_copy_image_no_stranded_tracking(pWin);
     _test_rich_cell_cut_image_undo_redo(pWin);
     _test_rich_cell_image_resize_uses_original(pWin);
+    _test_rich_cell_image_zoom_after_buffer_rebuild(pWin);
+    _test_rich_cell_image_zoom_after_column_paste(pWin);
+    _test_rich_cell_image_zoom_after_paste_outside(pWin);
+    _test_rich_cell_image_zoom_after_paste_into_rich_cell(pWin);
 
     pWin->force_exit() = true;
     remove_window(*pWin);
