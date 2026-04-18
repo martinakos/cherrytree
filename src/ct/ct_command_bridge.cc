@@ -2340,6 +2340,44 @@ void CtCommandBridge::BridgeObserver::buildBufferForNode(
     if (!new_widgets.empty()) {
         Gtk::TextView* pView = attachToView ? &_bridge->_pMainWin->get_text_view().mm() : nullptr;
         _bridge->_pMainWin->get_tree_store().addAnchoredWidgets(iter, new_widgets, pView);
+
+        // Apply current zoom level to the freshly-created widgets. Otherwise
+        // undo/redo that rebuilds the buffer would reset images and tables to
+        // their unzoomed size until the user navigates away and back.
+        if (attachToView && iter.get_node_is_rich_text()) {
+            const double scaleFactor = _bridge->_pMainWin->get_rt_zoom_scale_factor();
+            if (scaleFactor != 1.0) {
+                for (auto* widget : new_widgets) {
+                    const auto wtype = widget->get_type();
+                    if (wtype == CtAnchWidgType::ImagePng or wtype == CtAnchWidgType::ImageLatex) {
+                        static_cast<CtImage*>(widget)->apply_zoom(scaleFactor);
+                    }
+                    else if (wtype == CtAnchWidgType::CodeBox) {
+                        static_cast<CtCodebox*>(widget)->apply_zoom(scaleFactor);
+                    }
+                    else if (wtype == CtAnchWidgType::TableHeavy) {
+                        static_cast<CtTableHeavy*>(widget)->apply_zoom(scaleFactor);
+                    }
+                    else if (wtype == CtAnchWidgType::TableLight) {
+                        static_cast<CtTableLight*>(widget)->apply_zoom(scaleFactor);
+                    }
+                    else if (wtype == CtAnchWidgType::TableRich) {
+                        auto* pTable = static_cast<CtTableRich*>(widget);
+                        pTable->apply_zoom(scaleFactor);
+                        for (size_t r = 0; r < pTable->get_num_rows(); ++r) {
+                            for (size_t c = 0; c < pTable->get_num_columns(); ++c) {
+                                for (auto* emb : pTable->getRichCell(r, c)->getEmbeddedWidgets()) {
+                                    const auto embType = emb->get_type();
+                                    if (embType == CtAnchWidgType::ImagePng or embType == CtAnchWidgType::ImageLatex) {
+                                        static_cast<CtImage*>(emb)->apply_zoom(scaleFactor);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
 }
