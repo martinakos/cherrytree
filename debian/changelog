@@ -1,3 +1,14 @@
+cherrytree-docmodel (1.6.3+docmodel6-1) plucky; urgency=low
+
+  * eliminated internal XML round-trips in the document model, replacing them with direct object operations
+  * rich table improvements: row/column copy-paste with undo, cut/paste preserving rich formatting, inherited formatting on add, in-place undo/redo
+  * various rich table bug fixes: image resize, copy/cut for images and LaTeX, left border disappearing, column paste losing background color, link opening browser twice, freeze with image cells
+  * fixed rich-text image sizes reverting after zoom changes
+  * fixed wrong image pasted after Ctrl+C from rich cell
+  * fixed cursor jumping to top of page on undo/redo
+
+ -- Giuseppe Penone <giuspen@gmail.com>  Fri, 18 Apr 2026 12:00:00 +0000
+
 cherrytree-docmodel (1.6.3+docmodel5-1) plucky; urgency=low
 
   * improved search/replace dialog with memory of the latest patterns searched for / replaced with
