@@ -458,7 +458,7 @@ void CtTableLight::column_move_right(const size_t colIdx)
     grab_focus();
 }
 
-void CtTableLight::set_col_width_default(const int colWidthDefault)
+void CtTableLight::set_col_width_default(const int colWidthDefault, bool/*clearOverrides*/)
 {
     _colWidthDefault = colWidthDefault;
     bool has_default_widths = vec::exists(_colWidths, 0);

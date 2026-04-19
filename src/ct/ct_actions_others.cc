@@ -1049,10 +1049,13 @@ void CtActions::table_column_copy()
                 if (key.second == curr_col) dstMap[{key.first, 0}] = val;
             }
         };
-        copyColEntries(srcStyle.cellBgColors, dstStyle.cellBgColors);
-        copyColEntries(srcStyle.cellBorderWidths, dstStyle.cellBorderWidths);
-        copyColEntries(srcStyle.cellBorderColors, dstStyle.cellBorderColors);
-        copyColEntries(srcStyle.cellBorderSeq, dstStyle.cellBorderSeq);
+        copyColEntries(srcStyle.cellBgColors,      dstStyle.cellBgColors);
+        copyColEntries(srcStyle.cellBorderWidths,  dstStyle.cellBorderWidths);
+        copyColEntries(srcStyle.cellBorderColors,  dstStyle.cellBorderColors);
+        copyColEntries(srcStyle.cellBorderSeq,     dstStyle.cellBorderSeq);
+        copyColEntries(srcStyle.cellHAlign,        dstStyle.cellHAlign);
+        copyColEntries(srcStyle.cellVAlign,        dstStyle.cellVAlign);
+        copyColEntries(srcStyle.cellWrap,          dstStyle.cellWrap);
         pNewRich->setTableStyle(dstStyle);
 
         CtClipboard{_pCtMainWin}.table_column_to_clipboard(pNewRich);
@@ -1300,10 +1303,13 @@ void CtActions::table_row_copy()
                 }
             }
         };
-        copyRowEntries(srcStyle.cellBgColors, dstStyle.cellBgColors);
-        copyRowEntries(srcStyle.cellBorderWidths, dstStyle.cellBorderWidths);
-        copyRowEntries(srcStyle.cellBorderColors, dstStyle.cellBorderColors);
-        copyRowEntries(srcStyle.cellBorderSeq, dstStyle.cellBorderSeq);
+        copyRowEntries(srcStyle.cellBgColors,      dstStyle.cellBgColors);
+        copyRowEntries(srcStyle.cellBorderWidths,  dstStyle.cellBorderWidths);
+        copyRowEntries(srcStyle.cellBorderColors,  dstStyle.cellBorderColors);
+        copyRowEntries(srcStyle.cellBorderSeq,     dstStyle.cellBorderSeq);
+        copyRowEntries(srcStyle.cellHAlign,        dstStyle.cellHAlign);
+        copyRowEntries(srcStyle.cellVAlign,        dstStyle.cellVAlign);
+        copyRowEntries(srcStyle.cellWrap,          dstStyle.cellWrap);
         pNewRich->setTableStyle(dstStyle);
 
         CtClipboard{_pCtMainWin}.table_row_to_clipboard(pNewRich);
@@ -1497,7 +1503,8 @@ void CtActions::table_edit_properties()
     const size_t numCols = curr_table_anchor->get_num_columns();
     if (CtDialogs::TableHandleResp::Cancel == CtDialogs::table_handle_dialog(
         _pCtMainWin, _("Edit Table Properties"), false/*is_insert*/, is_light, is_rich, pTableStyle,
-        currentRow, currentCol, numRows, numCols))
+        currentRow, currentCol, numRows, numCols,
+        was_rich ? curr_table_anchor->get_col_width(currentCol) : 0))
     {
         return;
     }
@@ -1516,6 +1523,16 @@ void CtActions::table_edit_properties()
         }
     }
 
+    // Apply pending column-width changes from the Column Width dialog frame.
+    if (pTableStyle && tableStyle.pendingColWidthVal >= 0) {
+        if (tableStyle.pendingColWidthTable) {
+            _pCtConfig->tableColWidthDefault = tableStyle.pendingColWidthVal;
+            curr_table_anchor->set_col_width_default(tableStyle.pendingColWidthVal, true/*clearOverrides*/);
+        } else {
+            curr_table_anchor->set_col_width(tableStyle.pendingColWidthVal, tableStyle.pendingColWidthIdx);
+        }
+        tableStyle.pendingColWidthVal = -1; // don't let setTableStyle see it
+    }
     curr_table_anchor->set_col_width_default(_pCtConfig->tableColWidthDefault);
     if (pTableStyle) {
         curr_table_anchor->setTableStyle(tableStyle);

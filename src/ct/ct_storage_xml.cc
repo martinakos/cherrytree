@@ -771,9 +771,22 @@ static CtTableStyle _parseTableStyle(xmlpp::Element* xml_element)
                 targetMap[{row, col}] = std::stoi(value);
             } else if constexpr (std::is_same_v<typename std::decay_t<decltype(targetMap)>::mapped_type, size_t>) {
                 targetMap[{row, col}] = static_cast<size_t>(std::stoul(value));
+            } else if constexpr (std::is_same_v<typename std::decay_t<decltype(targetMap)>::mapped_type, bool>) {
+                targetMap[{row, col}] = (value != "0");
             } else {
                 targetMap[{row, col}] = value;
             }
+        }
+    };
+    // Helper to parse "row:value;row:value" format (row-only keys)
+    auto parseRowMap = [&](const char* attrName, std::map<size_t, int>& targetMap) {
+        const Glib::ustring attrStr = xml_element->get_attribute_value(attrName);
+        if (attrStr.empty()) return;
+        for (const auto& entry : str::split(attrStr.raw(), ";")) {
+            const auto colon = entry.find(':');
+            if (colon == std::string::npos) continue;
+            const size_t row = static_cast<size_t>(std::stoul(entry.substr(0, colon)));
+            targetMap[row] = std::stoi(entry.substr(colon + 1));
         }
     };
     parseCellMap("cell_bg_colors", style.cellBgColors);
@@ -782,6 +795,22 @@ static CtTableStyle _parseTableStyle(xmlpp::Element* xml_element)
     parseCellMap("cell_border_seq", style.cellBorderSeq);
     const Glib::ustring seqCounterStr = xml_element->get_attribute_value("border_seq_counter");
     if (!seqCounterStr.empty()) style.borderSeqCounter = static_cast<size_t>(std::stoul(seqCounterStr.raw()));
+    // New attrs: row height, alignment, wrap
+    const Glib::ustring rowHDefaultStr = xml_element->get_attribute_value("row_height_default");
+    if (!rowHDefaultStr.empty()) style.rowMinHeightDefault = std::stoi(rowHDefaultStr.raw());
+    parseRowMap("row_heights", style.rowMinHeights);
+    const Glib::ustring halignDefaultStr = xml_element->get_attribute_value("halign_default");
+    if (!halignDefaultStr.empty()) style.tableHAlignDefault = halignDefaultStr.raw();
+    const Glib::ustring valignDefaultStr = xml_element->get_attribute_value("valign_default");
+    if (!valignDefaultStr.empty()) style.tableVAlignDefault = valignDefaultStr.raw();
+    parseCellMap("cell_halign", style.cellHAlign);
+    parseCellMap("cell_valign", style.cellVAlign);
+    const Glib::ustring wrapDefaultStr = xml_element->get_attribute_value("wrap_default");
+    if (!wrapDefaultStr.empty()) {
+        style.tableWrapDefaultSet = true;
+        style.tableWrapDefault = (wrapDefaultStr != "0");
+    }
+    parseCellMap("cell_wrap", style.cellWrap);
     return style;
 }
 

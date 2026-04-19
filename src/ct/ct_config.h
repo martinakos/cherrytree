@@ -198,6 +198,7 @@ public:
     int                                         tableRows{3};
     int                                         tableColumns{3};
     int                                         tableColWidthDefault{60};
+    int                                         tableRowHeightDefault{0};
     int                                         tableCellsGoLight{CtConst::ADVISED_TABLE_LIGHT_HEAVY};
 
     // [fonts]
