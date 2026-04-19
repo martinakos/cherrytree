@@ -162,7 +162,7 @@ std::list<CtAnchoredWidget*> buildBufferFromContent(
                             widget = new CtTableHeavy{pCtMainWin, tableMatrix, colWidthDefault, charOffset, justification, colWidths};
                         }
                     }
-                    // Restore table style (border, colors) from widget descriptor properties
+                    // Restore full table style from widget descriptor properties.
                     if (widget) {
                         CtTableStyle style;
                         const std::string bw = widgetDesc.getProperty("border_width");
@@ -171,6 +171,16 @@ std::list<CtAnchoredWidget*> buildBufferFromContent(
                         if (!bc.empty()) style.borderColor = bc;
                         const std::string tbg = widgetDesc.getProperty("table_bg_color");
                         if (!tbg.empty()) style.tableBgColor = tbg;
+                        const std::string rhd = widgetDesc.getProperty("row_height_default");
+                        if (!rhd.empty()) style.rowMinHeightDefault = std::stoi(rhd);
+                        const std::string had = widgetDesc.getProperty("halign_default");
+                        if (!had.empty()) style.tableHAlignDefault = had;
+                        const std::string vad = widgetDesc.getProperty("valign_default");
+                        if (!vad.empty()) style.tableVAlignDefault = vad;
+                        const std::string wd = widgetDesc.getProperty("wrap_default");
+                        if (!wd.empty()) { style.tableWrapDefaultSet = true; style.tableWrapDefault = (wd != "0"); }
+                        const std::string bsc = widgetDesc.getProperty("border_seq_counter");
+                        if (!bsc.empty()) style.borderSeqCounter = static_cast<size_t>(std::stoul(bsc));
                         // Parse "row,col:value;..." format for per-cell maps
                         auto parseCellMapStr = [](const std::string& s, auto& targetMap) {
                             if (s.empty()) return;
@@ -185,14 +195,33 @@ std::list<CtAnchoredWidget*> buildBufferFromContent(
                                 size_t col = static_cast<size_t>(std::stoul(coords.substr(comma + 1)));
                                 if constexpr (std::is_same_v<typename std::decay_t<decltype(targetMap)>::mapped_type, int>) {
                                     targetMap[{row, col}] = std::stoi(value);
+                                } else if constexpr (std::is_same_v<typename std::decay_t<decltype(targetMap)>::mapped_type, size_t>) {
+                                    targetMap[{row, col}] = static_cast<size_t>(std::stoul(value));
+                                } else if constexpr (std::is_same_v<typename std::decay_t<decltype(targetMap)>::mapped_type, bool>) {
+                                    targetMap[{row, col}] = (value != "0");
                                 } else {
                                     targetMap[{row, col}] = value;
                                 }
                             }
                         };
-                        parseCellMapStr(widgetDesc.getProperty("cell_bg_colors"), style.cellBgColors);
-                        parseCellMapStr(widgetDesc.getProperty("cell_border_widths"), style.cellBorderWidths);
-                        parseCellMapStr(widgetDesc.getProperty("cell_border_colors"), style.cellBorderColors);
+                        // Parse "row:value;..." format for row-keyed maps
+                        auto parseRowMapStr = [](const std::string& s, std::map<size_t, int>& targetMap) {
+                            if (s.empty()) return;
+                            for (const auto& entry : str::split(s, ";")) {
+                                const auto colon = entry.find(':');
+                                if (colon == std::string::npos) continue;
+                                targetMap[static_cast<size_t>(std::stoul(entry.substr(0, colon)))] =
+                                    std::stoi(entry.substr(colon + 1));
+                            }
+                        };
+                        parseCellMapStr(widgetDesc.getProperty("cell_bg_colors"),     style.cellBgColors);
+                        parseCellMapStr(widgetDesc.getProperty("cell_border_widths"),  style.cellBorderWidths);
+                        parseCellMapStr(widgetDesc.getProperty("cell_border_colors"),  style.cellBorderColors);
+                        parseCellMapStr(widgetDesc.getProperty("cell_border_seq"),     style.cellBorderSeq);
+                        parseCellMapStr(widgetDesc.getProperty("cell_halign"),         style.cellHAlign);
+                        parseCellMapStr(widgetDesc.getProperty("cell_valign"),         style.cellVAlign);
+                        parseCellMapStr(widgetDesc.getProperty("cell_wrap"),           style.cellWrap);
+                        parseRowMapStr(widgetDesc.getProperty("row_heights"),          style.rowMinHeights);
                         static_cast<CtTableCommon*>(widget)->setTableStyle(style);
                     }
                 }

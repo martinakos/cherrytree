@@ -257,6 +257,7 @@ TableHandleResp table_handle_dialog(CtMainWin* pCtMainWin,
                                     size_t currentRow = 0,
                                     size_t currentCol = 0,
                                     size_t numRows = 0,
-                                    size_t numCols = 0);
+                                    size_t numCols = 0,
+                                    int currentColWidth = 0);
 
 } // namespace CtDialogs
