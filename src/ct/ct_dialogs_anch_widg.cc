@@ -609,7 +609,8 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
                                                           size_t currentRow,
                                                           size_t currentCol,
                                                           size_t numRows,
-                                                          size_t numCols)
+                                                          size_t numCols,
+                                                          int currentColWidth)
 {
     Gtk::Dialog dialog{title,
                        *pCtMainWin,
@@ -641,6 +642,12 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
     auto spinbutton_col_width = Gtk::SpinButton{adj_col_width};
     spinbutton_col_width.set_value(pCtConfig->tableColWidthDefault);
 
+    auto label_row_height = Gtk::Label{_("Default Height")};
+    label_row_height.set_halign(Gtk::Align::ALIGN_START);
+    auto adj_row_height = Gtk::Adjustment::create(pCtConfig->tableRowHeightDefault, 0, 2000, 1);
+    auto spinbutton_row_height_ins = Gtk::SpinButton{adj_row_height};
+    spinbutton_row_height_ins.set_value(pCtConfig->tableRowHeightDefault);
+
     auto label_size = Gtk::Label{std::string("<b>")+_("Table Size")+"</b>"};
     label_size.set_use_markup();
     label_size.set_halign(Gtk::Align::ALIGN_START);
@@ -655,15 +662,23 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
     grid.set_row_homogeneous(true);
 
     if (is_insert) {
-        grid.attach(label_size,         0, 0, 2, 1);
-        grid.attach(label_rows,         0, 1, 1, 1);
-        grid.attach(spinbutton_rows,    1, 1, 1, 1);
-        grid.attach(label_columns,      2, 1, 1, 1);
-        grid.attach(spinbutton_columns, 3, 1, 1, 1);
+        grid.attach(label_size,              0, 0, 2, 1);
+        grid.attach(label_rows,              0, 1, 1, 1);
+        grid.attach(spinbutton_rows,         1, 1, 1, 1);
+        grid.attach(label_columns,           2, 1, 1, 1);
+        grid.attach(spinbutton_columns,      3, 1, 1, 1);
     }
-    grid.attach(label_col,             0, 2, 2, 1);
-    grid.attach(label_col_width,       0, 3, 1, 1);
-    grid.attach(spinbutton_col_width,  1, 3, 1, 1);
+    if (!pTableStyle) {
+        // Insert mode or non-rich edit: show the standalone Default Width spinbutton.
+        // Rich edit mode uses the Column Width frame instead.
+        grid.attach(label_col,             0, 2, 2, 1);
+        grid.attach(label_col_width,       0, 3, 1, 1);
+        grid.attach(spinbutton_col_width,  1, 3, 1, 1);
+    }
+    if (is_insert) {
+        grid.attach(label_row_height,           2, 3, 1, 1);
+        grid.attach(spinbutton_row_height_ins,  3, 3, 1, 1);
+    }
 
     auto checkbutton_is_light = Gtk::CheckButton(_("Lightweight Interface (much faster for large tables)"));
     checkbutton_is_light.set_active(is_light);
@@ -800,6 +815,201 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
         bg_grid.attach(button_clear_bg,  2, 1, 1, 1);
         frame_bg.add(bg_grid);
 
+        // ── Column Width frame ────────────────────────────────────────────────
+        auto label_colw_frame = Gtk::Label{std::string("<b>") + _("Column Width") + "</b>"};
+        label_colw_frame.set_use_markup();
+        auto frame_colw = Gtk::Frame{};
+        frame_colw.set_label_widget(label_colw_frame);
+        frame_colw.set_margin_top(8);
+
+        auto label_apply_colw = Gtk::Label{_("Apply to:")};
+        label_apply_colw.set_halign(Gtk::Align::ALIGN_START);
+        auto combo_scope_colw = Gtk::ComboBoxText{};
+        combo_scope_colw.append(_("None"));
+        combo_scope_colw.append(_("Column"));
+        combo_scope_colw.append(_("Table"));
+        combo_scope_colw.set_active(0);
+
+        auto label_colw_val = Gtk::Label{_("Width")};
+        label_colw_val.set_halign(Gtk::Align::ALIGN_START);
+        label_colw_val.set_sensitive(false);
+        const int initColW = (currentColWidth > 0) ? currentColWidth : pCtConfig->tableColWidthDefault;
+        auto adj_colw_new = Gtk::Adjustment::create(initColW, 1, 10000, 1);
+        auto spinbutton_colw_new = Gtk::SpinButton{adj_colw_new};
+        spinbutton_colw_new.set_value(initColW);
+        spinbutton_colw_new.set_sensitive(false);
+
+        Gtk::Grid colw_grid;
+        colw_grid.property_margin() = 6;
+        colw_grid.set_row_spacing(4);
+        colw_grid.set_column_spacing(8);
+        colw_grid.attach(label_apply_colw,   0, 0, 1, 1);
+        colw_grid.attach(combo_scope_colw,   1, 0, 2, 1);
+        colw_grid.attach(label_colw_val,     0, 1, 1, 1);
+        colw_grid.attach(spinbutton_colw_new,1, 1, 1, 1);
+        frame_colw.add(colw_grid);
+
+        combo_scope_colw.signal_changed().connect([&](){
+            const bool active = combo_scope_colw.get_active_row_number() != 0;
+            spinbutton_colw_new.set_sensitive(active);
+            label_colw_val.set_sensitive(active);
+        });
+
+        // ── Row Height frame ──────────────────────────────────────────────────
+        auto label_rh_frame = Gtk::Label{std::string("<b>") + _("Row Height") + "</b>"};
+        label_rh_frame.set_use_markup();
+        auto frame_rh = Gtk::Frame{};
+        frame_rh.set_label_widget(label_rh_frame);
+        frame_rh.set_margin_top(8);
+
+        auto label_apply_rh = Gtk::Label{_("Apply to:")};
+        label_apply_rh.set_halign(Gtk::Align::ALIGN_START);
+        auto combo_scope_rh = Gtk::ComboBoxText{};
+        combo_scope_rh.append(_("None"));
+        combo_scope_rh.append(_("Row"));
+        combo_scope_rh.append(_("Table"));
+        combo_scope_rh.set_active(0);
+
+        auto label_rh_val = Gtk::Label{_("Min Height (0=natural)")};
+        label_rh_val.set_halign(Gtk::Align::ALIGN_START);
+        label_rh_val.set_sensitive(false);
+        auto rhIt = pTableStyle->rowMinHeights.find(currentRow);
+        const int initRH = (rhIt != pTableStyle->rowMinHeights.end()) ? rhIt->second : pTableStyle->rowMinHeightDefault;
+        auto adj_rh = Gtk::Adjustment::create(initRH, 0, 2000, 1);
+        auto spinbutton_rh = Gtk::SpinButton{adj_rh};
+        spinbutton_rh.set_value(initRH);
+        spinbutton_rh.set_sensitive(false);
+
+        Gtk::Grid rh_grid;
+        rh_grid.property_margin() = 6;
+        rh_grid.set_row_spacing(4);
+        rh_grid.set_column_spacing(8);
+        rh_grid.attach(label_apply_rh,  0, 0, 1, 1);
+        rh_grid.attach(combo_scope_rh,  1, 0, 2, 1);
+        rh_grid.attach(label_rh_val,    0, 1, 1, 1);
+        rh_grid.attach(spinbutton_rh,   1, 1, 1, 1);
+        frame_rh.add(rh_grid);
+
+        combo_scope_rh.signal_changed().connect([&](){
+            const bool active = combo_scope_rh.get_active_row_number() != 0;
+            spinbutton_rh.set_sensitive(active);
+            label_rh_val.set_sensitive(active);
+        });
+
+        // ── Alignment frame ───────────────────────────────────────────────────
+        auto label_align_frame = Gtk::Label{std::string("<b>") + _("Text Alignment") + "</b>"};
+        label_align_frame.set_use_markup();
+        auto frame_align = Gtk::Frame{};
+        frame_align.set_label_widget(label_align_frame);
+        frame_align.set_margin_top(8);
+
+        auto label_apply_align = Gtk::Label{_("Apply to:")};
+        label_apply_align.set_halign(Gtk::Align::ALIGN_START);
+        auto combo_scope_align = Gtk::ComboBoxText{};
+        combo_scope_align.append(_("None"));
+        combo_scope_align.append(_("Cell"));
+        combo_scope_align.append(_("Row"));
+        combo_scope_align.append(_("Column"));
+        combo_scope_align.append(_("Table"));
+        combo_scope_align.set_active(0);
+
+        auto label_halign = Gtk::Label{_("Horizontal:")};
+        label_halign.set_halign(Gtk::Align::ALIGN_START);
+        label_halign.set_sensitive(false);
+        auto combo_halign = Gtk::ComboBoxText{};
+        combo_halign.append(_("Left"));
+        combo_halign.append(_("Center"));
+        combo_halign.append(_("Right"));
+        combo_halign.set_sensitive(false);
+        {
+            const auto haIt = pTableStyle->cellHAlign.find({currentRow, currentCol});
+            const std::string& ha = (haIt != pTableStyle->cellHAlign.end()) ? haIt->second : pTableStyle->tableHAlignDefault;
+            if      (ha == "center") combo_halign.set_active(1);
+            else if (ha == "right")  combo_halign.set_active(2);
+            else                     combo_halign.set_active(0);
+        }
+
+        auto label_valign = Gtk::Label{_("Vertical:")};
+        label_valign.set_halign(Gtk::Align::ALIGN_START);
+        label_valign.set_sensitive(false);
+        auto combo_valign = Gtk::ComboBoxText{};
+        combo_valign.append(_("Top"));
+        combo_valign.append(_("Middle"));
+        combo_valign.append(_("Bottom"));
+        combo_valign.set_sensitive(false);
+        {
+            const auto vaIt = pTableStyle->cellVAlign.find({currentRow, currentCol});
+            const std::string& va = (vaIt != pTableStyle->cellVAlign.end()) ? vaIt->second : pTableStyle->tableVAlignDefault;
+            if      (va == "middle") combo_valign.set_active(1);
+            else if (va == "bottom") combo_valign.set_active(2);
+            else                     combo_valign.set_active(0);
+        }
+
+        Gtk::Grid align_grid;
+        align_grid.property_margin() = 6;
+        align_grid.set_row_spacing(4);
+        align_grid.set_column_spacing(8);
+        align_grid.attach(label_apply_align, 0, 0, 1, 1);
+        align_grid.attach(combo_scope_align, 1, 0, 3, 1);
+        align_grid.attach(label_halign,      0, 1, 1, 1);
+        align_grid.attach(combo_halign,      1, 1, 1, 1);
+        align_grid.attach(label_valign,      2, 1, 1, 1);
+        align_grid.attach(combo_valign,      3, 1, 1, 1);
+        frame_align.add(align_grid);
+
+        combo_scope_align.signal_changed().connect([&](){
+            const bool active = combo_scope_align.get_active_row_number() != 0;
+            combo_halign.set_sensitive(active);
+            combo_valign.set_sensitive(active);
+            label_halign.set_sensitive(active);
+            label_valign.set_sensitive(active);
+        });
+
+        // ── Text Reflow frame ─────────────────────────────────────────────────
+        auto label_wrap_frame = Gtk::Label{std::string("<b>") + _("Text Reflow") + "</b>"};
+        label_wrap_frame.set_use_markup();
+        auto frame_wrap = Gtk::Frame{};
+        frame_wrap.set_label_widget(label_wrap_frame);
+        frame_wrap.set_margin_top(8);
+
+        auto label_apply_wrap = Gtk::Label{_("Apply to:")};
+        label_apply_wrap.set_halign(Gtk::Align::ALIGN_START);
+        auto combo_scope_wrap = Gtk::ComboBoxText{};
+        combo_scope_wrap.append(_("None"));
+        combo_scope_wrap.append(_("Cell"));
+        combo_scope_wrap.append(_("Row"));
+        combo_scope_wrap.append(_("Column"));
+        combo_scope_wrap.append(_("Table"));
+        combo_scope_wrap.set_active(0);
+
+        auto checkbutton_wrap = Gtk::CheckButton(_("Wrap text"));
+        checkbutton_wrap.set_sensitive(false);
+        {
+            bool initWrap;
+            const auto wIt = pTableStyle->cellWrap.find({currentRow, currentCol});
+            if (wIt != pTableStyle->cellWrap.end()) initWrap = wIt->second;
+            else if (pTableStyle->tableWrapDefaultSet) initWrap = pTableStyle->tableWrapDefault;
+            else initWrap = pCtMainWin->get_ct_config()->lineWrapping;
+            checkbutton_wrap.set_active(initWrap);
+        }
+
+        Gtk::Grid wrap_grid;
+        wrap_grid.property_margin() = 6;
+        wrap_grid.set_row_spacing(4);
+        wrap_grid.set_column_spacing(8);
+        wrap_grid.attach(label_apply_wrap,  0, 0, 1, 1);
+        wrap_grid.attach(combo_scope_wrap,  1, 0, 3, 1);
+        wrap_grid.attach(checkbutton_wrap,  0, 1, 4, 1);
+        frame_wrap.add(wrap_grid);
+
+        combo_scope_wrap.signal_changed().connect([&](){
+            checkbutton_wrap.set_sensitive(combo_scope_wrap.get_active_row_number() != 0);
+        });
+
+        content_area->pack_start(frame_colw);
+        content_area->pack_start(frame_rh);
+        content_area->pack_start(frame_align);
+        content_area->pack_start(frame_wrap);
         content_area->pack_start(frame_border);
         content_area->pack_start(frame_bg);
         content_area->show_all();
@@ -898,7 +1108,64 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
                 }
             }
 
-            if (borderScope != PropScope::None || bgScope != PropScope::None || colWidthChanged) {
+            // Column width
+            const int colwScopeIdx = combo_scope_colw.get_active_row_number();
+            if (colwScopeIdx != 0) {
+                const int newW = spinbutton_colw_new.get_value_as_int();
+                pTableStyle->pendingColWidthVal = newW;
+                pTableStyle->pendingColWidthTable = (colwScopeIdx == 2); // 2 = Table
+                pTableStyle->pendingColWidthIdx = currentCol;
+            }
+
+            // Row height
+            const int rhScopeIdx = combo_scope_rh.get_active_row_number();
+            if (rhScopeIdx != 0) {
+                const int newH = spinbutton_rh.get_value_as_int();
+                if (rhScopeIdx == 2) { // Table
+                    pTableStyle->rowMinHeightDefault = newH;
+                    pTableStyle->rowMinHeights.clear();
+                } else { // Row
+                    pTableStyle->rowMinHeights[currentRow] = newH;
+                }
+            }
+
+            // Alignment
+            const int alignScopeIdx = combo_scope_align.get_active_row_number();
+            if (alignScopeIdx != 0) {
+                static const char* hAlignVals[] = {"left", "center", "right"};
+                static const char* vAlignVals[] = {"top", "middle", "bottom"};
+                const std::string newHA = hAlignVals[combo_halign.get_active_row_number()];
+                const std::string newVA = vAlignVals[combo_valign.get_active_row_number()];
+                if (alignScopeIdx == 4) { // Table
+                    pTableStyle->tableHAlignDefault = (newHA == "left") ? "" : newHA;
+                    pTableStyle->tableVAlignDefault = (newVA == "top") ? "" : newVA;
+                    pTableStyle->cellHAlign.clear();
+                    pTableStyle->cellVAlign.clear();
+                } else {
+                    for (const auto& cell : expandScope(static_cast<PropScope>(alignScopeIdx))) {
+                        pTableStyle->cellHAlign[cell] = newHA;
+                        pTableStyle->cellVAlign[cell] = newVA;
+                    }
+                }
+            }
+
+            // Wrap
+            const int wrapScopeIdx = combo_scope_wrap.get_active_row_number();
+            if (wrapScopeIdx != 0) {
+                const bool newWrap = checkbutton_wrap.get_active();
+                if (wrapScopeIdx == 4) { // Table
+                    pTableStyle->tableWrapDefault = newWrap;
+                    pTableStyle->tableWrapDefaultSet = true;
+                    pTableStyle->cellWrap.clear();
+                } else {
+                    for (const auto& cell : expandScope(static_cast<PropScope>(wrapScopeIdx))) {
+                        pTableStyle->cellWrap[cell] = newWrap;
+                    }
+                }
+            }
+
+            if (borderScope != PropScope::None || bgScope != PropScope::None || colWidthChanged ||
+                colwScopeIdx != 0 || rhScopeIdx != 0 || alignScopeIdx != 0 || wrapScopeIdx != 0) {
                 return TableHandleResp::Ok;
             }
             return TableHandleResp::Cancel;
@@ -967,6 +1234,9 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
         pCtConfig->tableRows = spinbutton_rows.get_value_as_int();
         pCtConfig->tableColumns = spinbutton_columns.get_value_as_int();
         pCtConfig->tableColWidthDefault = spinbutton_col_width.get_value_as_int();
+        if (is_insert) {
+            pCtConfig->tableRowHeightDefault = spinbutton_row_height_ins.get_value_as_int();
+        }
         if (checkbutton_table_ins_from_file.get_active()) {
             return TableHandleResp::OkFromFile;
         }
@@ -1008,10 +1278,11 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
                                                           size_t currentRow,
                                                           size_t currentCol,
                                                           size_t numRows,
-                                                          size_t numCols)
+                                                          size_t numCols,
+                                                          int currentColWidth)
 {
     (void)pCtMainWin; (void)title; (void)is_insert; (void)is_light; (void)is_rich; (void)pTableStyle;
-    (void)currentRow; (void)currentCol; (void)numRows; (void)numCols;
+    (void)currentRow; (void)currentCol; (void)numRows; (void)numCols; (void)currentColWidth;
     return TableHandleResp::Cancel;
 }
 #endif
