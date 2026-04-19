@@ -151,6 +151,11 @@ void CtActions::table_insert()
             pBridge->endTextEditSession();
         }
         auto pCtTable = new CtTableRich{_pCtMainWin, richData, col_width, charOffset, "", CtTableColWidths{}};
+        if (_pCtConfig->tableRowHeightDefault > 0) {
+            CtTableStyle s = pCtTable->getTableStyle();
+            s.rowMinHeightDefault = _pCtConfig->tableRowHeightDefault;
+            pCtTable->setTableStyle(s);
+        }
         pCtTable->insertInTextBuffer(_curr_buffer());
         _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
             {pCtTable}, &_pCtMainWin->get_text_view().mm());

@@ -1165,10 +1165,13 @@ void CtClipboard::on_received_to_table(const Gtk::SelectionData& selection_data,
                         if (key.first < copyRows) dstMap[{key.first, newColIdx}] = val;
                     }
                 };
-                remapCol(srcStyle.cellBgColors, dstStyle.cellBgColors);
-                remapCol(srcStyle.cellBorderWidths, dstStyle.cellBorderWidths);
-                remapCol(srcStyle.cellBorderColors, dstStyle.cellBorderColors);
-                remapCol(srcStyle.cellBorderSeq, dstStyle.cellBorderSeq);
+                remapCol(srcStyle.cellBgColors,      dstStyle.cellBgColors);
+                remapCol(srcStyle.cellBorderWidths,  dstStyle.cellBorderWidths);
+                remapCol(srcStyle.cellBorderColors,  dstStyle.cellBorderColors);
+                remapCol(srcStyle.cellBorderSeq,     dstStyle.cellBorderSeq);
+                remapCol(srcStyle.cellHAlign,        dstStyle.cellHAlign);
+                remapCol(srcStyle.cellVAlign,        dstStyle.cellVAlign);
+                remapCol(srcStyle.cellWrap,          dstStyle.cellWrap);
                 parentRich->setTableStyle(dstStyle);
             }
             else {
@@ -1205,10 +1208,13 @@ void CtClipboard::on_received_to_table(const Gtk::SelectionData& selection_data,
                         dstMap[{newRowIdx, key.second}] = val;
                     }
                 };
-                remapRow(srcStyle.cellBgColors, dstStyle.cellBgColors);
-                remapRow(srcStyle.cellBorderWidths, dstStyle.cellBorderWidths);
-                remapRow(srcStyle.cellBorderColors, dstStyle.cellBorderColors);
-                remapRow(srcStyle.cellBorderSeq, dstStyle.cellBorderSeq);
+                remapRow(srcStyle.cellBgColors,      dstStyle.cellBgColors);
+                remapRow(srcStyle.cellBorderWidths,  dstStyle.cellBorderWidths);
+                remapRow(srcStyle.cellBorderColors,  dstStyle.cellBorderColors);
+                remapRow(srcStyle.cellBorderSeq,     dstStyle.cellBorderSeq);
+                remapRow(srcStyle.cellHAlign,        dstStyle.cellHAlign);
+                remapRow(srcStyle.cellVAlign,        dstStyle.cellVAlign);
+                remapRow(srcStyle.cellWrap,          dstStyle.cellWrap);
                 parentRich->setTableStyle(dstStyle);
             }
             _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);

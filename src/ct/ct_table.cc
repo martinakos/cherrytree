@@ -24,6 +24,7 @@
 #include "ct_table.h"
 #include "ct_clipboard.h"
 #include "ct_main_win.h"
+#include <memory>
 #include "ct_actions.h"
 #include "ct_storage_sqlite.h"
 #include "ct_storage_xml.h"
@@ -53,6 +54,23 @@ bool CtTableCommon::get_is_light() const
 }
 
 // ─── CtTableStyle ────────────────────────────────────────────────────────────
+
+// Helper: remap a single-key (row-only) map after row delete/insert
+static void _remapRowDeleteSimple(std::map<size_t, int>& m, size_t row) {
+    std::map<size_t, int> updated;
+    for (auto& [key, val] : m) {
+        if (key == row) continue;
+        updated[key > row ? key - 1 : key] = val;
+    }
+    m = std::move(updated);
+}
+static void _remapRowInsertSimple(std::map<size_t, int>& m, size_t afterRow) {
+    std::map<size_t, int> updated;
+    for (auto& [key, val] : m) {
+        updated[key > afterRow ? key + 1 : key] = val;
+    }
+    m = std::move(updated);
+}
 
 // Helper: remap row keys in a sparse cell map after row delete/insert
 template<typename V>
@@ -96,6 +114,10 @@ void CtTableStyle::remapAfterRowDelete(size_t row)
     _remapRowDelete(cellBorderWidths, row);
     _remapRowDelete(cellBorderColors, row);
     _remapRowDelete(cellBorderSeq, row);
+    _remapRowDelete(cellHAlign, row);
+    _remapRowDelete(cellVAlign, row);
+    _remapRowDelete(cellWrap, row);
+    _remapRowDeleteSimple(rowMinHeights, row);
 }
 
 void CtTableStyle::remapAfterRowInsert(size_t afterRow)
@@ -104,6 +126,10 @@ void CtTableStyle::remapAfterRowInsert(size_t afterRow)
     _remapRowInsert(cellBorderWidths, afterRow);
     _remapRowInsert(cellBorderColors, afterRow);
     _remapRowInsert(cellBorderSeq, afterRow);
+    _remapRowInsert(cellHAlign, afterRow);
+    _remapRowInsert(cellVAlign, afterRow);
+    _remapRowInsert(cellWrap, afterRow);
+    _remapRowInsertSimple(rowMinHeights, afterRow);
 }
 
 void CtTableStyle::remapAfterColDelete(size_t col)
@@ -112,6 +138,9 @@ void CtTableStyle::remapAfterColDelete(size_t col)
     _remapColDelete(cellBorderWidths, col);
     _remapColDelete(cellBorderColors, col);
     _remapColDelete(cellBorderSeq, col);
+    _remapColDelete(cellHAlign, col);
+    _remapColDelete(cellVAlign, col);
+    _remapColDelete(cellWrap, col);
 }
 
 void CtTableStyle::remapAfterColInsert(size_t afterCol)
@@ -120,6 +149,9 @@ void CtTableStyle::remapAfterColInsert(size_t afterCol)
     _remapColInsert(cellBorderWidths, afterCol);
     _remapColInsert(cellBorderColors, afterCol);
     _remapColInsert(cellBorderSeq, afterCol);
+    _remapColInsert(cellHAlign, afterCol);
+    _remapColInsert(cellVAlign, afterCol);
+    _remapColInsert(cellWrap, afterCol);
 }
 
 namespace {
@@ -152,6 +184,11 @@ void CtTableStyle::cloneRowStyle(size_t srcRow, size_t dstRow, size_t numCols)
     _cloneRowEntries(cellBorderWidths, srcRow, dstRow, numCols);
     _cloneRowEntries(cellBorderColors, srcRow, dstRow, numCols);
     _cloneRowEntries(cellBorderSeq, srcRow, dstRow, numCols);
+    _cloneRowEntries(cellHAlign, srcRow, dstRow, numCols);
+    _cloneRowEntries(cellVAlign, srcRow, dstRow, numCols);
+    _cloneRowEntries(cellWrap, srcRow, dstRow, numCols);
+    auto it = rowMinHeights.find(srcRow);
+    if (it != rowMinHeights.end()) rowMinHeights[dstRow] = it->second;
 }
 
 void CtTableStyle::cloneColStyle(size_t srcCol, size_t dstCol, size_t numRows)
@@ -161,6 +198,9 @@ void CtTableStyle::cloneColStyle(size_t srcCol, size_t dstCol, size_t numRows)
     _cloneColEntries(cellBorderWidths, srcCol, dstCol, numRows);
     _cloneColEntries(cellBorderColors, srcCol, dstCol, numRows);
     _cloneColEntries(cellBorderSeq, srcCol, dstCol, numRows);
+    _cloneColEntries(cellHAlign, srcCol, dstCol, numRows);
+    _cloneColEntries(cellVAlign, srcCol, dstCol, numRows);
+    _cloneColEntries(cellWrap, srcCol, dstCol, numRows);
 }
 
 // ─── CtTableCommon style helpers ─────────────────────────────────────────────
@@ -214,6 +254,50 @@ void CtTableCommon::_serializeStyleAttrs(xmlpp::Element* p_table_node) const
         }
         p_table_node->set_attribute("cell_border_seq", s);
         p_table_node->set_attribute("border_seq_counter", std::to_string(_tableStyle.borderSeqCounter));
+    }
+    if (_tableStyle.rowMinHeightDefault != 0) {
+        p_table_node->set_attribute("row_height_default", std::to_string(_tableStyle.rowMinHeightDefault));
+    }
+    if (!_tableStyle.rowMinHeights.empty()) {
+        std::string s;
+        for (const auto& [row, h] : _tableStyle.rowMinHeights) {
+            if (!s.empty()) s += ";";
+            s += std::to_string(row) + ":" + std::to_string(h);
+        }
+        p_table_node->set_attribute("row_heights", s);
+    }
+    if (!_tableStyle.tableHAlignDefault.empty()) {
+        p_table_node->set_attribute("halign_default", _tableStyle.tableHAlignDefault);
+    }
+    if (!_tableStyle.tableVAlignDefault.empty()) {
+        p_table_node->set_attribute("valign_default", _tableStyle.tableVAlignDefault);
+    }
+    if (!_tableStyle.cellHAlign.empty()) {
+        std::string s;
+        for (const auto& [key, v] : _tableStyle.cellHAlign) {
+            if (!s.empty()) s += ";";
+            s += std::to_string(key.first) + "," + std::to_string(key.second) + ":" + v;
+        }
+        p_table_node->set_attribute("cell_halign", s);
+    }
+    if (!_tableStyle.cellVAlign.empty()) {
+        std::string s;
+        for (const auto& [key, v] : _tableStyle.cellVAlign) {
+            if (!s.empty()) s += ";";
+            s += std::to_string(key.first) + "," + std::to_string(key.second) + ":" + v;
+        }
+        p_table_node->set_attribute("cell_valign", s);
+    }
+    if (_tableStyle.tableWrapDefaultSet) {
+        p_table_node->set_attribute("wrap_default", _tableStyle.tableWrapDefault ? "1" : "0");
+    }
+    if (!_tableStyle.cellWrap.empty()) {
+        std::string s;
+        for (const auto& [key, w] : _tableStyle.cellWrap) {
+            if (!s.empty()) s += ";";
+            s += std::to_string(key.first) + "," + std::to_string(key.second) + ":" + (w ? "1" : "0");
+        }
+        p_table_node->set_attribute("cell_wrap", s);
     }
 }
 
@@ -931,7 +1015,7 @@ void CtTableHeavy::apply_zoom(const double scaleFactor)
     }
 }
 
-void CtTableHeavy::set_col_width_default(const int colWidthDefault)
+void CtTableHeavy::set_col_width_default(const int colWidthDefault, bool/*clearOverrides*/)
 {
     _colWidthDefault = colWidthDefault;
     bool has_default_widths = vec::exists(_colWidths, 0);
@@ -1347,7 +1431,11 @@ void CtTableRich::_new_rich_cell_attach(const size_t rowIdx, const size_t colIdx
 {
     CtTextView& ctTextView = pCell->get_text_view();
     auto& textView = ctTextView.mm();
-    textView.set_size_request(get_col_width(colIdx), -1);
+    {
+        const int rawH   = get_row_min_height(rowIdx);
+        const int scaledH = (rawH > 0) ? int(rawH * _zoomFactor) : -1;
+        textView.set_size_request(int(get_col_width(colIdx) * _zoomFactor), scaledH);
+    }
     textView.set_border_window_size(Gtk::TEXT_WINDOW_LEFT, 0);
     textView.set_border_window_size(Gtk::TEXT_WINDOW_RIGHT, 0);
     textView.set_border_window_size(Gtk::TEXT_WINDOW_TOP, 0);
@@ -1404,6 +1492,13 @@ void CtTableRich::_applyTableStyle()
 
     _rCssProviderTableStyle->load_from_data(css);
     _frame.get_style_context()->add_provider(_rCssProviderTableStyle, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+
+    // Clear alive sentinels first so any pending idle/signal callbacks that outlive
+    // their CtRichCell* see an expired weak_ptr and bail out early.
+    _vAlignGuards.clear();
+    // Disconnect v-align margin connections from the previous style application.
+    for (auto& conn : _vAlignConnections) conn.disconnect();
+    _vAlignConnections.clear();
 
     const size_t numRows = get_num_rows();
     const size_t numCols = get_num_columns();
@@ -1517,8 +1612,127 @@ void CtTableRich::_applyTableStyle()
             pCell->applyCellBorder(wTop, wRight, wBottom, wLeft,
                                    colorTop, colorRight, colorBottom, colorLeft,
                                    crnTL, crnTR, crnBL, crnBR);
+
+            // Horizontal alignment
+            auto& tv = pCell->get_text_view().mm();
+            {
+                const auto hIt = _tableStyle.cellHAlign.find({r, c});
+                const std::string& h = (hIt != _tableStyle.cellHAlign.end()) ? hIt->second : _tableStyle.tableHAlignDefault;
+                if      (h == "center") tv.set_justification(Gtk::JUSTIFY_CENTER);
+                else if (h == "right")  tv.set_justification(Gtk::JUSTIFY_RIGHT);
+                else                    tv.set_justification(Gtk::JUSTIFY_LEFT);
+            }
+
+            // ALIGN_FILL makes every cell fill the row's allocated height (= tallest
+            // cell), giving uniform row appearance.  vexpand must stay FALSE so the
+            // grid does not propagate an expand request up to its parent container,
+            // which would cause a feedback loop when top_margin is used for valign.
+            tv.set_valign(Gtk::ALIGN_FILL);
+            tv.set_vexpand(false);
+
+            // Vertical text positioning: for middle/bottom alignment use dynamic
+            // top/bottom margins so text is repositioned within the full-height cell.
+            {
+                const auto vIt = _tableStyle.cellVAlign.find({r, c});
+                const std::string valign = (vIt != _tableStyle.cellVAlign.end())
+                    ? vIt->second : _tableStyle.tableVAlignDefault;
+
+                if (valign == "middle" || valign == "bottom") {
+                    // Reset margins first so the cell's natural height reflects only
+                    // the text content.  This lets a reduced set_size_request (e.g.
+                    // row height changed from 300→100) actually shrink the grid row
+                    // before the idle updateMargin reapplies the correct margins.
+                    tv.set_top_margin(0);
+                    tv.set_bottom_margin(0);
+                    auto* pRichCell = static_cast<CtRichCell*>(_tableMatrix[r][c]);
+                    // Alive sentinel: _vAlignGuards.clear() at the next _applyTableStyle
+                    // (or at table destruction) expires this weak_ptr, causing all in-flight
+                    // idle/signal callbacks to bail out before touching pRichCell.
+                    auto guard = std::make_shared<bool>(true);
+                    _vAlignGuards.push_back(guard);
+                    std::weak_ptr<bool> weakGuard{guard};
+                    auto updateMargin = [pRichCell, valign, weakGuard]() {
+                        if (weakGuard.expired()) return;
+                        auto& tv2 = pRichCell->get_text_view().mm();
+                        if (!tv2.get_realized()) return;
+                        const int allocH  = tv2.get_allocated_height();
+                        const int borderT = tv2.get_border_window_size(Gtk::TEXT_WINDOW_TOP);
+                        const int borderB = tv2.get_border_window_size(Gtk::TEXT_WINDOW_BOTTOM);
+                        const int contentH = allocH - borderT - borderB;
+                        if (contentH <= 0) return;
+
+                        // get_iter_location returns layout coordinates (y=0 at first
+                        // character, top_margin not included), so no subtraction needed.
+                        Gtk::TextIter endIter = pRichCell->get_buffer()->end();
+                        Gdk::Rectangle endRect;
+                        tv2.get_iter_location(endIter, endRect);
+                        const int textH = std::max(1, endRect.get_y() + endRect.get_height());
+
+                        const int spare = contentH - textH;
+                        int topM = 0, botM = 0;
+                        if (spare > 0) {
+                            if (valign == "middle") {
+                                topM = spare / 2;
+                                botM = spare - topM;
+                            } else { // bottom
+                                topM = spare;
+                            }
+                        }
+                        if (tv2.get_top_margin() != topM)    tv2.set_top_margin(topM);
+                        if (tv2.get_bottom_margin() != botM) tv2.set_bottom_margin(botM);
+                    };
+                    _vAlignConnections.push_back(
+                        tv.signal_size_allocate().connect([updateMargin](Gtk::Allocation&) { updateMargin(); }));
+                    _vAlignConnections.push_back(
+                        pRichCell->get_buffer()->signal_changed().connect(
+                            [updateMargin, weakGuard]() {
+                                if (weakGuard.expired()) return;
+                                Glib::signal_idle().connect([updateMargin]() -> bool {
+                                    updateMargin(); // updateMargin itself checks weakGuard
+                                    return false;
+                                });
+                            }));
+                    // Apply immediately. Use connect() so the returned sigc::connection
+                    // is stored in _vAlignConnections and can be cancelled if the table
+                    // is rebuilt (notifyNodeChanged) before the idle fires.
+                    _vAlignConnections.push_back(
+                        Glib::signal_idle().connect([updateMargin]() -> bool {
+                            updateMargin();
+                            return false;
+                        }));
+                } else {
+                    // Reset any margins left from a previous middle/bottom setting.
+                    tv.set_top_margin(0);
+                    tv.set_bottom_margin(0);
+                }
+            }
+
+            // Wrap
+            _apply_wrap_for_cell(r, c, tv);
+
+            // Row height + column width (size request)
+            {
+                const int scaledW = int(get_col_width(c) * _zoomFactor);
+                const int rawH    = get_row_min_height(r);
+                const int scaledH = (rawH > 0) ? int(rawH * _zoomFactor) : -1;
+                tv.set_size_request(scaledW, scaledH);
+            }
         }
     }
+}
+
+void CtTableRich::_apply_wrap_for_cell(size_t r, size_t c, Gtk::TextView& tv)
+{
+    bool wrap;
+    const auto wIt = _tableStyle.cellWrap.find({r, c});
+    if (wIt != _tableStyle.cellWrap.end()) {
+        wrap = wIt->second;
+    } else if (_tableStyle.tableWrapDefaultSet) {
+        wrap = _tableStyle.tableWrapDefault;
+    } else {
+        wrap = _pCtMainWin->get_ct_config()->lineWrapping;
+    }
+    tv.set_wrap_mode(wrap ? Gtk::WRAP_WORD_CHAR : Gtk::WRAP_NONE);
 }
 
 void CtTableRich::_apply_remove_header_style(const bool isApply, CtTextView& textView)
@@ -1534,8 +1748,19 @@ void CtTableRich::_apply_remove_header_style(const bool isApply, CtTextView& tex
     else {
         if (rStyleContext->has_class(headerStyle)) {
             rStyleContext->remove_class(headerStyle);
-            textView.mm().set_wrap_mode(_pCtMainWin->get_ct_config()->lineWrapping ?
-                                        Gtk::WrapMode::WRAP_WORD_CHAR : Gtk::WrapMode::WRAP_NONE);
+            // Scan matrix to find the row/col so per-cell wrap overrides are respected.
+            size_t foundRow = 0, foundCol = 0;
+            bool found = false;
+            const size_t numRows = get_num_rows();
+            const size_t numCols = get_num_columns();
+            for (size_t r = 0; r < numRows && !found; ++r) {
+                for (size_t c = 0; c < numCols && !found; ++c) {
+                    if (&static_cast<CtRichCell*>(_tableMatrix.at(r).at(c))->get_text_view() == &textView) {
+                        foundRow = r; foundCol = c; found = true;
+                    }
+                }
+            }
+            _apply_wrap_for_cell(foundRow, foundCol, textView.mm());
         }
     }
 }
@@ -1615,6 +1840,50 @@ CtWidgetDesc CtTableRich::to_widget_desc(int charOffset)
         }
         desc.setProperty("cell_border_seq", s);
         desc.setProperty("border_seq_counter", std::to_string(_tableStyle.borderSeqCounter));
+    }
+    if (_tableStyle.rowMinHeightDefault != 0) {
+        desc.setProperty("row_height_default", std::to_string(_tableStyle.rowMinHeightDefault));
+    }
+    if (!_tableStyle.rowMinHeights.empty()) {
+        std::string s;
+        for (const auto& [row, h] : _tableStyle.rowMinHeights) {
+            if (!s.empty()) s += ";";
+            s += std::to_string(row) + ":" + std::to_string(h);
+        }
+        desc.setProperty("row_heights", s);
+    }
+    if (!_tableStyle.tableHAlignDefault.empty()) {
+        desc.setProperty("halign_default", _tableStyle.tableHAlignDefault);
+    }
+    if (!_tableStyle.tableVAlignDefault.empty()) {
+        desc.setProperty("valign_default", _tableStyle.tableVAlignDefault);
+    }
+    if (!_tableStyle.cellHAlign.empty()) {
+        std::string s;
+        for (const auto& [key, v] : _tableStyle.cellHAlign) {
+            if (!s.empty()) s += ";";
+            s += std::to_string(key.first) + "," + std::to_string(key.second) + ":" + v;
+        }
+        desc.setProperty("cell_halign", s);
+    }
+    if (!_tableStyle.cellVAlign.empty()) {
+        std::string s;
+        for (const auto& [key, v] : _tableStyle.cellVAlign) {
+            if (!s.empty()) s += ";";
+            s += std::to_string(key.first) + "," + std::to_string(key.second) + ":" + v;
+        }
+        desc.setProperty("cell_valign", s);
+    }
+    if (_tableStyle.tableWrapDefaultSet) {
+        desc.setProperty("wrap_default", _tableStyle.tableWrapDefault ? "1" : "0");
+    }
+    if (!_tableStyle.cellWrap.empty()) {
+        std::string s;
+        for (const auto& [key, w] : _tableStyle.cellWrap) {
+            if (!s.empty()) s += ";";
+            s += std::to_string(key.first) + "," + std::to_string(key.second) + ":" + (w ? "1" : "0");
+        }
+        desc.setProperty("cell_wrap", s);
     }
     // Rich cell data: iterate matrix in natural order (header = _tableMatrix[0])
     for (const auto& row : _tableMatrix) {
@@ -1870,28 +2139,33 @@ void CtTableRich::apply_zoom(const double scaleFactor)
     _zoomFactor = scaleFactor;
     const size_t numRows = get_num_rows();
     const size_t numColumns = get_num_columns();
-    for (size_t c = 0u; c < numColumns; ++c) {
-        const int scaledWidth = static_cast<int>(get_col_width(c) * scaleFactor);
-        for (size_t r = 0u; r < numRows; ++r) {
+    for (size_t r = 0u; r < numRows; ++r) {
+        const int rawH    = get_row_min_height(r);
+        const int scaledH = (rawH > 0) ? int(rawH * scaleFactor) : -1;
+        for (size_t c = 0u; c < numColumns; ++c) {
+            const int scaledWidth = int(get_col_width(c) * scaleFactor);
             static_cast<CtRichCell*>(_tableMatrix[r][c])->get_text_view().mm()
-                .set_size_request(scaledWidth, -1);
+                .set_size_request(scaledWidth, scaledH);
         }
     }
 }
 
-void CtTableRich::set_col_width_default(const int colWidthDefault)
+void CtTableRich::set_col_width_default(const int colWidthDefault, bool clearOverrides)
 {
+    if (clearOverrides) {
+        std::fill(_colWidths.begin(), _colWidths.end(), 0);
+    }
     _colWidthDefault = colWidthDefault;
-    if (vec::exists(_colWidths, 0)) {
-        const int scaledWidth = static_cast<int>(colWidthDefault * _zoomFactor);
-        const size_t numRows = get_num_rows();
-        const size_t numCols = get_num_columns();
-        for (size_t r = 0u; r < numRows; ++r) {
-            for (size_t c = 0u; c < numCols; ++c) {
-                if (0u == _colWidths.at(c)) {
-                    static_cast<CtRichCell*>(_tableMatrix[r][c])->get_text_view().mm()
-                        .set_size_request(scaledWidth, -1);
-                }
+    const int scaledWidth = int(colWidthDefault * _zoomFactor);
+    const size_t numRows = get_num_rows();
+    const size_t numCols = get_num_columns();
+    for (size_t r = 0u; r < numRows; ++r) {
+        const int rawH    = get_row_min_height(r);
+        const int scaledH = (rawH > 0) ? int(rawH * _zoomFactor) : -1;
+        for (size_t c = 0u; c < numCols; ++c) {
+            if (0u == _colWidths.at(c)) {
+                static_cast<CtRichCell*>(_tableMatrix[r][c])->get_text_view().mm()
+                    .set_size_request(scaledWidth, scaledH);
             }
         }
     }
@@ -1901,11 +2175,30 @@ void CtTableRich::set_col_width(const int colWidth, std::optional<size_t> optCol
 {
     const size_t c = optColIdx.value_or(_currentColumn);
     _colWidths[c] = colWidth;
-    const int scaledWidth = static_cast<int>(colWidth * _zoomFactor);
+    const int scaledWidth = int(colWidth * _zoomFactor);
     const size_t numRows = get_num_rows();
     for (size_t r = 0u; r < numRows; ++r) {
+        const int rawH    = get_row_min_height(r);
+        const int scaledH = (rawH > 0) ? int(rawH * _zoomFactor) : -1;
         static_cast<CtRichCell*>(_tableMatrix[r][c])->get_text_view().mm()
-            .set_size_request(scaledWidth, -1);
+            .set_size_request(scaledWidth, scaledH);
+    }
+}
+
+void CtTableRich::set_row_min_height(int h, std::optional<size_t> optRowIdx)
+{
+    const size_t r = optRowIdx.value_or(_currentRow);
+    if (h > 0) {
+        _tableStyle.rowMinHeights[r] = h;
+    } else {
+        _tableStyle.rowMinHeights.erase(r);
+    }
+    const int scaledH = (h > 0) ? int(h * _zoomFactor) : -1;
+    const size_t numCols = get_num_columns();
+    for (size_t c = 0u; c < numCols; ++c) {
+        const int scaledW = int(get_col_width(c) * _zoomFactor);
+        static_cast<CtRichCell*>(_tableMatrix[r][c])->get_text_view().mm()
+            .set_size_request(scaledW, scaledH);
     }
 }
 
