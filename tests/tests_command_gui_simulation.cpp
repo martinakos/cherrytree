@@ -199,6 +199,7 @@ static void _test_rich_cell_copy_image_no_stranded_tracking(CtMainWin* pWin);
 static void _test_rich_cell_cut_image_undo_redo(CtMainWin* pWin);
 static void _test_rich_cell_image_resize_uses_original(CtMainWin* pWin);
 static void _test_rich_table_row_col_copy_paste(CtMainWin* pWin);
+static void _test_rich_table_align_and_height_tests(CtMainWin* pWin);
 
 // --- Isolated App classes, one per test group ---
 
@@ -289,6 +290,13 @@ private:
 class TestRichTableCopyPasteApp : public CtApp {
 public:
     TestRichTableCopyPasteApp() : CtApp{"_test_gui_rich_table_copy_paste"} { _no_gui = true; }
+private:
+    void on_activate() final;
+};
+
+class TestRichTableAlignApp : public CtApp {
+public:
+    TestRichTableAlignApp() : CtApp{"_test_gui_rich_table_align"} { _no_gui = true; }
 private:
     void on_activate() final;
 };
@@ -7946,6 +7954,498 @@ void TestRichTableCopyPasteApp::on_activate()
     remove_window(*pWin);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Rich Table Alignment & Row Height Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+// T1: All cells in a row should have ALIGN_FILL valign and vexpand=false,
+//     ensuring uniform row height regardless of individual cell content size.
+static void _test_rich_table_row_height_uniformity(CtMainWin* pWin)
+{
+    spdlog::info("Test: Rich table row height uniformity (ALIGN_FILL + vexpand=false)");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    // 3x3 table: row 1 cell (1,1) has much more text than others
+    std::vector<std::vector<CtCellContent>> richData(3, std::vector<CtCellContent>(3));
+    richData[1][1].textSpans.push_back(CtTextSpan{
+        "Line1\nLine2\nLine3\nLine4\nLine5\nLine6\nLine7\nLine8\nLine9\nLine10"});
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 3; ++c)
+            if (!(r == 1 && c == 1))
+                richData[r][c].textSpans.push_back(CtTextSpan{"short"});
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+    GuiEventSimulator::process_pending_events();
+
+    // Every cell should have ALIGN_FILL (fills allocated row height) and vexpand=false
+    // (does not push the grid to request more space from its parent).
+    const size_t numRows = pTable->get_num_rows();
+    const size_t numCols = pTable->get_num_columns();
+    for (size_t r = 0; r < numRows; ++r) {
+        for (size_t c = 0; c < numCols; ++c) {
+            auto* pCell = pTable->getCellAt(r, c);
+            ASSERT_TRUE(pCell);
+            auto& tv = pCell->get_text_view().mm();
+            EXPECT_EQ(Gtk::ALIGN_FILL, tv.get_valign())
+                << "Cell (" << r << "," << c << ") must have ALIGN_FILL for row uniformity";
+            EXPECT_FALSE(tv.get_vexpand())
+                << "Cell (" << r << "," << c << ") must not vexpand (would cause height feedback loop)";
+        }
+    }
+
+    // Style changes must preserve ALIGN_FILL
+    CtTableStyle style = pTable->getTableStyle();
+    style.cellVAlign[{1, 1}] = "middle";
+    pTable->setTableStyle(style);
+    GuiEventSimulator::process_pending_events();
+    for (size_t r = 0; r < numRows; ++r) {
+        for (size_t c = 0; c < numCols; ++c) {
+            auto& tv = pTable->getCellAt(r, c)->get_text_view().mm();
+            EXPECT_EQ(Gtk::ALIGN_FILL, tv.get_valign())
+                << "ALIGN_FILL must be preserved after setting cellVAlign on (1,1)";
+            EXPECT_FALSE(tv.get_vexpand())
+                << "vexpand must stay false after setting cellVAlign on (1,1)";
+        }
+    }
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    spdlog::info("  ✓ Row height uniformity passed");
+}
+
+// T2: Setting cellVAlign="middle"/"bottom" should register signal connections
+//     and reset margins to 0 first (so row height can shrink after size decrease).
+//     Setting "top"/"" should reset margins to 0.
+static void _test_rich_table_valign_margin_reset(CtMainWin* pWin)
+{
+    spdlog::info("Test: Rich table valign margin reset on style apply");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    std::vector<std::vector<CtCellContent>> richData(2, std::vector<CtCellContent>(2));
+    for (int r = 0; r < 2; ++r)
+        for (int c = 0; c < 2; ++c)
+            richData[r][c].textSpans.push_back(CtTextSpan{"text"});
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+    GuiEventSimulator::process_pending_events();
+
+    auto& tv00 = pTable->getCellAt(0, 0)->get_text_view().mm();
+    auto& tv11 = pTable->getCellAt(1, 1)->get_text_view().mm();
+
+    // Apply middle to (0,0) and bottom to (1,1): margins must be reset to 0 first
+    // (idle callback re-applies correct margins once realized — not tested here because
+    // _no_gui means widgets are never realized)
+    CtTableStyle style = pTable->getTableStyle();
+    style.cellVAlign[{0, 0}] = "middle";
+    style.cellVAlign[{1, 1}] = "bottom";
+    pTable->setTableStyle(style);
+    GuiEventSimulator::process_pending_events();
+
+    EXPECT_EQ(0, tv00.get_top_margin())
+        << "(0,0) top_margin should be 0 after setTableStyle (idle callback handles final value)";
+    EXPECT_EQ(0, tv00.get_bottom_margin())
+        << "(0,0) bottom_margin should be 0 after setTableStyle";
+    EXPECT_EQ(0, tv11.get_top_margin())
+        << "(1,1) top_margin should be 0 after setTableStyle";
+    EXPECT_EQ(0, tv11.get_bottom_margin())
+        << "(1,1) bottom_margin should be 0 after setTableStyle";
+
+    // Switching back to "top" (default) should also reset any lingering margins
+    style.cellVAlign.clear();
+    pTable->setTableStyle(style);
+    GuiEventSimulator::process_pending_events();
+
+    EXPECT_EQ(0, tv00.get_top_margin())
+        << "(0,0) top_margin should be 0 after clearing cellVAlign";
+    EXPECT_EQ(0, tv11.get_top_margin())
+        << "(1,1) top_margin should be 0 after clearing cellVAlign";
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    spdlog::info("  ✓ Valign margin reset passed");
+}
+
+// T3: Reducing rowMinHeight from 300 to 100 must apply immediately.
+//     Specifically, the set_size_request height must reflect the new value.
+static void _test_rich_table_row_height_decrease_refresh(CtMainWin* pWin)
+{
+    spdlog::info("Test: Rich table row height decrease takes effect immediately (no undo needed)");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    std::vector<std::vector<CtCellContent>> richData(2, std::vector<CtCellContent>(3));
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+    GuiEventSimulator::process_pending_events();
+
+    // Set row 0 min height to 300
+    CtTableStyle style = pTable->getTableStyle();
+    style.rowMinHeights[0] = 300;
+    pTable->setTableStyle(style);
+    GuiEventSimulator::process_pending_events();
+
+    // Verify height is 300 (at zoom=1.0 this is 300 as size_request height)
+    for (size_t c = 0; c < 3; ++c) {
+        int w, h;
+        pTable->getCellAt(0, c)->get_text_view().mm().get_size_request(w, h);
+        EXPECT_EQ(300, h)
+            << "Row 0 col " << c << " size_request height should be 300 after setting rowMinHeight";
+    }
+    // Row 1 should still be -1 (unconstrained)
+    for (size_t c = 0; c < 3; ++c) {
+        int w, h;
+        pTable->getCellAt(1, c)->get_text_view().mm().get_size_request(w, h);
+        EXPECT_EQ(-1, h)
+            << "Row 1 col " << c << " size_request height should be -1 (unconstrained)";
+    }
+
+    // Reduce row 0 min height to 100 — must apply immediately without undo/redo
+    style.rowMinHeights[0] = 100;
+    // Also test middle valign: margins must be reset to 0 first so natural height can shrink
+    style.cellVAlign[{0, 0}] = "middle";
+    pTable->setTableStyle(style);
+    GuiEventSimulator::process_pending_events();
+
+    // size_request height for row 0 must now be 100 (not still 300)
+    for (size_t c = 0; c < 3; ++c) {
+        int w, h;
+        pTable->getCellAt(0, c)->get_text_view().mm().get_size_request(w, h);
+        EXPECT_EQ(100, h)
+            << "Row 0 col " << c << " height must update to 100 immediately (margins reset to 0 first)";
+    }
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    spdlog::info("  ✓ Row height decrease refresh passed");
+}
+
+// T4: After undo of a ModifyWidget operation, all style fields (cellVAlign,
+//     cellHAlign, rowMinHeights, tableVAlignDefault, tableHAlignDefault,
+//     cellWrap, rowMinHeightDefault) must be fully restored.
+static void _test_rich_table_undo_preserves_full_style(CtMainWin* pWin)
+{
+    spdlog::info("Test: Undo restores full table style (align, wrap, row heights)");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+    auto docModel = pBridge->getDocumentModel();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+    gint64 nodeId = pWin->curr_tree_iter().get_node_id();
+
+    std::vector<std::vector<CtCellContent>> richData(2, std::vector<CtCellContent>(2));
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+    const int charOffset = pTable->getOffset();
+    GuiEventSimulator::process_pending_events();
+
+    // Build a richly styled state to be the "before" snapshot
+    CtTableStyle origStyle = pTable->getTableStyle();
+    origStyle.tableVAlignDefault = "middle";
+    origStyle.tableHAlignDefault = "center";
+    origStyle.cellVAlign[{0, 0}] = "bottom";
+    origStyle.cellHAlign[{1, 1}] = "right";
+    origStyle.cellWrap[{0, 1}]   = true;
+    origStyle.rowMinHeightDefault = 50;
+    origStyle.rowMinHeights[1]   = 120;
+    pTable->setTableStyle(origStyle);
+    GuiEventSimulator::process_pending_events();
+
+    // Capture old descriptor (with the full style encoded)
+    auto node = docModel->getNodeById(nodeId);
+    ASSERT_TRUE(node);
+    auto oldDesc = extractWidgetDesc(pTable, charOffset);
+    node->getContent().replaceWidget(charOffset, oldDesc);
+
+    // Simulate a modification (add a row) and build newDesc
+    pTable->row_add(0);
+    auto newDesc = extractWidgetDesc(pTable, charOffset);
+    auto cmd = std::make_unique<ModifyWidgetDeltaCommand>(
+        docModel, nodeId, charOffset, oldDesc, newDesc, "Test row add");
+    pBridge->addCommandToStack(std::move(cmd));
+    node->getContent().replaceWidget(charOffset, newDesc);
+    GuiEventSimulator::process_pending_events();
+
+    // Verify modification took effect
+    pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+    ASSERT_EQ(3u, pTable->get_num_rows()) << "T4: table should have 3 rows after row_add";
+
+    // Undo: table is reconstructed from oldDesc via buildBufferFromContent
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+    ASSERT_EQ(2u, pTable->get_num_rows()) << "T4: undo should restore 2-row table";
+
+    // Verify all style fields were restored
+    const CtTableStyle& restored = pTable->getTableStyle();
+    EXPECT_EQ("middle",  restored.tableVAlignDefault) << "T4: tableVAlignDefault not restored";
+    EXPECT_EQ("center",  restored.tableHAlignDefault) << "T4: tableHAlignDefault not restored";
+    ASSERT_TRUE(restored.cellVAlign.count({0, 0})) << "T4: cellVAlign (0,0) missing after undo";
+    EXPECT_EQ("bottom",  restored.cellVAlign.at({0, 0})) << "T4: cellVAlign (0,0) value wrong";
+    ASSERT_TRUE(restored.cellHAlign.count({1, 1})) << "T4: cellHAlign (1,1) missing after undo";
+    EXPECT_EQ("right",   restored.cellHAlign.at({1, 1})) << "T4: cellHAlign (1,1) value wrong";
+    ASSERT_TRUE(restored.cellWrap.count({0, 1})) << "T4: cellWrap (0,1) missing after undo";
+    EXPECT_TRUE(restored.cellWrap.at({0, 1})) << "T4: cellWrap (0,1) value wrong";
+    EXPECT_EQ(50,  restored.rowMinHeightDefault) << "T4: rowMinHeightDefault not restored";
+    ASSERT_TRUE(restored.rowMinHeights.count(1)) << "T4: rowMinHeights[1] missing after undo";
+    EXPECT_EQ(120, restored.rowMinHeights.at(1)) << "T4: rowMinHeights[1] value wrong";
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    spdlog::info("  ✓ Undo preserves full table style passed");
+}
+
+// T5: Copying a column then pasting it carries cellHAlign, cellVAlign, cellWrap
+//     to the newly inserted column.
+static void _test_rich_table_col_copy_paste_carries_alignment(CtMainWin* pWin)
+{
+    spdlog::info("Test: Column copy-paste carries cellHAlign, cellVAlign, cellWrap");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    auto resetState = [&]() {
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        while (pBridge->canRedo()) pActions->requested_step_ahead();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        GuiEventSimulator::process_pending_events();
+    };
+
+    auto activateTable = [&](CtTableRich* t, size_t row, size_t col) {
+        gint64 nodeId = pWin->curr_tree_iter().get_node_id();
+        pBridge->endWidgetEdit();
+        pActions->curr_table_anchor = t;
+        t->set_current_row_column(row, col);
+        pWin->curr_buffer()->place_cursor(pWin->curr_buffer()->get_iter_at_offset(t->getOffset()));
+        pBridge->beginWidgetEdit(nodeId, t, static_cast<int>(row), static_cast<int>(col));
+        GuiEventSimulator::process_pending_events();
+    };
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+    resetState();
+
+    // 3×2 table
+    std::vector<std::vector<CtCellContent>> richData(3, std::vector<CtCellContent>(2));
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 2; ++c)
+            richData[r][c].textSpans.push_back(CtTextSpan{"r" + std::to_string(r) + "c" + std::to_string(c)});
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+
+    // Style col 0: per-cell halign right for row 0, valign bottom for row 1, wrap true for row 2
+    CtTableStyle style = pTable->getTableStyle();
+    style.cellHAlign[{0, 0}] = "right";
+    style.cellVAlign[{1, 0}] = "bottom";
+    style.cellWrap [{2, 0}] = true;
+    pTable->setTableStyle(style);
+    GuiEventSimulator::process_pending_events();
+
+    // Copy column 0
+    activateTable(pTable, 0, 0);
+    pActions->table_column_copy();
+    GuiEventSimulator::process_pending_events();
+
+    // Paste after column 1 → new column at index 2
+    activateTable(pTable, 0, 1);
+    pActions->table_column_paste();
+    GuiEventSimulator::process_pending_events();
+
+    pBridge->endWidgetEdit();
+    GuiEventSimulator::process_pending_events();
+
+    auto* rt = findFirstRichTable(pWin);
+    ASSERT_TRUE(rt);
+    ASSERT_EQ(3u, rt->get_num_columns()) << "T5: table should have 3 cols after paste";
+
+    const CtTableStyle& dstStyle = rt->getTableStyle();
+    // New column is at index 2; alignment should match original col 0
+    ASSERT_TRUE(dstStyle.cellHAlign.count({0, 2})) << "T5: cellHAlign (0,2) should be present";
+    EXPECT_EQ("right",  dstStyle.cellHAlign.at({0, 2})) << "T5: cellHAlign (0,2) should be 'right'";
+    ASSERT_TRUE(dstStyle.cellVAlign.count({1, 2})) << "T5: cellVAlign (1,2) should be present";
+    EXPECT_EQ("bottom", dstStyle.cellVAlign.at({1, 2})) << "T5: cellVAlign (1,2) should be 'bottom'";
+    ASSERT_TRUE(dstStyle.cellWrap.count({2, 2})) << "T5: cellWrap (2,2) should be present";
+    EXPECT_TRUE(dstStyle.cellWrap.at({2, 2})) << "T5: cellWrap (2,2) should be true";
+
+    // Original column 0 must be unchanged
+    ASSERT_TRUE(dstStyle.cellHAlign.count({0, 0})) << "T5: original cellHAlign (0,0) missing";
+    EXPECT_EQ("right",  dstStyle.cellHAlign.at({0, 0})) << "T5: original col 0 cellHAlign must be unchanged";
+
+    resetState();
+    spdlog::info("  ✓ Column paste carries alignment passed");
+}
+
+// T6: Copying a row then pasting it carries cellHAlign, cellVAlign, cellWrap.
+//     The pasted row must not alter column widths.
+static void _test_rich_table_row_copy_paste_carries_alignment_and_preserves_widths(CtMainWin* pWin)
+{
+    spdlog::info("Test: Row copy-paste carries alignment and preserves column widths");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    auto resetState = [&]() {
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        while (pBridge->canRedo()) pActions->requested_step_ahead();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        GuiEventSimulator::process_pending_events();
+    };
+
+    auto activateTable = [&](CtTableRich* t, size_t row, size_t col) {
+        gint64 nodeId = pWin->curr_tree_iter().get_node_id();
+        pBridge->endWidgetEdit();
+        pActions->curr_table_anchor = t;
+        t->set_current_row_column(row, col);
+        pWin->curr_buffer()->place_cursor(pWin->curr_buffer()->get_iter_at_offset(t->getOffset()));
+        pBridge->beginWidgetEdit(nodeId, t, static_cast<int>(row), static_cast<int>(col));
+        GuiEventSimulator::process_pending_events();
+    };
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+    resetState();
+
+    // 2×3 table with distinct per-column widths
+    std::vector<std::vector<CtCellContent>> richData(2, std::vector<CtCellContent>(3));
+    for (int r = 0; r < 2; ++r)
+        for (int c = 0; c < 3; ++c)
+            richData[r][c].textSpans.push_back(CtTextSpan{"r" + std::to_string(r) + "c" + std::to_string(c)});
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+
+    // Set distinct widths for each column (60, 90, 120) and style row 0
+    CtTableStyle style = pTable->getTableStyle();
+    // Use col_widths via the colWidths directly
+    pTable->set_col_width(60, 0);
+    pTable->set_col_width(90, 1);
+    pTable->set_col_width(120, 2);
+    GuiEventSimulator::process_pending_events();
+
+    // Per-cell alignment on row 0
+    style.cellHAlign[{0, 0}] = "center";
+    style.cellVAlign[{0, 1}] = "middle";
+    style.cellWrap [{0, 2}] = true;
+    pTable->setTableStyle(style);
+    GuiEventSimulator::process_pending_events();
+
+    // Capture column widths before paste
+    const auto widthsBefore = captureAllCellSizeRequestWidths(pTable);
+
+    // Copy row 0
+    activateTable(pTable, 0, 0);
+    pActions->table_row_copy();
+    GuiEventSimulator::process_pending_events();
+
+    // Paste after row 1 → new row at index 2
+    activateTable(pTable, 1, 0);
+    pActions->table_row_paste();
+    GuiEventSimulator::process_pending_events();
+
+    pBridge->endWidgetEdit();
+    GuiEventSimulator::process_pending_events();
+
+    auto* rt = findFirstRichTable(pWin);
+    ASSERT_TRUE(rt);
+    ASSERT_EQ(3u, rt->get_num_rows()) << "T6: table should have 3 rows after paste";
+
+    const CtTableStyle& dstStyle = rt->getTableStyle();
+
+    // New row at index 2 should have copied alignment from row 0
+    ASSERT_TRUE(dstStyle.cellHAlign.count({2, 0})) << "T6: cellHAlign (2,0) should be present";
+    EXPECT_EQ("center", dstStyle.cellHAlign.at({2, 0})) << "T6: cellHAlign (2,0) should be 'center'";
+    ASSERT_TRUE(dstStyle.cellVAlign.count({2, 1})) << "T6: cellVAlign (2,1) should be present";
+    EXPECT_EQ("middle", dstStyle.cellVAlign.at({2, 1})) << "T6: cellVAlign (2,1) should be 'middle'";
+    ASSERT_TRUE(dstStyle.cellWrap.count({2, 2})) << "T6: cellWrap (2,2) should be present";
+    EXPECT_TRUE(dstStyle.cellWrap.at({2, 2})) << "T6: cellWrap (2,2) should be true";
+
+    // Column widths must be unchanged after paste (pasting a row must not affect col widths)
+    // Check original rows 0 and 1 (the new row 2 uses the same column widths)
+    for (size_t c = 0; c < 3; ++c) {
+        int w, h;
+        rt->getCellAt(0, c)->get_text_view().mm().get_size_request(w, h);
+        EXPECT_EQ(widthsBefore[0][c], w)
+            << "T6: col " << c << " width changed after row paste (row 0)";
+        rt->getCellAt(1, c)->get_text_view().mm().get_size_request(w, h);
+        EXPECT_EQ(widthsBefore[1][c], w)
+            << "T6: col " << c << " width changed after row paste (row 1)";
+    }
+
+    resetState();
+    spdlog::info("  ✓ Row paste carries alignment and preserves widths passed");
+}
+
+static void _test_rich_table_align_and_height_tests(CtMainWin* pWin)
+{
+    _test_rich_table_row_height_uniformity(pWin);
+    _test_rich_table_valign_margin_reset(pWin);
+    _test_rich_table_row_height_decrease_refresh(pWin);
+    _test_rich_table_undo_preserves_full_style(pWin);
+    _test_rich_table_col_copy_paste_carries_alignment(pWin);
+    _test_rich_table_row_copy_paste_carries_alignment_and_preserves_widths(pWin);
+}
+
+void TestRichTableAlignApp::on_activate()
+{
+    _on_startup();
+    CtMainWin* pWin = _create_window(true/*start_hidden*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+    pWin->show_all();
+    pWin->hide();
+    GuiEventSimulator::process_pending_events();
+
+    _test_rich_table_align_and_height_tests(pWin);
+
+    pWin->force_exit() = true;
+    remove_window(*pWin);
+}
+
 // --- Helper to flush pending GTK events after each TEST ---
 static void flush_gtk_events()
 {
@@ -8106,6 +8606,18 @@ TEST(CommandGuiSimulationTests, RichTableCopyPasteTests)
 {
     g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
     TestRichTableCopyPasteApp app;
+    const std::vector<std::string> vecArgs{"cherrytree"};
+    gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
+    const int ret_val = app.run(vecArgs.size(), pp_args);
+    g_strfreev(pp_args);
+    ASSERT_EQ(0, ret_val);
+    flush_gtk_events();
+}
+
+TEST(CommandGuiSimulationTests, RichTableAlignTests)
+{
+    g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
+    TestRichTableAlignApp app;
     const std::vector<std::string> vecArgs{"cherrytree"};
     gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
     const int ret_val = app.run(vecArgs.size(), pp_args);

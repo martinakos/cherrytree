@@ -28,6 +28,7 @@
 #include "ct_node_content.h"
 #include <optional>
 #include <map>
+#include <memory>
 #include <set>
 
 struct CtTableStyle {
@@ -43,6 +44,26 @@ struct CtTableStyle {
     // Higher sequence = more recent operation; used to resolve shared-edge priority.
     std::map<std::pair<size_t,size_t>, size_t> cellBorderSeq;
     size_t borderSeqCounter{0};
+
+    // Row heights (minimum, unzoomed; 0 = natural).
+    int rowMinHeightDefault{0};
+    std::map<size_t, int> rowMinHeights;
+
+    // Horizontal / vertical text alignment (empty = "left" / "top").
+    std::string tableHAlignDefault;
+    std::string tableVAlignDefault;
+    std::map<std::pair<size_t,size_t>, std::string> cellHAlign;
+    std::map<std::pair<size_t,size_t>, std::string> cellVAlign;
+
+    // Word-wrap per cell. tableWrapDefaultSet == false means "use global lineWrapping".
+    bool tableWrapDefault{false};
+    bool tableWrapDefaultSet{false};
+    std::map<std::pair<size_t,size_t>, bool> cellWrap;
+
+    // Transient pending column-width change from the properties dialog (not serialized).
+    int  pendingColWidthVal{-1};
+    bool pendingColWidthTable{false};
+    size_t pendingColWidthIdx{0};
 
     void remapAfterRowDelete(size_t row);
     void remapAfterRowInsert(size_t afterRow);
@@ -78,6 +99,10 @@ public:
     int get_col_width(const std::optional<size_t> optColIdx = std::nullopt) const {
         const size_t colIdx = optColIdx.value_or(_currentColumn);
         return _colWidths.at(colIdx) != 0 ? _colWidths.at(colIdx) : _colWidthDefault;
+    }
+    int get_row_min_height(const size_t rowIdx) const {
+        const auto it = _tableStyle.rowMinHeights.find(rowIdx);
+        return (it != _tableStyle.rowMinHeights.end()) ? it->second : _tableStyle.rowMinHeightDefault;
     }
     CtTableColWidths get_col_widths() const {
         CtTableColWidths colWidths;
@@ -123,7 +148,7 @@ public:
 
     virtual void apply_zoom(const double scaleFactor) = 0;
 
-    virtual void set_col_width_default(const int colWidthDefault) = 0;
+    virtual void set_col_width_default(const int colWidthDefault, bool clearOverrides = false) = 0;
     virtual void set_col_width(const int colWidth, std::optional<size_t> optColIdx = std::nullopt) = 0;
 
     virtual void grab_focus() const = 0;
@@ -215,7 +240,7 @@ public:
 
     void apply_zoom(const double scaleFactor) override;
 
-    void set_col_width_default(const int colWidthDefault) override;
+    void set_col_width_default(const int colWidthDefault, bool clearOverrides = false) override;
     void set_col_width(const int colWidth, std::optional<size_t> optColIdx = std::nullopt) override;
 
     void grab_focus() const override;
@@ -288,7 +313,7 @@ public:
 
     void apply_zoom(const double scaleFactor) override;
 
-    void set_col_width_default(const int colWidthDefault) override;
+    void set_col_width_default(const int colWidthDefault, bool clearOverrides = false) override;
     void set_col_width(const int colWidth, std::optional<size_t> optColIdx = std::nullopt) override;
 
     void grab_focus() const override;
@@ -391,8 +416,9 @@ public:
 
     void apply_zoom(const double scaleFactor) override;
 
-    void set_col_width_default(const int colWidthDefault) override;
+    void set_col_width_default(const int colWidthDefault, bool clearOverrides = false) override;
     void set_col_width(const int colWidth, std::optional<size_t> optColIdx = std::nullopt) override;
+    void set_row_min_height(int h, std::optional<size_t> optRowIdx = std::nullopt);
 
     void grab_focus() const override;
     void exit_cell_edit() const override {}
@@ -406,6 +432,7 @@ public:
 protected:
     void _new_rich_cell_attach(const size_t rowIdx, const size_t colIdx, CtRichCell* pCell);
     void _apply_remove_header_style(const bool isApply, CtTextView& textView);
+    void _apply_wrap_for_cell(size_t r, size_t c, Gtk::TextView& tv);
     void _applyTableStyle() override;
 
     bool _row_sort(const bool sortAsc) override;
@@ -416,4 +443,9 @@ protected:
     CtTableMatrix _tableMatrix;
     Gtk::Grid     _grid;
     Glib::RefPtr<Gtk::CssProvider> _rCssProviderTableStyle;
+    std::vector<sigc::connection> _vAlignConnections;
+    // Alive sentinels: one shared_ptr per middle/bottom cell created each _applyTableStyle.
+    // Cleared first in destruction order; weak_ptrs in closures check expiry before
+    // using pRichCell, preventing use-after-free when idle/signal callbacks outlive the table.
+    std::vector<std::shared_ptr<bool>> _vAlignGuards;
 };

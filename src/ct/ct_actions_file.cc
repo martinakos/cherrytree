@@ -308,6 +308,7 @@ void CtActions::preferences_import()
     _pCtConfig->tableRows = ctConfigImported.tableRows;
     _pCtConfig->tableColumns = ctConfigImported.tableColumns;
     _pCtConfig->tableColWidthDefault = ctConfigImported.tableColWidthDefault;
+    _pCtConfig->tableRowHeightDefault = ctConfigImported.tableRowHeightDefault;
     _pCtConfig->tableCellsGoLight = ctConfigImported.tableCellsGoLight;
     _pCtConfig->rtFont = ctConfigImported.rtFont;
     _pCtConfig->ptFont = ctConfigImported.ptFont;
