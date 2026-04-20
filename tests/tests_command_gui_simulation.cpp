@@ -199,6 +199,7 @@ static void _test_rich_cell_copy_image_no_stranded_tracking(CtMainWin* pWin);
 static void _test_rich_cell_cut_image_undo_redo(CtMainWin* pWin);
 static void _test_rich_cell_image_resize_uses_original(CtMainWin* pWin);
 static void _test_rich_table_row_col_copy_paste(CtMainWin* pWin);
+static void _test_rich_table_latex_follows_cell_halign(CtMainWin* pWin);
 static void _test_rich_table_align_and_height_tests(CtMainWin* pWin);
 
 // --- Isolated App classes, one per test group ---
@@ -8420,6 +8421,77 @@ static void _test_rich_table_row_copy_paste_carries_alignment_and_preserves_widt
     spdlog::info("  ✓ Row paste carries alignment and preserves widths passed");
 }
 
+static void _test_rich_table_latex_follows_cell_halign(CtMainWin* pWin)
+{
+    spdlog::info("Test: LaTeX in rich cell inherits cell halign on insert and tracks alignment changes");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    auto resetState = [&]() {
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        while (pBridge->canRedo()) pActions->requested_step_ahead();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        GuiEventSimulator::process_pending_events();
+    };
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+    resetState();
+
+    // Create a 1×1 rich table with center halign
+    std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+
+    CtTableStyle style = pTable->getTableStyle();
+    style.cellHAlign[{0, 0}] = "center";
+    pTable->setTableStyle(style);
+    GuiEventSimulator::process_pending_events();
+
+    ASSERT_EQ(Gtk::JUSTIFY_CENTER, pTable->getRichCell(0, 0)->get_text_view().mm().get_justification());
+
+    // Insert LaTeX via the action path with empty justification — must derive "center"
+    pActions->curr_table_anchor = pTable;
+    auto mainBuffer = pWin->curr_buffer();
+    mainBuffer->place_cursor(mainBuffer->get_iter_at_offset(pTable->getOffset()));
+    pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+    auto cellBuf = pTable->get_buffer(0, 0);
+    cellBuf->place_cursor(cellBuf->end());
+    GuiEventSimulator::process_pending_events();
+
+    pActions->image_insert_latex(mainBuffer->get_insert()->get_iter(), "x^2", "");
+    GuiEventSimulator::process_pending_events();
+
+    CtRichCell* cell = pTable->getRichCell(0, 0);
+    ASSERT_TRUE(cell);
+    CtImageLatex* foundLatex = nullptr;
+    for (auto* emb : cell->getEmbeddedWidgets()) {
+        if (auto* l = dynamic_cast<CtImageLatex*>(emb)) { foundLatex = l; break; }
+    }
+    ASSERT_TRUE(foundLatex) << "LaTeX widget not found in cell after insert";
+    EXPECT_EQ(std::string{"center"}, foundLatex->getJustification())
+        << "LaTeX should inherit 'center' alignment from cell on insert";
+
+    // Change cell alignment to right — _applyTableStyle must sync the widget tag
+    style.cellHAlign[{0, 0}] = "right";
+    pTable->setTableStyle(style);
+    GuiEventSimulator::process_pending_events();
+
+    EXPECT_EQ(std::string{"right"}, foundLatex->getJustification())
+        << "LaTeX justification should update to 'right' when cell alignment changes";
+
+    resetState();
+    spdlog::info("  ✓ LaTeX follows cell horizontal alignment");
+}
+
 static void _test_rich_table_align_and_height_tests(CtMainWin* pWin)
 {
     _test_rich_table_row_height_uniformity(pWin);
@@ -8428,6 +8500,7 @@ static void _test_rich_table_align_and_height_tests(CtMainWin* pWin)
     _test_rich_table_undo_preserves_full_style(pWin);
     _test_rich_table_col_copy_paste_carries_alignment(pWin);
     _test_rich_table_row_copy_paste_carries_alignment_and_preserves_widths(pWin);
+    _test_rich_table_latex_follows_cell_halign(pWin);
 }
 
 void TestRichTableAlignApp::on_activate()
