@@ -374,7 +374,8 @@ private:
                             Glib::RefPtr<Gdk::Pixbuf> rOrigPixbuf = Glib::RefPtr<Gdk::Pixbuf>{});
     void _latex_edit_dialog(const Glib::ustring& latex_text,
                             Gtk::TextIter insertIter,
-                            Gtk::TextIter* pIterBound);
+                            Gtk::TextIter* pIterBound,
+                            CtRichCell* pRichCell = nullptr);
     void _text_selection_change_case(gchar change_type);
     int  _find_previous_indent_margin(Glib::RefPtr<Gtk::TextBuffer> text_buffer = Glib::RefPtr<Gtk::TextBuffer>{});
     void _apply_tag_hN(const char* tagPropScaleVal);

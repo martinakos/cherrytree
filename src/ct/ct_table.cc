@@ -1621,6 +1621,26 @@ void CtTableRich::_applyTableStyle()
                 if      (h == "center") tv.set_justification(Gtk::JUSTIFY_CENTER);
                 else if (h == "right")  tv.set_justification(Gtk::JUSTIFY_RIGHT);
                 else                    tv.set_justification(Gtk::JUSTIFY_LEFT);
+
+                // Sync justification tags on embedded widgets so they follow the cell
+                // alignment instead of keeping stale explicit tags (e.g. "left") that
+                // would override the text view's default justification.
+                const std::string effectiveH = h.empty() ? std::string{CtConst::TAG_PROP_VAL_LEFT} : h;
+                auto cellBuffer = pCell->get_buffer();
+                for (auto* emb : pCell->getEmbeddedWidgets()) {
+                    auto anchor = emb->getTextChildAnchor();
+                    if (!anchor) continue;
+                    Gtk::TextIter iterStart = cellBuffer->get_iter_at_child_anchor(anchor);
+                    Gtk::TextIter iterEnd = iterStart;
+                    iterEnd.forward_char();
+                    for (const auto& alignType : CtConst::TAG_ALIGNMENTS) {
+                        const std::string tagName = _pCtMainWin->get_text_tag_name_exist_or_create(CtConst::TAG_JUSTIFICATION, alignType);
+                        cellBuffer->remove_tag_by_name(tagName, iterStart, iterEnd);
+                    }
+                    const std::string newTagName = _pCtMainWin->get_text_tag_name_exist_or_create(CtConst::TAG_JUSTIFICATION, effectiveH);
+                    cellBuffer->apply_tag_by_name(newTagName, iterStart, iterEnd);
+                    emb->updateJustification(effectiveH);
+                }
             }
 
             // ALIGN_FILL makes every cell fill the row's allocated height (= tallest
