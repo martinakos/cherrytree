@@ -1238,12 +1238,41 @@ void CtActions::strip_trailing_spaces()
 // Insert/Edit LatexBox Dialog
 void CtActions:: _latex_edit_dialog(const Glib::ustring& latex_text,
                                     Gtk::TextIter insert_iter,
-                                    Gtk::TextIter* pIterBound)
+                                    Gtk::TextIter* pIterBound,
+                                    CtRichCell* pRichCell)
 {
     const Glib::ustring ret_latex_text = CtDialogs::latex_handle_dialog(_pCtMainWin, latex_text);
     if (ret_latex_text.empty()) return;
     Glib::ustring image_justification;
     if (pIterBound) { // only in case of modify
+        if (pRichCell) {
+            auto pBridge = _pCtMainWin->get_command_bridge();
+            auto cellBuffer = pRichCell->get_buffer();
+            const int image_offset = insert_iter.get_offset();
+            const Gtk::Justification tvJust = pRichCell->get_text_view().mm().get_justification();
+            if      (tvJust == Gtk::JUSTIFY_CENTER) image_justification = CtConst::TAG_PROP_VAL_CENTER;
+            else if (tvJust == Gtk::JUSTIFY_RIGHT)  image_justification = CtConst::TAG_PROP_VAL_RIGHT;
+            else if (tvJust == Gtk::JUSTIFY_FILL)   image_justification = CtConst::TAG_PROP_VAL_FILL;
+            else                                     image_justification = CtConst::TAG_PROP_VAL_LEFT;
+            if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+                pBridge->cancelRichCellSession();
+            }
+            CtAnchoredWidget* pOldWidget = curr_latex_anchor;
+            cellBuffer->erase(insert_iter, *pIterBound);
+            pRichCell->removeEmbeddedWidget(pOldWidget);
+            delete pOldWidget;
+            curr_latex_anchor = nullptr;
+            insert_iter = cellBuffer->get_iter_at_offset(image_offset);
+            auto* pWidget = new CtImageLatex{_pCtMainWin, ret_latex_text, image_offset,
+                                             image_justification, CtImageEmbFile::get_next_unique_id()};
+            pWidget->insertInTextBuffer(cellBuffer);
+            pRichCell->addEmbeddedWidget(pWidget);
+            curr_latex_anchor = static_cast<CtImageLatex*>(pWidget);
+            if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+                pBridge->commitRichCellFormatChange("Edit LaTeX");
+            }
+            return;
+        }
         image_justification = CtTextIterUtil::get_text_iter_alignment(insert_iter, _pCtMainWin);
         int image_offset = insert_iter.get_offset();
         _curr_buffer()->erase(insert_iter, *pIterBound);
@@ -1268,8 +1297,17 @@ void CtActions::image_insert_latex(Gtk::TextIter iter_insert,
             auto cellBuffer = pCell->get_buffer();
             const int cellCharOffset = cellBuffer->get_insert()->get_iter().get_offset();
             pBridge->cancelRichCellSession();
+            // Use cell's horizontal alignment so the LaTeX respects the cell's alignment setting
+            Glib::ustring effectiveJust = justification;
+            if (effectiveJust.empty()) {
+                const Gtk::Justification tvJust = pCell->get_text_view().mm().get_justification();
+                if      (tvJust == Gtk::JUSTIFY_CENTER) effectiveJust = CtConst::TAG_PROP_VAL_CENTER;
+                else if (tvJust == Gtk::JUSTIFY_RIGHT)  effectiveJust = CtConst::TAG_PROP_VAL_RIGHT;
+                else if (tvJust == Gtk::JUSTIFY_FILL)   effectiveJust = CtConst::TAG_PROP_VAL_FILL;
+                else                                     effectiveJust = CtConst::TAG_PROP_VAL_LEFT;
+            }
             auto* pWidget = new CtImageLatex{_pCtMainWin, latex_text, cellCharOffset,
-                                             justification, CtImageEmbFile::get_next_unique_id()};
+                                             effectiveJust, CtImageEmbFile::get_next_unique_id()};
             pWidget->insertInTextBuffer(cellBuffer);
             pCell->addEmbeddedWidget(pWidget);
             pBridge->commitRichCellFormatChange("Insert LaTeX");

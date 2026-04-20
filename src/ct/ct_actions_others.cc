@@ -255,6 +255,30 @@ void CtActions::latex_save()
 void CtActions::latex_edit()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+    for (auto* w = curr_latex_anchor->get_parent(); w; w = w->get_parent()) {
+        if (auto* pTable = dynamic_cast<CtTableRich*>(w)) {
+            for (size_t r = 0; r < pTable->get_num_rows(); ++r) {
+                for (size_t c = 0; c < pTable->get_num_columns(); ++c) {
+                    CtRichCell* cell = pTable->getRichCell(r, c);
+                    for (auto* emb : cell->getEmbeddedWidgets()) {
+                        if (emb == curr_latex_anchor) {
+                            auto pBridge = _pCtMainWin->get_command_bridge();
+                            if (pBridge && pBridge->isActive()) {
+                                gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+                                pBridge->beginWidgetEdit(nodeId, pTable, r, c);
+                            }
+                            auto cellBuffer = cell->get_buffer();
+                            Gtk::TextIter iter_insert = cellBuffer->get_iter_at_child_anchor(curr_latex_anchor->getTextChildAnchor());
+                            Gtk::TextIter iter_bound = iter_insert;
+                            iter_bound.forward_char();
+                            _latex_edit_dialog(curr_latex_anchor->get_latex_text(), iter_insert, &iter_bound, cell);
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    }
     Gtk::TextIter iter_insert = _curr_buffer()->get_iter_at_child_anchor(curr_latex_anchor->getTextChildAnchor());
     Gtk::TextIter iter_bound = iter_insert;
     iter_bound.forward_char();
