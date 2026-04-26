@@ -300,6 +300,11 @@ CtMainWin::CtMainWin(bool                            no_gui,
     g_signal_connect(G_OBJECT(_ctTextview.gobj()), "cut-clipboard", G_CALLBACK(CtClipboard::on_cut_clipboard), _uCtPairCodeboxMainWin.get());
     g_signal_connect(G_OBJECT(_ctTextview.gobj()), "copy-clipboard", G_CALLBACK(CtClipboard::on_copy_clipboard), _uCtPairCodeboxMainWin.get());
     g_signal_connect(G_OBJECT(_ctTextview.gobj()), "paste-clipboard", G_CALLBACK(CtClipboard::on_paste_clipboard), _uCtPairCodeboxMainWin.get());
+#if GTKMM_MAJOR_VERSION < 4
+    // g_signal_connect runs BEFORE the default handler, so returning TRUE for middle-click
+    // suppresses GtkTextView's built-in PRIMARY paste (which would bypass our undo tracking).
+    g_signal_connect(G_OBJECT(_ctTextview.gobj()), "button-press-event", G_CALLBACK(CtClipboard::on_button_press_event), _uCtPairCodeboxMainWin.get());
+#endif
 
 #if GTKMM_MAJOR_VERSION < 4
     signal_key_press_event().connect(sigc::mem_fun(*this, &CtMainWin::_on_window_key_press_event), false);

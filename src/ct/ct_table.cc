@@ -1155,6 +1155,11 @@ CtRichCell::CtRichCell(CtMainWin* pCtMainWin, const CtCellContent& content)
     g_signal_connect(G_OBJECT(tv.gobj()), "cut-clipboard",   G_CALLBACK(CtClipboard::on_cut_clipboard),   _uClipboardPair.get());
     g_signal_connect(G_OBJECT(tv.gobj()), "copy-clipboard",  G_CALLBACK(CtClipboard::on_copy_clipboard),  _uClipboardPair.get());
     g_signal_connect(G_OBJECT(tv.gobj()), "paste-clipboard", G_CALLBACK(CtClipboard::on_paste_clipboard), _uClipboardPair.get());
+#if GTKMM_MAJOR_VERSION < 4
+    // Intercept middle-click PRIMARY paste before GtkTextView's default handler so the
+    // paste goes through our undo-tracked path instead of inserting directly into the buffer.
+    g_signal_connect(G_OBJECT(tv.gobj()), "button-press-event", G_CALLBACK(CtClipboard::on_button_press_event), _uClipboardPair.get());
+#endif
 }
 
 CtRichCell::~CtRichCell()

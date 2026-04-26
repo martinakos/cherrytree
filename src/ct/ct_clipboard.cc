@@ -77,7 +77,48 @@ CtClipboard::CtClipboard(CtMainWin* pCtMainWin)
 {
     CtPairCodeboxMainWin& ctPairCodeboxMainWin = *static_cast<CtPairCodeboxMainWin*>(pCtPairCodeboxMainWin);
     auto clipb = CtClipboard{ctPairCodeboxMainWin.second};
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
+    g_signal_stop_emission_by_name(G_OBJECT(pTextView), "paste-clipboard");
+    clipb._paste_clipboard(Glib::wrap(pTextView), ctPairCodeboxMainWin.first, Gtk::Clipboard::get());
+#else
     clipb._paste_clipboard(Glib::wrap(pTextView), ctPairCodeboxMainWin.first);
+#endif
+}
+
+void CtClipboard::paste_from_primary(Gtk::TextView* pTextView, CtCodebox* pCodebox)
+{
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
+    _paste_clipboard(pTextView, pCodebox, Gtk::Clipboard::get(GDK_SELECTION_PRIMARY));
+#else
+    (void)pTextView; (void)pCodebox;
+#endif
+}
+
+void CtClipboard::paste_primary_at_click(Gtk::TextView* pTextView, int event_x, int event_y, CtCodebox* pCodebox)
+{
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
+    int x, y;
+    pTextView->window_to_buffer_coords(Gtk::TEXT_WINDOW_TEXT, event_x, event_y, x, y);
+    Gtk::TextIter text_iter;
+    pTextView->get_iter_at_location(text_iter, x, y);
+    pTextView->get_buffer()->place_cursor(text_iter);
+    pTextView->grab_focus();
+    paste_from_primary(pTextView, pCodebox);
+#else
+    (void)pTextView; (void)event_x; (void)event_y; (void)pCodebox;
+#endif
+}
+
+/*static*/gboolean CtClipboard::on_button_press_event(GtkWidget* pWidget, GdkEventButton* event, gpointer pCtPairCodeboxMainWin)
+{
+    if (event->type != GDK_BUTTON_PRESS or event->button != 2) {
+        return FALSE;
+    }
+    CtPairCodeboxMainWin& pair = *static_cast<CtPairCodeboxMainWin*>(pCtPairCodeboxMainWin);
+    auto clipb = CtClipboard{pair.second};
+    auto* pTextView = Glib::wrap(GTK_TEXT_VIEW(pWidget));
+    clipb.paste_primary_at_click(pTextView, (int)event->x, (int)event->y, pair.first);
+    return TRUE;
 }
 
 // Cut to Clipboard
@@ -173,16 +214,13 @@ void CtClipboard::_copy_clipboard(Gtk::TextView* pTextView, CtCodebox* pCodebox)
 }
 
 // Paste from Clipboard
-void CtClipboard::_paste_clipboard(Gtk::TextView* pTextView, CtCodebox* pCodebox)
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
+void CtClipboard::_paste_clipboard(Gtk::TextView* pTextView, CtCodebox* pCodebox, Glib::RefPtr<Gtk::Clipboard> pClipboard)
 {
     auto on_scope_exit = scope_guard([&](void*) { CtClipboard::_static_force_plain_text = false; });
-#if GTKMM_MAJOR_VERSION >= 4
-    (void)pTextView; (void)pCodebox; return;
-#else
-    g_signal_stop_emission_by_name(G_OBJECT(pTextView->gobj()), "paste-clipboard");
     if (_pCtMainWin->curr_tree_iter().get_node_read_only())
         return;
-    std::vector<Glib::ustring> targets = Gtk::Clipboard::get()->wait_for_targets();
+    std::vector<Glib::ustring> targets = pClipboard->wait_for_targets();
     if (targets.empty())
         return;
     auto text_buffer = pTextView->get_buffer();
@@ -255,9 +293,15 @@ void CtClipboard::_paste_clipboard(Gtk::TextView* pTextView, CtCodebox* pCodebox
         return;
     };
     auto receive_fun = sigc::bind(target_fun, _pCtMainWin, pTextView, force_plain_text);
-    Gtk::Clipboard::get()->request_contents(target, receive_fun);
-#endif
+    pClipboard->request_contents(target, receive_fun);
 }
+#else
+void CtClipboard::_paste_clipboard(Gtk::TextView* pTextView, CtCodebox* pCodebox)
+{
+    auto on_scope_exit = scope_guard([&](void*) { CtClipboard::_static_force_plain_text = false; });
+    (void)pTextView; (void)pCodebox;
+}
+#endif
 
 void CtClipboard::plain_text_to_clipboard(const char* plain_text)
 {
