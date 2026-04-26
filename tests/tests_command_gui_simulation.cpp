@@ -8666,6 +8666,69 @@ static void _test_rich_table_valign_buffer_change_keeps_size_request(CtMainWin* 
     spdlog::info("  ✓ V-align buffer change preserves rowMinHeight passed");
 }
 
+// T10: addEmbeddedWidget must invoke the onContentChanged callback. CtTableRich
+//      uses this hook to re-balance v-align margins after an embedded widget
+//      (e.g. a pasted image) is attached, so the cell doesn't briefly grow
+//      with stale margins on the next size negotiation. Also verifies that
+//      passing an empty std::function clears the hook (used when v-align is
+//      switched away from middle/bottom).
+static void _test_rich_cell_addEmbeddedWidget_fires_on_content_changed(CtMainWin* pWin)
+{
+    spdlog::info("Test: CtRichCell::addEmbeddedWidget invokes onContentChanged callback");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    auto resetState = [&]() {
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        while (pBridge->canRedo()) pActions->requested_step_ahead();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        GuiEventSimulator::process_pending_events();
+    };
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+    resetState();
+
+    std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+    auto* pCell = pTable->getRichCell(0, 0);
+    ASSERT_TRUE(pCell);
+    GuiEventSimulator::process_pending_events();
+
+    // Register a counting callback. (The table's _applyTableStyle would
+    // overwrite this on a v-align change, but we don't trigger one here so
+    // the test's callback stays installed.)
+    int callCount = 0;
+    pCell->setOnContentChanged([&callCount]() { callCount++; });
+
+    // Insert one anchor widget — addEmbeddedWidget must fire the hook.
+    auto cellBuf = pCell->get_buffer();
+    int charOffset = cellBuf->get_insert()->get_iter().get_offset();
+    auto* pAnchor = new CtImageAnchor{pWin, "t10_a", CtAnchorExpCollState::None, charOffset, ""};
+    pAnchor->insertInTextBuffer(cellBuf);
+    pCell->addEmbeddedWidget(pAnchor);
+    EXPECT_EQ(1, callCount) << "onContentChanged must fire once when a widget is added";
+
+    // Clearing the callback (empty std::function) must stop further invocations.
+    pCell->setOnContentChanged({});
+    int charOffset2 = cellBuf->get_insert()->get_iter().get_offset();
+    auto* pAnchor2 = new CtImageAnchor{pWin, "t10_b", CtAnchorExpCollState::None, charOffset2, ""};
+    pAnchor2->insertInTextBuffer(cellBuf);
+    pCell->addEmbeddedWidget(pAnchor2);
+    EXPECT_EQ(1, callCount) << "onContentChanged must NOT fire after the callback is cleared";
+
+    resetState();
+    spdlog::info("  ✓ addEmbeddedWidget onContentChanged hook passed");
+}
+
 static void _test_rich_table_align_and_height_tests(CtMainWin* pWin)
 {
     _test_rich_table_row_height_uniformity(pWin);
@@ -8677,6 +8740,7 @@ static void _test_rich_table_align_and_height_tests(CtMainWin* pWin)
     _test_rich_table_latex_follows_cell_halign(pWin);
     _test_rich_table_wrap_mode_applies_immediately(pWin);
     _test_rich_table_valign_buffer_change_keeps_size_request(pWin);
+    _test_rich_cell_addEmbeddedWidget_fires_on_content_changed(pWin);
 }
 
 void TestRichTableAlignApp::on_activate()

@@ -30,6 +30,7 @@
 #include <map>
 #include <memory>
 #include <set>
+#include <functional>
 
 struct CtTableStyle {
     int borderWidth{1};
@@ -364,6 +365,12 @@ public:
 
     const std::list<CtAnchoredWidget*>& getEmbeddedWidgets() const { return _embeddedWidgets; }
 
+    // Hook invoked after the cell's structural content changes (e.g. an
+    // embedded widget is added). Used by CtTableRich to re-evaluate v-align
+    // margins once the new widget's size is reflected in the layout, before
+    // GTK measures the textview for size negotiation.
+    void setOnContentChanged(std::function<void()> cb) { _onContentChanged = std::move(cb); }
+
 private:
     // Create a GTK widget from a stored descriptor (images only; codeboxes/tables deferred).
     CtAnchoredWidget* _createWidgetFromDesc(const CtWidgetDesc& desc, int charOffset) const;
@@ -371,6 +378,7 @@ private:
     CtMainWin* _pCtMainWin;
     std::list<CtAnchoredWidget*> _embeddedWidgets;
     std::unique_ptr<CtPairCodeboxMainWin> _uClipboardPair;
+    std::function<void()> _onContentChanged;
 };
 
 // Rich-text table: same grid layout as CtTableHeavy but cells carry formatting.
