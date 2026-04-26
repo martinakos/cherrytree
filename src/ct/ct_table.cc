@@ -1169,6 +1169,15 @@ void CtRichCell::addEmbeddedWidget(CtAnchoredWidget* pWidget)
         pWidget->apply_width_height(_ctTextview.mm().get_allocation().get_width());
         pWidget->apply_syntax_highlighting(false);
     }
+    // Buffer's signal_changed already fired earlier (when the anchor char
+    // was inserted), but at that point the embedded widget wasn't yet in
+    // the textview, so any v-align margin recalc saw a textH that didn't
+    // include the widget's height. Now that the widget is attached and its
+    // size_request is set, fire the hook so the table can re-balance v-align
+    // margins before GTK measures the cell for the next size negotiation.
+    if (_onContentChanged) {
+        _onContentChanged();
+    }
 }
 
 void CtRichCell::removeEmbeddedWidget(CtAnchoredWidget* pWidget)
@@ -1665,30 +1674,45 @@ void CtTableRich::_applyTableStyle()
                     tv.set_top_margin(0);
                     tv.set_bottom_margin(0);
                     auto* pRichCell = static_cast<CtRichCell*>(_tableMatrix[r][c]);
+                    // Capture the row's configured min-height (scaled by zoom) as
+                    // the target natural height: the cell is sized to fit text
+                    // when text exceeds rowMinHeight, and to rowMinHeight otherwise,
+                    // with the spare distributed as v-align margins.
+                    const int rawRowH = get_row_min_height(r);
+                    const int rowMinHeightScaled =
+                        (rawRowH > 0) ? int(rawRowH * _zoomFactor) : 0;
                     // Alive sentinel: _vAlignGuards.clear() at the next _applyTableStyle
                     // (or at table destruction) expires this weak_ptr, causing all in-flight
                     // idle/signal callbacks to bail out before touching pRichCell.
                     auto guard = std::make_shared<bool>(true);
                     _vAlignGuards.push_back(guard);
                     std::weak_ptr<bool> weakGuard{guard};
-                    auto updateMargin = [pRichCell, valign, weakGuard]() {
+                    auto updateMargin = [pRichCell, valign, weakGuard, rowMinHeightScaled]() {
                         if (weakGuard.expired()) return;
                         auto& tv2 = pRichCell->get_text_view().mm();
                         if (!tv2.get_realized()) return;
-                        const int allocH  = tv2.get_allocated_height();
-                        const int borderT = tv2.get_border_window_size(Gtk::TEXT_WINDOW_TOP);
-                        const int borderB = tv2.get_border_window_size(Gtk::TEXT_WINDOW_BOTTOM);
-                        const int contentH = allocH - borderT - borderB;
-                        if (contentH <= 0) return;
 
-                        // get_iter_location returns layout coordinates (y=0 at first
-                        // character, top_margin not included), so no subtraction needed.
+                        // Measure intrinsic text height (no margin contribution).
+                        // get_iter_location validates the line for the end iter on
+                        // demand, so the result reflects the latest buffer state
+                        // including any embedded widgets that have already been
+                        // attached to the textview.
                         Gtk::TextIter endIter = pRichCell->get_buffer()->end();
                         Gdk::Rectangle endRect;
                         tv2.get_iter_location(endIter, endRect);
                         const int textH = std::max(1, endRect.get_y() + endRect.get_height());
 
-                        const int spare = contentH - textH;
+                        // Target natural height = max(rowMinHeight, textH). When
+                        // textH < rowMinHeight, the spare is split as v-align
+                        // margins (centering text in the configured row height).
+                        // When text grows beyond rowMinHeight, margins collapse to
+                        // 0 and the cell grows. When text shrinks, margins grow
+                        // back to recenter — and crucially the cell's natural
+                        // height drops back to rowMinHeight, so GTK shrinks the
+                        // grid row instead of staying at the previously-grown
+                        // height (e.g. after undoing an image insert).
+                        const int target = std::max(rowMinHeightScaled, textH);
+                        const int spare = std::max(0, target - textH);
                         int topM = 0, botM = 0;
                         if (spare > 0) {
                             if (valign == "middle") {
@@ -1709,14 +1733,16 @@ void CtTableRich::_applyTableStyle()
                                 if (weakGuard.expired()) return;
                                 // Update margins synchronously, before GTK
                                 // measures the textview for the next resize.
-                                // Otherwise GTK measures with the old margins
-                                // (top+bot+textH > alloc) and grows the cell
-                                // even though the new text would fit if the
-                                // margins shrank — making the cell taller
-                                // every keystroke instead of staying at its
-                                // configured height until the text overflows.
                                 updateMargin();
                             }));
+                    // Embedded-widget hook: when an image (or other anchored
+                    // widget) is added to the cell, its size becomes part of
+                    // the layout AFTER the buffer's signal_changed fired (which
+                    // saw only the bare anchor character). Re-run updateMargin
+                    // here so margins reflect the widget's actual height before
+                    // GTK measures, avoiding a transient row-grow that would
+                    // happen if margins were left wider than (alloc - textH).
+                    pRichCell->setOnContentChanged([updateMargin]() { updateMargin(); });
                     // Apply immediately. Use connect() so the returned sigc::connection
                     // is stored in _vAlignConnections and can be cancelled if the table
                     // is rebuilt (notifyNodeChanged) before the idle fires.
@@ -1729,6 +1755,7 @@ void CtTableRich::_applyTableStyle()
                     // Reset any margins left from a previous middle/bottom setting.
                     tv.set_top_margin(0);
                     tv.set_bottom_margin(0);
+                    static_cast<CtRichCell*>(_tableMatrix[r][c])->setOnContentChanged({});
                 }
             }
 
