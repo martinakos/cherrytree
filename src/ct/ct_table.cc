@@ -1752,7 +1752,29 @@ void CtTableRich::_apply_wrap_for_cell(size_t r, size_t c, Gtk::TextView& tv)
     } else {
         wrap = _pCtMainWin->get_ct_config()->lineWrapping;
     }
-    tv.set_wrap_mode(wrap ? Gtk::WRAP_WORD_CHAR : Gtk::WRAP_NONE);
+    const auto newMode = wrap ? Gtk::WRAP_WORD_CHAR : Gtk::WRAP_NONE;
+    if (tv.get_wrap_mode() == newMode) return;
+    tv.set_wrap_mode(newMode);
+    // Switching no-wrap → wrap creates a chicken-and-egg: GtkTextView's
+    // wrap width (Pango's pango_layout_set_width) is the cell's allocated
+    // width, set during size_allocate. Until the cell shrinks, lines wrap
+    // at the old (wide) allocation so layout->width stays wide; the cell
+    // can't shrink until layout->width does. Paint and mouse-motion
+    // events incrementally re-validate lines, slowly converging — which
+    // is the bug. Break the cycle by manually size-allocating the cell
+    // at the column width. The textview's size_allocate handler then
+    // calls set_screen_width, the layout re-validates against the
+    // narrower wrap width, and layout->width updates immediately. The
+    // grid will re-allocate normally on the next cycle, this time using
+    // the now-correct natural width.
+    if (newMode == Gtk::WRAP_WORD_CHAR && tv.get_realized()) {
+        Gtk::Allocation alloc = tv.get_allocation();
+        const int desiredW = int(get_col_width(c) * _zoomFactor);
+        if (alloc.get_width() > desiredW && alloc.get_height() > 0) {
+            alloc.set_width(desiredW);
+            tv.size_allocate(alloc);
+        }
+    }
 }
 
 void CtTableRich::_apply_remove_header_style(const bool isApply, CtTextView& textView)
