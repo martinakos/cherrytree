@@ -509,10 +509,47 @@ void CtActions::image_copy()
 
 void CtActions::image_delete()
 {
-    Gtk::TextIter iter = _curr_buffer()->get_iter_at_child_anchor(curr_image_anchor->getTextChildAnchor());
-    Gtk::TextIter iter_b = iter;
-    iter_b.forward_char();
-    _curr_buffer()->select_range(iter, iter_b);
+    // Check if image lives inside a rich table cell (same detection as image_cut/copy).
+    // _curr_buffer() returns the main-view buffer; for an image embedded in a
+    // rich cell the anchor lives in the cell's buffer, so erase_selection on
+    // the main buffer would either no-op or delete unrelated content.
+    for (auto* w = curr_image_anchor->get_parent(); w; w = w->get_parent()) {
+        auto* pTable = dynamic_cast<CtTableRich*>(w);
+        if (not pTable) continue;
+        for (size_t r = 0; r < pTable->get_num_rows(); ++r) {
+            for (size_t c = 0; c < pTable->get_num_columns(); ++c) {
+                CtRichCell* pCell = pTable->getRichCell(r, c);
+                for (auto* emb : pCell->getEmbeddedWidgets()) {
+                    if (emb != curr_image_anchor) continue;
+                    auto pBridge = _pCtMainWin->get_command_bridge();
+                    if (pBridge && pBridge->isActive()) {
+                        const gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+                        pBridge->beginWidgetEdit(nodeId, pTable, (int)r, (int)c);
+                        // Cancel signal capture so the anchor-erase isn't
+                        // recorded as a separate buffer-edit command —
+                        // commitRichCellFormatChange below produces the
+                        // single "Delete image" undo step.
+                        pBridge->cancelRichCellSession();
+                    }
+                    auto cellBuffer = pCell->get_buffer();
+                    Gtk::TextIter iter_obj = cellBuffer->get_iter_at_child_anchor(
+                        curr_image_anchor->getTextChildAnchor());
+                    Gtk::TextIter iter_bound = iter_obj;
+                    iter_bound.forward_char();
+                    cellBuffer->erase(iter_obj, iter_bound);
+                    pCell->removeEmbeddedWidget(curr_image_anchor);
+                    delete curr_image_anchor;
+                    curr_image_anchor = nullptr;
+                    pCell->get_text_view().mm().grab_focus();
+                    if (pBridge && pBridge->isActive()) {
+                        pBridge->commitRichCellFormatChange("Delete image");
+                    }
+                    return;
+                }
+            }
+        }
+    }
+    object_set_selection(curr_image_anchor);
     _curr_buffer()->erase_selection(true, _pCtMainWin->get_text_view().mm().get_editable());
     curr_image_anchor = nullptr;
     _pCtMainWin->get_text_view().mm().grab_focus();

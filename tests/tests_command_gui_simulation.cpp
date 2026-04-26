@@ -7603,6 +7603,125 @@ static void _test_rich_cell_image_zoom_after_paste_into_rich_cell(CtMainWin* pWi
     GuiEventSimulator::process_pending_events();
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// addEmbeddedWidget applies the current rt zoom factor at insertion time, so a
+// freshly-pasted/inserted image is rendered at the right size on first paint
+// (instead of waiting for the next zoom event to trigger apply_zoom).
+// ─────────────────────────────────────────────────────────────────────────────
+static void _test_rich_cell_addEmbeddedWidget_applies_current_zoom(CtMainWin* pWin)
+{
+    spdlog::info("Test: addEmbeddedWidget applies current rt zoom on insert");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    ScopedRtZoom zoom{pWin->get_ct_config(), "Sans 7", 11};
+    const double scaleFactor = pWin->get_rt_zoom_scale_factor();
+    ASSERT_NE(1.0, scaleFactor) << "zoom setup must yield non-unity scale factor";
+    const int baseSize = 40;
+    const int expectedW = std::max(1, (int)(baseSize * scaleFactor));
+
+    std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+    insertRichTableAtEnd(pWin, pBridge, richData);
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+    CtRichCell* pCell = pTable->getRichCell(0, 0);
+    auto cellBuf = pCell->get_buffer();
+
+    // Mirror the production image_insert_png rich-cell path, but without an
+    // explicit apply_zoom call — the regression is precisely that callers
+    // had to know to apply zoom themselves. addEmbeddedWidget now does it.
+    pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+    cellBuf->place_cursor(cellBuf->end());
+    const int imgOffset = cellBuf->get_insert()->get_iter().get_offset();
+    pBridge->cancelRichCellSession();
+
+    auto pixbuf = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB, false, 8, baseSize, baseSize);
+    pixbuf->fill(0xFF0000FFu);
+    auto* pImage = new CtImagePng{pWin, pixbuf, ""/*link*/, imgOffset, ""/*justif*/};
+    pImage->insertInTextBuffer(cellBuf);
+    pCell->addEmbeddedWidget(pImage);
+    pBridge->commitRichCellFormatChange("Insert image");
+    GuiEventSimulator::process_pending_events();
+
+    EXPECT_EQ(expectedW, pImage->get_pixbuf()->get_width())
+        << "image must be at zoomed width without explicit apply_zoom: expected "
+        << expectedW << " (base " << baseSize << " * " << scaleFactor << ")";
+    EXPECT_EQ(expectedW, pImage->get_pixbuf()->get_height())
+        << "image must be at zoomed height without explicit apply_zoom";
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    spdlog::info("  ✓ addEmbeddedWidget applies current zoom on insert passed");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// image_delete must operate on the rich cell's buffer when curr_image_anchor
+// lives inside a rich cell. The previous implementation called
+// _curr_buffer()->erase_selection — _curr_buffer() returns the main buffer,
+// so the cell-buffer selection produced by object_set_selection had no effect
+// and the image stayed put.
+// ─────────────────────────────────────────────────────────────────────────────
+static void _test_rich_cell_image_delete(CtMainWin* pWin)
+{
+    spdlog::info("Test: image_delete removes image embedded in a rich cell");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    // Insert a rich table with one image in cell (0,0) at zoom 1.0 — zoom
+    // is irrelevant for delete; we just need an image embedded in a cell.
+    CtImagePng* pImage = _insertRichTableWithZoomedImage(pWin, pBridge, nodeId, 32, 1.0);
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+    CtRichCell* pCell = pTable->getRichCell(0, 0);
+
+    ASSERT_EQ(1u, pCell->getEmbeddedWidgets().size())
+        << "pre-condition: cell must contain exactly one embedded image";
+    auto cellBuf = pCell->get_buffer();
+    const int charsBefore = cellBuf->get_char_count();
+    ASSERT_GE(charsBefore, 1) << "cell must contain at least the image anchor char";
+
+    // Restore bridge to the state the right-click menu would leave it in:
+    // text-edit session active, curr_image_anchor pointing to the image.
+    pBridge->endWidgetEdit();
+    pBridge->beginTextEditSession(nodeId);
+    pActions->curr_image_anchor = pImage;
+    pActions->image_delete();
+    GuiEventSimulator::process_pending_events();
+
+    EXPECT_EQ(0u, pCell->getEmbeddedWidgets().size())
+        << "image_delete must remove the image from the cell's embedded widgets";
+    EXPECT_EQ(charsBefore - 1, cellBuf->get_char_count())
+        << "image_delete must erase the anchor character from the cell buffer";
+    EXPECT_EQ(nullptr, pActions->curr_image_anchor)
+        << "image_delete must clear curr_image_anchor";
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    spdlog::info("  ✓ image_delete works for image in rich cell passed");
+}
+
 void TestRichCellImageCopyPasteApp::on_activate()
 {
     _on_startup();
@@ -7620,6 +7739,8 @@ void TestRichCellImageCopyPasteApp::on_activate()
     _test_rich_cell_image_zoom_after_column_paste(pWin);
     _test_rich_cell_image_zoom_after_paste_outside(pWin);
     _test_rich_cell_image_zoom_after_paste_into_rich_cell(pWin);
+    _test_rich_cell_addEmbeddedWidget_applies_current_zoom(pWin);
+    _test_rich_cell_image_delete(pWin);
 
     pWin->force_exit() = true;
     remove_window(*pWin);

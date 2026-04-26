@@ -1171,6 +1171,20 @@ void CtRichCell::addEmbeddedWidget(CtAnchoredWidget* pWidget)
         pWidget->apply_width_height(_ctTextview.mm().get_allocation().get_width());
         pWidget->apply_syntax_highlighting(false);
     }
+    // Apply current rt zoom to image-type widgets so a freshly-pasted /
+    // freshly-inserted image is rendered at the correct size for the node's
+    // current zoom level. Without this the image is shown at 1.0x until the
+    // user nudges zoom, which then triggers apply_zoom on every embedded
+    // widget. (CtImage::apply_zoom is a no-op for scaleFactor ≈ 1.0.)
+    if (_pCtMainWin) {
+        const double scaleFactor = _pCtMainWin->get_rt_zoom_scale_factor();
+        if (scaleFactor != 1.0) {
+            const auto wtype = pWidget->get_type();
+            if (wtype == CtAnchWidgType::ImagePng or wtype == CtAnchWidgType::ImageLatex) {
+                static_cast<CtImage*>(pWidget)->apply_zoom(scaleFactor);
+            }
+        }
+    }
     // Buffer's signal_changed already fired earlier (when the anchor char
     // was inserted), but at that point the embedded widget wasn't yet in
     // the textview, so any v-align margin recalc saw a textH that didn't
