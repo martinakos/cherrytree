@@ -6,6 +6,7 @@
 
 #include "tests_common.h"
 #include "ct_app.h"
+#include "ct_clipboard.h"
 #include "ct_command_bridge.h"
 #include <gtest/gtest.h>
 #include <fstream>
@@ -153,6 +154,100 @@ TEST(CommandUndoRedoTests, Phase6_2_UndoRedoFunctionality)
     g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
 
     TestUndoRedoApp app;
+    const std::vector<std::string> vecArgs{"cherrytree"};
+    gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
+    const int ret_val = app.run(vecArgs.size(), pp_args);
+    g_strfreev(pp_args);
+    ASSERT_EQ(0, ret_val);
+}
+
+// ─── Middle-click PRIMARY-selection paste ────────────────────────────────────
+//
+// Regression test for the bug where middle-click paste (X11 PRIMARY selection)
+// inserted text into the buffer without going through the command bridge,
+// producing no undo entry. The fix routes middle-click through the same
+// _paste_clipboard path as Ctrl+V via paste_from_primary().
+
+class TestPastePrimaryApp : public CtApp
+{
+public:
+    TestPastePrimaryApp() : CtApp{"_test_paste_primary", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
+
+private:
+    void on_activate() final;
+};
+
+void TestPastePrimaryApp::on_activate()
+{
+    _on_startup();
+
+    CtMainWin* pWin = _create_window(true/*start_hidden*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+
+    pWin->show_all();
+    pWin->hide();
+    auto drainEvents = [](){
+        while (gtk_events_pending()) gtk_main_iteration_do(false);
+    };
+    drainEvents();
+
+    auto pBridge = pWin->get_command_bridge();
+    ASSERT_TRUE(pBridge);
+    ASSERT_TRUE(pBridge->isActive());
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    drainEvents();
+
+    auto buffer = pWin->curr_buffer();
+    ASSERT_TRUE(buffer);
+
+    // Park the cursor at the end so the paste insertion point is deterministic,
+    // then drop any session the cursor change auto-started so we measure the
+    // command-stack delta caused only by the paste itself.
+    buffer->place_cursor(buffer->end());
+    pBridge->endTextEditSession();
+    drainEvents();
+
+    const Glib::ustring originalText = buffer->get_text();
+    const size_t baselineUndoSize = pBridge->getUndoStackDescriptions().size();
+
+    // Stage the PRIMARY selection (the same buffer GTK pastes from on middle-click).
+    const Glib::ustring pasteText = "PRIMARY-paste-test";
+    Gtk::Clipboard::get(GDK_SELECTION_PRIMARY)->set_text(pasteText);
+    drainEvents();
+
+    // Invoke the same code path the middle-click button-press handler runs.
+    CtClipboard{pWin}.paste_from_primary(&pWin->get_text_view().mm(), nullptr);
+    drainEvents();
+
+    // The text must have been inserted ...
+    const Glib::ustring afterPasteText = buffer->get_text();
+    ASSERT_NE(originalText, afterPasteText);
+    ASSERT_TRUE(afterPasteText.find(pasteText) != Glib::ustring::npos);
+
+    // ... and a new undo command must have been pushed (the regression check).
+    const auto undoStack = pBridge->getUndoStackDescriptions();
+    ASSERT_GT(undoStack.size(), baselineUndoSize);
+    ASSERT_TRUE(pBridge->canUndo());
+
+    // Undo must reverse the paste.
+    pBridge->undo();
+    drainEvents();
+    const Glib::ustring afterUndoText = buffer->get_text();
+    ASSERT_TRUE(afterUndoText.find(pasteText) == Glib::ustring::npos);
+
+    pWin->force_exit() = true;
+    remove_window(*pWin);
+}
+
+TEST(CommandUndoRedoTests, MiddleClickPrimaryPasteCreatesUndoCommand)
+{
+    g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
+
+    TestPastePrimaryApp app;
     const std::vector<std::string> vecArgs{"cherrytree"};
     gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
     const int ret_val = app.run(vecArgs.size(), pp_args);

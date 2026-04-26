@@ -336,6 +336,11 @@ CtCodebox::CtCodebox(CtMainWin* pCtMainWin,
     g_signal_connect(G_OBJECT(_ctTextview.gobj()), "cut-clipboard", G_CALLBACK(CtClipboard::on_cut_clipboard), _uCtPairCodeboxMainWin.get());
     g_signal_connect(G_OBJECT(_ctTextview.gobj()), "copy-clipboard", G_CALLBACK(CtClipboard::on_copy_clipboard), _uCtPairCodeboxMainWin.get());
     g_signal_connect(G_OBJECT(_ctTextview.gobj()), "paste-clipboard", G_CALLBACK(CtClipboard::on_paste_clipboard), _uCtPairCodeboxMainWin.get());
+#if GTKMM_MAJOR_VERSION < 4
+    // Intercept middle-click PRIMARY paste before GtkTextView's default handler so the
+    // paste goes through our undo-tracked path instead of inserting directly into the buffer.
+    g_signal_connect(G_OBJECT(_ctTextview.gobj()), "button-press-event", G_CALLBACK(CtClipboard::on_button_press_event), _uCtPairCodeboxMainWin.get());
+#endif
 #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     _toolButtonPlay.signal_clicked().connect([this](){
         CtActions* pCtActions = _pCtMainWin->get_ct_actions();
