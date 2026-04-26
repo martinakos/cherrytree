@@ -8492,6 +8492,97 @@ static void _test_rich_table_latex_follows_cell_halign(CtMainWin* pWin)
     spdlog::info("  ✓ LaTeX follows cell horizontal alignment");
 }
 
+// T8: Setting wrap on table/column/cell scope must apply wrap_mode to every
+//     affected cell in a single setTableStyle call. Regression test for the
+//     bug where switching no-wrap → wrap caused progressive shrinking driven
+//     by mouse motion / scroll instead of taking effect immediately.
+static void _test_rich_table_wrap_mode_applies_immediately(CtMainWin* pWin)
+{
+    spdlog::info("Test: Rich table wrap change applies to all cells in one setTableStyle");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    auto resetState = [&]() {
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        while (pBridge->canRedo()) pActions->requested_step_ahead();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        GuiEventSimulator::process_pending_events();
+    };
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+    resetState();
+
+    // 2×3 rich table
+    std::vector<std::vector<CtCellContent>> richData(2, std::vector<CtCellContent>(3));
+    for (int r = 0; r < 2; ++r)
+        for (int c = 0; c < 3; ++c)
+            richData[r][c].textSpans.push_back(CtTextSpan{"r" + std::to_string(r) + "c" + std::to_string(c)});
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+    GuiEventSimulator::process_pending_events();
+
+    // Force a baseline of WRAP_NONE on every cell
+    CtTableStyle style = pTable->getTableStyle();
+    style.tableWrapDefault = false;
+    style.tableWrapDefaultSet = true;
+    style.cellWrap.clear();
+    pTable->setTableStyle(style);
+    GuiEventSimulator::process_pending_events();
+    for (size_t r = 0; r < 2; ++r) {
+        for (size_t c = 0; c < 3; ++c) {
+            EXPECT_EQ(Gtk::WRAP_NONE, pTable->getCellAt(r, c)->get_text_view().mm().get_wrap_mode())
+                << "Cell (" << r << "," << c << ") should start at WRAP_NONE";
+        }
+    }
+
+    // Table-scope: enable wrap. Every cell must flip to WRAP_WORD_CHAR in one
+    // setTableStyle call (the bug was that this happened progressively over
+    // multiple paint cycles driven by mouse motion / scroll).
+    style.tableWrapDefault = true;
+    pTable->setTableStyle(style);
+    GuiEventSimulator::process_pending_events();
+    for (size_t r = 0; r < 2; ++r) {
+        for (size_t c = 0; c < 3; ++c) {
+            EXPECT_EQ(Gtk::WRAP_WORD_CHAR, pTable->getCellAt(r, c)->get_text_view().mm().get_wrap_mode())
+                << "Cell (" << r << "," << c << ") must apply WRAP_WORD_CHAR immediately at table scope";
+        }
+    }
+
+    // Table-scope: back to no-wrap, again every cell at once
+    style.tableWrapDefault = false;
+    pTable->setTableStyle(style);
+    GuiEventSimulator::process_pending_events();
+    for (size_t r = 0; r < 2; ++r) {
+        for (size_t c = 0; c < 3; ++c) {
+            EXPECT_EQ(Gtk::WRAP_NONE, pTable->getCellAt(r, c)->get_text_view().mm().get_wrap_mode())
+                << "Cell (" << r << "," << c << ") must apply WRAP_NONE immediately at table scope";
+        }
+    }
+
+    // Cell-scope override must wrap only that cell, leaving the rest alone
+    style.cellWrap[{0, 1}] = true;
+    pTable->setTableStyle(style);
+    GuiEventSimulator::process_pending_events();
+    for (size_t r = 0; r < 2; ++r) {
+        for (size_t c = 0; c < 3; ++c) {
+            const auto expected = (r == 0 && c == 1) ? Gtk::WRAP_WORD_CHAR : Gtk::WRAP_NONE;
+            EXPECT_EQ(expected, pTable->getCellAt(r, c)->get_text_view().mm().get_wrap_mode())
+                << "Cell (" << r << "," << c << ") wrap mode wrong with cellWrap override";
+        }
+    }
+
+    resetState();
+    spdlog::info("  ✓ Wrap mode applies immediately for table and cell scopes");
+}
+
 static void _test_rich_table_align_and_height_tests(CtMainWin* pWin)
 {
     _test_rich_table_row_height_uniformity(pWin);
@@ -8501,6 +8592,7 @@ static void _test_rich_table_align_and_height_tests(CtMainWin* pWin)
     _test_rich_table_col_copy_paste_carries_alignment(pWin);
     _test_rich_table_row_copy_paste_carries_alignment_and_preserves_widths(pWin);
     _test_rich_table_latex_follows_cell_halign(pWin);
+    _test_rich_table_wrap_mode_applies_immediately(pWin);
 }
 
 void TestRichTableAlignApp::on_activate()
