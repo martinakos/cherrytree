@@ -428,21 +428,60 @@ void CtCodebox::apply_zoom(const double scaleFactor)
     // Scale the codebox text font via a per-widget CSS override
     const std::string& baseFont = (_syntaxHighlighting == CtConst::PLAIN_TEXT_ID)
         ? _pCtConfig->ptFont : _pCtConfig->codeFont;
-    const Pango::FontDescription fontDesc(baseFont);
-    const int baseSizeFromConfig = (_syntaxHighlighting == CtConst::PLAIN_TEXT_ID)
-        ? (_pCtConfig->ptResetFontSize > 0 ? _pCtConfig->ptResetFontSize : fontDesc.get_size() / Pango::SCALE)
-        : (_pCtConfig->codeResetFontSize > 0 ? _pCtConfig->codeResetFontSize : fontDesc.get_size() / Pango::SCALE);
-    const int scaledSize = std::max(6, static_cast<int>(baseSizeFromConfig * scaleFactor));
+    const double baseSizeFromConfig = (_syntaxHighlighting == CtConst::PLAIN_TEXT_ID)
+        ? (_pCtConfig->ptResetFontSize > 0 ? (double)_pCtConfig->ptResetFontSize : CtFontUtil::get_font_size_d(baseFont))
+        : (_pCtConfig->codeResetFontSize > 0 ? (double)_pCtConfig->codeResetFontSize : CtFontUtil::get_font_size_d(baseFont));
+    const double scaledSize = std::max(0.1, baseSizeFromConfig * scaleFactor);
     if (not _rCssProviderZoom) {
         _rCssProviderZoom = Gtk::CssProvider::create();
         _ctTextview.mm().get_style_context()->add_provider(
             _rCssProviderZoom, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
     }
-    const std::string css = fmt::format("* {{ font-size: {}pt; }}", scaledSize);
+    const std::string css = fmt::format("* {{ font-size: {:.3f}pt; }}", scaledSize);
 #if GTKMM_MAJOR_VERSION >= 4
     gtk_css_provider_load_from_data(_rCssProviderZoom->gobj_copy(), css.c_str(), css.size());
 #else
     gtk_css_provider_load_from_data(_rCssProviderZoom->gobj_copy(), css.c_str(), css.size(), nullptr);
+#endif
+
+    // Scale the scrollbar gutter so it tracks zoom rather than staying fat at
+    // small zoom-out. GTK's default scrollbar slider is ~14 px; ceil keeps the
+    // slider draggable even at very small zoom levels.
+    constexpr int kScrollbarBaseSize = 14; // matches GTK default theme
+    const int scaledScrollbar = std::max(2, (int)std::ceil(kScrollbarBaseSize * scaleFactor));
+    if (not _rCssProviderScrollbarZoom) {
+        _rCssProviderScrollbarZoom = Gtk::CssProvider::create();
+        // Provider on the scrolled window's style context applies to it and
+        // its descendants — keeps the override scoped to this codebox so it
+        // doesn't change the rest of the app's scrollbars.
+        _scrolledwindow.get_style_context()->add_provider(
+            _rCssProviderScrollbarZoom, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
+        // Scrollbars are toplevel descendants of the scrolled window's
+        // window-adapter; in GTK3 they need their own provider hookup so the
+        // CSS reaches them even when they're realized in their own subwindow.
+        if (auto vbar = _scrolledwindow.get_vscrollbar()) {
+            vbar->get_style_context()->add_provider(
+                _rCssProviderScrollbarZoom, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
+        }
+        if (auto hbar = _scrolledwindow.get_hscrollbar()) {
+            hbar->get_style_context()->add_provider(
+                _rCssProviderScrollbarZoom, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
+        }
+    }
+    // GTK3 scrollbar CSS hierarchy: scrollbar > range > trough > slider.
+    // Setting min-width/min-height on slider drives the gutter's cross-axis
+    // dimension; the trough has padding-* that we collapse so the slider
+    // dimension actually controls the visible gutter width.
+    const std::string sbCss = fmt::format(
+        "scrollbar.vertical slider {{ min-width: {0}px; }} "
+        "scrollbar.horizontal slider {{ min-height: {0}px; }} "
+        "scrollbar trough {{ min-width: {0}px; min-height: {0}px; }} "
+        "scrollbar {{ -GtkScrollbar-has-backward-stepper: 0; -GtkScrollbar-has-forward-stepper: 0; }} ",
+        scaledScrollbar);
+#if GTKMM_MAJOR_VERSION >= 4
+    gtk_css_provider_load_from_data(_rCssProviderScrollbarZoom->gobj_copy(), sbCss.c_str(), sbCss.size());
+#else
+    gtk_css_provider_load_from_data(_rCssProviderScrollbarZoom->gobj_copy(), sbCss.c_str(), sbCss.size(), nullptr);
 #endif
 }
 

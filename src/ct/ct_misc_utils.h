@@ -415,7 +415,15 @@ Glib::ustring get_font_family(const Glib::ustring& fontStr);
 
 int get_font_size(const Glib::ustring& fontStr);
 
+// Read font size as fractional pt (preserves precision through PANGO_SCALE).
+double get_font_size_d(const Glib::ustring& fontStr);
+
 Glib::ustring get_font_str(const Glib::ustring& fontFamily, const int fontSize);
+
+// Fractional-pt overload: emits decimal pt when size has a fractional part
+// (e.g. "Sans 11.5"). Pango parses decimal sizes natively, so the resulting
+// string round-trips through Pango::FontDescription.
+Glib::ustring get_font_str(const Glib::ustring& fontFamily, const double fontSize);
 
 } // namespace CtFontUtil
 
