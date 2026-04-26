@@ -22,6 +22,7 @@
  */
 
 #include <sigc++/sigc++.h>
+#include <cmath>
 #include "ct_main_win.h"
 #include "ct_text_view.h"
 #include "ct_actions.h"
@@ -824,46 +825,71 @@ void CtTextView::cursor_and_tooltips_reset()
 // Increase or Decrease Text Font
 void CtTextView::zoom_text(const std::optional<bool> is_increase, const std::string& syntaxHighlighting)
 {
+    // Step in pt per click. 0.5 pt gives finer-grained scaling than the old
+    // 1 pt step (smoother proportional zoom, finer match against ceil-rounded
+    // cell widths) at the cost of needing 2x clicks per integer pt change.
+    constexpr double ZOOM_STEP_PT = 0.5;
+    // Floor zoom at 10% of the reset (unzoomed) font size. Below that the
+    // text is unreadable and tables/codeboxes degrade visibly (border widths,
+    // scrollbar gutters etc. don't scale with zoom).
+    constexpr double ZOOM_OUT_MIN_RATIO = 0.10;
+
     Glib::RefPtr<Gtk::StyleContext> pContext = _pTextView->get_style_context();
     const Pango::FontDescription fontDesc = pContext->get_font(pContext->get_state());
-    const int size_pre = fontDesc.get_size() / Pango::SCALE;
+    const double size_pre = (double)fontDesc.get_size() / (double)Pango::SCALE;
     const bool is_rt = syntaxHighlighting == CtConst::RICH_TEXT_ID or syntaxHighlighting == CtConst::TABLE_CELL_TEXT_ID;
     const bool is_rt_ms_dedic = is_rt and _pCtConfig->msDedicatedFont and not _pCtConfig->monospaceFont.empty();
     const bool is_pt = syntaxHighlighting == CtConst::PLAIN_TEXT_ID;
-    int size_ms_pre;
+    double size_ms_pre = 0.0;
     if (is_rt_ms_dedic) {
-        const Pango::FontDescription monoFontDesc(_pCtConfig->monospaceFont);
-        size_ms_pre = monoFontDesc.get_size() / Pango::SCALE;
+        size_ms_pre = CtFontUtil::get_font_size_d(_pCtConfig->monospaceFont);
     }
-    int size_new = 0;
-    int size_ms_new = 0;
+    double size_new = 0.0;
+    double size_ms_new = 0.0;
     if (is_increase.has_value()) {
+        const double step = is_increase.value() ? ZOOM_STEP_PT : -ZOOM_STEP_PT;
+        // Pick the reset size that gates this zoom direction so the floor is
+        // measured against the correct unzoomed reference for this syntax.
+        int resetForFloor = 0;
         if (is_rt) {
             if (0 == _pCtConfig->rtResetFontSize) {
-                _pCtConfig->rtResetFontSize = size_pre;
-                spdlog::debug("{} rt set reset to {}", __FUNCTION__, size_pre);
+                _pCtConfig->rtResetFontSize = (int)std::round(size_pre);
+                spdlog::debug("{} rt set reset to {}", __FUNCTION__, _pCtConfig->rtResetFontSize);
             }
             if (is_rt_ms_dedic) {
                 if (0 == _pCtConfig->msResetFontSize) {
-                    _pCtConfig->msResetFontSize = size_ms_pre;
-                    spdlog::debug("{} ms set reset to {}", __FUNCTION__, size_ms_pre);
+                    _pCtConfig->msResetFontSize = (int)std::round(size_ms_pre);
+                    spdlog::debug("{} ms set reset to {}", __FUNCTION__, _pCtConfig->msResetFontSize);
                 }
-                size_ms_new = size_ms_pre + (is_increase.value() ? 1 : -1);
+                size_ms_new = size_ms_pre + step;
             }
+            resetForFloor = _pCtConfig->rtResetFontSize;
         }
         else if (is_pt) {
             if (0 == _pCtConfig->ptResetFontSize) {
-                _pCtConfig->ptResetFontSize = size_pre;
-                spdlog::debug("{} pt set reset to {}", __FUNCTION__, size_pre);
+                _pCtConfig->ptResetFontSize = (int)std::round(size_pre);
+                spdlog::debug("{} pt set reset to {}", __FUNCTION__, _pCtConfig->ptResetFontSize);
             }
+            resetForFloor = _pCtConfig->ptResetFontSize;
         }
         else {
             if (0 == _pCtConfig->codeResetFontSize) {
-                _pCtConfig->codeResetFontSize = size_pre;
-                spdlog::debug("{} code set reset to {}", __FUNCTION__, size_pre);
+                _pCtConfig->codeResetFontSize = (int)std::round(size_pre);
+                spdlog::debug("{} code set reset to {}", __FUNCTION__, _pCtConfig->codeResetFontSize);
+            }
+            resetForFloor = _pCtConfig->codeResetFontSize;
+        }
+        size_new = size_pre + step;
+        // Zoom-out floor: refuse to drop below ZOOM_OUT_MIN_RATIO of the
+        // unzoomed size. Zoom-in is unbounded.
+        if (not is_increase.value() and resetForFloor > 0) {
+            const double minAllowed = ZOOM_OUT_MIN_RATIO * resetForFloor;
+            if (size_new < minAllowed) {
+                spdlog::debug("{} zoom-out floor reached ({:.2f} < {:.2f}); ignoring",
+                              __FUNCTION__, size_new, minAllowed);
+                return;
             }
         }
-        size_new = size_pre + (is_increase.value() ? 1 : -1);
     }
     else {
         // it's a reset
@@ -900,12 +926,10 @@ void CtTextView::zoom_text(const std::optional<bool> is_increase, const std::str
             }
         }
     }
-    if (size_new > 0) {
-        if (size_new < 6) size_new = 6;
+    if (size_new > 0.0) {
         if (is_rt) {
             _pCtConfig->rtFont = CtFontUtil::get_font_str(CtFontUtil::get_font_family(_pCtConfig->rtFont), size_new);
-            if (size_ms_new > 0) {
-                if (size_ms_new < 6) size_ms_new = 6;
+            if (size_ms_new > 0.0) {
                 _pCtConfig->monospaceFont = CtFontUtil::get_font_str(CtFontUtil::get_font_family(_pCtConfig->monospaceFont), size_ms_new);
                 if (auto tag = get_buffer()->get_tag_table()->lookup(CtConst::TAG_ID_MONOSPACE)) {
                     tag->property_font() = _pCtConfig->monospaceFont;
@@ -925,7 +949,7 @@ void CtTextView::zoom_text(const std::optional<bool> is_increase, const std::str
 #endif
         if (is_rt) {
             const int resetSize = _pCtConfig->rtResetFontSize;
-            const double scaleFactor = (resetSize > 0) ? (double)size_new / resetSize : 1.0;
+            const double scaleFactor = (resetSize > 0) ? size_new / resetSize : 1.0;
             for (auto* widget : _pCtMainWin->curr_tree_iter().get_anchored_widgets_fast()) {
                 const auto wtype = widget->get_type();
                 if (wtype == CtAnchWidgType::ImagePng or wtype == CtAnchWidgType::ImageLatex) {

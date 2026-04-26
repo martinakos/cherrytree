@@ -870,7 +870,7 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
         combo_scope_rh.append(_("Table"));
         combo_scope_rh.set_active(0);
 
-        auto label_rh_val = Gtk::Label{_("Min Height (0=natural)")};
+        auto label_rh_val = Gtk::Label{_("Min Height")};
         label_rh_val.set_halign(Gtk::Align::ALIGN_START);
         label_rh_val.set_sensitive(false);
         auto rhIt = pTableStyle->rowMinHeights.find(currentRow);

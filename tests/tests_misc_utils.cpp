@@ -26,6 +26,7 @@
 #include "ct_filesystem.h"
 #include "tests_common.h"
 #include <thread>
+#include <clocale>
 
 TEST(MiscUtilsGroup, get_encoding)
 {
@@ -283,6 +284,44 @@ TEST(MiscUtilsGroup, getFontMisc)
     ASSERT_STREQ("Noto Sans", CtFontUtil::get_font_family("Noto Sans 9").c_str());
     ASSERT_EQ(9, CtFontUtil::get_font_size("Noto Sans 9"));
     ASSERT_STREQ("Noto Sans 9", CtFontUtil::get_font_str("Noto Sans", 9).c_str());
+}
+
+TEST(MiscUtilsGroup, getFontFractionalPt)
+{
+    // Whole sizes still round-trip as integer strings (config-file friendly).
+    ASSERT_STREQ("Sans 12", CtFontUtil::get_font_str(Glib::ustring{"Sans"}, 12.0).c_str());
+    ASSERT_NEAR(12.0, CtFontUtil::get_font_size_d("Sans 12"), 0.001);
+
+    // Fractional sizes emit one decimal and round-trip.
+    ASSERT_STREQ("Sans 11.5", CtFontUtil::get_font_str(Glib::ustring{"Sans"}, 11.5).c_str());
+    ASSERT_NEAR(11.5, CtFontUtil::get_font_size_d("Sans 11.5"), 0.001);
+    ASSERT_NEAR(11.5, CtFontUtil::get_font_size_d(
+        CtFontUtil::get_font_str(Glib::ustring{"Sans"}, 11.5)), 0.001);
+
+    // get_font_size (int) truncates fractional values; verifies int callers
+    // still see something sensible.
+    ASSERT_EQ(11, CtFontUtil::get_font_size("Sans 11.5"));
+
+    // Locale-independent formatting: under LC_NUMERIC=fr_FR (comma-decimal
+    // locale) snprintf("%.1f") would emit "7,3" — Pango then parses that as
+    // size 3, breaking zoom. The implementation must use fmt::format which
+    // always emits '.', regardless of locale.
+    auto* prevLocale = std::setlocale(LC_NUMERIC, nullptr);
+    const std::string saveLocale = prevLocale ? prevLocale : "C";
+    if (std::setlocale(LC_NUMERIC, "fr_FR.UTF-8") || std::setlocale(LC_NUMERIC, "de_DE.UTF-8")) {
+        const Glib::ustring s = CtFontUtil::get_font_str(Glib::ustring{"Sans"}, 7.5);
+        EXPECT_TRUE(s.find(',') == Glib::ustring::npos)
+            << "Font string must use '.' decimal separator regardless of locale: " << s;
+        ASSERT_NEAR(7.5, CtFontUtil::get_font_size_d(s), 0.001)
+            << "Round-trip must work in non-default locale: " << s;
+        std::setlocale(LC_NUMERIC, saveLocale.c_str());
+    }
+    else {
+        // No comma-decimal locale installed on the test host; fall through
+        // (the formatter is still locale-independent by construction).
+        const Glib::ustring s = CtFontUtil::get_font_str(Glib::ustring{"Sans"}, 7.25);
+        ASSERT_TRUE(s.find(',') == Glib::ustring::npos);
+    }
 }
 
 TEST(MiscUtilsGroup, rgb_to_string_24)

@@ -8118,12 +8118,13 @@ static void _test_rich_table_row_height_decrease_refresh(CtMainWin* pWin)
         EXPECT_EQ(300, h)
             << "Row 0 col " << c << " size_request height should be 300 after setting rowMinHeight";
     }
-    // Row 1 should still be -1 (unconstrained)
+    // Row 1 has no per-row entry; min-height resolves to 0 (unconstrained).
+    // GTK silently clamps set_size_request(W, 0) to (W, 1), so the getter returns 1.
     for (size_t c = 0; c < 3; ++c) {
         int w, h;
         pTable->getCellAt(1, c)->get_text_view().mm().get_size_request(w, h);
-        EXPECT_EQ(-1, h)
-            << "Row 1 col " << c << " size_request height should be -1 (unconstrained)";
+        EXPECT_EQ(1, h)
+            << "Row 1 col " << c << " size_request height should be 1 (effectively unconstrained)";
     }
 
     // Reduce row 0 min height to 100 — must apply immediately without undo/redo
@@ -8729,6 +8730,189 @@ static void _test_rich_cell_addEmbeddedWidget_fires_on_content_changed(CtMainWin
     spdlog::info("  ✓ addEmbeddedWidget onContentChanged hook passed");
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Zoom: floor at 10% of reset font size. Repeated zoom-out clicks must stop
+// once the next step would drop below ZOOM_OUT_MIN_RATIO * resetFontSize.
+// ─────────────────────────────────────────────────────────────────────────────
+static void _test_zoom_out_floor_at_10pct(CtMainWin* pWin)
+{
+    spdlog::info("Test: zoom-out floors at 10%% of reset font size");
+
+    auto* pCfg = pWin->get_ct_config();
+    const Glib::ustring savedFont = pCfg->rtFont;
+    const int savedReset = pCfg->rtResetFontSize;
+
+    // Reset rt zoom state to a known integer baseline. update_theme pushes the
+    // config font into the live style context — zoom_text reads its size_pre
+    // from the style context, so without this refresh the test would see a
+    // stale font size left over from earlier zoom activity in this app.
+    pCfg->rtFont = "Sans 12";
+    pCfg->rtResetFontSize = 12;
+    pWin->update_theme();
+    GuiEventSimulator::process_pending_events();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    auto& tv = pWin->get_text_view();
+    const std::string syntax{CtConst::RICH_TEXT_ID};
+
+    // 50 zoom-out clicks at 0.5pt step would drop the size to -13pt without
+    // a floor. With the 10% floor (1.2pt for reset=12) the first click that
+    // would land below 1.2 is rejected, so the size stabilises near 1.2.
+    for (int i = 0; i < 50; ++i) {
+        tv.zoom_text(false, syntax);
+        GuiEventSimulator::process_pending_events();
+    }
+
+    const double finalSize = CtFontUtil::get_font_size_d(pCfg->rtFont);
+    EXPECT_GE(finalSize, 1.2 - 0.01)
+        << "Floored zoom-out must not drop below 10%% of reset (1.2pt for reset=12)";
+    EXPECT_LE(finalSize, 1.7 + 0.01)
+        << "Floored zoom-out must reach the floor; one unfloored step beyond is 1.5→1.0";
+
+    // Restore original config so other tests are not affected.
+    pCfg->rtFont = savedFont;
+    pCfg->rtResetFontSize = savedReset;
+    spdlog::info("  ✓ Zoom-out floor at 10%% passed");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Zoom: a single 0.5pt zoom-out from an integer-pt rt font must produce a
+// fractional-pt config string that round-trips through Pango. Then a single
+// zoom-in must restore the original pt size — this guards against the
+// CSS-truncation bug where update_theme emitted "font-size: 11pt" for a
+// 11.5pt config (integer division), clamping the rendered size and
+// preventing further zoom-in.
+// ─────────────────────────────────────────────────────────────────────────────
+static void _test_zoom_fractional_pt_step_round_trip(CtMainWin* pWin)
+{
+    spdlog::info("Test: zoom-out 0.5pt step produces fractional pt and zoom-in restores it");
+
+    auto* pCfg = pWin->get_ct_config();
+    const Glib::ustring savedFont = pCfg->rtFont;
+    const int savedReset = pCfg->rtResetFontSize;
+
+    pCfg->rtFont = "Sans 12";
+    pCfg->rtResetFontSize = 12;
+    // Push the config font into the style context (zoom_text reads its
+    // size_pre from the style context).
+    pWin->update_theme();
+    GuiEventSimulator::process_pending_events();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    auto& tv = pWin->get_text_view();
+    const std::string syntax{CtConst::RICH_TEXT_ID};
+
+    tv.zoom_text(false, syntax);
+    GuiEventSimulator::process_pending_events();
+    const double sizeAfterOut = CtFontUtil::get_font_size_d(pCfg->rtFont);
+    EXPECT_NEAR(11.5, sizeAfterOut, 0.001)
+        << "One 0.5pt zoom-out from 12 must produce 11.5";
+
+    tv.zoom_text(true, syntax);
+    GuiEventSimulator::process_pending_events();
+    const double sizeAfterIn = CtFontUtil::get_font_size_d(pCfg->rtFont);
+    EXPECT_NEAR(12.0, sizeAfterIn, 0.001)
+        << "Zoom-in after fractional zoom-out must restore 12.0 "
+           "(regression: CSS integer truncation would freeze it at 11.5)";
+
+    pCfg->rtFont = savedFont;
+    pCfg->rtResetFontSize = savedReset;
+    spdlog::info("  ✓ Zoom fractional pt round-trip passed");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Zoom: cell border widths scale with the table's _zoomFactor. apply_zoom
+// must re-issue the per-cell border-window sizes via _applyCellBordersScaled
+// so the gutter shrinks/grows with zoom rather than staying at the unzoomed
+// pixel width.
+// ─────────────────────────────────────────────────────────────────────────────
+static void _test_rich_table_borders_scale_with_zoom(CtMainWin* pWin)
+{
+    spdlog::info("Test: rich-table cell border widths scale with apply_zoom");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    std::vector<std::vector<CtCellContent>> richData(2, std::vector<CtCellContent>(2));
+    insertRichTableAtEnd(pWin, pBridge, richData);
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+
+    // Pick a borderWidth divisible cleanly to keep ceil rounding unambiguous.
+    CtTableStyle style = pTable->getTableStyle();
+    style.borderWidth = 4;
+    pTable->setTableStyle(style);
+    GuiEventSimulator::process_pending_events();
+
+    // Reset zoom to 1.0 so the baseline is unambiguous (a previous test in the
+    // same app may have left the table at a different scale).
+    pTable->apply_zoom(1.0);
+    GuiEventSimulator::process_pending_events();
+
+    auto& tv00 = pTable->getCellAt(0, 0)->get_text_view().mm();
+    EXPECT_EQ(4, tv00.get_border_window_size(Gtk::TEXT_WINDOW_TOP))
+        << "Baseline (zoom 1.0): top edge of (0,0) must be borderWidth";
+    EXPECT_EQ(4, tv00.get_border_window_size(Gtk::TEXT_WINDOW_LEFT));
+    EXPECT_EQ(4, tv00.get_border_window_size(Gtk::TEXT_WINDOW_RIGHT));
+    EXPECT_EQ(4, tv00.get_border_window_size(Gtk::TEXT_WINDOW_BOTTOM));
+
+    // Zoom out to 0.5: ceil(4 * 0.5) = 2.
+    pTable->apply_zoom(0.5);
+    GuiEventSimulator::process_pending_events();
+    EXPECT_EQ(2, tv00.get_border_window_size(Gtk::TEXT_WINDOW_TOP))
+        << "Zoom 0.5: top edge must scale to ceil(4*0.5)=2";
+    EXPECT_EQ(2, tv00.get_border_window_size(Gtk::TEXT_WINDOW_LEFT));
+    EXPECT_EQ(2, tv00.get_border_window_size(Gtk::TEXT_WINDOW_RIGHT));
+    EXPECT_EQ(2, tv00.get_border_window_size(Gtk::TEXT_WINDOW_BOTTOM));
+
+    // Extreme zoom-out: ceil(4*0.05)=1, but the helper enforces a 1-px floor
+    // so a configured edge never disappears.
+    pTable->apply_zoom(0.05);
+    GuiEventSimulator::process_pending_events();
+    EXPECT_EQ(1, tv00.get_border_window_size(Gtk::TEXT_WINDOW_TOP))
+        << "Extreme zoom-out: configured edge must stay visible at 1px";
+
+    // Restoring zoom restores the configured width.
+    pTable->apply_zoom(1.0);
+    GuiEventSimulator::process_pending_events();
+    EXPECT_EQ(4, tv00.get_border_window_size(Gtk::TEXT_WINDOW_TOP))
+        << "Zoom back to 1.0: original border width restored";
+
+    // Interior cell (1,1) starts collapsed (only right+bottom drawn). Verify
+    // the same scaling rule applies to the per-cell-resolved widths.
+    pTable->apply_zoom(0.5);
+    GuiEventSimulator::process_pending_events();
+    auto& tv11 = pTable->getCellAt(1, 1)->get_text_view().mm();
+    EXPECT_EQ(0, tv11.get_border_window_size(Gtk::TEXT_WINDOW_TOP))
+        << "Interior cell: top edge stays 0 regardless of zoom";
+    EXPECT_EQ(0, tv11.get_border_window_size(Gtk::TEXT_WINDOW_LEFT))
+        << "Interior cell: left edge stays 0 regardless of zoom";
+    EXPECT_EQ(2, tv11.get_border_window_size(Gtk::TEXT_WINDOW_RIGHT))
+        << "Interior cell: right edge scales with zoom";
+    EXPECT_EQ(2, tv11.get_border_window_size(Gtk::TEXT_WINDOW_BOTTOM))
+        << "Interior cell: bottom edge scales with zoom";
+
+    pTable->apply_zoom(1.0);
+    GuiEventSimulator::process_pending_events();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    spdlog::info("  ✓ Rich table borders scale with zoom passed");
+}
+
 static void _test_rich_table_align_and_height_tests(CtMainWin* pWin)
 {
     _test_rich_table_row_height_uniformity(pWin);
@@ -8741,6 +8925,9 @@ static void _test_rich_table_align_and_height_tests(CtMainWin* pWin)
     _test_rich_table_wrap_mode_applies_immediately(pWin);
     _test_rich_table_valign_buffer_change_keeps_size_request(pWin);
     _test_rich_cell_addEmbeddedWidget_fires_on_content_changed(pWin);
+    _test_zoom_out_floor_at_10pct(pWin);
+    _test_zoom_fractional_pt_step_round_trip(pWin);
+    _test_rich_table_borders_scale_with_zoom(pWin);
 }
 
 void TestRichTableAlignApp::on_activate()
