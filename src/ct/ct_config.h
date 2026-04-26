@@ -202,7 +202,10 @@ public:
     int                                         tableRows{3};
     int                                         tableColumns{3};
     int                                         tableColWidthDefault{60};
-    int                                         tableRowHeightDefault{0};
+    // 25 px is enough vertical room for a default rt font line; rich tables
+    // pick this up in ct_actions_edit.cc as the row min-height. Light/heavy
+    // tables ignore this value (the dialog spinbutton is disabled for them).
+    int                                         tableRowHeightDefault{25};
     int                                         tableCellsGoLight{CtConst::ADVISED_TABLE_LIGHT_HEAVY};
 
     // [fonts]
