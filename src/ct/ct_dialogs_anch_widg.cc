@@ -687,6 +687,20 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
     if (is_rich) checkbutton_is_light.set_sensitive(false);
     auto checkbutton_table_ins_from_file = Gtk::CheckButton(_("Import from CSV File"));
 
+    if (is_insert) {
+        // Default row height only applies to rich tables — light/heavy tables
+        // ignore tableRowHeightDefault entirely. Gate the spinbutton state on
+        // the Rich-Table checkbox so the user can see at a glance that it's
+        // a rich-table-only setting.
+        auto sync_row_height_sensitive = [&checkbutton_is_rich, &spinbutton_row_height_ins, &label_row_height]() {
+            const bool active = checkbutton_is_rich.get_active();
+            spinbutton_row_height_ins.set_sensitive(active);
+            label_row_height.set_sensitive(active);
+        };
+        sync_row_height_sensitive();
+        checkbutton_is_rich.signal_toggled().connect(sync_row_height_sensitive);
+    }
+
     auto content_area = dialog.get_content_area();
     content_area->set_spacing(5);
     content_area->pack_start(grid);
