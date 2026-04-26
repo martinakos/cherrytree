@@ -117,8 +117,8 @@ void CtImage::apply_zoom(double scaleFactor)
         _rPixbuf = _rZoomBasePixbuf;
     }
     else {
-        const int w = std::max(16, (int)(_rZoomBasePixbuf->get_width() * scaleFactor));
-        const int h = std::max(16, (int)(_rZoomBasePixbuf->get_height() * scaleFactor));
+        const int w = std::max(1, (int)(_rZoomBasePixbuf->get_width() * scaleFactor));
+        const int h = std::max(1, (int)(_rZoomBasePixbuf->get_height() * scaleFactor));
         // Scale from original full-res pixbuf when available for better quality
         const auto& source = _rOrigPixbuf ? _rOrigPixbuf : _rZoomBasePixbuf;
         _rPixbuf = source->scale_simple(w, h, Gdk::INTERP_BILINEAR);

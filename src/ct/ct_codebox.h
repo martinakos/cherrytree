@@ -145,6 +145,9 @@ private:
     double _zoomFactor{1.0};
     bool   _widthInPixels{true};
     Glib::RefPtr<Gtk::CssProvider> _rCssProviderZoom;
+    // CSS provider scoped to the scrolled window that scales the scrollbar
+    // dimensions (slider, trough) so the gutter shrinks/grows with zoom.
+    Glib::RefPtr<Gtk::CssProvider> _rCssProviderScrollbarZoom;
     bool _highlightBrackets{true};
     bool _showLineNumbers{false};
     Gtk::ScrolledWindow _scrolledwindow;

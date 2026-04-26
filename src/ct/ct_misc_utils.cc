@@ -26,6 +26,7 @@
 #include <pangomm.h>
 #include <iostream>
 #include <cstring>
+#include <cmath>
 #include "ct_const.h"
 #include "ct_logging.h"
 #include "ct_list.h"
@@ -1386,6 +1387,27 @@ int CtFontUtil::get_font_size(const Glib::ustring& fontStr)
 Glib::ustring CtFontUtil::get_font_str(const Glib::ustring& fontFamily, const int fontSize)
 {
     return fontFamily + CtConst::CHAR_SPACE + std::to_string(fontSize);
+}
+
+double CtFontUtil::get_font_size_d(const Glib::ustring& fontStr)
+{
+    // Pango stores size in 1/PANGO_SCALE pt. Read directly to preserve
+    // fractional precision (avoids the integer truncation in get_font_size).
+    return (double)Pango::FontDescription(fontStr).get_size() / (double)Pango::SCALE;
+}
+
+Glib::ustring CtFontUtil::get_font_str(const Glib::ustring& fontFamily, const double fontSize)
+{
+    // If size is whole, emit as integer for backward-compatible config files.
+    // Otherwise emit one decimal — Pango parses "Family 11.5" natively.
+    if (std::abs(fontSize - std::round(fontSize)) < 0.001) {
+        return fontFamily + CtConst::CHAR_SPACE + std::to_string((int)std::round(fontSize));
+    }
+    // fmt::format uses '.' as decimal separator regardless of LC_NUMERIC,
+    // unlike snprintf("%.1f"). Pango font-description parsing requires '.'
+    // (e.g. "Sans 11,5" gets parsed as size 5 in a comma-decimal locale),
+    // so use fmt to stay locale-independent.
+    return fontFamily + CtConst::CHAR_SPACE + fmt::format("{:.1f}", fontSize);
 }
 
 void CtRgbUtil::set_rgb24str_from_rgb24int(guint32 rgb24Int, char* rgb24StrOut)

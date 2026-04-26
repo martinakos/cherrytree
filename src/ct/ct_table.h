@@ -46,7 +46,7 @@ struct CtTableStyle {
     std::map<std::pair<size_t,size_t>, size_t> cellBorderSeq;
     size_t borderSeqCounter{0};
 
-    // Row heights (minimum, unzoomed; 0 = natural).
+    // Row minimum height (unzoomed). 0 means no minimum.
     int rowMinHeightDefault{0};
     std::map<size_t, int> rowMinHeights;
 
@@ -439,11 +439,25 @@ public:
     int get_curr_cell_curr_offset() const override;
     int get_curr_cell_max_offset() const override;
 
+    // Apply a zoom-dependent Pango/cairo hint style to the cell textview.
+    // At small effective font sizes Pango's pixel-snapping causes glyph widths
+    // to drift away from a strictly proportional 1:zoom relationship, which
+    // makes a wrap-enabled cell re-flow on zoom-out (a square table becomes
+    // taller). Disabling hinting at small sizes keeps glyph widths metric-exact
+    // so the wrap point tracks scale rigidly. At readable sizes hinting stays
+    // on for crisp rendering.
+    static void _apply_hint_style_for_zoom(Gtk::TextView& tv);
+
 protected:
     void _new_rich_cell_attach(const size_t rowIdx, const size_t colIdx, CtRichCell* pCell);
     void _apply_remove_header_style(const bool isApply, CtTextView& textView);
     void _apply_wrap_for_cell(size_t r, size_t c, Gtk::TextView& tv);
     void _applyTableStyle() override;
+    // Resolve and apply the per-cell border widths and colors, scaled by
+    // _zoomFactor. Extracted from _applyTableStyle so apply_zoom can re-run
+    // it without rebuilding the whole table style (which would also reset
+    // v-align connections, wrap mode, size requests).
+    void _applyCellBordersScaled();
 
     bool _row_sort(const bool sortAsc) override;
     void _populate_xml_rows_cells(xmlpp::Element* p_table_node) const override;
