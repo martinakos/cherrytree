@@ -8583,6 +8583,89 @@ static void _test_rich_table_wrap_mode_applies_immediately(CtMainWin* pWin)
     spdlog::info("  ✓ Wrap mode applies immediately for table and cell scopes");
 }
 
+// T9: Inserting text into a cell with v-align middle/bottom must update the
+//     vertical margins synchronously (not via idle) so GTK measures the
+//     textview with the new margins on the next size negotiation. Without
+//     synchronous update, GTK measures with the OLD margins (top+bot+textH
+//     > alloc) and grows the row every keystroke, leaving permanent margin
+//     above and below the text instead of using up that margin space first.
+static void _test_rich_table_valign_buffer_change_keeps_size_request(CtMainWin* pWin)
+{
+    spdlog::info("Test: V-align middle/bottom: buffer change preserves rowMinHeight");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    auto resetState = [&]() {
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        while (pBridge->canRedo()) pActions->requested_step_ahead();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        GuiEventSimulator::process_pending_events();
+    };
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+    resetState();
+
+    std::vector<std::vector<CtCellContent>> richData(2, std::vector<CtCellContent>(2));
+    for (int r = 0; r < 2; ++r)
+        for (int c = 0; c < 2; ++c)
+            richData[r][c].textSpans.push_back(CtTextSpan{"x"});
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+    GuiEventSimulator::process_pending_events();
+
+    // Configure: v-align middle on (0,0), v-align bottom on (1,1), wrap on,
+    // and a generous rowMinHeight so the text would normally fit comfortably.
+    CtTableStyle style = pTable->getTableStyle();
+    style.cellVAlign[{0, 0}] = "middle";
+    style.cellVAlign[{1, 1}] = "bottom";
+    style.tableWrapDefault = true;
+    style.tableWrapDefaultSet = true;
+    style.rowMinHeights[0] = 120;
+    style.rowMinHeights[1] = 120;
+    pTable->setTableStyle(style);
+    GuiEventSimulator::process_pending_events();
+
+    auto& tv00 = pTable->getCellAt(0, 0)->get_text_view().mm();
+    auto& tv11 = pTable->getCellAt(1, 1)->get_text_view().mm();
+
+    int w0, h0, w1, h1;
+    tv00.get_size_request(w0, h0);
+    tv11.get_size_request(w1, h1);
+    ASSERT_EQ(120, h0);
+    ASSERT_EQ(120, h1);
+
+    // Insert text into both v-aligned cells. With the old behavior (margin
+    // update scheduled on idle) GTK measured the textview with stale margins
+    // and queued a row-grow before the idle could run. With synchronous
+    // update, margins shrink in step with text growth so the natural height
+    // stays equal to the allocation and the row keeps its configured height.
+    auto buf00 = pTable->get_buffer(0, 0);
+    auto buf11 = pTable->get_buffer(1, 1);
+    buf00->insert(buf00->end(), "more text added here");
+    buf11->insert(buf11->end(), "more text added here");
+    GuiEventSimulator::process_pending_events();
+
+    // The configured row min height must be preserved — neither cell's
+    // size_request should have been bumped up by the buffer change.
+    tv00.get_size_request(w0, h0);
+    tv11.get_size_request(w1, h1);
+    EXPECT_EQ(120, h0)
+        << "Cell (0,0) v-align middle: row min height must not change on buffer insert";
+    EXPECT_EQ(120, h1)
+        << "Cell (1,1) v-align bottom: row min height must not change on buffer insert";
+
+    resetState();
+    spdlog::info("  ✓ V-align buffer change preserves rowMinHeight passed");
+}
+
 static void _test_rich_table_align_and_height_tests(CtMainWin* pWin)
 {
     _test_rich_table_row_height_uniformity(pWin);
@@ -8593,6 +8676,7 @@ static void _test_rich_table_align_and_height_tests(CtMainWin* pWin)
     _test_rich_table_row_copy_paste_carries_alignment_and_preserves_widths(pWin);
     _test_rich_table_latex_follows_cell_halign(pWin);
     _test_rich_table_wrap_mode_applies_immediately(pWin);
+    _test_rich_table_valign_buffer_change_keeps_size_request(pWin);
 }
 
 void TestRichTableAlignApp::on_activate()

@@ -1707,10 +1707,15 @@ void CtTableRich::_applyTableStyle()
                         pRichCell->get_buffer()->signal_changed().connect(
                             [updateMargin, weakGuard]() {
                                 if (weakGuard.expired()) return;
-                                Glib::signal_idle().connect([updateMargin]() -> bool {
-                                    updateMargin(); // updateMargin itself checks weakGuard
-                                    return false;
-                                });
+                                // Update margins synchronously, before GTK
+                                // measures the textview for the next resize.
+                                // Otherwise GTK measures with the old margins
+                                // (top+bot+textH > alloc) and grows the cell
+                                // even though the new text would fit if the
+                                // margins shrank — making the cell taller
+                                // every keystroke instead of staying at its
+                                // configured height until the text overflows.
+                                updateMargin();
                             }));
                     // Apply immediately. Use connect() so the returned sigc::connection
                     // is stored in _vAlignConnections and can be cancelled if the table
