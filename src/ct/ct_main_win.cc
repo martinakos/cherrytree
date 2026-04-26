@@ -745,8 +745,13 @@ void CtMainWin::update_theme()
         #else
         const char* variant_str = Pango::Variant::VARIANT_SMALL_CAPS == variant_enum ? "small-caps" : "normal";
         #endif
-        retStr += fmt::format("; font-size: {}pt; font-weight: {}; font-style: {}; font-stretch: {}; font-variant: {}; }} ",
-            std::to_string(font.get_size()/Pango::SCALE), std::to_string(font.get_weight()), style_str, stretch_str, variant_str);
+        // Emit font-size as fractional pt (preserves zoom precision below 1pt).
+        // GTK accepts decimal values in CSS; integer division here would truncate
+        // an 11.5pt font to "11pt", clamping the rendered size and breaking
+        // zoom-in after any fractional zoom-out step.
+        const double sizePt = (double)font.get_size() / (double)Pango::SCALE;
+        retStr += fmt::format("; font-size: {:.3f}pt; font-weight: {}; font-style: {}; font-stretch: {}; font-variant: {}; }} ",
+            sizePt, std::to_string(font.get_weight()), style_str, stretch_str, variant_str);
         return retStr;
     };
 
@@ -1638,8 +1643,7 @@ void CtMainWin::update_node_zoom_label()
         _ctStatusBar.update_zoom_level(100);
         return;
     }
-    const Pango::FontDescription fontDesc(fontStr);
-    const int currSize = fontDesc.get_size() / Pango::SCALE;
+    const double currSize = CtFontUtil::get_font_size_d(fontStr);
     const int zoomPercent = (int)std::round(100.0 * currSize / resetSize);
     _ctStatusBar.update_zoom_level(zoomPercent);
 }
@@ -1648,9 +1652,8 @@ double CtMainWin::get_rt_zoom_scale_factor() const
 {
     const int resetSize = _pCtConfig->rtResetFontSize;
     if (resetSize <= 0) return 1.0;
-    const Pango::FontDescription fontDesc(_pCtConfig->rtFont);
-    const int currSize = fontDesc.get_size() / Pango::SCALE;
-    return (currSize != resetSize) ? (double)currSize / resetSize : 1.0;
+    const double currSize = CtFontUtil::get_font_size_d(_pCtConfig->rtFont);
+    return (currSize != (double)resetSize) ? currSize / resetSize : 1.0;
 }
 
 void CtMainWin::tree_node_paste_from_other_window(CtMainWin* pWinToCopyFrom, gint64 nodeIdToCopyFrom)

@@ -25,6 +25,8 @@
 #include "ct_clipboard.h"
 #include "ct_main_win.h"
 #include <memory>
+#include <cmath>
+#include <pango/pangocairo.h>
 #include "ct_actions.h"
 #include "ct_storage_sqlite.h"
 #include "ct_storage_xml.h"
@@ -1441,9 +1443,10 @@ void CtTableRich::_new_rich_cell_attach(const size_t rowIdx, const size_t colIdx
     CtTextView& ctTextView = pCell->get_text_view();
     auto& textView = ctTextView.mm();
     {
-        const int rawH   = get_row_min_height(rowIdx);
-        const int scaledH = (rawH > 0) ? int(rawH * _zoomFactor) : -1;
-        textView.set_size_request(int(get_col_width(colIdx) * _zoomFactor), scaledH);
+        const int scaledH = (int)std::ceil(get_row_min_height(rowIdx) * _zoomFactor);
+        const int scaledW = (int)std::ceil(get_col_width(colIdx) * _zoomFactor);
+        textView.set_size_request(scaledW, scaledH);
+        CtTableRich::_apply_hint_style_for_zoom(textView);
     }
     textView.set_border_window_size(Gtk::TEXT_WINDOW_LEFT, 0);
     textView.set_border_window_size(Gtk::TEXT_WINDOW_RIGHT, 0);
@@ -1512,51 +1515,7 @@ void CtTableRich::_applyTableStyle()
     const size_t numRows = get_num_rows();
     const size_t numCols = get_num_columns();
 
-    // Returns the effective {width, color} for cell (r,c): per-cell override if set, else table default.
-    auto effectiveBorder = [&](size_t r, size_t c) -> std::pair<int, std::string> {
-        auto bwIt = _tableStyle.cellBorderWidths.find({r, c});
-        auto bcIt = _tableStyle.cellBorderColors.find({r, c});
-        int w = (bwIt != _tableStyle.cellBorderWidths.end()) ? bwIt->second : _tableStyle.borderWidth;
-        const std::string& color = (bcIt != _tableStyle.cellBorderColors.end()) ? bcIt->second : _tableStyle.borderColor;
-        return {w, color};
-    };
-
-    auto hasOverride = [&](size_t r, size_t c) -> bool {
-        return _tableStyle.cellBorderWidths.count({r, c}) > 0 ||
-               _tableStyle.cellBorderColors.count({r, c}) > 0;
-    };
-
-    auto getSeq = [&](size_t r, size_t c) -> size_t {
-        auto it = _tableStyle.cellBorderSeq.find({r, c});
-        return (it != _tableStyle.cellBorderSeq.end()) ? it->second : 0;
-    };
-
-    // Resolve a shared edge between two adjacent cells.
-    // Returns {width, color, winning_sequence}.
-    // The cell whose override was applied more recently (higher sequence) wins.
-    auto resolveSharedEdge = [&](size_t r, size_t c, size_t nr, size_t nc,
-                                 int w, const std::string& color)
-        -> std::tuple<int, std::string, size_t>
-    {
-        const bool thisOvr = hasOverride(r, c);
-        const bool neighOvr = hasOverride(nr, nc);
-        if (thisOvr && neighOvr) {
-            const size_t thisSeq = getSeq(r, c);
-            const size_t neighSeq = getSeq(nr, nc);
-            if (thisSeq >= neighSeq) {
-                return {w, color, thisSeq};
-            } else {
-                auto [nw, nc2] = effectiveBorder(nr, nc);
-                return {nw, nc2, neighSeq};
-            }
-        } else if (thisOvr) {
-            return {w, color, getSeq(r, c)};
-        } else if (neighOvr) {
-            auto [nw, nc2] = effectiveBorder(nr, nc);
-            return {nw, nc2, getSeq(nr, nc)};
-        }
-        return {w, color, 0};
-    };
+    _applyCellBordersScaled();
 
     for (size_t r = 0; r < numRows; ++r) {
         for (size_t c = 0; c < numCols; ++c) {
@@ -1571,56 +1530,6 @@ void CtTableRich::_applyTableStyle()
             } else {
                 pCell->applyCellBgColor("");
             }
-
-            // Collapsed border: each cell draws right+bottom always, top only
-            // if row 0, left only if col 0.  Each shared edge is drawn by one
-            // cell.  For shared edges, the most recently applied override wins.
-            auto [w, color] = effectiveBorder(r, c);
-            const size_t cellSeq = getSeq(r, c);
-
-            // Top edge: only row 0 (outer edge), use this cell's style
-            const int wTop    = (r == 0) ? w : 0;
-            const std::string colorTop = color;
-            const size_t seqTop = (r == 0) ? cellSeq : 0;
-
-            // Left edge: only col 0 (outer edge), use this cell's style
-            const int wLeft   = (c == 0) ? w : 0;
-            const std::string colorLeft = color;
-            const size_t seqLeft = (c == 0) ? cellSeq : 0;
-
-            // Right edge: shared with cell (r, c+1).
-            int wRight; std::string colorRight; size_t seqRight;
-            if (c + 1 < numCols) {
-                std::tie(wRight, colorRight, seqRight) = resolveSharedEdge(r, c, r, c + 1, w, color);
-            } else {
-                wRight = w; colorRight = color; seqRight = cellSeq;
-            }
-
-            // Bottom edge: shared with cell (r+1, c).
-            int wBottom; std::string colorBottom; size_t seqBottom;
-            if (r + 1 < numRows) {
-                std::tie(wBottom, colorBottom, seqBottom) = resolveSharedEdge(r, c, r + 1, c, w, color);
-            } else {
-                wBottom = w; colorBottom = color; seqBottom = cellSeq;
-            }
-
-            // Per-corner colors: each corner is determined independently by the
-            // two edges meeting there. The edge with the higher sequence number wins.
-            auto pickCorner = [](int wA, const std::string& cA, size_t sA,
-                                 int wB, const std::string& cB, size_t sB) -> std::string {
-                if (wA > 0 && wB > 0) return (sA >= sB) ? cA : cB;
-                if (wA > 0) return cA;
-                if (wB > 0) return cB;
-                return {};
-            };
-            const std::string crnTL = pickCorner(wTop, colorTop, seqTop, wLeft, colorLeft, seqLeft);
-            const std::string crnTR = pickCorner(wTop, colorTop, seqTop, wRight, colorRight, seqRight);
-            const std::string crnBL = pickCorner(wBottom, colorBottom, seqBottom, wLeft, colorLeft, seqLeft);
-            const std::string crnBR = pickCorner(wBottom, colorBottom, seqBottom, wRight, colorRight, seqRight);
-
-            pCell->applyCellBorder(wTop, wRight, wBottom, wLeft,
-                                   colorTop, colorRight, colorBottom, colorLeft,
-                                   crnTL, crnTR, crnBL, crnBR);
 
             // Horizontal alignment
             auto& tv = pCell->get_text_view().mm();
@@ -1674,20 +1583,13 @@ void CtTableRich::_applyTableStyle()
                     tv.set_top_margin(0);
                     tv.set_bottom_margin(0);
                     auto* pRichCell = static_cast<CtRichCell*>(_tableMatrix[r][c]);
-                    // Capture the row's configured min-height (scaled by zoom) as
-                    // the target natural height: the cell is sized to fit text
-                    // when text exceeds rowMinHeight, and to rowMinHeight otherwise,
-                    // with the spare distributed as v-align margins.
-                    const int rawRowH = get_row_min_height(r);
-                    const int rowMinHeightScaled =
-                        (rawRowH > 0) ? int(rawRowH * _zoomFactor) : 0;
                     // Alive sentinel: _vAlignGuards.clear() at the next _applyTableStyle
                     // (or at table destruction) expires this weak_ptr, causing all in-flight
                     // idle/signal callbacks to bail out before touching pRichCell.
                     auto guard = std::make_shared<bool>(true);
                     _vAlignGuards.push_back(guard);
                     std::weak_ptr<bool> weakGuard{guard};
-                    auto updateMargin = [pRichCell, valign, weakGuard, rowMinHeightScaled]() {
+                    auto updateMargin = [this, pRichCell, valign, weakGuard, r]() {
                         if (weakGuard.expired()) return;
                         auto& tv2 = pRichCell->get_text_view().mm();
                         if (!tv2.get_realized()) return;
@@ -1702,6 +1604,8 @@ void CtTableRich::_applyTableStyle()
                         tv2.get_iter_location(endIter, endRect);
                         const int textH = std::max(1, endRect.get_y() + endRect.get_height());
 
+                        // Read row's min-height live so zoom changes after
+                        // _applyTableStyle still produce correctly-scaled margins.
                         // Target natural height = max(rowMinHeight, textH). When
                         // textH < rowMinHeight, the spare is split as v-align
                         // margins (centering text in the configured row height).
@@ -1711,6 +1615,7 @@ void CtTableRich::_applyTableStyle()
                         // height drops back to rowMinHeight, so GTK shrinks the
                         // grid row instead of staying at the previously-grown
                         // height (e.g. after undoing an image insert).
+                        const int rowMinHeightScaled = (int)std::ceil(get_row_min_height(r) * _zoomFactor);
                         const int target = std::max(rowMinHeightScaled, textH);
                         const int spare = std::max(0, target - textH);
                         int topM = 0, botM = 0;
@@ -1764,9 +1669,8 @@ void CtTableRich::_applyTableStyle()
 
             // Row height + column width (size request)
             {
-                const int scaledW = int(get_col_width(c) * _zoomFactor);
-                const int rawH    = get_row_min_height(r);
-                const int scaledH = (rawH > 0) ? int(rawH * _zoomFactor) : -1;
+                const int scaledW = (int)std::ceil(get_col_width(c) * _zoomFactor);
+                const int scaledH = (int)std::ceil(get_row_min_height(r) * _zoomFactor);
                 tv.set_size_request(scaledW, scaledH);
             }
         }
@@ -1801,7 +1705,7 @@ void CtTableRich::_apply_wrap_for_cell(size_t r, size_t c, Gtk::TextView& tv)
     // the now-correct natural width.
     if (newMode == Gtk::WRAP_WORD_CHAR && tv.get_realized()) {
         Gtk::Allocation alloc = tv.get_allocation();
-        const int desiredW = int(get_col_width(c) * _zoomFactor);
+        const int desiredW = (int)std::ceil(get_col_width(c) * _zoomFactor);
         if (alloc.get_width() > desiredW && alloc.get_height() > 0) {
             alloc.set_width(desiredW);
             tv.size_allocate(alloc);
@@ -2208,20 +2112,170 @@ bool CtTableRich::_row_sort(const bool sortAsc)
     return true;
 }
 
+void CtTableRich::_applyCellBordersScaled()
+{
+    const size_t numRows = get_num_rows();
+    const size_t numCols = get_num_columns();
+
+    // Returns the effective {width, color} for cell (r,c): per-cell override if set, else table default.
+    auto effectiveBorder = [&](size_t r, size_t c) -> std::pair<int, std::string> {
+        auto bwIt = _tableStyle.cellBorderWidths.find({r, c});
+        auto bcIt = _tableStyle.cellBorderColors.find({r, c});
+        int w = (bwIt != _tableStyle.cellBorderWidths.end()) ? bwIt->second : _tableStyle.borderWidth;
+        const std::string& color = (bcIt != _tableStyle.cellBorderColors.end()) ? bcIt->second : _tableStyle.borderColor;
+        return {w, color};
+    };
+
+    auto hasOverride = [&](size_t r, size_t c) -> bool {
+        return _tableStyle.cellBorderWidths.count({r, c}) > 0 ||
+               _tableStyle.cellBorderColors.count({r, c}) > 0;
+    };
+
+    auto getSeq = [&](size_t r, size_t c) -> size_t {
+        auto it = _tableStyle.cellBorderSeq.find({r, c});
+        return (it != _tableStyle.cellBorderSeq.end()) ? it->second : 0;
+    };
+
+    // Resolve a shared edge between two adjacent cells.
+    // Returns {width, color, winning_sequence}.
+    // The cell whose override was applied more recently (higher sequence) wins.
+    auto resolveSharedEdge = [&](size_t r, size_t c, size_t nr, size_t nc,
+                                 int w, const std::string& color)
+        -> std::tuple<int, std::string, size_t>
+    {
+        const bool thisOvr = hasOverride(r, c);
+        const bool neighOvr = hasOverride(nr, nc);
+        if (thisOvr && neighOvr) {
+            const size_t thisSeq = getSeq(r, c);
+            const size_t neighSeq = getSeq(nr, nc);
+            if (thisSeq >= neighSeq) {
+                return {w, color, thisSeq};
+            } else {
+                auto [nw, nc2] = effectiveBorder(nr, nc);
+                return {nw, nc2, neighSeq};
+            }
+        } else if (thisOvr) {
+            return {w, color, getSeq(r, c)};
+        } else if (neighOvr) {
+            auto [nw, nc2] = effectiveBorder(nr, nc);
+            return {nw, nc2, getSeq(nr, nc)};
+        }
+        return {w, color, 0};
+    };
+
+    // Scale a border width by current zoom. ceil keeps a configured (>0) edge
+    // visible at small zoom levels rather than disappearing at <1 px.
+    auto scaleW = [this](int w) -> int {
+        if (w <= 0) return 0;
+        return std::max(1, (int)std::ceil(w * _zoomFactor));
+    };
+
+    for (size_t r = 0; r < numRows; ++r) {
+        for (size_t c = 0; c < numCols; ++c) {
+            auto* pCell = static_cast<CtRichCell*>(_tableMatrix.at(r).at(c));
+
+            // Collapsed border: each cell draws right+bottom always, top only
+            // if row 0, left only if col 0.  Each shared edge is drawn by one
+            // cell.  For shared edges, the most recently applied override wins.
+            auto [w, color] = effectiveBorder(r, c);
+            const size_t cellSeq = getSeq(r, c);
+
+            // Top edge: only row 0 (outer edge), use this cell's style
+            const int wTop    = (r == 0) ? w : 0;
+            const std::string colorTop = color;
+            const size_t seqTop = (r == 0) ? cellSeq : 0;
+
+            // Left edge: only col 0 (outer edge), use this cell's style
+            const int wLeft   = (c == 0) ? w : 0;
+            const std::string colorLeft = color;
+            const size_t seqLeft = (c == 0) ? cellSeq : 0;
+
+            // Right edge: shared with cell (r, c+1).
+            int wRight; std::string colorRight; size_t seqRight;
+            if (c + 1 < numCols) {
+                std::tie(wRight, colorRight, seqRight) = resolveSharedEdge(r, c, r, c + 1, w, color);
+            } else {
+                wRight = w; colorRight = color; seqRight = cellSeq;
+            }
+
+            // Bottom edge: shared with cell (r+1, c).
+            int wBottom; std::string colorBottom; size_t seqBottom;
+            if (r + 1 < numRows) {
+                std::tie(wBottom, colorBottom, seqBottom) = resolveSharedEdge(r, c, r + 1, c, w, color);
+            } else {
+                wBottom = w; colorBottom = color; seqBottom = cellSeq;
+            }
+
+            // Per-corner colors: each corner is determined independently by the
+            // two edges meeting there. The edge with the higher sequence number wins.
+            auto pickCorner = [](int wA, const std::string& cA, size_t sA,
+                                 int wB, const std::string& cB, size_t sB) -> std::string {
+                if (wA > 0 && wB > 0) return (sA >= sB) ? cA : cB;
+                if (wA > 0) return cA;
+                if (wB > 0) return cB;
+                return {};
+            };
+            const std::string crnTL = pickCorner(wTop, colorTop, seqTop, wLeft, colorLeft, seqLeft);
+            const std::string crnTR = pickCorner(wTop, colorTop, seqTop, wRight, colorRight, seqRight);
+            const std::string crnBL = pickCorner(wBottom, colorBottom, seqBottom, wLeft, colorLeft, seqLeft);
+            const std::string crnBR = pickCorner(wBottom, colorBottom, seqBottom, wRight, colorRight, seqRight);
+
+            pCell->applyCellBorder(scaleW(wTop), scaleW(wRight), scaleW(wBottom), scaleW(wLeft),
+                                   colorTop, colorRight, colorBottom, colorLeft,
+                                   crnTL, crnTR, crnBL, crnBR);
+        }
+    }
+}
+
+void CtTableRich::_apply_hint_style_for_zoom(Gtk::TextView& tv)
+{
+    // Read effective rendered point size from the textview's pango context.
+    // The main window has already pushed the (zoomed) rt font into the style
+    // context before apply_zoom runs, so this reflects the size that will
+    // actually be drawn.
+    auto pangoCtx = tv.get_pango_context();
+    const Pango::FontDescription fontDesc = pangoCtx->get_font_description();
+    const double pt = (double)fontDesc.get_size() / (double)PANGO_SCALE;
+
+    cairo_hint_style_t hint;
+    if (pt >= 8.0)      hint = CAIRO_HINT_STYLE_FULL;    // readable: stay crisp
+    else if (pt >= 5.0) hint = CAIRO_HINT_STYLE_SLIGHT;  // borderline: light hint
+    else                hint = CAIRO_HINT_STYLE_NONE;    // tiny: metric-exact, blurry but proportional
+
+    cairo_font_options_t* options = cairo_font_options_create();
+    cairo_font_options_set_hint_style(options, hint);
+    // Keep metrics aligned with the hint policy too — otherwise glyph widths
+    // are still pixel-snapped and the wrap point drifts.
+    cairo_font_options_set_hint_metrics(options,
+        hint == CAIRO_HINT_STYLE_NONE ? CAIRO_HINT_METRICS_OFF : CAIRO_HINT_METRICS_ON);
+    pango_cairo_context_set_font_options(pangoCtx->gobj(), options);
+    cairo_font_options_destroy(options);
+}
+
 void CtTableRich::apply_zoom(const double scaleFactor)
 {
     _zoomFactor = scaleFactor;
     const size_t numRows = get_num_rows();
     const size_t numColumns = get_num_columns();
     for (size_t r = 0u; r < numRows; ++r) {
-        const int rawH    = get_row_min_height(r);
-        const int scaledH = (rawH > 0) ? int(rawH * scaleFactor) : -1;
+        const int scaledH = (int)std::ceil(get_row_min_height(r) * scaleFactor);
         for (size_t c = 0u; c < numColumns; ++c) {
-            const int scaledWidth = int(get_col_width(c) * scaleFactor);
-            static_cast<CtRichCell*>(_tableMatrix[r][c])->get_text_view().mm()
-                .set_size_request(scaledWidth, scaledH);
+            auto& tv = static_cast<CtRichCell*>(_tableMatrix[r][c])->get_text_view().mm();
+            // Reset v-align margins so the cell's natural height drops to text
+            // content. Without this, margins sized for the old scale keep the
+            // cell at its previous height regardless of the new size_request.
+            // The signal_size_allocate handler (updateMargin) will reapply
+            // correctly-scaled margins for middle/bottom valign cells using the
+            // updated _zoomFactor.
+            if (tv.get_top_margin() != 0)    tv.set_top_margin(0);
+            if (tv.get_bottom_margin() != 0) tv.set_bottom_margin(0);
+            const int scaledWidth = (int)std::ceil(get_col_width(c) * scaleFactor);
+            tv.set_size_request(scaledWidth, scaledH);
+            CtTableRich::_apply_hint_style_for_zoom(tv);
         }
     }
+    // Re-apply cell borders so their pixel widths scale with the new zoom.
+    _applyCellBordersScaled();
 }
 
 void CtTableRich::set_col_width_default(const int colWidthDefault, bool clearOverrides)
@@ -2230,12 +2284,11 @@ void CtTableRich::set_col_width_default(const int colWidthDefault, bool clearOve
         std::fill(_colWidths.begin(), _colWidths.end(), 0);
     }
     _colWidthDefault = colWidthDefault;
-    const int scaledWidth = int(colWidthDefault * _zoomFactor);
+    const int scaledWidth = (int)std::ceil(colWidthDefault * _zoomFactor);
     const size_t numRows = get_num_rows();
     const size_t numCols = get_num_columns();
     for (size_t r = 0u; r < numRows; ++r) {
-        const int rawH    = get_row_min_height(r);
-        const int scaledH = (rawH > 0) ? int(rawH * _zoomFactor) : -1;
+        const int scaledH = (int)std::ceil(get_row_min_height(r) * _zoomFactor);
         for (size_t c = 0u; c < numCols; ++c) {
             if (0u == _colWidths.at(c)) {
                 static_cast<CtRichCell*>(_tableMatrix[r][c])->get_text_view().mm()
@@ -2249,11 +2302,10 @@ void CtTableRich::set_col_width(const int colWidth, std::optional<size_t> optCol
 {
     const size_t c = optColIdx.value_or(_currentColumn);
     _colWidths[c] = colWidth;
-    const int scaledWidth = int(colWidth * _zoomFactor);
+    const int scaledWidth = (int)std::ceil(colWidth * _zoomFactor);
     const size_t numRows = get_num_rows();
     for (size_t r = 0u; r < numRows; ++r) {
-        const int rawH    = get_row_min_height(r);
-        const int scaledH = (rawH > 0) ? int(rawH * _zoomFactor) : -1;
+        const int scaledH = (int)std::ceil(get_row_min_height(r) * _zoomFactor);
         static_cast<CtRichCell*>(_tableMatrix[r][c])->get_text_view().mm()
             .set_size_request(scaledWidth, scaledH);
     }
@@ -2262,15 +2314,11 @@ void CtTableRich::set_col_width(const int colWidth, std::optional<size_t> optCol
 void CtTableRich::set_row_min_height(int h, std::optional<size_t> optRowIdx)
 {
     const size_t r = optRowIdx.value_or(_currentRow);
-    if (h > 0) {
-        _tableStyle.rowMinHeights[r] = h;
-    } else {
-        _tableStyle.rowMinHeights.erase(r);
-    }
-    const int scaledH = (h > 0) ? int(h * _zoomFactor) : -1;
+    _tableStyle.rowMinHeights[r] = h;
+    const int scaledH = (int)std::ceil(h * _zoomFactor);
     const size_t numCols = get_num_columns();
     for (size_t c = 0u; c < numCols; ++c) {
-        const int scaledW = int(get_col_width(c) * _zoomFactor);
+        const int scaledW = (int)std::ceil(get_col_width(c) * _zoomFactor);
         static_cast<CtRichCell*>(_tableMatrix[r][c])->get_text_view().mm()
             .set_size_request(scaledW, scaledH);
     }
