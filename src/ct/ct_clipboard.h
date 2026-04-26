@@ -49,14 +49,28 @@ public:
     static void on_cut_clipboard(GtkTextView* pTextView, gpointer codebox);
     static void on_copy_clipboard(GtkTextView* pTextView, gpointer codebox);
     static void on_paste_clipboard(GtkTextView* pTextView, gpointer codebox);
+    // GTK button-press-event callback used to intercept middle-click PRIMARY paste
+    // before GtkTextView's default handler runs (which would bypass our undo tracking).
+    // Connect via g_signal_connect; returns TRUE for handled middle-clicks to stop emission.
+    static gboolean on_button_press_event(GtkWidget* pWidget, GdkEventButton* event, gpointer codebox);
     static void force_plain_text() { _static_force_plain_text = true; }
 
 private:
     void _cut_clipboard(Gtk::TextView* pTextView, CtCodebox* pCodebox);
     void _copy_clipboard(Gtk::TextView* pTextView, CtCodebox* pCodebox);
+    #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
+    void _paste_clipboard(Gtk::TextView* pTextView, CtCodebox* pCodebox, Glib::RefPtr<Gtk::Clipboard> pClipboard);
+    #else
     void _paste_clipboard(Gtk::TextView* pTextView, CtCodebox* pCodebox);
+    #endif
 
 public:
+    // Paste the X11 PRIMARY selection at the current cursor position with full
+    // undo command tracking — used by the middle-click handler.
+    void          paste_from_primary(Gtk::TextView* pTextView, CtCodebox* pCodebox = nullptr);
+    // Place cursor at click coordinates (in widget-window coords), grab focus, and
+    // paste from the PRIMARY selection — the body shared by all middle-click handlers.
+    void          paste_primary_at_click(Gtk::TextView* pTextView, int event_x, int event_y, CtCodebox* pCodebox = nullptr);
     void          plain_text_to_clipboard(const char* plain_text);
     void          table_row_to_clipboard(CtTableCommon* pTable);
     void          table_row_paste(CtTableCommon* pTable);
