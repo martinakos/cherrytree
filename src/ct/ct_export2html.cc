@@ -118,7 +118,7 @@ void CtExport2Html::node_export_to_html(CtTreeIter tree_iter,
                     else if (auto image = dynamic_cast<CtImage*>(widgets[i]))
                         node_html_text += _get_image_html(image, _images_dir, images_count, &tree_iter, false/*single_file*/);
                     else if (auto table = dynamic_cast<CtTableCommon*>(widgets[i]))
-                        node_html_text += _get_table_html(table);
+                        node_html_text += _get_table_html(table, &tree_iter, &images_count, false/*single_file*/);
                     else if (auto codebox = dynamic_cast<CtCodebox*>(widgets[i]))
                         node_html_text += _get_codebox_html(codebox);
                 }
@@ -244,7 +244,7 @@ void CtExport2Html::nodes_all_export_to_single_html(bool all_tree, const CtExpor
                         else if (auto image = dynamic_cast<CtImage*>(widgets[i]))
                             node_html_text += _get_image_html(image, _images_dir, images_count, &tree_iter, true/*single_file*/);
                         else if (auto table = dynamic_cast<CtTableCommon*>(widgets[i]))
-                            node_html_text += _get_table_html(table);
+                            node_html_text += _get_table_html(table, &tree_iter, &images_count, true/*single_file*/);
                         else if (auto codebox = dynamic_cast<CtCodebox*>(widgets[i]))
                             node_html_text += _get_codebox_html(codebox);
                     }
@@ -341,7 +341,7 @@ Glib::ustring CtExport2Html::selection_export_to_html(Glib::RefPtr<Gtk::TextBuff
             int end_offset = widget->getOffset();
             node_html_text += html_process_slot(_pCtConfig, _pCtMainWin, start_offset, end_offset, text_buffer, false/*single_file*/);
             if (CtImage* image = dynamic_cast<CtImage*>(widget)) node_html_text += _get_image_html(image, tempFolder, images_count, nullptr, false/*single_file*/);
-            else if (auto table = dynamic_cast<CtTableCommon*>(widget)) node_html_text += _get_table_html(table);
+            else if (auto table = dynamic_cast<CtTableCommon*>(widget)) node_html_text += _get_table_html(table, nullptr, &images_count, false/*single_file*/);
             else if (auto codebox = dynamic_cast<CtCodebox*>(widget)) node_html_text += _get_codebox_html(codebox);
             start_offset = end_offset;
         }
@@ -441,22 +441,92 @@ Glib::ustring CtExport2Html::_get_codebox_html(CtCodebox* codebox)
     return codebox_html;
 }
 
-Glib::ustring CtExport2Html::_get_table_html(CtTableCommon* table)
+Glib::ustring CtExport2Html::_get_rich_cell_html(CtRichCell* pCell,
+                                                 CtTreeIter* pTreeIter,
+                                                 int* pImagesCount,
+                                                 bool single_file)
 {
+    auto rBuffer = pCell->get_buffer();
+    if (not rBuffer) return {};
+
+    // Refresh widget offsets from their child anchors so they are accurate
+    // (the cell content may have been edited after load).
+    std::vector<CtAnchoredWidget*> widgets;
+    widgets.reserve(pCell->getEmbeddedWidgets().size());
+    for (Gtk::TextIter it = rBuffer->begin(); ; ) {
+        Glib::RefPtr<Gtk::TextChildAnchor> rAnchor = it.get_child_anchor();
+        if (rAnchor) {
+            for (CtAnchoredWidget* pW : pCell->getEmbeddedWidgets()) {
+                if (pW->getTextChildAnchor() == rAnchor) {
+                    pW->updateOffset(it.get_offset());
+                    widgets.push_back(pW);
+                    break;
+                }
+            }
+        }
+        if (not it.forward_char()) break;
+    }
+    std::sort(widgets.begin(), widgets.end(),
+              [](CtAnchoredWidget* a, CtAnchoredWidget* b) { return a->getOffset() < b->getOffset(); });
+
+    int dummy_images_count{0};
+    int& images_count = pImagesCount ? *pImagesCount : dummy_images_count;
+
+    Glib::ustring cell_html;
+    int start_offset{0};
+    for (CtAnchoredWidget* pW : widgets) {
+        const int widget_offset = pW->getOffset();
+        cell_html += html_process_slot(_pCtConfig, _pCtMainWin, start_offset, widget_offset, rBuffer, single_file);
+        if (auto* pEmbFile = dynamic_cast<CtImageEmbFile*>(pW)) {
+            if (pTreeIter) {
+                cell_html += _get_embfile_html(pEmbFile, *pTreeIter, _embed_dir);
+            }
+        }
+        else if (auto* pImage = dynamic_cast<CtImage*>(pW)) {
+            cell_html += _get_image_html(pImage, _images_dir, images_count, pTreeIter, single_file);
+        }
+        start_offset = widget_offset + 1; // skip past the OBJECT REPLACEMENT CHARACTER
+    }
+    cell_html += html_process_slot(_pCtConfig, _pCtMainWin, start_offset, -1, rBuffer, single_file);
+
+    // html_process_slot uses '\n' as the line separator; the outer code splits the
+    // node body on '\n' to wrap each line in <p>...</p>. Inside a <td>, newlines
+    // would leak out and break the paragraph wrapping, so convert them to <br/>.
+    cell_html = str::replace(cell_html, "\n", "<br/>");
+    while (cell_html.size() >= 5 and cell_html.compare(cell_html.size() - 5, 5, "<br/>") == 0) {
+        cell_html.erase(cell_html.size() - 5);
+    }
+    return cell_html;
+}
+
+Glib::ustring CtExport2Html::_get_table_html(CtTableCommon* table,
+                                             CtTreeIter* pTreeIter,
+                                             int* pImagesCount,
+                                             bool single_file)
+{
+    auto* pRichTable = dynamic_cast<CtTableRich*>(table);
     std::vector<std::vector<Glib::ustring>> rows;
-    table->write_strings_matrix(rows);
+    if (not pRichTable) {
+        table->write_strings_matrix(rows);
+    }
     const CtTableStyle& style = table->getTableStyle();
 
     // Only emit inline styles when they differ from the default appearance
     const bool hasCustomBorder = (style.borderWidth != 1 || style.borderColor != "#000000");
     const bool hasCustomBg = !style.tableBgColor.empty();
     const bool hasCustomCellBg = !style.cellBgColors.empty();
+    const bool hasCustomCellBorder = !style.cellBorderWidths.empty() || !style.cellBorderColors.empty();
+    const bool hasAnyStyling = hasCustomBorder || hasCustomBg || hasCustomCellBg || hasCustomCellBorder;
 
     std::string tableStyle;
     if (hasCustomBorder) {
         if (style.borderWidth > 0) {
-            tableStyle += "border: " + std::to_string(style.borderWidth) + "px solid " + style.borderColor + "; border-collapse: collapse; ";
+            tableStyle += "border: " + std::to_string(style.borderWidth) + "px solid " + style.borderColor + "; ";
         }
+    }
+    if (hasAnyStyling) {
+        // Per-cell borders need collapsed borders; otherwise adjacent cells double up.
+        tableStyle += "border-collapse: collapse; ";
     }
     if (hasCustomBg) {
         tableStyle += "background-color: " + style.tableBgColor + "; ";
@@ -468,25 +538,132 @@ Glib::ustring CtExport2Html::_get_table_html(CtTableCommon* table)
     }
     table_html += ">";
 
+    // Preserve column widths so the exported table matches what the user sees in the editor.
+    {
+        const auto colWidths = table->get_col_widths();
+        Glib::ustring colgroup;
+        for (size_t i = 0; i < colWidths.size(); ++i) {
+            const int w = colWidths.at(i);
+            if (w > 0) {
+                colgroup += "<col style=\"width: " + std::to_string(w) + "px;\"/>";
+            }
+            else {
+                colgroup += "<col/>";
+            }
+        }
+        if (!colgroup.empty()) {
+            table_html += "<colgroup>" + colgroup + "</colgroup>";
+        }
+    }
+
+    const size_t numRows = pRichTable ? pRichTable->get_num_rows() : rows.size();
+    const size_t numCols = pRichTable ? pRichTable->get_num_columns()
+                                      : (rows.empty() ? 0u : rows.front().size());
+
+    auto resolveCellBorderWidth = [&](size_t r, size_t c) -> int {
+        const auto it = style.cellBorderWidths.find({r, c});
+        return (it != style.cellBorderWidths.end()) ? it->second : style.borderWidth;
+    };
+    auto resolveCellBorderColor = [&](size_t r, size_t c) -> std::string {
+        const auto it = style.cellBorderColors.find({r, c});
+        return (it != style.cellBorderColors.end()) ? it->second : style.borderColor;
+    };
+    auto resolveCellBg = [&](size_t r, size_t c) -> std::string {
+        const auto it = style.cellBgColors.find({r, c});
+        if (it != style.cellBgColors.end()) return it->second;
+        return style.tableBgColor; // empty if not set
+    };
+    auto resolveCellHAlign = [&](size_t r, size_t c) -> std::string {
+        const auto it = style.cellHAlign.find({r, c});
+        if (it != style.cellHAlign.end()) return it->second;
+        return style.tableHAlignDefault;
+    };
+    auto resolveCellVAlign = [&](size_t r, size_t c) -> std::string {
+        const auto it = style.cellVAlign.find({r, c});
+        if (it != style.cellVAlign.end()) return it->second;
+        return style.tableVAlignDefault;
+    };
+    auto resolveCellWrap = [&](size_t r, size_t c) -> bool {
+        // Returns true if wrap is on (the default), false if off.
+        const auto it = style.cellWrap.find({r, c});
+        if (it != style.cellWrap.end()) return it->second;
+        if (style.tableWrapDefaultSet) return style.tableWrapDefault;
+        return true; // default: wrap on
+    };
+
+    auto resolveRowMinHeight = [&](size_t r) -> int {
+        const auto it = style.rowMinHeights.find(r);
+        if (it != style.rowMinHeights.end()) return it->second;
+        return style.rowMinHeightDefault;
+    };
+
     bool first{true};
-    size_t rowIdx = 0;
-    for (const auto& row : rows) {
-        table_html += "<tr>";
-        size_t colIdx = 0;
-        for (const Glib::ustring& cell : row) {
-            Glib::ustring content = str::xml_escape(cell);
+    for (size_t rowIdx = 0; rowIdx < numRows; ++rowIdx) {
+        const int rowMinH = resolveRowMinHeight(rowIdx);
+        if (rowMinH > 0) {
+            table_html += "<tr style=\"height: " + std::to_string(rowMinH) + "px;\">";
+        }
+        else {
+            table_html += "<tr>";
+        }
+        for (size_t colIdx = 0; colIdx < numCols; ++colIdx) {
+            Glib::ustring content;
+            if (pRichTable) {
+                // Rich cells: serialize per-cell formatted HTML (formatting + embedded widgets).
+                CtRichCell* pCell = pRichTable->getRichCell(rowIdx, colIdx);
+                if (pCell) {
+                    content = _get_rich_cell_html(pCell, pTreeIter, pImagesCount, single_file);
+                }
+            }
+            else {
+                content = str::xml_escape(rows.at(rowIdx).at(colIdx));
+            }
             if (content.empty()) {
                 content = " "; // Otherwise the table will render with squashed cells
             }
             std::string cellStyle;
-            if (hasCustomBorder && style.borderWidth > 0) {
-                cellStyle += "border: " + std::to_string(style.borderWidth) + "px solid " + style.borderColor + "; ";
-            }
-            if (hasCustomCellBg) {
-                const auto it = style.cellBgColors.find({rowIdx, colIdx});
-                if (it != style.cellBgColors.end()) {
-                    cellStyle += "background-color: " + it->second + "; ";
+            if (hasCustomBorder || hasCustomCellBorder) {
+                const int w = resolveCellBorderWidth(rowIdx, colIdx);
+                if (w > 0) {
+                    cellStyle += "border: " + std::to_string(w) + "px solid " +
+                                 resolveCellBorderColor(rowIdx, colIdx) + "; ";
                 }
+                else {
+                    cellStyle += "border: none; ";
+                }
+            }
+            // Browsers (and historically the shipped styles4.css) fill <th> with a grey
+            // background. The CherryTree editor doesn't grey its headers, so always emit
+            // an explicit background-color on header cells to neutralise that default.
+            const std::string bgColor = resolveCellBg(rowIdx, colIdx);
+            if (!bgColor.empty()) {
+                cellStyle += "background-color: " + bgColor + "; ";
+            }
+            else if (first) {
+                cellStyle += "background-color: transparent; ";
+            }
+            // Horizontal alignment. styles4.css centers cells by default, but the
+            // CherryTree editor uses left-alignment for rich cells; emit the resolved
+            // halign (or "left" for rich tables) so the export matches what the user sees.
+            const std::string halign = resolveCellHAlign(rowIdx, colIdx);
+            if (!halign.empty()) {
+                cellStyle += "text-align: " + halign + "; ";
+            }
+            else if (pRichTable) {
+                cellStyle += "text-align: left; ";
+            }
+            // Vertical alignment. Browsers default <td> to "middle"; CherryTree's editor
+            // shows rich cells top-aligned, so emit "top" when nothing else is set.
+            const std::string valign = resolveCellVAlign(rowIdx, colIdx);
+            if (!valign.empty()) {
+                cellStyle += "vertical-align: " + valign + "; ";
+            }
+            else if (pRichTable) {
+                cellStyle += "vertical-align: top; ";
+            }
+            // Word wrapping: when the editor has wrap off, the cell expands to fit its content.
+            if (!resolveCellWrap(rowIdx, colIdx)) {
+                cellStyle += "white-space: nowrap; ";
             }
             const Glib::ustring cellAttr = cellStyle.empty() ? "" : Glib::ustring{" style=\"" + cellStyle + "\""};
             if (first) {
@@ -494,13 +671,11 @@ Glib::ustring CtExport2Html::_get_table_html(CtTableCommon* table)
             } else {
                 table_html += "<td" + cellAttr + ">" + content + "</td>";
             }
-            ++colIdx;
         }
         if (first) {
             first = false;
         }
         table_html += "</tr>";
-        ++rowIdx;
     }
     table_html += "</table>";
     return table_html;
