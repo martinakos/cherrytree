@@ -75,7 +75,14 @@ private:
                                   CtTreeIter* tree_iter,
                                   const bool single_file);
     Glib::ustring _get_codebox_html(CtCodebox* codebox);
-    Glib::ustring _get_table_html(CtTableCommon* table);
+    Glib::ustring _get_table_html(CtTableCommon* table,
+                                  CtTreeIter* pTreeIter = nullptr,
+                                  int* pImagesCount = nullptr,
+                                  bool single_file = false);
+    Glib::ustring _get_rich_cell_html(class CtRichCell* pCell,
+                                      CtTreeIter* pTreeIter,
+                                      int* pImagesCount,
+                                      bool single_file);
 
     Glib::ustring _html_get_from_code_buffer(const Glib::RefPtr<Gtk::TextBuffer>& code_buffer,
                                              int sel_start,

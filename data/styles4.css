@@ -159,8 +159,10 @@ table {
     border-collapse: collapse;
 }
 
+/* th has bold text by browser default to match the editor's header style;
+   leave background transparent so per-cell or table-level inline bg shows through. */
 th {
-    background-color: rgb(193, 193, 193);
+    background-color: transparent;
 }
 
 td, th {
