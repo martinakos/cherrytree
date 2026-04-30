@@ -24,6 +24,8 @@
 #include "ct_export2pdf.h"
 #include "ct_dialogs.h"
 #include <utility>
+#include <pango/pango-attributes.h>
+#include <pango/pango-layout.h>
 
 namespace {
 
@@ -180,6 +182,56 @@ Glib::ustring CtExport2Pango::pango_get_from_code_buffer(Glib::RefPtr<Gtk::TextB
 }
 
 // Process a Single Pango Slot
+Glib::ustring CtExport2Pango::pango_get_from_rich_buffer(Glib::RefPtr<Gtk::TextBuffer> curr_buffer,
+                                                         int start_offset,
+                                                         int end_offset)
+{
+    if (not curr_buffer) return {};
+
+    // Walk the buffer; process text slots between child anchors and inject a literal
+    // U+FFFC at each anchor position. Callers (rich-table cells) use the U+FFFC as
+    // an inline placeholder where Pango shape attributes reserve space for images.
+    const int begin_off = start_offset;
+    const int end_off = end_offset == -1 ? curr_buffer->end().get_offset() : end_offset;
+
+    std::vector<int> anchorOffsets;
+    {
+        Gtk::TextIter it = curr_buffer->get_iter_at_offset(begin_off);
+        while (it.get_offset() < end_off) {
+            if (it.get_child_anchor()) {
+                anchorOffsets.push_back(it.get_offset());
+            }
+            if (not it.forward_char()) break;
+        }
+    }
+
+    Glib::ustring result;
+    int slot_start = begin_off;
+    for (int anchor_off : anchorOffsets) {
+        if (anchor_off > slot_start) {
+            std::vector<CtPangoObjectPtr> slots;
+            _pango_process_slot(slot_start, anchor_off, curr_buffer, slots);
+            for (const auto& slot : slots) {
+                if (auto pText = std::dynamic_pointer_cast<CtPangoText>(slot)) {
+                    result += pText->text;
+                }
+            }
+        }
+        result += "\xEF\xBF\xBC"; // U+FFFC OBJECT REPLACEMENT CHARACTER
+        slot_start = anchor_off + 1; // skip the anchor itself
+    }
+    if (slot_start < end_off) {
+        std::vector<CtPangoObjectPtr> slots;
+        _pango_process_slot(slot_start, end_off, curr_buffer, slots);
+        for (const auto& slot : slots) {
+            if (auto pText = std::dynamic_pointer_cast<CtPangoText>(slot)) {
+                result += pText->text;
+            }
+        }
+    }
+    return result;
+}
+
 void CtExport2Pango::_pango_process_slot(int start_offset,
                                          int end_offset,
                                          Glib::RefPtr<Gtk::TextBuffer> curr_buffer,
@@ -594,13 +646,69 @@ void CtPrint::_on_begin_print_text(const Glib::RefPtr<Gtk::PrintContext>& contex
     _plain_font = get_font_with_fallback_(Pango::FontDescription(_pCtConfig->ptFont), _pCtConfig->fallbackFontFamily);
     _code_font = get_font_with_fallback_(Pango::FontDescription(_pCtConfig->codeFont), "monospace");
     _text_window_width = _pCtMainWin->get_text_view().mm().get_allocation().get_width();
-    _table_text_row_height = _rich_font.get_size()/Pango::SCALE;
-    _table_line_thickness = 6;
+    _table_line_thickness = 6; // will be scaled by _doc_scale where it's used
     // standard - 72, but MS print to pdf - 600
     // it helps to fix window pixels, otherwise images, etc will be too small
-    _page_dpi_scale = context->get_dpi_x() / 72.0; 
+    _page_dpi_scale = context->get_dpi_x() / 72.0;
     _page_width = context->get_width();
     _page_height = context->get_height() * 1.02; // tolerance at bottom of the page
+
+    // Pre-scan slots to find the most restrictive table fit_scale, then use it as
+    // a uniform document-wide content scale so text, images, codeboxes, and table
+    // cells all share the same visual proportions. We do a natural-width pango
+    // pass per table so wrap-off cells (which expand their column to the text's
+    // natural width in the editor) are accounted for here, not just stored
+    // col_widths.
+    {
+        const double TABLE_SIDE_MARGIN_PRESCAN = 36.0; // matches _process_pango_table
+        _doc_scale = 1.0;
+        for (auto slot : print_data->slots) {
+            auto pango_widget = std::dynamic_pointer_cast<CtPangoWidget>(slot);
+            if (!pango_widget) continue;
+            auto* pTable = dynamic_cast<const CtTableCommon*>(pango_widget->widget);
+            if (!pTable) continue;
+            // Lay out all cells at fit_scale=1 (untouched font) to discover the
+            // widest natural line of any wrap-off cell per column.
+            const auto natural_layouts = _table_get_layouts(pTable, 1, -1, context, 1.0);
+            const CtTableStyle& tStyle = pTable->getTableStyle();
+            auto isWrapOff = [&](size_t r, size_t c) -> bool {
+                const auto it = tStyle.cellWrap.find({r, c});
+                if (it != tStyle.cellWrap.end()) return !it->second;
+                if (tStyle.tableWrapDefaultSet) return !tStyle.tableWrapDefault;
+                return false;
+            };
+            const auto* pRichTable = dynamic_cast<const CtTableRich*>(pTable);
+            double natural_w = 0.0;
+            for (size_t c = 0; c < pTable->get_num_columns(); ++c) {
+                double w_pts = pTable->get_col_width(c) * _page_dpi_scale;
+                for (size_t lr = 0; lr < natural_layouts.size(); ++lr) {
+                    size_t srcR = lr;
+                    if (pRichTable && lr > 0) srcR = lr; // first_row was 1 in our call
+                    if (!isWrapOff(srcR, c)) continue;
+                    if (c >= natural_layouts[lr].size()) continue;
+                    auto& cl = natural_layouts[lr][c];
+                    double mx = 0;
+                    for (int li = 0; li < cl->get_line_count(); ++li) {
+                        const double lw = _get_width_height_from_layout_line(cl->get_line(li)).width;
+                        if (lw > mx) mx = lw;
+                    }
+                    if (mx > w_pts) w_pts = mx;
+                }
+                natural_w += w_pts;
+            }
+            const double avail = std::max(0.0, _page_width - pango_widget->indent - 2 * TABLE_SIDE_MARGIN_PRESCAN);
+            if (natural_w > avail and natural_w > 0) {
+                const double s = avail / natural_w;
+                if (s < _doc_scale) _doc_scale = s;
+            }
+        }
+        // We don't pre-scale font descriptions — that would only shrink the layout
+        // base font, and explicit font_size attrs in the markup (H1, H2, monospace,
+        // etc.) would keep their full size, throwing off the H/body ratio. Instead
+        // every text layout gets a pango_attr_scale applied uniformly at the end of
+        // its construction; see the helper below.
+    }
+    _table_text_row_height = _rich_font.get_size()/Pango::SCALE;
     _layout_newline_height = [&](){
         Glib::RefPtr<Pango::Layout> layout_newline = context->create_pango_layout();
         layout_newline->set_font_description(_rich_font);
@@ -714,17 +822,22 @@ void CtPrint::_on_draw_page_text(const Glib::RefPtr<Gtk::PrintContext>& context,
             }
             else if (auto page_codebox = dynamic_cast<const CtPageCodebox*>(element.get())) {
                 double codebox_height = _get_height_from_layout(page_codebox->layout);
-                double codebox_width = _get_width_from_layout(page_codebox->layout);
+                // Use the explicit box_width if set so split codeboxes have a
+                // consistent width across pages (otherwise a single short line
+                // would shrink the rendered frame to that line's pixel width).
+                double codebox_width = page_codebox->box_width > 0
+                    ? page_codebox->box_width
+                    : _get_width_from_layout(page_codebox->layout);
                 _draw_codebox_box(cairo_context, page_codebox->x, line.y - codebox_height, codebox_width, codebox_height);
                 _draw_codebox_code(cairo_context, page_codebox->layout, page_codebox->x, line.y - codebox_height);
             }
             else if (auto page_table = dynamic_cast<const CtPageTable*>(element.get())) {
                 std::vector<double> rows_h, cols_w;
-                _table_get_grid(page_table->layouts, page_table->colWidths, rows_h, cols_w);
+                _table_get_grid(page_table->layouts, page_table->colWidths, rows_h, cols_w, page_table->pTable, page_table->first_row, page_table->fit_scale);
                 double table_width = _table_get_width_height(cols_w);
                 double table_height = _table_get_width_height(rows_h);
-                _draw_table_grid(cairo_context, rows_h, cols_w, page_table->x, line.y - table_height, table_width, table_height);
-                _draw_table_text(cairo_context, rows_h, cols_w, page_table->layouts, page_table->x, line.y - table_height);
+                _draw_table_grid(cairo_context, rows_h, cols_w, page_table->x, line.y - table_height, table_width, table_height, page_table);
+                _draw_table_text(cairo_context, rows_h, cols_w, page_table->layouts, page_table->x, line.y - table_height, page_table);
             }
         }
     }
@@ -788,6 +901,7 @@ void CtPrint::_process_pango_text(CtPrintData* print_data, CtPangoText* text_slo
         layout->set_indent(int(pages.last_line().cur_x * Pango::SCALE));
     }
     layout->set_markup(text_slot->text);
+    _apply_doc_scale_to_layout(layout);
     //spdlog::debug("{}", text_slot->text.c_str());
 
     int layout_count = layout->get_line_count();
@@ -911,6 +1025,9 @@ void CtPrint::_process_pango_image(CtPrintData* print_data, const CtImage* image
         if (scale < 1.0) any_image_resized = true;
 
         scale *= _page_dpi_scale; // need to compensate high dpi
+        // Apply the document-wide scale so non-table images shrink in step with
+        // text, codeboxes, and table content.
+        scale *= _doc_scale;
 
         double pixbuf_width = pixbuf->get_width() * scale;
         double pixbuf_height = pixbuf->get_height() * scale + (CtConst::WHITE_SPACE_BETW_PIXB_AND_TEXT * _page_dpi_scale);
@@ -921,6 +1038,7 @@ void CtPrint::_process_pango_image(CtPrintData* print_data, const CtImage* image
         label_layout->set_font_description(_plain_font);
         if (auto emb_file = dynamic_cast<const CtImageEmbFile*>(image)) {
             label_layout->set_markup("<b><small>"+str::xml_escape(emb_file->get_file_name().string())+"</small></b>");
+            _apply_doc_scale_to_layout(label_layout);
             label_size = _get_width_height_from_layout_line(label_layout->get_line(0));
         }
 
@@ -1010,13 +1128,20 @@ void CtPrint::_process_pango_codebox(CtPrintData* print_data, const CtCodebox* c
             }
         }
 
+        // The codebox's intended width is a per-codebox property: don't shrink it
+        // based on the current line's available width, otherwise the second piece
+        // (after a page break, with full-page-width available) would be wider than
+        // the first piece. Cap only at the page width minus indent, computed once
+        // and reused on every iteration of the split loop.
         double codebox_width = (codebox->get_width_in_pixels() ? codebox->get_frame_width() : _text_window_width * codebox->get_frame_width()/100.0)*_page_dpi_scale;
+        codebox_width *= _doc_scale;
+        const double max_codebox_width = std::max(0.0, _page_width - pango_widget->indent);
+        if (codebox_width > max_codebox_width) {
+            codebox_width = max_codebox_width;
+        }
         if (0 == i and codebox_width > available_width and available_width < (_page_width - pango_widget->indent)) {
             pages.new_line();
             continue; // restart loop from a new line
-        }
-        if (codebox_width > available_width) {
-            codebox_width = available_width;
         }
 
         // use content if it's ok
@@ -1030,7 +1155,7 @@ void CtPrint::_process_pango_codebox(CtPrintData* print_data, const CtCodebox* c
             }
 
             pages.last_line().set_max_height(codebox_height + (BOX_OFFSET * _page_dpi_scale));
-            pages.last_line().elements.push_back(std::make_shared<CtPageCodebox>(pages.last_line().cur_x, codebox_layout));
+            pages.last_line().elements.push_back(std::make_shared<CtPageCodebox>(pages.last_line().cur_x, codebox_layout, codebox_width));
 
             if (PANGO_DIRECTION_RTL != pango_widget->pango_dir) {
                 // increase x after if not RTL
@@ -1055,7 +1180,7 @@ void CtPrint::_process_pango_codebox(CtPrintData* print_data, const CtCodebox* c
             }
 
             pages.last_line().set_max_height(codebox_height + (BOX_OFFSET * _page_dpi_scale));
-            pages.last_line().elements.push_back(std::make_shared<CtPageCodebox>(pages.last_line().cur_x, first_split_layout));
+            pages.last_line().elements.push_back(std::make_shared<CtPageCodebox>(pages.last_line().cur_x, first_split_layout, codebox_width));
 
             // no need to increase x after if not RTL as we will move to a new page
             pages.new_page();
@@ -1080,6 +1205,7 @@ Glib::RefPtr<Pango::Layout> CtPrint::_codebox_get_layout(const CtCodebox* codebo
     layout->set_wrap(Pango::WRAP_WORD_CHAR);
 #endif
     layout->set_markup(content);
+    _apply_doc_scale_to_layout(layout);
     return layout;
 }
 
@@ -1180,22 +1306,86 @@ void CtPrint::_process_pango_table(CtPrintData *print_data,
             }
         }
 
-        if (0 == i) {
-            double table_width{0.0};
-            for (size_t col = 0; col < table->get_num_columns(); ++col) {
-                table_width += table->get_col_width(col) * _page_dpi_scale;
+        // The document-wide scale (_doc_scale) was computed from the most
+        // restrictive table at print start. Use it directly as fit_scale so all
+        // tables share the same visual scale as the surrounding text and images.
+        // Per-table re-derivation is no longer needed; we still emit the natural
+        // pass to detect wrap-off column expansion.
+        const double TABLE_SIDE_MARGIN = 36.0; // points, ~0.5 inch
+
+        // Each column's natural width is the larger of (the stored col_width
+        // pre-shrunk by _doc_scale) and (the widest natural line of any wrap-off
+        // cell in that column, measured at the already-scaled font). Lay out each
+        // cell once at fit_scale=1 to measure — fonts are already scaled by
+        // _doc_scale at print start, so the resulting layout widths are in the
+        // final coordinate space.
+        const auto natural_layouts = _table_get_layouts(table, first_row, -1, context, 1.0);
+        const CtTableStyle& tStyle = table->getTableStyle();
+        auto isCellWrapOff = [&](size_t srcR, size_t srcC) -> bool {
+            const auto it = tStyle.cellWrap.find({srcR, srcC});
+            if (it != tStyle.cellWrap.end()) return !it->second;
+            if (tStyle.tableWrapDefaultSet) return !tStyle.tableWrapDefault;
+            return false;
+        };
+        double natural_table_width{0.0};
+        std::vector<double> natural_col_widths_pts(table->get_num_columns(), 0.0);
+        auto* pRichTable_for_nat = dynamic_cast<const CtTableRich*>(table);
+        for (size_t col = 0; col < table->get_num_columns(); ++col) {
+            double w_pts = table->get_col_width(col) * _page_dpi_scale * _doc_scale;
+            // Walk all source rows present in natural_layouts.
+            const size_t numLayoutRows = natural_layouts.size();
+            for (size_t lr = 0; lr < numLayoutRows; ++lr) {
+                size_t srcR = lr;
+                if (pRichTable_for_nat && lr > 0) srcR = static_cast<size_t>(first_row) + (lr - 1);
+                if (!isCellWrapOff(srcR, col)) continue;
+                if (col >= natural_layouts[lr].size()) continue;
+                auto& cell_layout = natural_layouts[lr][col];
+                double max_line_w = 0;
+                for (int li = 0; li < cell_layout->get_line_count(); ++li) {
+                    const double lw = _get_width_height_from_layout_line(cell_layout->get_line(li)).width;
+                    if (lw > max_line_w) max_line_w = lw;
+                }
+                if (max_line_w > w_pts) w_pts = max_line_w;
             }
-            if (table_width > available_width and available_width < (_page_width - pango_widget->indent)) {
+            // Add a small safety slack so a 1-2pt pango-rounding difference between
+            // "natural at full font × fit_scale" and "natural at scaled font" doesn't
+            // cause wrap-off text to be clipped by the column edge.
+            natural_col_widths_pts[col] = w_pts + (w_pts > table->get_col_width(col) * _page_dpi_scale ? 4.0 : 0.0);
+            natural_table_width += natural_col_widths_pts[col];
+        }
+        const double max_line_width = std::max(0.0, _page_width - pango_widget->indent - 2 * TABLE_SIDE_MARGIN);
+        const double fit_avail = std::max(0.0, available_width - 2 * TABLE_SIDE_MARGIN);
+        // _doc_scale is already baked into both fonts and effective col widths,
+        // so the per-table fit_scale here is 1.0 — no further compression.
+        double fit_scale = 1.0;
+        if (0 == i) {
+            if (natural_table_width > fit_avail and fit_avail < max_line_width) {
                 pages.new_line();
                 continue; // restart loop from a new line
             }
         }
 
+        // effective_col_widths in pixels-equivalent. natural_col_widths_pts already
+        // bakes in _doc_scale (via stored × _doc_scale baseline) and wrap-off
+        // expansion at the scaled font, so dividing by dpi_scale gives the final
+        // per-column width that _table_get_layouts will multiply back by dpi_scale.
+        CtTableColWidths effective_col_widths;
+        for (size_t col = 0; col < table->get_num_columns(); ++col) {
+            const double w_px = natural_col_widths_pts[col] / std::max(1e-9, _page_dpi_scale);
+            effective_col_widths.push_back(int(std::ceil(w_px)));
+        }
+
         // use table is length is ok
         std::vector<double> rows_h, cols_w;
-        auto table_layouts = _table_get_layouts(table, first_row, -1, context);
-        _table_get_grid(table_layouts, table->get_col_widths(), rows_h, cols_w);
+        auto table_layouts = _table_get_layouts(table, first_row, -1, context, fit_scale, &effective_col_widths);
+        _table_get_grid(table_layouts, effective_col_widths, rows_h, cols_w, table, first_row, _doc_scale);
         double table_height = _table_get_width_height(rows_h);
+        // Position the table with a soft margin on the left so it isn't flush against
+        // the printable-area edge. We only add this when the table starts a fresh line
+        // (cur_x at indent), to avoid disrupting in-line layout with surrounding text.
+        const bool atLineStart = (pages.last_line().cur_x == pango_widget->indent);
+        const double table_x_offset = (PANGO_DIRECTION_RTL == pango_widget->pango_dir || !atLineStart)
+                                          ? 0.0 : TABLE_SIDE_MARGIN;
         if (pages.last_line().test_element_height(table_height + (BOX_OFFSET * _page_dpi_scale), _page_height)) {
 
             if (PANGO_DIRECTION_RTL == pango_widget->pango_dir) {
@@ -1204,23 +1394,23 @@ void CtPrint::_process_pango_table(CtPrintData *print_data,
             }
 
             pages.last_line().set_max_height(table_height + (BOX_OFFSET * _page_dpi_scale));
-            pages.last_line().elements.push_back(std::make_shared<CtPageTable>(pages.last_line().cur_x, table_layouts, table->get_col_widths(), _page_dpi_scale));
+            pages.last_line().elements.push_back(std::make_shared<CtPageTable>(pages.last_line().cur_x + table_x_offset, table_layouts, effective_col_widths, _page_dpi_scale, table, first_row, fit_scale));
 
             if (PANGO_DIRECTION_RTL != pango_widget->pango_dir) {
                 // increase x after if not RTL
-                pages.last_line().cur_x += _table_get_width_height(cols_w);
+                pages.last_line().cur_x += _table_get_width_height(cols_w) + table_x_offset;
             }
             return;
         }
 
         // if table is too long, split it
-        int split_row = _table_split_content(table, first_row, _page_height - pages.last_line().y - (BOX_OFFSET * _page_dpi_scale), context);
+        int split_row = _table_split_content(table, first_row, _page_height - pages.last_line().y - (BOX_OFFSET * _page_dpi_scale), context, fit_scale);
         if (split_row == -1) {
             pages.new_page(); // need a new page
         }
         else {
-            auto split_layouts = _table_get_layouts(table, first_row, split_row, context);
-            _table_get_grid(split_layouts, table->get_col_widths(), rows_h, cols_w);
+            auto split_layouts = _table_get_layouts(table, first_row, split_row, context, fit_scale, &effective_col_widths);
+            _table_get_grid(split_layouts, effective_col_widths, rows_h, cols_w, table, first_row, _doc_scale);
             double table_height = _table_get_width_height(rows_h);
 
             if (PANGO_DIRECTION_RTL == pango_widget->pango_dir) {
@@ -1229,7 +1419,7 @@ void CtPrint::_process_pango_table(CtPrintData *print_data,
             }
 
             pages.last_line().set_max_height(table_height + (BOX_OFFSET * _page_dpi_scale));
-            pages.last_line().elements.push_back(std::make_shared<CtPageTable>(pages.last_line().cur_x, split_layouts, table->get_col_widths(), _page_dpi_scale));
+            pages.last_line().elements.push_back(std::make_shared<CtPageTable>(pages.last_line().cur_x + table_x_offset, split_layouts, effective_col_widths, _page_dpi_scale, table, first_row, fit_scale));
 
             // no need to increase x after if not RTL as we will move to a new page
             pages.new_page();
@@ -1243,28 +1433,203 @@ void CtPrint::_process_pango_table(CtPrintData *print_data,
 CtPageTable::TableLayouts CtPrint::_table_get_layouts(const CtTableCommon* table,
                                                       const int first_row,
                                                       const int last_row,
-                                                      const Glib::RefPtr<Gtk::PrintContext>& context)
+                                                      const Glib::RefPtr<Gtk::PrintContext>& context,
+                                                      const double fit_scale,
+                                                      const CtTableColWidths* effective_col_widths)
 {
+    auto colWidthOf = [&](size_t c) -> int {
+        if (effective_col_widths && c < effective_col_widths->size()) {
+            return effective_col_widths->at(c);
+        }
+        return table->get_col_width(c);
+    };
+    auto* pRichTable = dynamic_cast<const CtTableRich*>(table);
     std::vector<std::vector<Glib::ustring>> rows;
-    table->write_strings_matrix(rows);
+    if (not pRichTable) {
+        table->write_strings_matrix(rows);
+    }
+    const size_t numRows = pRichTable ? pRichTable->get_num_rows() : rows.size();
+    const size_t numCols = pRichTable ? pRichTable->get_num_columns()
+                                      : (rows.empty() ? 0u : rows.front().size());
+
+    CtExport2Pango pango_helper{_pCtMainWin};
+
+    const CtTableStyle& style = table->getTableStyle();
+    auto resolveCellHAlign = [&](size_t r, size_t c) -> std::string {
+        const auto it = style.cellHAlign.find({r, c});
+        if (it != style.cellHAlign.end()) return it->second;
+        return style.tableHAlignDefault;
+    };
+    auto resolveCellWrap = [&](size_t r, size_t c) -> bool {
+        const auto it = style.cellWrap.find({r, c});
+        if (it != style.cellWrap.end()) return it->second;
+        if (style.tableWrapDefaultSet) return style.tableWrapDefault;
+        return true;
+    };
+
     CtPageTable::TableLayouts table_layouts;
-    for (size_t r = 0u; r < rows.size(); ++r) {
+    for (size_t r = 0u; r < numRows; ++r) {
         if (first_row != -1 && r > 0 && (int)r < first_row) continue; // skip row out of range except header
         if (last_row != -1 && (int)r > last_row) break;
 
         std::vector<Glib::RefPtr<Pango::Layout>> layouts;
-        for (size_t c = 0u; c < rows.at(r).size(); ++c) {
-            Glib::ustring text = str::xml_escape(rows.at(r).at(c));
-            if (r == 0) text = "<b>" + text + "</b>";
+        for (size_t c = 0u; c < numCols; ++c) {
+            Glib::ustring text;
+            if (pRichTable) {
+                CtRichCell* pCell = pRichTable->getRichCell(r, c);
+                if (pCell) {
+                    auto rBuffer = pCell->get_buffer();
+                    if (rBuffer) {
+                        text = pango_helper.pango_get_from_rich_buffer(rBuffer);
+                    }
+                }
+                if (r == 0) text = "<b>" + text + "</b>";
+            }
+            else {
+                text = str::xml_escape(rows.at(r).at(c));
+                if (r == 0) text = "<b>" + text + "</b>";
+            }
             Glib::RefPtr<Pango::Layout> cell_layout = context->create_pango_layout();
+            // _rich_font is pre-scaled at print start by the document-wide scale,
+            // so we don't need to scale per-cell anymore.
             cell_layout->set_font_description(_rich_font);
-            cell_layout->set_width(int((table->get_col_width(c) * _page_dpi_scale) * Pango::SCALE));
+            const bool wrap_on = resolveCellWrap(r, c);
+            if (wrap_on) {
+                cell_layout->set_width(int((colWidthOf(c) * _page_dpi_scale * fit_scale) * Pango::SCALE));
 #if GTKMM_MAJOR_VERSION >= 4
-            cell_layout->set_wrap(Pango::WrapMode::WORD_CHAR);
+                cell_layout->set_wrap(Pango::WrapMode::WORD_CHAR);
 #else
-            cell_layout->set_wrap(Pango::WRAP_WORD_CHAR);
+                cell_layout->set_wrap(Pango::WRAP_WORD_CHAR);
 #endif
-            cell_layout->set_markup(text);
+            }
+            else {
+                // Wrap off: don't constrain layout width so the text can extend naturally.
+                cell_layout->set_width(-1);
+            }
+            // Horizontal alignment within the cell. Pango defaults to LEFT which matches
+            // the editor for rich tables; only override when a non-default halign is set.
+            const std::string halign = resolveCellHAlign(r, c);
+            if (halign == "center") {
+#if GTKMM_MAJOR_VERSION >= 4
+                cell_layout->set_alignment(Pango::Alignment::CENTER);
+#else
+                cell_layout->set_alignment(Pango::ALIGN_CENTER);
+#endif
+            }
+            else if (halign == "right") {
+#if GTKMM_MAJOR_VERSION >= 4
+                cell_layout->set_alignment(Pango::Alignment::RIGHT);
+#else
+                cell_layout->set_alignment(Pango::ALIGN_RIGHT);
+#endif
+            }
+
+            // For rich cells with embedded images, inject Pango shape attributes at
+            // each U+FFFC position so the layout reserves inline space for them —
+            // image + text flow on the same line, just like the editor.
+            std::vector<const CtImage*> ordered_images;
+            if (pRichTable) {
+                CtRichCell* pCell = pRichTable->getRichCell(r, c);
+                if (pCell) {
+                    auto rBuffer = pCell->get_buffer();
+                    if (rBuffer) {
+                        for (Gtk::TextIter it = rBuffer->begin(); ; ) {
+                            Glib::RefPtr<Gtk::TextChildAnchor> rA = it.get_child_anchor();
+                            if (rA) {
+                                for (CtAnchoredWidget* pW : pCell->getEmbeddedWidgets()) {
+                                    if (pW->getTextChildAnchor() == rA) {
+                                        if (auto* pImg = dynamic_cast<CtImage*>(pW)) {
+                                            ordered_images.push_back(pImg);
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                            if (not it.forward_char()) break;
+                        }
+                    }
+                }
+            }
+
+            bool layout_set = false;
+            if (not ordered_images.empty()) {
+                GError* err = nullptr;
+                PangoAttrList* attrs = nullptr;
+                char* plain_text = nullptr;
+                if (pango_parse_markup(text.c_str(), -1, 0, &attrs, &plain_text, NULL, &err)) {
+                    if (!attrs) attrs = pango_attr_list_new();
+                    // Find U+FFFC byte offsets in the parsed plain text.
+                    std::vector<int> ufffc_offsets;
+                    for (size_t bi = 0; plain_text[bi] != '\0'; ) {
+                        if ((unsigned char)plain_text[bi] == 0xEF &&
+                            (unsigned char)plain_text[bi+1] == 0xBF &&
+                            (unsigned char)plain_text[bi+2] == 0xBC) {
+                            ufffc_offsets.push_back(static_cast<int>(bi));
+                            bi += 3;
+                        } else {
+                            ++bi;
+                        }
+                    }
+                    const size_t common_n = std::min(ufffc_offsets.size(), ordered_images.size());
+                    for (size_t k = 0; k < common_n; ++k) {
+                        const CtImage* pImg = ordered_images[k];
+                        auto pixbuf = pImg->get_pixbuf();
+                        if (!pixbuf) continue;
+                        // Image dimensions in points, scaled by _doc_scale, but
+                        // additionally capped to fit the cell's inner width/height
+                        // so it doesn't overflow into the borders. Inner box =
+                        // col_w − 2·cell_pad and (row_h − 2·cell_pad) when the row
+                        // has a fixed height in the table style.
+                        const double cell_pad_pts = 4.0 * _doc_scale;
+                        const double col_w_pts = std::max(0.0,
+                            colWidthOf(c) * _page_dpi_scale * fit_scale);
+                        const double max_img_w = std::max(1.0,
+                            col_w_pts - 2 * cell_pad_pts);
+                        // Determine row inner height from style (if a fixed row
+                        // height is set) so vertical-overflowing images get capped.
+                        double max_img_h = 0; // 0 means no height cap
+                        {
+                            int rowFixed = style.rowMinHeightDefault;
+                            const auto rh_it = style.rowMinHeights.find(r);
+                            if (rh_it != style.rowMinHeights.end()) rowFixed = rh_it->second;
+                            if (rowFixed > 0) {
+                                max_img_h = std::max(1.0,
+                                    rowFixed * _page_dpi_scale * _doc_scale - 2 * cell_pad_pts);
+                            }
+                        }
+                        double img_scale = _doc_scale;
+                        if (pixbuf->get_width() * img_scale > max_img_w) {
+                            img_scale = max_img_w / pixbuf->get_width();
+                        }
+                        if (max_img_h > 0 and pixbuf->get_height() * img_scale > max_img_h) {
+                            img_scale = max_img_h / pixbuf->get_height();
+                        }
+                        const double img_w_pts = pixbuf->get_width() * img_scale;
+                        const double img_h_pts = pixbuf->get_height() * img_scale;
+                        const int w_pango = int(img_w_pts * PANGO_SCALE);
+                        const int h_pango = int(img_h_pts * PANGO_SCALE);
+                        // Shape rects: y is baseline-relative; place image so its
+                        // bottom sits on the baseline (so it visually rests on the
+                        // text line, like an inline image).
+                        PangoRectangle ink_rect = {0, -h_pango, w_pango, h_pango};
+                        PangoRectangle log_rect = ink_rect;
+                        PangoAttribute* shape = pango_attr_shape_new(&ink_rect, &log_rect);
+                        shape->start_index = ufffc_offsets[k];
+                        shape->end_index = ufffc_offsets[k] + 3; // U+FFFC = 3 bytes UTF-8
+                        pango_attr_list_insert(attrs, shape);
+                    }
+                    pango_layout_set_text(cell_layout->gobj(), plain_text, -1);
+                    pango_layout_set_attributes(cell_layout->gobj(), attrs);
+                    pango_attr_list_unref(attrs);
+                    g_free(plain_text);
+                    layout_set = true;
+                }
+                if (err) g_error_free(err);
+            }
+            if (not layout_set) {
+                cell_layout->set_markup(text);
+            }
+            _apply_doc_scale_to_layout(cell_layout);
             layouts.push_back(cell_layout);
         }
         table_layouts.push_back(std::move(layouts));
@@ -1276,21 +1641,108 @@ CtPageTable::TableLayouts CtPrint::_table_get_layouts(const CtTableCommon* table
 void CtPrint::_table_get_grid(const CtPageTable::TableLayouts& table_layouts,
                               const CtTableColWidths& col_widths,
                               std::vector<double>& rows_h,
-                              std::vector<double>& cols_w)
+                              std::vector<double>& cols_w,
+                              const CtTableCommon* table,
+                              int first_row,
+                              double fit_scale)
 {
     rows_h = std::vector<double>(table_layouts.size(), 0);
     cols_w = std::vector<double>(table_layouts[0].size(), 0);
+    auto* pRichTable = dynamic_cast<const CtTableRich*>(table);
+    auto layoutRowToSrc = [pRichTable, first_row](size_t layoutRow) -> size_t {
+        if (!pRichTable) return layoutRow;
+        if (0 == layoutRow) return 0;
+        return static_cast<size_t>(first_row) + (layoutRow - 1);
+    };
+    // Column widths come from the table style (already scaled by fit_scale by the caller).
+    // Use them as the authoritative widths so wrap-off cells with very long single-line
+    // text don't grow the table beyond the page width — text will visually overflow,
+    // but the cell rectangles stay in their declared columns.
+    for (size_t c = 0; c < cols_w.size(); ++c) {
+        if (col_widths.at(c) > 0) cols_w[c] = col_widths.at(c);
+    }
+    // If the table has explicit row heights, treat them as fixed (max) rather than
+    // just minimums — this matches the editor where row_height pins the cell size.
+    auto resolveRowHeight = [&](size_t srcR) -> int {
+        if (!table) return 0;
+        const CtTableStyle& s = table->getTableStyle();
+        const auto it = s.rowMinHeights.find(srcR);
+        if (it != s.rowMinHeights.end()) return it->second;
+        return s.rowMinHeightDefault;
+    };
+    // Row heights scale with the document. _doc_scale is the single source of
+    // truth — fit_scale arg is unused for row sizing.
+    const double row_scale = _doc_scale;
     for (size_t r = 0; r < table_layouts.size(); ++r) {
+        const size_t srcR = layoutRowToSrc(r);
+        const int rowFixed = resolveRowHeight(srcR);
+        const double rowFixedScaled = rowFixed > 0 ? rowFixed * _page_dpi_scale * row_scale : 0;
+
         for (size_t c = 0; c < table_layouts[0].size(); ++c) {
             auto cell_layout = table_layouts[r][c];
-            double cell_height = 0;
+            double cell_text_height = 0;
             for (int layout_line_idx = 0; layout_line_idx < cell_layout->get_line_count(); ++layout_line_idx) {
                 auto line_size = _get_width_height_from_layout_line(cell_layout->get_line(layout_line_idx));
-                cell_height += line_size.height;
-                if (line_size.width > cols_w[c]) cols_w[c] = line_size.width;
+                cell_text_height += line_size.height;
+                // For wrap-on cells, the layout was already constrained to col_width, so
+                // max line width <= col_width; this branch only kicks in if the column
+                // width hasn't been set in style (cols_w[c] still 0).
+                if (cols_w[c] <= 0 && line_size.width > cols_w[c]) cols_w[c] = line_size.width;
             }
-            if (col_widths.at(c) > cols_w[c]) cols_w[c] = col_widths.at(c);
-            if (cell_height > rows_h[r]) rows_h[r] = cell_height;
+
+            double cell_height = cell_text_height;
+            // Rich cells may contain embedded images. With a fixed row height, each
+            // image is scaled to fit (col_width, available_h_for_images / num_images);
+            // without one, the row grows to accommodate them.
+            if (pRichTable && srcR < pRichTable->get_num_rows()) {
+                CtRichCell* pCell = pRichTable->getRichCell(srcR, c);
+                if (pCell) {
+                    std::vector<std::pair<double,double>> img_dims; // (srcW, srcH)
+                    for (CtAnchoredWidget* pW : pCell->getEmbeddedWidgets()) {
+                        auto* pImg = dynamic_cast<CtImage*>(pW);
+                        if (!pImg) continue;
+                        auto pixbuf = pImg->get_pixbuf();
+                        if (!pixbuf) continue;
+                        const double srcW = pixbuf->get_width();
+                        const double srcH = pixbuf->get_height();
+                        if (srcW > 0 && srcH > 0) img_dims.emplace_back(srcW, srcH);
+                    }
+                    if (!img_dims.empty()) {
+                        const double maxW = cols_w[c] > 0 ? cols_w[c] : img_dims.front().first;
+                        // Mirror _draw_table_text: scale images by fit_scale (capped to
+                        // not exceed natural size or the cell's available space). This
+                        // keeps cell heights in lock-step with what gets drawn.
+                        if (rowFixedScaled > 0) {
+                            const double avail_h = std::max(0.0, rowFixedScaled - cell_text_height);
+                            const double per_image_h = avail_h / img_dims.size();
+                            for (auto [sw, sh] : img_dims) {
+                                double s = std::min(1.0, fit_scale);
+                                if (sw * s > maxW) s = maxW / sw;
+                                if (sh * s > per_image_h) s = per_image_h / sh;
+                                cell_height += sh * std::max(0.0, s);
+                            }
+                        }
+                        else {
+                            for (auto [sw, sh] : img_dims) {
+                                double s = std::min(1.0, fit_scale);
+                                if (sw * s > maxW) s = maxW / sw;
+                                cell_height += sh * std::max(0.0, s);
+                            }
+                        }
+                    }
+                }
+            }
+            // Add cell padding (top + bottom) so the row is tall enough to keep
+            // the content from touching the cell border. _draw_table_text uses
+            // `cell_pad = 4 * _doc_scale` and insets the content by it on each
+            // side; mirror that here so a flexible row grows to accommodate.
+            const double cell_pad_pts = 4.0 * _doc_scale;
+            const double cell_height_with_pad = cell_height + 2 * cell_pad_pts;
+            if (cell_height_with_pad > rows_h[r]) rows_h[r] = cell_height_with_pad;
+        }
+        // Pin to the explicit row height if set.
+        if (rowFixedScaled > 0) {
+            rows_h[r] = rowFixedScaled;
         }
     }
 }
@@ -1299,20 +1751,23 @@ double CtPrint::_table_get_width_height(std::vector<double>& data)
 {
     double acc = 0;
     for (auto& value: data)
-        acc += value + (_table_line_thickness * _page_dpi_scale);
+        acc += value + (_table_line_thickness * _page_dpi_scale * _doc_scale);
     return acc;
 }
 
 int CtPrint::_table_split_content(const CtTableCommon* table,
                                   const int start_row,
                                   const int check_height,
-                                  const Glib::RefPtr<Gtk::PrintContext>& context)
+                                  const Glib::RefPtr<Gtk::PrintContext>& context,
+                                  const double fit_scale)
 {
     int last_row = start_row;
+    CtTableColWidths scaled_col_widths;
+    for (auto cw : table->get_col_widths()) scaled_col_widths.push_back(int(cw * fit_scale));
     for (; last_row < (int)table->get_num_rows(); ++last_row) {
         std::vector<double> rows_h, cols_w;
-        auto table_layouts = _table_get_layouts(table, start_row, last_row, context);
-        _table_get_grid(table_layouts, table->get_col_widths(), rows_h, cols_w);
+        auto table_layouts = _table_get_layouts(table, start_row, last_row, context, fit_scale);
+        _table_get_grid(table_layouts, scaled_col_widths, rows_h, cols_w, table, start_row, fit_scale);
         double table_height = _table_get_width_height(rows_h);
         if (table_height > check_height) {
             if (start_row == last_row) // not enouth place for 1 row + a header, add a new page
@@ -1344,35 +1799,198 @@ void CtPrint::_draw_codebox_code(Cairo::RefPtr<Cairo::Context> cairo_context, Gl
     }
 }
 
+void CtPrint::_apply_doc_scale_to_layout(Glib::RefPtr<Pango::Layout> layout)
+{
+    if (_doc_scale >= 1.0 or not layout) return;
+    PangoAttrList* current = pango_layout_get_attributes(layout->gobj());
+    PangoAttrList* attrs = current ? pango_attr_list_copy(current) : pango_attr_list_new();
+    PangoAttribute* scale_attr = pango_attr_scale_new(_doc_scale);
+    scale_attr->start_index = 0;
+    scale_attr->end_index = G_MAXUINT;
+    pango_attr_list_insert(attrs, scale_attr);
+    pango_layout_set_attributes(layout->gobj(), attrs);
+    pango_attr_list_unref(attrs);
+}
+
+// Parse "#RRGGBB" or "#RRRRGGGGBBBB" to 0..1 RGB. Returns false if format is unknown.
+static bool _parse_hex_rgb(const std::string& hex, double& r, double& g, double& b)
+{
+    if (hex.size() == 7 && hex[0] == '#') {
+        try {
+            r = std::stoi(hex.substr(1, 2), nullptr, 16) / 255.0;
+            g = std::stoi(hex.substr(3, 2), nullptr, 16) / 255.0;
+            b = std::stoi(hex.substr(5, 2), nullptr, 16) / 255.0;
+            return true;
+        } catch (...) { return false; }
+    }
+    if (hex.size() == 13 && hex[0] == '#') {
+        try {
+            r = std::stoi(hex.substr(1, 4), nullptr, 16) / 65535.0;
+            g = std::stoi(hex.substr(5, 4), nullptr, 16) / 65535.0;
+            b = std::stoi(hex.substr(9, 4), nullptr, 16) / 65535.0;
+            return true;
+        } catch (...) { return false; }
+    }
+    return false;
+}
+
 void CtPrint::_draw_table_grid(Cairo::RefPtr<Cairo::Context> cairo_context,
                                const std::vector<double>& rows_h,
                                const std::vector<double>& cols_w,
                                double x0,
                                double y0,
                                double table_width,
-                               double table_height)
+                               double table_height,
+                               const CtPageTable* page_table)
 {
-    double x = x0;
-    double y = y0;
-    cairo_context->set_source_rgba(0, 0, 0, 0.3);
-    // draw lines
-    cairo_context->move_to(x, y);
-    cairo_context->line_to(x + table_width, y);
-    for (auto& row_h : rows_h) {
-        y += row_h + (_table_line_thickness * _page_dpi_scale);
+    // Map a layout-row index back into the source-table row index (header at 0,
+    // body row r in layouts → source row first_row + (r-1)).
+    auto layoutRowToSrc = [page_table](size_t layoutRow) -> size_t {
+        if (!page_table || !page_table->pTable) return layoutRow;
+        if (0 == layoutRow) return 0; // header
+        return static_cast<size_t>(page_table->first_row) + (layoutRow - 1);
+    };
+
+    const CtTableStyle* pStyle = (page_table && page_table->pTable) ? &page_table->pTable->getTableStyle() : nullptr;
+    const bool hasCellBg = pStyle && !pStyle->cellBgColors.empty();
+    const bool hasTableBg = pStyle && !pStyle->tableBgColor.empty();
+
+    // Fill table-level background first (if any)
+    if (hasTableBg) {
+        double r, g, b;
+        if (_parse_hex_rgb(pStyle->tableBgColor, r, g, b)) {
+            cairo_context->save();
+            cairo_context->set_source_rgb(r, g, b);
+            cairo_context->rectangle(x0, y0, table_width, table_height);
+            cairo_context->fill();
+            cairo_context->restore();
+        }
+    }
+    // Fill per-cell backgrounds
+    if (hasCellBg) {
+        double yy = y0;
+        for (size_t r = 0; r < rows_h.size(); ++r) {
+            double xx = x0;
+            for (size_t c = 0; c < cols_w.size(); ++c) {
+                const auto srcR = layoutRowToSrc(r);
+                const auto it = pStyle->cellBgColors.find({srcR, c});
+                if (it != pStyle->cellBgColors.end()) {
+                    double rr, gg, bb;
+                    if (_parse_hex_rgb(it->second, rr, gg, bb)) {
+                        cairo_context->save();
+                        cairo_context->set_source_rgb(rr, gg, bb);
+                        cairo_context->rectangle(xx, yy, cols_w[c] + _table_line_thickness * _page_dpi_scale * _doc_scale,
+                                                          rows_h[r] + _table_line_thickness * _page_dpi_scale * _doc_scale);
+                        cairo_context->fill();
+                        cairo_context->restore();
+                    }
+                }
+                xx += cols_w[c] + _table_line_thickness * _page_dpi_scale * _doc_scale;
+            }
+            yy += rows_h[r] + _table_line_thickness * _page_dpi_scale * _doc_scale;
+        }
+    }
+
+    // Default border style (faint grey, 1px) — used unless the table has any custom border styling.
+    double defBorderR = 0.0, defBorderG = 0.0, defBorderB = 0.0, defBorderA = 0.3;
+    double defBorderW = 1.0;
+    bool hasCustomBorders = pStyle &&
+        (pStyle->borderWidth != 1 || pStyle->borderColor != "#000000" ||
+         !pStyle->cellBorderWidths.empty() || !pStyle->cellBorderColors.empty());
+
+    // Borders are drawn at point widths, but should also scale with the document
+    // so they don't appear disproportionately thick when content is shrunk.
+    const double border_scale = _doc_scale;
+    if (hasCustomBorders) {
+        // Use the table's own border as the default for every cell unless a per-cell override applies.
+        double dr, dg, db;
+        if (_parse_hex_rgb(pStyle->borderColor, dr, dg, db)) {
+            defBorderR = dr; defBorderG = dg; defBorderB = db; defBorderA = 1.0;
+        }
+        defBorderW = std::max(0, pStyle->borderWidth) * _page_dpi_scale * border_scale;
+    }
+
+    auto resolveCellBorder = [&](size_t srcR, size_t c, double& outR, double& outG, double& outB, double& outA, double& outW) {
+        outR = defBorderR; outG = defBorderG; outB = defBorderB; outA = defBorderA;
+        outW = defBorderW;
+        if (!pStyle) return;
+        const auto wIt = pStyle->cellBorderWidths.find({srcR, c});
+        if (wIt != pStyle->cellBorderWidths.end()) {
+            outW = std::max(0, wIt->second) * _page_dpi_scale * border_scale;
+        }
+        const auto cIt = pStyle->cellBorderColors.find({srcR, c});
+        if (cIt != pStyle->cellBorderColors.end()) {
+            double rr, gg, bb;
+            if (_parse_hex_rgb(cIt->second, rr, gg, bb)) {
+                outR = rr; outG = gg; outB = bb; outA = 1.0;
+            }
+        }
+    };
+
+    if (!hasCustomBorders) {
+        // Original simple grid (faint grey lines)
+        double x = x0;
+        double y = y0;
+        cairo_context->set_source_rgba(defBorderR, defBorderG, defBorderB, defBorderA);
+        cairo_context->set_line_width(defBorderW);
         cairo_context->move_to(x, y);
         cairo_context->line_to(x + table_width, y);
-    }
-    // draw columns
-    y = y0;
-    cairo_context->move_to(x, y);
-    cairo_context->line_to(x, y + table_height);
-    for (auto& col_w : cols_w) {
-        x += col_w + (_table_line_thickness * _page_dpi_scale);
+        for (auto& row_h : rows_h) {
+            y += row_h + (_table_line_thickness * _page_dpi_scale * _doc_scale);
+            cairo_context->move_to(x, y);
+            cairo_context->line_to(x + table_width, y);
+        }
+        y = y0;
         cairo_context->move_to(x, y);
         cairo_context->line_to(x, y + table_height);
+        for (auto& col_w : cols_w) {
+            x += col_w + (_table_line_thickness * _page_dpi_scale * _doc_scale);
+            cairo_context->move_to(x, y);
+            cairo_context->line_to(x, y + table_height);
+        }
+        cairo_context->stroke();
+        return;
     }
-    cairo_context->stroke();
+
+    // Custom borders: each cell draws only its TOP and LEFT edges (plus its
+    // BOTTOM in the last row and RIGHT in the last column). This way each
+    // shared edge is drawn exactly once, so internal edges aren't visually
+    // doubled compared to outer edges.
+    double yy = y0;
+    auto strokeLine = [&](double r_, double g_, double b_, double a_, double w_,
+                          double x1, double y1, double x2, double y2) {
+        if (w_ <= 0) return;
+        cairo_context->save();
+        cairo_context->set_source_rgba(r_, g_, b_, a_);
+        cairo_context->set_line_width(w_);
+        cairo_context->move_to(x1, y1);
+        cairo_context->line_to(x2, y2);
+        cairo_context->stroke();
+        cairo_context->restore();
+    };
+    for (size_t r = 0; r < rows_h.size(); ++r) {
+        double xx = x0;
+        for (size_t c = 0; c < cols_w.size(); ++c) {
+            double rr, gg, bb, aa, ww;
+            resolveCellBorder(layoutRowToSrc(r), c, rr, gg, bb, aa, ww);
+            const double cellW = cols_w[c] + _table_line_thickness * _page_dpi_scale * _doc_scale;
+            const double cellH = rows_h[r] + _table_line_thickness * _page_dpi_scale * _doc_scale;
+            // Top edge (always)
+            strokeLine(rr, gg, bb, aa, ww, xx, yy + ww / 2.0, xx + cellW, yy + ww / 2.0);
+            // Left edge (always)
+            strokeLine(rr, gg, bb, aa, ww, xx + ww / 2.0, yy, xx + ww / 2.0, yy + cellH);
+            // Bottom edge — only for last row
+            if (r + 1 == rows_h.size()) {
+                strokeLine(rr, gg, bb, aa, ww, xx, yy + cellH - ww / 2.0, xx + cellW, yy + cellH - ww / 2.0);
+            }
+            // Right edge — only for last column
+            if (c + 1 == cols_w.size()) {
+                strokeLine(rr, gg, bb, aa, ww, xx + cellW - ww / 2.0, yy, xx + cellW - ww / 2.0, yy + cellH);
+            }
+            xx += cellW;
+        }
+        yy += rows_h[r] + _table_line_thickness * _page_dpi_scale * _doc_scale;
+    }
 }
 
 void CtPrint::_draw_table_text(Cairo::RefPtr<Cairo::Context> cairo_context,
@@ -1380,8 +1998,45 @@ void CtPrint::_draw_table_text(Cairo::RefPtr<Cairo::Context> cairo_context,
                                const std::vector<double>& cols_w,
                                const CtPageTable::TableLayouts& table_layouts,
                                double x0,
-                               double y0)
+                               double y0,
+                               const CtPageTable* page_table)
 {
+    auto layoutRowToSrc = [page_table](size_t layoutRow) -> size_t {
+        if (!page_table || !page_table->pTable) return layoutRow;
+        if (0 == layoutRow) return 0;
+        return static_cast<size_t>(page_table->first_row) + (layoutRow - 1);
+    };
+    auto* pRichTable = page_table ? dynamic_cast<const CtTableRich*>(page_table->pTable) : nullptr;
+
+    // Resolve per-cell vertical alignment from the table style. Defaults to "top"
+    // (for rich tables) or empty (for plain tables, falls through to "top").
+    auto resolveVAlign = [page_table, layoutRowToSrc](size_t layoutRow, size_t c) -> std::string {
+        if (!page_table || !page_table->pTable) return "";
+        const CtTableStyle& s = page_table->pTable->getTableStyle();
+        const auto it = s.cellVAlign.find({layoutRowToSrc(layoutRow), c});
+        if (it != s.cellVAlign.end()) return it->second;
+        return s.tableVAlignDefault;
+    };
+    auto resolveHAlign = [page_table, layoutRowToSrc](size_t layoutRow, size_t c) -> std::string {
+        if (!page_table || !page_table->pTable) return "";
+        const CtTableStyle& s = page_table->pTable->getTableStyle();
+        const auto it = s.cellHAlign.find({layoutRowToSrc(layoutRow), c});
+        if (it != s.cellHAlign.end()) return it->second;
+        return s.tableHAlignDefault;
+    };
+    auto isCellWrapOff = [page_table, layoutRowToSrc](size_t layoutRow, size_t c) -> bool {
+        if (!page_table || !page_table->pTable) return false;
+        const CtTableStyle& s = page_table->pTable->getTableStyle();
+        const auto it = s.cellWrap.find({layoutRowToSrc(layoutRow), c});
+        if (it != s.cellWrap.end()) return !it->second;
+        if (s.tableWrapDefaultSet) return !s.tableWrapDefault;
+        return false;
+    };
+
+    // Cell padding so the content doesn't sit flush against the border line.
+    // Scaled by _doc_scale so it stays proportional when the document is shrunk.
+    const double cell_pad = 4.0 * _doc_scale;
+
     cairo_context->set_source_rgb(0, 0, 0);
     double y = y0;
     for (size_t i = 0; i < rows_h.size(); ++i) {
@@ -1390,17 +2045,130 @@ void CtPrint::_draw_table_text(Cairo::RefPtr<Cairo::Context> cairo_context,
         for (size_t j = 0; j < cols_w.size(); ++j) {
             double col_w = cols_w[j];
             auto layout_cell = table_layouts[i][j];
-            double local_y = y;
-            for (int layout_line_id = 0; layout_line_id < layout_cell->get_line_count(); ++layout_line_id) {
-                auto layout_line = layout_cell->get_line(layout_line_id);
-                double line_height = _get_width_height_from_layout_line(layout_line).height;
-                cairo_context->move_to(x, local_y + line_height);
-                local_y += line_height;
-                layout_line->show_in_cairo_context(cairo_context);
+
+            // The cell's Pango layout already has shape attributes reserving inline
+            // space for embedded images, so layout->get_size() gives the full content
+            // box (text + image gaps). Use that to apply valign and overall
+            // positioning, then walk the layout to find each U+FFFC position and
+            // paint the actual image there.
+            int layoutW_pango = 0, layoutH_pango = 0;
+            layout_cell->get_size(layoutW_pango, layoutH_pango);
+            const double content_w = double(layoutW_pango) / Pango::SCALE;
+            const double content_h = double(layoutH_pango) / Pango::SCALE;
+
+            // Inner content box, with cell padding on all sides.
+            const double inner_w = std::max(0.0, col_w - 2 * cell_pad);
+            const double inner_h = std::max(0.0, row_h - 2 * cell_pad);
+
+            double local_y = y + cell_pad;
+            const std::string valign = resolveVAlign(i, j);
+            if (valign == "middle" || valign == "center") {
+                local_y = y + cell_pad + std::max(0.0, (inner_h - content_h) / 2.0);
             }
-            x += col_w + (_table_line_thickness * _page_dpi_scale);
+            else if (valign == "bottom") {
+                local_y = y + cell_pad + std::max(0.0, inner_h - content_h);
+            }
+
+            // For wrap-off cells Pango's set_alignment doesn't apply (width=-1), so
+            // shift the draw origin manually so single-line content respects halign.
+            double draw_x = x + cell_pad;
+            if (isCellWrapOff(i, j)) {
+                const std::string halign = resolveHAlign(i, j);
+                if (halign == "center") {
+                    draw_x = x + cell_pad + std::max(0.0, (inner_w - content_w) / 2.0);
+                }
+                else if (halign == "right") {
+                    draw_x = x + cell_pad + std::max(0.0, inner_w - content_w);
+                }
+            }
+
+            // Render the layout (text). Pango leaves rectangular gaps where shape
+            // attrs reserve image space.
+            cairo_context->save();
+            cairo_context->rectangle(x, y, col_w, row_h);
+            cairo_context->clip();
+            cairo_context->move_to(draw_x, local_y);
+            layout_cell->show_in_cairo_context(cairo_context);
+
+            // Walk layout text byte-by-byte: every U+FFFC corresponds to one
+            // embedded image; use index_to_pos to get its layout-relative rect.
+            if (pRichTable) {
+                const size_t srcR = layoutRowToSrc(i);
+                if (srcR < pRichTable->get_num_rows()) {
+                    CtRichCell* pCell = pRichTable->getRichCell(srcR, j);
+                    if (pCell) {
+                        // Build ordered image list (matching the order shape attrs
+                        // were inserted in _table_get_layouts).
+                        std::vector<const CtImage*> ordered_images;
+                        auto rBuffer = pCell->get_buffer();
+                        if (rBuffer) {
+                            for (Gtk::TextIter it = rBuffer->begin(); ; ) {
+                                Glib::RefPtr<Gtk::TextChildAnchor> rA = it.get_child_anchor();
+                                if (rA) {
+                                    for (CtAnchoredWidget* pW : pCell->getEmbeddedWidgets()) {
+                                        if (pW->getTextChildAnchor() == rA) {
+                                            if (auto* pImg = dynamic_cast<CtImage*>(pW)) {
+                                                ordered_images.push_back(pImg);
+                                            }
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (!it.forward_char()) break;
+                            }
+                        }
+                        // Find U+FFFC byte offsets in the layout text.
+                        const char* layoutText = pango_layout_get_text(layout_cell->gobj());
+                        std::vector<int> ufffc_offsets;
+                        if (layoutText) {
+                            for (size_t bi = 0; layoutText[bi] != '\0'; ) {
+                                if ((unsigned char)layoutText[bi] == 0xEF &&
+                                    (unsigned char)layoutText[bi+1] == 0xBF &&
+                                    (unsigned char)layoutText[bi+2] == 0xBC) {
+                                    ufffc_offsets.push_back(static_cast<int>(bi));
+                                    bi += 3;
+                                } else {
+                                    ++bi;
+                                }
+                            }
+                        }
+                        const size_t common_n = std::min(ufffc_offsets.size(), ordered_images.size());
+                        for (size_t k = 0; k < common_n; ++k) {
+                            const CtImage* pImg = ordered_images[k];
+                            auto pixbuf = pImg->get_pixbuf();
+                            if (!pixbuf) continue;
+                            const double srcW = pixbuf->get_width();
+                            const double srcH = pixbuf->get_height();
+                            if (srcW <= 0 || srcH <= 0) continue;
+                            PangoRectangle pos;
+                            pango_layout_index_to_pos(layout_cell->gobj(), ufffc_offsets[k], &pos);
+                            // The shape attr was placed with its bottom at the
+                            // baseline (logical_rect.y = -h, height = h), so pos.y
+                            // is at the line top and pos.width matches the shape
+                            // attr's reserved width. Derive the render scale from
+                            // pos.width so the rendered image exactly fills the
+                            // reserved gap (handles the case where _table_get_layouts
+                            // capped the image to fit the cell).
+                            const double img_x = draw_x + double(pos.x) / Pango::SCALE;
+                            const double img_y = local_y + double(pos.y) / Pango::SCALE;
+                            const double drawn_w = double(pos.width) / Pango::SCALE;
+                            const double scale = pixbuf->get_width() > 0
+                                ? drawn_w / pixbuf->get_width() : _doc_scale;
+                            cairo_context->save();
+                            cairo_context->translate(img_x, img_y);
+                            cairo_context->scale(scale, scale);
+                            Gdk::Cairo::set_source_pixbuf(cairo_context, pixbuf, 0, 0);
+                            cairo_context->paint();
+                            cairo_context->restore();
+                        }
+                    }
+                }
+            }
+            cairo_context->restore();
+
+            x += col_w + (_table_line_thickness * _page_dpi_scale * _doc_scale);
         }
-        y += row_h + (_table_line_thickness * _page_dpi_scale);
+        y += row_h + (_table_line_thickness * _page_dpi_scale * _doc_scale);
     }
 }
 

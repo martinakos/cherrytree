@@ -103,6 +103,10 @@ public:
                                        int sel_start,
                                        int sel_end,
                                        std::vector<CtPangoObjectPtr>& out_slots);
+    // Concatenated pango markup for a rich-text TextBuffer (used for rich-table cells).
+    Glib::ustring pango_get_from_rich_buffer(Glib::RefPtr<Gtk::TextBuffer> curr_buffer,
+                                             int start_offset = 0,
+                                             int end_offset = -1);
 
 private:
     void                         _pango_process_slot(int start_offset,
@@ -195,28 +199,51 @@ struct CtPageImage : public CtPageElement
 struct CtPageCodebox : public CtPageElement
 {
     CtPageCodebox(const int x_,
-                  Glib::RefPtr<Pango::Layout> layout_)
+                  Glib::RefPtr<Pango::Layout> layout_,
+                  double box_width_ = 0.0)
      : CtPageElement{x_}
-     , layout{layout_} {}
+     , layout{layout_}
+     , box_width{box_width_} {}
     Glib::RefPtr<Pango::Layout> layout;
+    // Drawn box width in points. When non-zero, the codebox frame is rendered
+    // at this fixed width so the box size doesn't depend on the longest
+    // content line — keeps split codeboxes the same width across page breaks.
+    double box_width{0.0};
 };
 
 struct CtPageTable : public CtPageElement
 {
     using TableLayouts = std::vector<std::vector<Glib::RefPtr<Pango::Layout>>>;
+    // Per-cell embedded image: (rowOffsetInLayout, colInLayout, image, charOffsetInCellBuffer)
+    struct EmbeddedImage {
+        size_t row;
+        size_t col;
+        const CtImage* image;
+        int charOffset;
+    };
     CtPageTable(const int x_,
                 const TableLayouts layouts_,
                 const CtTableColWidths& col_widths,
-                const double page_dpi_scale)
+                const double page_dpi_scale,
+                const class CtTableCommon* table_,
+                int first_row_,
+                const double fit_scale_ = 1.0)
      : CtPageElement{x_}
      , layouts{layouts_}
+     , pTable{table_}
+     , first_row{first_row_}
+     , fit_scale{fit_scale_}
     {
         for (auto col_width : col_widths) {
-            colWidths.push_back(col_width*page_dpi_scale);
+            colWidths.push_back(col_width*page_dpi_scale*fit_scale_);
         }
     }
     TableLayouts layouts;
     CtTableColWidths colWidths;
+    const class CtTableCommon* pTable{nullptr};
+    int first_row{1}; // first body row included in this slice (header is always in row 0 of layouts)
+    double fit_scale{1.0}; // <1.0 means the table is scaled down to fit the page width
+    std::vector<EmbeddedImage> embeddedImages;
 };
 
 using CtPageElementPtr = std::shared_ptr<CtPageElement>;
@@ -323,27 +350,40 @@ private:
     CtPageTable::TableLayouts   _table_get_layouts(const CtTableCommon* table,
                                                    const int first_row,
                                                    const int last_row,
-                                                   const Glib::RefPtr<Gtk::PrintContext>& context);
+                                                   const Glib::RefPtr<Gtk::PrintContext>& context,
+                                                   const double fit_scale = 1.0,
+                                                   const CtTableColWidths* effective_col_widths = nullptr);
     void                        _table_get_grid(const CtPageTable::TableLayouts& table_layouts,
                                                 const CtTableColWidths& col_widths,
                                                 std::vector<double>& rows_h,
-                                                std::vector<double>& cols_w);
+                                                std::vector<double>& cols_w,
+                                                const class CtTableCommon* table = nullptr,
+                                                int first_row = 1,
+                                                double fit_scale = 1.0);
     double                      _table_get_width_height(std::vector<double>& data);
     int                         _table_split_content(const CtTableCommon* table,
                                                      const int start_row,
                                                      const int check_height,
-                                                     const Glib::RefPtr<Gtk::PrintContext>& context);
+                                                     const Glib::RefPtr<Gtk::PrintContext>& context,
+                                                     const double fit_scale = 1.0);
 
     void _draw_codebox_box(Cairo::RefPtr<Cairo::Context> cairo_context, double x0, double y0, double codebox_width, double codebox_height);
     void _draw_codebox_code(Cairo::RefPtr<Cairo::Context> cairo_context, Glib::RefPtr<Pango::Layout> codebox_layout, double x0, double y0);
     void _draw_table_grid(Cairo::RefPtr<Cairo::Context> cairo_context, const std::vector<double>& rows_h, const std::vector<double>& cols_w,
-                          double x0, double y0, double table_width, double table_height);
+                          double x0, double y0, double table_width, double table_height,
+                          const CtPageTable* page_table = nullptr);
     void _draw_table_text(Cairo::RefPtr<Cairo::Context> cairo_context, const std::vector<double>& rows_h, const std::vector<double>& cols_w,
-                          const CtPageTable::TableLayouts& table_layouts, double x0, double y0);
+                          const CtPageTable::TableLayouts& table_layouts, double x0, double y0,
+                          const CtPageTable* page_table = nullptr);
 
     Cairo::Rectangle _get_width_height_from_layout_line(Glib::RefPtr<const Pango::LayoutLine> line);
     double           _get_height_from_layout(Glib::RefPtr<Pango::Layout> layout);
     double           _get_width_from_layout(Glib::RefPtr<Pango::Layout> layout);
+
+    // Apply a Pango scale attribute covering the entire layout so every span
+    // (including markup-specified font sizes for H1/H2/monospace etc.) shrinks
+    // by _doc_scale. Must be called after set_markup / set_text on the layout.
+    void _apply_doc_scale_to_layout(Glib::RefPtr<Pango::Layout> layout);
 
 private:
     CtMainWin* const _pCtMainWin;
@@ -363,4 +403,9 @@ private:
     double                           _page_dpi_scale;
     double                           _page_width;
     double                           _page_height;
+    // Uniform document content scale. When the widest table doesn't fit the page
+    // (sum(col_widths) > printable width), the whole document — fonts, images,
+    // codeboxes, table cells, table borders — is scaled down by the same factor
+    // so all content keeps consistent proportions.
+    double                           _doc_scale{1.0};
 };
