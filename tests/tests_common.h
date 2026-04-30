@@ -41,6 +41,7 @@ const std::string ctzInputPath{Glib::build_filename(unitTestsDataDir, "7zr.ctz")
 const std::string ctxInputPath{Glib::build_filename(unitTestsDataDir, "7zr.ctx")};
 const std::string testCtbDocPath{Glib::build_filename(unitTestsDataDir, "test_документ.ctb")};
 const std::string testCtdDocPath{Glib::build_filename(unitTestsDataDir, "test_документ.ctd")};
+const std::string testRichTableDocPath{Glib::build_filename(unitTestsDataDir, "test_rich_table.ctdx")};
 const std::string testCtxDocPath{Glib::build_filename(unitTestsDataDir, "test_документ.ctx")};
 const std::string testCtzDocPath{Glib::build_filename(unitTestsDataDir, "test_документ.ctz")};
 const std::string testMultiFilePath{Glib::build_filename(unitTestsDataDir, "test_папка")};
