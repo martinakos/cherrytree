@@ -1321,6 +1321,9 @@ void CtActions::image_insert_latex(Gtk::TextIter iter_insert,
     _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
                                                      {pAnchoredWidget},
                                                      &_pCtMainWin->get_text_view().mm());
+    if (const double sf = _pCtMainWin->get_rt_zoom_scale_factor(); sf != 1.0) {
+        static_cast<CtImage*>(pAnchoredWidget)->apply_zoom(sf);
+    }
 
     if (pBridge && pBridge->isActive() && !pBridge->isSuppressingTextEdits()) {
         gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
@@ -1476,6 +1479,9 @@ void CtActions::image_insert_png(Gtk::TextIter iter_insert,
         _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
                                                          {pAnchoredWidget},
                                                          &_pCtMainWin->get_text_view().mm());
+        if (const double sf = _pCtMainWin->get_rt_zoom_scale_factor(); sf != 1.0) {
+            static_cast<CtImage*>(pAnchoredWidget)->apply_zoom(sf);
+        }
 
         // Only create a command if NOT inside a paste/cut operation
         if (!pBridge->isSuppressingTextEdits()) {
@@ -1498,6 +1504,9 @@ void CtActions::image_insert_png(Gtk::TextIter iter_insert,
         _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
                                                          {pAnchoredWidget},
                                                          &_pCtMainWin->get_text_view().mm());
+        if (const double sf = _pCtMainWin->get_rt_zoom_scale_factor(); sf != 1.0) {
+            static_cast<CtImage*>(pAnchoredWidget)->apply_zoom(sf);
+        }
     }
 }
 
