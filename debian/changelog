@@ -1,3 +1,13 @@
+cherrytree-docmodel (1.6.3+docmodel7-1) plucky; urgency=low
+
+  * rich table: configurable minimum row height (default 25), vertical alignment, wrap-mode and formatting preserved on copy-paste and undo
+  * rich table: LaTeX in cells follows cell horizontal alignment
+  * rich table: HTML and PDF export preserves formatting, sizing, and alignment
+  * zoom: rigid scaling for rich tables and codeboxes; images apply current zoom on insert/paste so first paint is correct
+  * middle-click paste (PRIMARY selection) routed through the undo bridge
+
+ -- Giuseppe Penone <giuspen@gmail.com>  Thu, 01 May 2026 12:00:00 +0000
+
 cherrytree-docmodel (1.6.3+docmodel6-1) plucky; urgency=low
 
   * eliminated internal XML round-trips in the document model, replacing them with direct object operations
