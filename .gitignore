@@ -22,3 +22,4 @@ build_output*.txt
 Testing/Temporary/
 tests/data_данные/.test_*
 data/net.giuspen.cherrytree-docmodel.metainfo.xml
+tmp
