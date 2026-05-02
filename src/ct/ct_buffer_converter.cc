@@ -256,12 +256,21 @@ std::list<CtAnchoredWidget*> buildBufferFromContent(
                 else if (widgetDesc.type == CtAnchWidgType::ImagePng) {
                     // Create PNG image
                     const std::string encodedBlob = widgetDesc.getContent();
-                    std::string rawBlob;
-                    if (!encodedBlob.empty()) {
-                        rawBlob = Glib::Base64::decode(encodedBlob);
+                    if (encodedBlob.empty()) {
+                        spdlog::warn("buildBufferFromContent: ImagePng has no content, skipping");
+                    } else {
+                        const std::string rawBlob = Glib::Base64::decode(encodedBlob);
+                        const std::string link = widgetDesc.getLink();
+                        auto* pImage = new CtImagePng{pCtMainWin, rawBlob, link, charOffset, justification};
+                        const std::string dispW = widgetDesc.getProperty("display_width");
+                        const std::string dispH = widgetDesc.getProperty("display_height");
+                        if (!dispW.empty() && !dispH.empty()) {
+                            const int dw = std::stoi(dispW);
+                            const int dh = std::stoi(dispH);
+                            if (dw > 0 && dh > 0) pImage->set_display_size(dw, dh);
+                        }
+                        widget = pImage;
                     }
-                    const std::string link = widgetDesc.getLink();
-                    widget = new CtImagePng{pCtMainWin, rawBlob, link, charOffset, justification};
                 }
                 else {
                     spdlog::warn("buildBufferFromContent: unknown widget type {}, skipping",
