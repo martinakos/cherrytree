@@ -487,7 +487,8 @@ bool CtStorageXmlHelper::get_text_buffer_one_slot_from_xml(Glib::RefPtr<Gtk::Tex
                                                            std::list<CtAnchoredWidget*>& widgets,
                                                            Gtk::TextIter* text_insert_pos,
                                                            const int force_offset,
-                                                           const std::string& multifile_dir)
+                                                           const std::string& multifile_dir,
+                                                           const Glib::ustring& overrideJustification)
 {
     xmlpp::Element* slot_element = static_cast<xmlpp::Element*>(slot_node);
     Glib::ustring slot_element_name = slot_element->get_name();
@@ -504,7 +505,9 @@ bool CtStorageXmlHelper::get_text_buffer_one_slot_from_xml(Glib::RefPtr<Gtk::Tex
     }
     else if (SlotType::None != slot_type) {
         const int char_offset = -1 != force_offset ? force_offset : std::stoi(slot_element->get_attribute_value("char_offset"));
-        Glib::ustring justification = slot_element->get_attribute_value(CtConst::TAG_JUSTIFICATION);
+        Glib::ustring justification = overrideJustification.empty()
+            ? slot_element->get_attribute_value(CtConst::TAG_JUSTIFICATION)
+            : overrideJustification;
         if (justification.empty()) justification = CtConst::TAG_PROP_VAL_LEFT;
 
         CtAnchoredWidget* widget{nullptr};
