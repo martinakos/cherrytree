@@ -491,13 +491,17 @@ void CtClipboard::from_xml_string_to_buffer(Glib::RefPtr<Gtk::TextBuffer> text_b
             // Nested rich tables are not supported — skip table nodes when pasting into a rich cell.
             if (pOutWidgets && child_node->get_name() == "table") continue;
             Gtk::TextIter insert_iter = text_buffer->get_insert()->get_iter();
+            // When pasting into the main buffer (not into a rich cell), reset widget
+            // justification to "left" so alignment from the source cell doesn't carry over.
+            const Glib::ustring justOverride = pOutWidgets ? "" : CtConst::TAG_PROP_VAL_LEFT;
             CtStorageXmlHelper{_pCtMainWin}.get_text_buffer_one_slot_from_xml(
                 text_buffer,
                 child_node,
                 widgets,
                 &insert_iter,
                 insert_iter.get_offset(),
-                "");
+                "",
+                justOverride);
         }
     }
     if (not widgets.empty()) {
