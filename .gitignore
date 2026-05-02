@@ -26,3 +26,6 @@ Testing/Temporary/
 tests/data_данные/.test_*
 data/net.giuspen.cherrytree-docmodel.metainfo.xml
 tmp
+.claude/settings.json
+.claude/CLAUDE.md
+
