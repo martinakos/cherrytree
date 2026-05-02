@@ -24,7 +24,7 @@
 #include "ct_main_win.h"
 #include "ct_actions.h"
 #include "ct_storage_control.h"
-#include <glib/gstdio.h>
+#include "ct_command_bridge.h"
 
 void CtMainWin::window_title_update(std::optional<bool> saveNeeded)
 {
@@ -333,6 +333,12 @@ bool CtMainWin::file_open(const fs::path& filepath,
                 *this);
         }
     }
+
+    // Populate the command bridge's document model with the loaded tree hierarchy
+    // (props only — no buffer content).  This must happen after the GTK tree is
+    // fully populated so that all node IDs are available for undo/redo commands
+    // (e.g. MoveNodeCommand needs to look up parent nodes by ID).
+    _pCtCommandBridge->initializeFromExistingDocument();
 
     return true;
 }

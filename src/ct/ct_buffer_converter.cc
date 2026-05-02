@@ -307,10 +307,13 @@ CtNodeContent buildContentFromBuffer(
         return content;
     }
 
-    // Build a map of widget offsets → widget pointer for quick lookup
-    std::map<int, CtAnchoredWidget*> widgetMap;
+    // Build a map of child-anchor pointer → widget pointer.
+    // Keying by the actual Gtk::TextChildAnchor* is immune to stale _charOffset
+    // values, which drift whenever text is inserted/deleted before a widget.
+    std::map<Gtk::TextChildAnchor*, CtAnchoredWidget*> anchorMap;
     for (CtAnchoredWidget* w : widgets) {
-        widgetMap[w->getOffset()] = w;
+        auto ca = w->getTextChildAnchor();
+        if (ca) anchorMap[ca.get()] = w;
     }
 
     Gtk::TextIter startIter = buffer->begin();
@@ -339,9 +342,9 @@ CtNodeContent buildContentFromBuffer(
         if (anchor) {
             finalizeSpan();
 
-            // Find widget in our map and serialize its properties into CtWidgetDesc
-            auto mapIt = widgetMap.find(currentOffset);
-            if (mapIt != widgetMap.end()) {
+            // Find widget by child-anchor pointer (offset-independent)
+            auto mapIt = anchorMap.find(anchor.get());
+            if (mapIt != anchorMap.end()) {
                 CtAnchoredWidget* widget = mapIt->second;
 
                 // Get widget descriptor directly via virtual method (no XML round-trip)
@@ -351,10 +354,7 @@ CtNodeContent buildContentFromBuffer(
                 content.insertWidget(content.length(), widgetDesc);
             }
             else {
-                // Widget not in map (shouldn't happen), insert placeholder
-                CtWidgetDesc placeholder(CtAnchWidgType::ImagePng);
-                placeholder.setProperty("char_offset", std::to_string(content.length()));
-                content.insertWidget(content.length(), placeholder);
+                spdlog::warn("buildContentFromBuffer: anchor at offset {} not in widget map, skipping", currentOffset);
             }
 
             iter.forward_char();
