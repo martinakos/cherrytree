@@ -740,6 +740,9 @@ void CtStorageControl::pending_edit_db_node_hier(const gint64 node_id)
 
 void CtStorageControl::pending_new_db_node(const gint64 node_id)
 {
+    // If this node was previously scheduled for removal (e.g. undo of a delete,
+    // or redo of an add), cancel that removal — the node is alive again.
+    _syncPending.nodes_to_rm_set.erase(node_id);
     CtStorageNodeState node_state;
     node_state.is_update_of_existing = false;
     node_state.prop = true;
@@ -833,6 +836,7 @@ void CtStorageCache::generate_cache(CtMainWin* pCtMainWin, const CtStorageSyncPe
     else {
         for (const auto& node_pair : pending->nodes_to_write_dict) {
             CtTreeIter ct_tree_iter = store.get_node_from_node_id(node_pair.first);
+            if (!ct_tree_iter) continue;
             if (node_pair.second.buff && ct_tree_iter.get_node_is_rich_text()) {
                 Glib::RefPtr<Gtk::TextBuffer> pTextBuffer = ct_tree_iter.get_node_text_buffer();
                 if (not pTextBuffer) {

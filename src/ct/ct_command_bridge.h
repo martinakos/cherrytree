@@ -48,6 +48,7 @@ enum class BridgeOp {
     TrackingWidget,  // widget focus-in..focus-out
     ExecutingUndo,   // undo() scope
     ExecutingRedo,   // redo() scope
+    ExecutingNodeOp, // pushNodeCommand() scope
 };
 
 // Bridge class to integrate new command system with existing code
@@ -127,8 +128,14 @@ public:
     // Check if we're inside an undo or redo operation
     bool isInUndoRedo() const {
         return _currentOp == BridgeOp::ExecutingUndo
-            || _currentOp == BridgeOp::ExecutingRedo;
+            || _currentOp == BridgeOp::ExecutingRedo
+            || _currentOp == BridgeOp::ExecutingNodeOp;
     }
+
+    // Execute a node-structure command (add/delete/move/properties).
+    // Flushes any active text/widget session first, then executes the command
+    // under ExecutingNodeOp so buffer-signal handlers don't capture side-effects.
+    void pushNodeCommand(std::unique_ptr<CtCommand> cmd);
 
     // Widget edit tracking.
     // widget: the specific widget gaining focus (nullptr = unknown, uses XML path).
@@ -216,6 +223,9 @@ private:
         void onNodeDeleted(gint64 nodeId) override;
         void onNodeMoved(gint64 nodeId, gint64 newParentId, int newPosition) override;
         void onTreeStructureChanged() override;
+        void onNodePropertiesChanged(gint64 nodeId,
+                                     const CtNodeProps& oldProps,
+                                     const CtNodeProps& newProps) override;
 
     private:
         // Named helper replacing the inline lambda in onNodeChanged

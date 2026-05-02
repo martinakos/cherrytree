@@ -74,6 +74,7 @@ package_add_test(run_tests_no_x
   tests_tmp_n_p7zip.cpp
   tests_types.cpp
   tests_lists.cpp
+  tests_document_model.cpp
 )
 
 package_add_test(run_tests_with_x_1
