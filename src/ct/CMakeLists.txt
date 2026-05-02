@@ -38,6 +38,7 @@ set(CT_SHARED_FILES
   ct_buffer_converter.cc
   ct_text_commands.cc
   ct_widget_commands.cc
+  ct_node_commands.cc
   ct_dialogs.cc
   ct_dialogs_anch_widg.cc
   ct_dialogs_cmd_palette.cc
