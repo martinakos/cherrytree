@@ -128,7 +128,8 @@ public:
                                            std::list<CtAnchoredWidget*>& widgets,
                                            Gtk::TextIter* text_insert_pos,
                                            const int force_offset,
-                                           const std::string& multifile_dir);
+                                           const std::string& multifile_dir,
+                                           const Glib::ustring& overrideJustification = "");
 
     Glib::RefPtr<Gtk::TextBuffer> create_buffer_no_widgets(const Glib::ustring& syntax, const char* xml_content);
 
