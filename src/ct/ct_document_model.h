@@ -33,6 +33,35 @@
 // Forward declarations
 class CtDocumentObserver;
 
+// Plain-data node properties — no GTK pointers, safe to copy for undo/redo
+struct CtNodeProps {
+    Glib::ustring name;
+    std::string syntax{"custom-colors"};
+    Glib::ustring tags;
+    bool isReadOnly{false};
+    bool isBold{false};
+    guint32 customIconId{0};
+    std::string foregroundRgb24;
+    bool excludeMeFromSearch{false};
+    bool excludeChildrenFromSearch{false};
+    gint64 tsCreation{0};
+    gint64 tsLastSave{0};
+};
+
+// Depth-first snapshot of a subtree; used by DeleteNodeCommand for undo
+struct SubtreeSnapshot {
+    struct Entry {
+        gint64 nodeId{0};
+        gint64 parentId{0};   // 0 = root
+        int    position{-1};
+        gint64 sharedMasterId{0};
+        gint64 sequence{-1};
+        CtNodeProps props;
+        CtNodeContent content; // empty for shared non-masters
+    };
+    std::vector<Entry> entries; // depth-first order; restore in this order
+};
+
 // Represents a single node's properties and content
 // This is the model representation - no GTK dependencies
 class CtNodeModel {
@@ -99,6 +128,10 @@ public:
     void removeChildAt(size_t index);
     int getChildIndex(const std::shared_ptr<CtNodeModel>& child) const;
 
+    // Bulk property capture/restore (for undo/redo)
+    CtNodeProps captureProps() const;
+    void applyProps(const CtNodeProps& p);
+
     // Helper methods
     bool isRichText() const { return _syntax == "custom-colors"; }
     bool isPlainText() const { return _syntax == "plain-text"; }
@@ -150,6 +183,12 @@ public:
 
     // Tree structure changed significantly (e.g., mass operations)
     virtual void onTreeStructureChanged() = 0;
+
+    // Node properties changed (name, syntax, tags, read-only, bold, icon, color, exclude flags)
+    // Separate from onNodeChanged so property-only changes don't trigger a buffer rebuild.
+    virtual void onNodePropertiesChanged(gint64 nodeId,
+                                         const CtNodeProps& oldProps,
+                                         const CtNodeProps& newProps) {}
 };
 
 // The document model - represents the entire document tree
@@ -171,7 +210,16 @@ public:
     std::shared_ptr<CtNodeModel> createNode(gint64 nodeId);
     bool addNode(std::shared_ptr<CtNodeModel> node, gint64 parentId, int position = -1);
     bool removeNode(gint64 nodeId);
+    bool removeNodeWithChildren(gint64 nodeId);   // recursive, notifies bottom-up
     bool moveNode(gint64 nodeId, gint64 newParentId, int newPosition);
+
+    // Property and content mutations (called by node commands)
+    bool updateNodeProperties(gint64 nodeId, const CtNodeProps& p);
+    bool setNodeContent(gint64 nodeId, const CtNodeContent& c, bool notify = true);
+
+    // Subtree snapshot/restore for delete-undo (identity-preserving)
+    SubtreeSnapshot snapshotSubtree(gint64 nodeId) const;
+    bool restoreSubtree(const SubtreeSnapshot& snap);
 
     // Notification methods (called by commands)
     void notifyNodeChanged(gint64 nodeId);
@@ -179,6 +227,7 @@ public:
     void notifyNodeDeleted(gint64 nodeId);
     void notifyNodeMoved(gint64 nodeId, gint64 newParentId, int newPosition);
     void notifyTreeStructureChanged();
+    void notifyNodePropertiesChanged(gint64 nodeId, const CtNodeProps& oldP, const CtNodeProps& newP);
 
     // Notification suppression for batching updates
     // Used by CompoundCommand to avoid intermediate buffer rebuilds during undo/redo

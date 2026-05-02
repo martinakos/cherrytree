@@ -77,18 +77,58 @@ CtCommandBridge::~CtCommandBridge()
 
 void CtCommandBridge::initializeFromExistingDocument()
 {
-    if (!_pMainWin) {
-        spdlog::error("CtCommandBridge: no main window");
-        return;
+    if (!_active || !_pMainWin) return;
+
+    spdlog::info("CtCommandBridge: initializing model hierarchy from existing document");
+
+    // Suppress observer notifications — we're just populating the structural
+    // skeleton; GTK is already the source of truth here.
+    _docModel->suppressNotifications(true);
+
+    auto& treeStore = _pMainWin->get_tree_store();
+
+    std::function<void(Gtk::TreeModel::iterator, gint64)> registerNode;
+    registerNode = [&](Gtk::TreeModel::iterator gtkIter, gint64 parentId) {
+        CtTreeIter ti = treeStore.to_ct_tree_iter(gtkIter);
+        if (!ti) return;
+        const gint64 nid = ti.get_node_id();
+
+        if (!_docModel->getNodeById(nid)) {
+            auto nodeModel = std::make_shared<CtNodeModel>(nid);
+            nodeModel->setName(ti.get_node_name());
+            nodeModel->setSyntax(ti.get_node_syntax_highlighting());
+            nodeModel->setTags(ti.get_node_tags());
+            nodeModel->setReadOnly(ti.get_node_read_only());
+            nodeModel->setBold(ti.get_node_is_bold());
+            nodeModel->setCustomIconId(ti.get_node_custom_icon_id());
+            nodeModel->setForegroundRgb24(ti.get_node_foreground());
+            nodeModel->setExcludedFromSearch(ti.get_node_is_excluded_from_search());
+            nodeModel->setChildrenExcludedFromSearch(ti.get_node_children_are_excluded_from_search());
+            nodeModel->setCreationTime(ti.get_node_creating_time());
+            nodeModel->setLastSaveTime(ti.get_node_modification_time());
+            nodeModel->setSharedMasterId(ti.get_node_shared_master_id());
+            nodeModel->setSequence(ti.get_node_sequence());
+            // Content is NOT loaded here — it is captured lazily when a snapshot
+            // is needed (e.g. before node_delete) or via beginTextEditSession.
+            _docModel->addNode(nodeModel, parentId, -1);
+        }
+
+        #if GTKMM_MAJOR_VERSION >= 4
+        for (auto child = gtkIter->children().begin(); child; ++child)
+            registerNode(child, nid);
+        #else
+        for (auto child : gtkIter->children())
+            registerNode(child, nid);
+        #endif
+    };
+
+    auto iter = treeStore.get_iter_first();
+    for (; iter; ++iter) {
+        registerNode(iter, 0);
     }
 
-    spdlog::info("CtCommandBridge: initializing model from existing document");
-
-    // TODO: Traverse existing GTK tree and populate model
-    // This would be implemented when actually wiring up to existing code
-    // For now, this is a placeholder
-
-    spdlog::warn("CtCommandBridge: initializeFromExistingDocument not yet fully implemented");
+    _docModel->suppressNotifications(false);
+    spdlog::info("CtCommandBridge: model hierarchy initialized");
 }
 
 void CtCommandBridge::syncModelFromTree()
@@ -128,28 +168,37 @@ void CtCommandBridge::syncModelFromTree()
 
         // Get node data
         gint64 nodeId = treeIter.get_node_id();
-        Glib::ustring nodeName = treeIter.get_node_name();
-        std::string syntax = treeIter.get_node_syntax_highlighting();
+
+        // Create node model and sync ALL properties from GTK
+        auto nodeModel = std::make_shared<CtNodeModel>(nodeId);
+        nodeModel->setName(treeIter.get_node_name());
+        nodeModel->setSyntax(treeIter.get_node_syntax_highlighting());
+        nodeModel->setTags(treeIter.get_node_tags());
+        nodeModel->setReadOnly(treeIter.get_node_read_only());
+        nodeModel->setBold(treeIter.get_node_is_bold());
+        nodeModel->setCustomIconId(treeIter.get_node_custom_icon_id());
+        nodeModel->setForegroundRgb24(treeIter.get_node_foreground());
+        nodeModel->setExcludedFromSearch(treeIter.get_node_is_excluded_from_search());
+        nodeModel->setChildrenExcludedFromSearch(treeIter.get_node_children_are_excluded_from_search());
+        nodeModel->setCreationTime(treeIter.get_node_creating_time());
+        nodeModel->setLastSaveTime(treeIter.get_node_modification_time());
+        nodeModel->setSharedMasterId(treeIter.get_node_shared_master_id());
+        nodeModel->setSequence(treeIter.get_node_sequence());
 
         // Get buffer content
         auto buffer = treeIter.get_node_text_buffer();
-
-        // Create node model
-        auto nodeModel = std::make_shared<CtNodeModel>(nodeId);
-        nodeModel->setName(nodeName);
         if (buffer) {
             nodeModel->setContent(buildContentFromBuffer(buffer, treeIter.get_anchored_widgets()));
         }
-        nodeModel->setSyntax(syntax);
 
         // Add to document model
         bool added = _docModel->addNode(nodeModel, parentId, -1);
         if (added) {
             spdlog::debug("CtCommandBridge: synced node {} '{}' (parent: {})",
-                         nodeId, nodeName.c_str(), parentId);
+                         nodeId, nodeModel->getName().c_str(), parentId);
         } else {
             spdlog::error("CtCommandBridge: failed to sync node {} '{}' (parent: {})",
-                         nodeId, nodeName.c_str(), parentId);
+                         nodeId, nodeModel->getName().c_str(), parentId);
             return; // Don't try to add children if parent failed
         }
 
@@ -249,6 +298,31 @@ void CtCommandBridge::addCommandToStack(std::unique_ptr<CtCommand> cmd)
     // Note: Menu updates happen on-demand via signal_show_menu() to avoid performance issues
 }
 
+void CtCommandBridge::pushNodeCommand(std::unique_ptr<CtCommand> cmd)
+{
+    if (!_active) {
+        spdlog::debug("CtCommandBridge::pushNodeCommand — bridge not active, skipping");
+        return;
+    }
+    if (!cmd) {
+        spdlog::warn("CtCommandBridge::pushNodeCommand — null command, skipping");
+        return;
+    }
+
+    // Flush any in-progress text or widget edit session before executing a
+    // structural node operation, so the sessions land on the stack in order.
+    if (_editSession && _editSession->isActive()) {
+        endTextEditSession();
+    }
+    if (_widgetEditNodeId != 0) {
+        endWidgetEdit();
+    }
+
+    _currentOp = BridgeOp::ExecutingNodeOp;
+    _commandManager.executeCommand(std::move(cmd));
+    _currentOp = BridgeOp::None;
+}
+
 void CtCommandBridge::undo()
 {
     if (!_active) {
@@ -343,15 +417,19 @@ void CtCommandBridge::undo()
         _skipNextModelSync = true;
     }
 
-    // Restart edit session after undo with the affected node
-    if (affectedNodeId != -1) {
-        beginTextEditSession(affectedNodeId);
-    } else {
-        curr_iter = _pMainWin->curr_tree_iter();
-        if (curr_iter) {
-            beginTextEditSession(curr_iter.get_node_id());
+    // Restart edit session after undo with the affected node.
+    // If the affected node was deleted by the undo (e.g. undoing AddNodeCommand),
+    // fall back to whatever node is currently selected.
+    auto restartSession = [&](gint64 nodeId) {
+        auto& ts = _pMainWin->get_tree_store();
+        if (nodeId != -1 && ts.get_node_from_node_id(nodeId)) {
+            beginTextEditSession(nodeId);
+        } else {
+            curr_iter = _pMainWin->curr_tree_iter();
+            if (curr_iter) beginTextEditSession(curr_iter.get_node_id());
         }
-    }
+    };
+    restartSession(affectedNodeId);
 
     // Restore cursor and scroll after layout settles.
     // Use PRIORITY_LOW so this runs after GTK's size-allocation pass — for nodes
@@ -482,13 +560,15 @@ void CtCommandBridge::redo()
         _skipNextModelSync = true;
     }
 
-    // Restart edit session after redo with the affected node
-    if (affectedNodeId != -1) {
-        beginTextEditSession(affectedNodeId);
-    } else {
-        curr_iter = _pMainWin->curr_tree_iter();
-        if (curr_iter) {
-            beginTextEditSession(curr_iter.get_node_id());
+    // Restart edit session after redo with the affected node.
+    // Fall back to curr_tree_iter if the node was deleted by the redo.
+    {
+        auto& ts = _pMainWin->get_tree_store();
+        if (affectedNodeId != -1 && ts.get_node_from_node_id(affectedNodeId)) {
+            beginTextEditSession(affectedNodeId);
+        } else {
+            curr_iter = _pMainWin->curr_tree_iter();
+            if (curr_iter) beginTextEditSession(curr_iter.get_node_id());
         }
     }
 
@@ -669,6 +749,11 @@ void CtCommandBridge::beginTextEditSession(gint64 nodeId)
             // The previous session for this node ended cleanly — delta commands kept
             // the model in sync.  Skip re-syncing from the buffer.
             spdlog::debug("CtCommandBridge: skipping model re-sync for node {} (delta-synced)", nodeId);
+        } else if (node->getContent().isEmpty() && buffer->get_char_count() > 0) {
+            // Node was registered by initializeFromExistingDocument() (props-only, no content).
+            // Sync content from the live buffer before starting the edit session.
+            spdlog::info("CtCommandBridge: syncing content for props-only node {} on first edit visit", nodeId);
+            node->setContent(buildContentFromBuffer(buffer, treeIter.get_anchored_widgets()));
         } else if (buffer->get_modified()) {
             // Buffer was modified outside a tracked session (e.g., switched back from
             // another node, or widget edit changed the buffer).  Re-sync from XML.
@@ -1992,19 +2077,29 @@ void CtCommandBridge::registerNewNode(gint64 nodeId, gint64 parentId)
         return;
     }
 
-    // Get node data from tree
-    Glib::ustring nodeName = treeIter.get_node_name();
-    auto buffer = treeIter.get_node_text_buffer();
-
-    // Create and add node to model
+    // Create and add node to model, syncing all properties from GTK
     auto nodeModel = std::make_shared<CtNodeModel>(nodeId);
-    nodeModel->setName(nodeName);
+    nodeModel->setName(treeIter.get_node_name());
+    nodeModel->setSyntax(treeIter.get_node_syntax_highlighting());
+    nodeModel->setTags(treeIter.get_node_tags());
+    nodeModel->setReadOnly(treeIter.get_node_read_only());
+    nodeModel->setBold(treeIter.get_node_is_bold());
+    nodeModel->setCustomIconId(treeIter.get_node_custom_icon_id());
+    nodeModel->setForegroundRgb24(treeIter.get_node_foreground());
+    nodeModel->setExcludedFromSearch(treeIter.get_node_is_excluded_from_search());
+    nodeModel->setChildrenExcludedFromSearch(treeIter.get_node_children_are_excluded_from_search());
+    nodeModel->setCreationTime(treeIter.get_node_creating_time());
+    nodeModel->setLastSaveTime(treeIter.get_node_modification_time());
+    nodeModel->setSharedMasterId(treeIter.get_node_shared_master_id());
+    nodeModel->setSequence(treeIter.get_node_sequence());
+    auto buffer = treeIter.get_node_text_buffer();
     if (buffer) {
         nodeModel->setContent(buildContentFromBuffer(buffer, treeIter.get_anchored_widgets()));
     }
 
     _docModel->addNode(nodeModel, parentId);
-    spdlog::debug("CtCommandBridge: registered new node {} '{}' (parent: {})", nodeId, nodeName.c_str(), parentId);
+    spdlog::debug("CtCommandBridge: registered new node {} '{}' (parent: {})",
+                  nodeId, treeIter.get_node_name().c_str(), parentId);
 }
 
 void CtCommandBridge::updateBufferFromXml(Glib::RefPtr<Gtk::TextBuffer> buffer, const Glib::ustring& xml, const std::string& syntax, const CtTreeIter* treeIter)
@@ -2384,37 +2479,49 @@ void CtCommandBridge::BridgeObserver::buildBufferForNode(
 
 void CtCommandBridge::BridgeObserver::onNodeAdded(gint64 nodeId, gint64 parentId)
 {
-    if (!_bridge || !_bridge->_pMainWin) {
-        return;
-    }
+    if (!_bridge || !_bridge->_pMainWin) return;
 
     spdlog::debug("BridgeObserver: node {} added to parent {}", nodeId, parentId);
 
-    // Get node from model
     auto node = _bridge->_docModel->getNodeById(nodeId);
     if (!node) {
         spdlog::error("BridgeObserver: cannot add node {}, not found in model", nodeId);
         return;
     }
 
-    // Create CtNodeData from model
     CtNodeData nodeData;
-    nodeData.nodeId = nodeId;
-    nodeData.name = node->getName();
-    nodeData.syntax = node->getSyntax();
-    nodeData.tags = node->getTags();
-    nodeData.isReadOnly = node->isReadOnly();
-    nodeData.isBold = node->isBold();
-    nodeData.customIconId = node->getCustomIconId();
-    nodeData.foregroundRgb24 = node->getForegroundRgb24();
-    nodeData.tsCreation = node->getCreationTime();
-    nodeData.tsLastSave = node->getLastSaveTime();
+    nodeData.nodeId           = nodeId;
+    nodeData.sharedNodesMasterId = node->getSharedMasterId();
+    nodeData.sequence         = node->getSequence();
+    nodeData.name             = node->getName();
+    nodeData.syntax           = node->getSyntax();
+    nodeData.tags             = node->getTags();
+    nodeData.isReadOnly       = node->isReadOnly();
+    nodeData.isBold           = node->isBold();
+    nodeData.customIconId     = node->getCustomIconId();
+    nodeData.foregroundRgb24  = node->getForegroundRgb24();
+    nodeData.excludeMeFromSearch       = node->isExcludedFromSearch();
+    nodeData.excludeChildrenFromSearch = node->areChildrenExcludedFromSearch();
+    nodeData.tsCreation       = node->getCreationTime();
+    nodeData.tsLastSave       = node->getLastSaveTime();
 
-    // Get parent iterator
+    // Create text buffer from model content so the node is immediately usable
+    // without falling back to (not-yet-saved) storage.
+    if (nodeData.sharedNodesMasterId <= 0) {
+        nodeData.pTextBuffer = _bridge->_pMainWin->get_new_text_buffer();
+        const auto& content = node->getContent();
+        if (!content.isEmpty()) {
+            nodeData.anchoredWidgets = buildBufferFromContent(
+                content, nodeData.pTextBuffer, _bridge->_pMainWin);
+        }
+    }
+
     auto& treeStore = _bridge->_pMainWin->get_tree_store();
+
+    // Determine GTK parent iter
     Gtk::TreeModel::iterator* parentIter = nullptr;
     Gtk::TreeModel::iterator parentGtkIter;
-    if (parentId != -1) {
+    if (parentId > 0) {  // 0 is the virtual root
         auto parentCtIter = treeStore.get_node_from_node_id(parentId);
         if (parentCtIter) {
             parentGtkIter = static_cast<Gtk::TreeModel::iterator>(parentCtIter);
@@ -2422,164 +2529,434 @@ void CtCommandBridge::BridgeObserver::onNodeAdded(gint64 nodeId, gint64 parentId
         }
     }
 
-    // Add node to GTK tree
-    treeStore.append_node(&nodeData, parentIter);
-    spdlog::debug("BridgeObserver: added node {} to GTK tree", nodeId);
+    // Honor position from model: find where this node sits among its siblings
+    auto modelNode = node;
+    auto modelParent = modelNode->getParent();
+    int position = -1;
+    if (modelParent) {
+        const auto& siblings = modelParent->getChildren();
+        for (int i = 0; i < static_cast<int>(siblings.size()); ++i) {
+            if (siblings[i]->getNodeId() == nodeId) { position = i; break; }
+        }
+    }
+
+    Gtk::TreeModel::iterator newGtkIter;
+    if (position == 0) {
+        // Prepend as first child
+        auto pGtkStore = treeStore.get_store();
+        Gtk::TreeModel::iterator prependIter;
+        if (parentIter) {
+            prependIter = pGtkStore->prepend((*parentIter)->children());
+        } else {
+            prependIter = pGtkStore->prepend(pGtkStore->children());
+        }
+        treeStore.update_node_data(prependIter, nodeData);
+        treeStore.update_node_aux_icon(prependIter);
+        newGtkIter = prependIter;
+    } else if (position > 0 && modelParent) {
+        // Insert after (position-1)th sibling in GTK
+        const auto& siblings = modelParent->getChildren();
+        gint64 prevSibId = siblings[position - 1]->getNodeId();
+        CtTreeIter prevSibGtk = treeStore.get_node_from_node_id(prevSibId);
+        if (prevSibGtk) {
+            auto pGtkStore = treeStore.get_store();
+            auto insertedIter = pGtkStore->insert_after(static_cast<Gtk::TreeModel::iterator>(prevSibGtk));
+            treeStore.update_node_data(insertedIter, nodeData);
+            treeStore.update_node_aux_icon(insertedIter);
+            newGtkIter = insertedIter;
+        } else {
+            newGtkIter = treeStore.append_node(&nodeData, parentIter);
+        }
+    } else {
+        newGtkIter = treeStore.append_node(&nodeData, parentIter);
+    }
+
+    // Queue a pending-new so storage knows about this node
+    if (newGtkIter) {
+        treeStore.to_ct_tree_iter(newGtkIter).pending_new_db_node();
+    }
+
+    spdlog::debug("BridgeObserver: added node {} to GTK tree at position {}", nodeId, position);
 }
 
 void CtCommandBridge::BridgeObserver::onNodeDeleted(gint64 nodeId)
 {
-    if (!_bridge || !_bridge->_pMainWin) {
-        return;
-    }
+    if (!_bridge || !_bridge->_pMainWin) return;
 
     spdlog::debug("BridgeObserver: node {} deleted", nodeId);
 
+    auto& win      = *_bridge->_pMainWin;
+    auto& treeStore = win.get_tree_store();
+
     // Remove from navigation history
-    for (auto it = _bridge->_pMainWin->_visitedNodes.begin(); it != _bridge->_pMainWin->_visitedNodes.end(); ) {
+    for (auto it = win._visitedNodes.begin(); it != win._visitedNodes.end(); ) {
         if (*it == nodeId) {
-            it = _bridge->_pMainWin->_visitedNodes.erase(it);
-            if (_bridge->_pMainWin->_visitedNodesIdx > 0) {
-                _bridge->_pMainWin->_visitedNodesIdx--;
-            }
-        } else {
-            ++it;
-        }
+            it = win._visitedNodes.erase(it);
+            if (win._visitedNodesIdx > 0) --win._visitedNodesIdx;
+        } else { ++it; }
     }
 
-    // Find the node in GTK tree and remove it
-    auto& treeStore = _bridge->_pMainWin->get_tree_store();
-    auto nodeIter = treeStore.get_node_from_node_id(nodeId);
+    // Remove bookmark (silent — DeleteNodeCommand already updated the menu before pushing)
+    bool wasBookmarked = treeStore.bookmarks_remove(nodeId);
+    (void)wasBookmarked;  // menu refresh handled by the command after full subtree removal
 
+    auto nodeIter = treeStore.get_node_from_node_id(nodeId);
     if (!nodeIter) {
         spdlog::warn("BridgeObserver: node {} not found in GTK tree for deletion", nodeId);
         return;
     }
 
-    // If it's the current node, select another one first
-    auto currIter = _bridge->_pMainWin->curr_tree_iter();
+    // If this is the currently selected node, pre-select a neighbour and clear
+    // _prevTreeIter before erasing — otherwise the cursor-changed handler fires
+    // on the stale (dangling) iterator and segfaults.
+    CtTreeIter currIter = win.curr_tree_iter();
     if (currIter && currIter.get_node_id() == nodeId) {
-        spdlog::debug("BridgeObserver: deleted node was current, selecting another");
-        // Try to select next sibling, or parent
-        auto gtkIter = static_cast<Gtk::TreeModel::iterator>(nodeIter);
-        auto nextIter = gtkIter;
-        ++nextIter;
-        if (nextIter) {
-            _bridge->_pMainWin->get_tree_view().set_cursor_safe(nextIter);
+        Gtk::TreeModel::iterator nextSel = --static_cast<Gtk::TreeModel::iterator>(nodeIter);
+        if (!nextSel) nextSel = ++static_cast<Gtk::TreeModel::iterator>(nodeIter);
+        if (!nextSel) nextSel = static_cast<Gtk::TreeModel::iterator>(nodeIter)->parent();
+
+        win.resetPrevTreeIter();
+        if (nextSel) {
+            win.get_tree_view().set_cursor_safe(nextSel);
         } else {
-            auto parentIter = gtkIter->parent();
-            if (parentIter) {
-                _bridge->_pMainWin->get_tree_view().set_cursor_safe(parentIter);
-            }
+            // Tree will be empty after this deletion
+            win.curr_buffer()->set_text("");
+            win.window_header_update();
+            win.update_selected_node_statusbar_info();
+            win.get_text_view().mm().set_sensitive(false);
         }
     }
 
-    // Remove from GTK tree
+    // Remove from GTK tree (children already removed by prior bottom-up notifications)
     auto gtkStore = treeStore.get_store();
     if (gtkStore) {
         gtkStore->erase(static_cast<Gtk::TreeModel::iterator>(nodeIter));
         spdlog::debug("BridgeObserver: removed node {} from GTK tree", nodeId);
     }
+
+    // Keep storage pending state consistent: remove any pending write for this
+    // node and schedule it for DB removal (covers both forward delete and
+    // undo-of-add; pending_new_db_node cancels the rm_set entry on re-add).
+    treeStore.pending_rm_db_nodes({nodeId});
 }
 
 void CtCommandBridge::BridgeObserver::onNodeMoved(gint64 nodeId, gint64 newParentId, int newPosition)
 {
-    if (!_bridge || !_bridge->_pMainWin) {
-        return;
-    }
+    if (!_bridge || !_bridge->_pMainWin) return;
 
     spdlog::debug("BridgeObserver: node {} moved to parent {} at position {}",
                   nodeId, newParentId, newPosition);
 
-    // For now, simplest implementation: remove and re-add
-    // This handles the tree structure correctly but loses expansion state
-    // TODO: Implement in-place move to preserve expansion state
-
     auto& treeStore = _bridge->_pMainWin->get_tree_store();
-    auto nodeIter = treeStore.get_node_from_node_id(nodeId);
 
+    // Snapshot expanded paths by nodeId before erasing
+    std::set<gint64> expandedIds;
+    auto& treeView = _bridge->_pMainWin->get_tree_view();
+    treeStore.get_store()->foreach_iter([&](const Gtk::TreeModel::iterator& it) {
+        if (treeView.row_expanded(treeStore.get_store()->get_path(it))) {
+            CtTreeIter ci = treeStore.to_ct_tree_iter(it);
+            if (ci) expandedIds.insert(ci.get_node_id());
+        }
+        return false;
+    });
+
+    auto nodeIter = treeStore.get_node_from_node_id(nodeId);
     if (!nodeIter) {
         spdlog::error("BridgeObserver: cannot move node {}, not found in GTK tree", nodeId);
         return;
     }
-
-    // Get the node from the model
     auto node = _bridge->_docModel->getNodeById(nodeId);
     if (!node) {
         spdlog::error("BridgeObserver: cannot move node {}, not found in model", nodeId);
         return;
     }
 
-    // Create CtNodeData from model
-    CtNodeData nodeData;
-    nodeData.nodeId = nodeId;
-    nodeData.name = node->getName();
-    nodeData.syntax = node->getSyntax();
-    nodeData.tags = node->getTags();
-    nodeData.isReadOnly = node->isReadOnly();
-    nodeData.isBold = node->isBold();
-    nodeData.customIconId = node->getCustomIconId();
-    nodeData.foregroundRgb24 = node->getForegroundRgb24();
-    nodeData.tsCreation = node->getCreationTime();
-    nodeData.tsLastSave = node->getLastSaveTime();
+    // Save all text buffers AND anchored-widget lists from the GTK subtree BEFORE
+    // erasing it.  GTK implicitly destroys children when the parent row is erased,
+    // so we must harvest both to avoid null-buffer rows and missing widget references
+    // (e.g. CtTableRich cells showing as broken placeholders) after re-insert.
+    struct SavedNodeState {
+        Glib::RefPtr<Gtk::TextBuffer>    buffer;
+        std::list<CtAnchoredWidget*>     widgets;
+    };
+    std::unordered_map<gint64, SavedNodeState> savedState;
+    std::function<void(const Gtk::TreeModel::iterator&)> collectState;
+    collectState = [&](const Gtk::TreeModel::iterator& it) {
+        CtTreeIter ci = treeStore.to_ct_tree_iter(it);
+        if (ci) {
+            SavedNodeState s;
+            s.buffer  = ci.get_node_text_buffer();
+            s.widgets = ci.get_anchored_widgets_fast('n'); // 'n' = no sort, just fetch
+            savedState[ci.get_node_id()] = std::move(s);
+        }
+        for (const auto& child : it->children())
+            collectState(child);
+    };
+    collectState(static_cast<Gtk::TreeModel::iterator>(nodeIter));
 
-    // Remove from old location (this also removes children in GTK tree)
+    // Build CtNodeData helper — restores saved buffer and widget list for the row.
+    auto makeNodeData = [&](const std::shared_ptr<CtNodeModel>& n) {
+        CtNodeData d;
+        d.nodeId              = n->getNodeId();
+        d.sharedNodesMasterId = n->getSharedMasterId();
+        d.sequence            = n->getSequence();
+        d.name                = n->getName();
+        d.syntax              = n->getSyntax();
+        d.tags                = n->getTags();
+        d.isReadOnly          = n->isReadOnly();
+        d.isBold              = n->isBold();
+        d.customIconId        = n->getCustomIconId();
+        d.foregroundRgb24     = n->getForegroundRgb24();
+        d.excludeMeFromSearch       = n->isExcludedFromSearch();
+        d.excludeChildrenFromSearch = n->areChildrenExcludedFromSearch();
+        d.tsCreation          = n->getCreationTime();
+        d.tsLastSave          = n->getLastSaveTime();
+        auto it = savedState.find(n->getNodeId());
+        if (it != savedState.end()) {
+            d.pTextBuffer    = it->second.buffer;
+            d.anchoredWidgets = it->second.widgets;
+        } else if (d.sharedNodesMasterId <= 0) {
+            // Node was never visited — rebuild buffer+widgets from model content.
+            d.pTextBuffer = _bridge->_pMainWin->get_new_text_buffer();
+            const auto& content = n->getContent();
+            if (!content.isEmpty())
+                d.anchoredWidgets = buildBufferFromContent(content, d.pTextBuffer, _bridge->_pMainWin);
+        }
+        return d;
+    };
+
+    // Erase old position (children erased implicitly by GTK TreeStore).
+    // Reset _prevTreeIter first so the cursor-changed signal fired by the erase
+    // doesn't dereference a dangling iterator (same fix as onNodeDeleted).
     auto gtkStore = treeStore.get_store();
+    auto& win = *_bridge->_pMainWin;
+    CtTreeIter currSel = win.curr_tree_iter();
+    if (currSel && currSel.get_node_id() == nodeId) {
+        win.resetPrevTreeIter();
+    }
     gtkStore->erase(static_cast<Gtk::TreeModel::iterator>(nodeIter));
 
-    // Find new parent
-    Gtk::TreeModel::iterator* newParentIter = nullptr;
+    // Determine new parent iter
+    Gtk::TreeModel::iterator* newParentGtkPtr = nullptr;
     Gtk::TreeModel::iterator newParentGtkIter;
-    if (newParentId != -1) {
+    if (newParentId > 0) {
         auto parentCtIter = treeStore.get_node_from_node_id(newParentId);
         if (parentCtIter) {
             newParentGtkIter = static_cast<Gtk::TreeModel::iterator>(parentCtIter);
-            newParentIter = &newParentGtkIter;
+            newParentGtkPtr  = &newParentGtkIter;
         }
     }
 
-    // Add at new location
-    auto newIter = treeStore.append_node(&nodeData, newParentIter);
+    // Insert at correct position
+    auto modelParent = node->getParent();
+    int pos = -1;
+    if (modelParent) {
+        const auto& sibs = modelParent->getChildren();
+        for (int i = 0; i < static_cast<int>(sibs.size()); ++i) {
+            if (sibs[i]->getNodeId() == nodeId) { pos = i; break; }
+        }
+    }
 
-    // Recursively add children from model
-    std::function<void(gint64, Gtk::TreeModel::iterator*)> addChildren;
-    addChildren = [&](gint64 parentModelId, Gtk::TreeModel::iterator* parentGtkIter) {
-        auto parentNode = _bridge->_docModel->getNodeById(parentModelId);
-        if (!parentNode) return;
+    CtNodeData topData = makeNodeData(node);
+    Gtk::TreeModel::iterator newGtkIter;
+    if (pos == 0) {
+        auto it = newParentGtkPtr ? gtkStore->prepend((*newParentGtkPtr)->children())
+                                  : gtkStore->prepend(gtkStore->children());
+        treeStore.update_node_data(it, topData);
+        treeStore.update_node_aux_icon(it);
+        newGtkIter = it;
+    } else if (pos > 0 && modelParent) {
+        gint64 prevId = modelParent->getChildren()[pos - 1]->getNodeId();
+        CtTreeIter prevGtk = treeStore.get_node_from_node_id(prevId);
+        if (prevGtk) {
+            auto it = gtkStore->insert_after(static_cast<Gtk::TreeModel::iterator>(prevGtk));
+            treeStore.update_node_data(it, topData);
+            treeStore.update_node_aux_icon(it);
+            newGtkIter = it;
+        } else {
+            newGtkIter = treeStore.append_node(&topData, newParentGtkPtr);
+        }
+    } else {
+        newGtkIter = treeStore.append_node(&topData, newParentGtkPtr);
+    }
 
-        for (const auto& child : parentNode->getChildren()) {
-            CtNodeData childData;
-            childData.nodeId = child->getNodeId();
-            childData.name = child->getName();
-            childData.syntax = child->getSyntax();
-            childData.tags = child->getTags();
-            childData.isReadOnly = child->isReadOnly();
-            childData.isBold = child->isBold();
-            childData.customIconId = child->getCustomIconId();
-            childData.foregroundRgb24 = child->getForegroundRgb24();
-            childData.tsCreation = child->getCreationTime();
-            childData.tsLastSave = child->getLastSaveTime();
-
-            auto childCtIter = treeStore.append_node(&childData, parentGtkIter);
-            auto childGtkIter = static_cast<Gtk::TreeModel::iterator>(childCtIter);
-            addChildren(child->getNodeId(), &childGtkIter);
+    // Recursively rebuild children from model (buffers restored from savedBuffers)
+    std::function<void(gint64, Gtk::TreeModel::iterator*)> rebuildChildren;
+    rebuildChildren = [&](gint64 pid, Gtk::TreeModel::iterator* parentGtk) {
+        auto pn = _bridge->_docModel->getNodeById(pid);
+        if (!pn) return;
+        for (const auto& child : pn->getChildren()) {
+            CtNodeData cd = makeNodeData(child);
+            auto childCtIter = treeStore.append_node(&cd, parentGtk);
+            auto childGtk = static_cast<Gtk::TreeModel::iterator>(childCtIter);
+            rebuildChildren(child->getNodeId(), &childGtk);
         }
     };
+    auto newGtkIterForChildren = newGtkIter;
+    rebuildChildren(nodeId, &newGtkIterForChildren);
 
-    auto newGtkIter = static_cast<Gtk::TreeModel::iterator>(newIter);
-    addChildren(nodeId, &newGtkIter);
+    // Re-apply expansion state
+    treeStore.get_store()->foreach_iter([&](const Gtk::TreeModel::iterator& it) {
+        CtTreeIter ci = treeStore.to_ct_tree_iter(it);
+        if (ci && expandedIds.count(ci.get_node_id())) {
+            treeView.expand_row(treeStore.get_store()->get_path(it), false);
+        }
+        return false;
+    });
 
-    spdlog::debug("BridgeObserver: moved node {} to new position", nodeId);
+    // Fix sequences at both old parent (newParentId is already the new one)
+    treeStore.nodes_sequences_fix(Gtk::TreeModel::iterator(), true);
+
+    // Keep the moved node selected
+    CtTreeIter movedIter = treeStore.get_node_from_node_id(nodeId);
+    if (movedIter) {
+        treeView.set_cursor_safe(movedIter);
+    }
+
+    _bridge->_pMainWin->update_window_save_needed();
+    spdlog::debug("BridgeObserver: moved node {} to parent {} at position {}",
+                  nodeId, newParentId, pos);
 }
 
 void CtCommandBridge::BridgeObserver::onTreeStructureChanged()
 {
-    if (!_bridge || !_bridge->_pMainWin) {
+    if (!_bridge || !_bridge->_pMainWin) return;
+    spdlog::debug("BridgeObserver: tree structure changed — full rebuild");
+
+    auto& win       = *_bridge->_pMainWin;
+    auto& treeStore  = win.get_tree_store();
+    auto& treeView   = win.get_tree_view();
+    auto  gtkStore   = treeStore.get_store();
+
+    // Snapshot expanded node ids and currently selected node
+    std::set<gint64> expandedIds;
+    gint64 selectedId = -1;
+    {
+        CtTreeIter sel = win.curr_tree_iter();
+        if (sel) selectedId = sel.get_node_id();
+    }
+    gtkStore->foreach_iter([&](const Gtk::TreeModel::iterator& it) {
+        if (treeView.row_expanded(gtkStore->get_path(it))) {
+            CtTreeIter ci = treeStore.to_ct_tree_iter(it);
+            if (ci) expandedIds.insert(ci.get_node_id());
+        }
+        return false;
+    });
+
+    // Clear GTK tree
+    win.resetPrevTreeIter();
+    gtkStore->clear();
+
+    // Rebuild from model depth-first
+    std::function<void(const std::shared_ptr<CtNodeModel>&, Gtk::TreeModel::iterator*)> rebuild;
+    rebuild = [&](const std::shared_ptr<CtNodeModel>& node, Gtk::TreeModel::iterator* parentGtk) {
+        CtNodeData d;
+        d.nodeId              = node->getNodeId();
+        d.sharedNodesMasterId = node->getSharedMasterId();
+        d.sequence            = node->getSequence();
+        d.name                = node->getName();
+        d.syntax              = node->getSyntax();
+        d.tags                = node->getTags();
+        d.isReadOnly          = node->isReadOnly();
+        d.isBold              = node->isBold();
+        d.customIconId        = node->getCustomIconId();
+        d.foregroundRgb24     = node->getForegroundRgb24();
+        d.excludeMeFromSearch       = node->isExcludedFromSearch();
+        d.excludeChildrenFromSearch = node->areChildrenExcludedFromSearch();
+        d.tsCreation          = node->getCreationTime();
+        d.tsLastSave          = node->getLastSaveTime();
+        auto gtkIter = treeStore.append_node(&d, parentGtk);
+        auto gtkIterForChildren = static_cast<Gtk::TreeModel::iterator>(gtkIter);
+        for (const auto& child : node->getChildren()) {
+            rebuild(child, &gtkIterForChildren);
+        }
+    };
+
+    auto root = _bridge->_docModel->getRootNode();
+    if (root) {
+        for (const auto& child : root->getChildren()) {
+            rebuild(child, nullptr);
+        }
+    }
+
+    // Re-apply expansion
+    gtkStore->foreach_iter([&](const Gtk::TreeModel::iterator& it) {
+        CtTreeIter ci = treeStore.to_ct_tree_iter(it);
+        if (ci && expandedIds.count(ci.get_node_id())) {
+            treeView.expand_row(gtkStore->get_path(it), false);
+        }
+        return false;
+    });
+
+    // Restore selection
+    if (selectedId >= 0) {
+        CtTreeIter sel = treeStore.get_node_from_node_id(selectedId);
+        if (sel) treeView.set_cursor_safe(sel);
+    }
+
+    win.update_window_save_needed();
+}
+
+void CtCommandBridge::BridgeObserver::onNodePropertiesChanged(
+        gint64 nodeId, const CtNodeProps& oldProps, const CtNodeProps& newProps)
+{
+    if (!_bridge || !_bridge->_pMainWin) return;
+
+    auto& win       = *_bridge->_pMainWin;
+    auto& treeStore  = win.get_tree_store();
+    CtTreeIter treeIter = treeStore.get_node_from_node_id(nodeId);
+    if (!treeIter) {
+        spdlog::error("BridgeObserver::onNodePropertiesChanged: node {} not in GTK tree", nodeId);
         return;
     }
 
-    spdlog::debug("BridgeObserver: tree structure changed");
+    bool prevUA = win.user_active();
+    win.user_active() = false;
+    struct UAGuard { bool& ref; bool prev; ~UAGuard() { ref = prev; } } ua{win.user_active(), prevUA};
 
-    // TODO: Rebuild entire GTK tree from model
-    // This is for mass operations
+    // Update all GTK columns from newProps
+    const auto& cols = treeStore.get_columns();
+    auto gtkIter = static_cast<Gtk::TreeModel::iterator>(treeIter);
+    gtkIter->set_value(cols.colNodeName, newProps.name);
+    gtkIter->set_value(cols.colSyntaxHighlighting, newProps.syntax);
+    gtkIter->set_value(cols.colNodeTags, newProps.tags);
+    gtkIter->set_value(cols.colNodeIsReadOnly, newProps.isReadOnly);
+    gtkIter->set_value(cols.colNodeIsExcludedFromSearch, newProps.excludeMeFromSearch);
+    gtkIter->set_value(cols.colNodeChildrenAreExcludedFromSearch, newProps.excludeChildrenFromSearch);
+    gtkIter->set_value(cols.colCustomIconId, static_cast<guint16>(newProps.customIconId));
+    gtkIter->set_value(cols.colForeground, newProps.foregroundRgb24);
+    gtkIter->set_value(cols.colWeight,
+        CtTreeIter::get_pango_weight_from_is_bold(newProps.isBold));
+    gtkIter->set_value(cols.colTsCreation, newProps.tsCreation);
+    gtkIter->set_value(cols.colTsLastSave, newProps.tsLastSave);
+
+    // Syntax change: rebuild buffer
+    if (oldProps.syntax != newProps.syntax) {
+        win.switch_buffer_text_source(
+            treeIter.get_node_text_buffer(), treeIter,
+            newProps.syntax, oldProps.syntax);
+        treeStore.update_node_icon(treeIter);
+    }
+
+    // Update aux icon (read-only, custom icon, etc.)
+    treeStore.update_node_aux_icon(treeIter);
+
+    // If this is the currently-displayed node, refresh header/statusbar/textview
+    CtTreeIter currIter = win.curr_tree_iter();
+    if (currIter && currIter.get_node_id() == nodeId) {
+        win.window_header_update();
+        win.window_header_update_lock_icon(newProps.isReadOnly);
+        win.window_header_update_ghost_icon(
+            newProps.excludeMeFromSearch || newProps.excludeChildrenFromSearch);
+        win.update_selected_node_statusbar_info();
+        win.get_text_view().mm().set_editable(!newProps.isReadOnly);
+    }
+
+    // Refresh bookmark menu if this node is bookmarked
+    if (treeStore.is_node_bookmarked(nodeId)) {
+        win.menu_set_bookmark_menu_items();
+    }
+
+    treeIter.pending_edit_db_node_prop();
+    win.update_window_save_needed(CtSaveNeededUpdType::npro);
 }

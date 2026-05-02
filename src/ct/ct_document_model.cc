@@ -92,6 +92,38 @@ int CtNodeModel::getChildIndex(const std::shared_ptr<CtNodeModel>& child) const
     return std::distance(_children.begin(), it);
 }
 
+CtNodeProps CtNodeModel::captureProps() const
+{
+    CtNodeProps p;
+    p.name                    = _name;
+    p.syntax                  = _syntax;
+    p.tags                    = _tags;
+    p.isReadOnly               = _isReadOnly;
+    p.isBold                  = _isBold;
+    p.customIconId             = _customIconId;
+    p.foregroundRgb24          = _foregroundRgb24;
+    p.excludeMeFromSearch      = _excludeMeFromSearch;
+    p.excludeChildrenFromSearch = _excludeChildrenFromSearch;
+    p.tsCreation               = _tsCreation;
+    p.tsLastSave               = _tsLastSave;
+    return p;
+}
+
+void CtNodeModel::applyProps(const CtNodeProps& p)
+{
+    _name                    = p.name;
+    _syntax                  = p.syntax;
+    _tags                    = p.tags;
+    _isReadOnly               = p.isReadOnly;
+    _isBold                  = p.isBold;
+    _customIconId             = p.customIconId;
+    _foregroundRgb24          = p.foregroundRgb24;
+    _excludeMeFromSearch      = p.excludeMeFromSearch;
+    _excludeChildrenFromSearch = p.excludeChildrenFromSearch;
+    _tsCreation               = p.tsCreation;
+    _tsLastSave               = p.tsLastSave;
+}
+
 // CtDocumentModel implementation
 
 CtDocumentModel::CtDocumentModel()
@@ -370,4 +402,145 @@ gint64 CtDocumentModel::generateUniqueNodeId()
         _nextNodeId++;
     }
     return _nextNodeId++;
+}
+
+bool CtDocumentModel::removeNodeWithChildren(gint64 nodeId)
+{
+    auto node = getNodeById(nodeId);
+    if (!node) {
+        spdlog::error("removeNodeWithChildren: node {} not found", nodeId);
+        return false;
+    }
+    if (nodeId == 0) {
+        spdlog::error("removeNodeWithChildren: cannot remove root node");
+        return false;
+    }
+
+    // Post-order traversal: remove children first, then the node itself
+    // Collect children ids before iterating (the vector may change)
+    std::vector<gint64> childIds;
+    for (const auto& c : node->getChildren()) {
+        childIds.push_back(c->getNodeId());
+    }
+    for (gint64 cid : childIds) {
+        if (!removeNodeWithChildren(cid)) {
+            return false;
+        }
+    }
+
+    // Remove from parent and map, then notify
+    auto parent = node->getParent();
+    if (parent) {
+        parent->removeChild(node);
+    }
+    _nodeMap.erase(nodeId);
+    notifyNodeDeleted(nodeId);
+    spdlog::debug("removeNodeWithChildren: removed node {}", nodeId);
+    return true;
+}
+
+bool CtDocumentModel::updateNodeProperties(gint64 nodeId, const CtNodeProps& p)
+{
+    auto node = getNodeById(nodeId);
+    if (!node) {
+        spdlog::error("updateNodeProperties: node {} not found", nodeId);
+        return false;
+    }
+    CtNodeProps oldP = node->captureProps();
+    node->applyProps(p);
+    notifyNodePropertiesChanged(nodeId, oldP, p);
+    return true;
+}
+
+bool CtDocumentModel::setNodeContent(gint64 nodeId, const CtNodeContent& c, bool notify)
+{
+    auto node = getNodeById(nodeId);
+    if (!node) {
+        spdlog::error("setNodeContent: node {} not found", nodeId);
+        return false;
+    }
+    node->setContent(c);
+    if (notify) {
+        notifyNodeChanged(nodeId);
+    }
+    return true;
+}
+
+// Helper: depth-first snapshot walk
+static void snapshotWalk(const CtNodeModel* node, gint64 parentId, SubtreeSnapshot& snap)
+{
+    SubtreeSnapshot::Entry e;
+    e.nodeId        = node->getNodeId();
+    e.parentId      = parentId;
+    e.sharedMasterId = node->getSharedMasterId();
+    e.sequence      = node->getSequence();
+    e.props         = node->captureProps();
+    e.content       = node->getContent();
+
+    // Determine position among parent's children
+    const CtNodeModel* parent = node->getParent();
+    if (parent) {
+        int idx = 0;
+        for (const auto& sib : parent->getChildren()) {
+            if (sib->getNodeId() == node->getNodeId()) {
+                e.position = idx;
+                break;
+            }
+            ++idx;
+        }
+    }
+
+    snap.entries.push_back(std::move(e));
+
+    for (const auto& child : node->getChildren()) {
+        snapshotWalk(child.get(), node->getNodeId(), snap);
+    }
+}
+
+SubtreeSnapshot CtDocumentModel::snapshotSubtree(gint64 nodeId) const
+{
+    SubtreeSnapshot snap;
+    auto node = getNodeById(nodeId);
+    if (!node) {
+        spdlog::error("snapshotSubtree: node {} not found", nodeId);
+        return snap;
+    }
+    gint64 parentId = node->getParent() ? node->getParent()->getNodeId() : 0;
+    snapshotWalk(node.get(), parentId, snap);
+    return snap;
+}
+
+bool CtDocumentModel::restoreSubtree(const SubtreeSnapshot& snap)
+{
+    for (const auto& e : snap.entries) {
+        // If the node already exists (e.g. partial restore), skip creation
+        auto existing = getNodeById(e.nodeId);
+        if (!existing) {
+            auto node = createNode(e.nodeId);
+            if (!node) {
+                spdlog::error("restoreSubtree: failed to create node {}", e.nodeId);
+                return false;
+            }
+            existing = node;
+        }
+        existing->applyProps(e.props);
+        existing->setContent(e.content);
+        existing->setSharedMasterId(e.sharedMasterId);
+        existing->setSequence(e.sequence);
+
+        if (!addNode(existing, e.parentId, e.position)) {
+            spdlog::error("restoreSubtree: failed to add node {} to parent {}", e.nodeId, e.parentId);
+            return false;
+        }
+        notifyNodeAdded(e.nodeId, e.parentId);
+    }
+    return true;
+}
+
+void CtDocumentModel::notifyNodePropertiesChanged(gint64 nodeId, const CtNodeProps& oldP, const CtNodeProps& newP)
+{
+    spdlog::debug("Notifying observers: node {} properties changed", nodeId);
+    for (auto observer : _observers) {
+        observer->onNodePropertiesChanged(nodeId, oldP, newP);
+    }
 }
