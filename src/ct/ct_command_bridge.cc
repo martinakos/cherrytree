@@ -321,6 +321,14 @@ void CtCommandBridge::pushNodeCommand(std::unique_ptr<CtCommand> cmd)
     _currentOp = BridgeOp::ExecutingNodeOp;
     _commandManager.executeCommand(std::move(cmd));
     _currentOp = BridgeOp::None;
+
+    // Restart an edit session so subsequent keystrokes are captured.
+    // Without this, characters typed before the next cursor-change or
+    // special-key event go into the GTK buffer untracked.
+    auto curr_iter = _pMainWin->curr_tree_iter();
+    if (curr_iter) {
+        beginTextEditSession(curr_iter.get_node_id());
+    }
 }
 
 void CtCommandBridge::undo()
@@ -342,10 +350,11 @@ void CtCommandBridge::undo()
         endWidgetEdit();
     }
 
-    // Cancel any active edit session before undo
-    if (_editSession && _editSession->isActive()) {
-        _editSession->cancel();
-    }
+    // End any active edit session before undo so intermediate edits become
+    // a separate undo entry.  Using cancel() would discard the edits from the
+    // command history while leaving the model/buffer modified, desynchronizing
+    // the redo stack's expected model state.
+    endTextEditSession();
 
     // Get the node ID and cursor position from command being undone
     auto cmd = _commandManager.peekUndoCommand();
@@ -387,6 +396,9 @@ void CtCommandBridge::undo()
             _pMainWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(affectedIter));
         }
     }
+
+    spdlog::debug("CtCommandBridge::undo - about to undo '{}' for node {}",
+                  cmd->getDescription(), affectedNodeId);
 
     _inCommandExecution = true;
     _undoRedoGeneration++;
@@ -488,10 +500,11 @@ void CtCommandBridge::redo()
         endWidgetEdit();
     }
 
-    // Cancel any active edit session before redo
-    if (_editSession && _editSession->isActive()) {
-        _editSession->cancel();
-    }
+    // End any active edit session before redo so intermediate edits become
+    // a separate undo entry.  Using cancel() would discard the edits from the
+    // command history while leaving the model/buffer modified, desynchronizing
+    // the redo stack's expected model state.
+    endTextEditSession();
 
     // Get the node ID and cursor position from command being redone
     auto cmd = _commandManager.peekRedoCommand();
@@ -530,6 +543,9 @@ void CtCommandBridge::redo()
             _pMainWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(affectedIter));
         }
     }
+
+    spdlog::debug("CtCommandBridge::redo - about to redo '{}' for node {}",
+                  cmd->getDescription(), affectedNodeId);
 
     _inCommandExecution = true;
     _undoRedoGeneration++;
@@ -632,7 +648,7 @@ void CtCommandBridge::undo(size_t count)
     // Limit count to available undo stack size
     size_t actualCount = std::min(count, _commandManager.getUndoStackDescriptions().size());
 
-    spdlog::info("CtCommandBridge: undoing {} command(s)", actualCount);
+    spdlog::debug("CtCommandBridge: undoing {} command(s)", actualCount);
 
     // Call single-step undo() for each operation to ensure proper UI updates.
     // Stop on first failure to avoid cascading errors and command loss.
@@ -655,7 +671,7 @@ void CtCommandBridge::redo(size_t count)
     // Limit count to available redo stack size
     size_t actualCount = std::min(count, _commandManager.getRedoStackDescriptions().size());
 
-    spdlog::info("CtCommandBridge: redoing {} command(s)", actualCount);
+    spdlog::debug("CtCommandBridge: redoing {} command(s)", actualCount);
 
     // Call single-step redo() for each operation to ensure proper UI updates.
     // Stop on first failure to avoid cascading errors and command loss.
