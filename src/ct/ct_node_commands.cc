@@ -167,7 +167,7 @@ void DeleteNodeCommand::execute()
     // Observer also handles bookmark removal (added in M5)
 
     if (_pMainWin) {
-        _pMainWin->update_window_save_needed(CtSaveNeededUpdType::ndel);
+        _pMainWin->update_window_save_needed();
     }
 }
 
@@ -201,7 +201,7 @@ void DeleteNodeCommand::undo()
             _pMainWin->get_tree_view().set_cursor_safe(restoredIter);
             _pMainWin->get_text_view().mm().grab_focus();
         }
-        _pMainWin->update_window_save_needed(CtSaveNeededUpdType::ndel);
+        _pMainWin->update_window_save_needed();
     }
 
     // 5. Reverse promotions in reverse order
