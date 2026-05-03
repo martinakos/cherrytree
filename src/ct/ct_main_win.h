@@ -363,6 +363,7 @@ private:
     Gtk::MenuToolButton*         _pUndoMenuToolButton{nullptr};
     Gtk::MenuToolButton*         _pRedoMenuToolButton{nullptr};
     bool                         _updatingUndoRedoMenus{false};
+    void _setup_undo_redo_popovers();
     #endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
     #if GTKMM_MAJOR_VERSION >= 4
     Gtk::MenuButton*             _pMenuButton4{nullptr};
