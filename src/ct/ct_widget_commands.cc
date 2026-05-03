@@ -68,7 +68,7 @@ void InsertWidgetDeltaCommand::redo()
 
 std::string InsertWidgetDeltaCommand::getDescription() const
 {
-    return "Node " + std::to_string(_nodeId) + ": " + _description;
+    return "[" + std::to_string(_nodeId) + "] " + _description;
 }
 
 // ModifyWidgetDeltaCommand implementation
@@ -116,7 +116,7 @@ void ModifyWidgetDeltaCommand::redo()
 
 std::string ModifyWidgetDeltaCommand::getDescription() const
 {
-    return "Node " + std::to_string(_nodeId) + ": " + _description;
+    return "[" + std::to_string(_nodeId) + "] " + _description;
 }
 
 // EditTableCellCommand implementation
@@ -168,7 +168,7 @@ void EditTableCellCommand::redo()
 
 std::string EditTableCellCommand::getDescription() const
 {
-    return "Node " + std::to_string(_nodeId) + ": Edit table cell";
+    return "[" + std::to_string(_nodeId) + "] Edit table cell";
 }
 
 // EditRichCellCommand implementation
@@ -221,11 +221,11 @@ void EditRichCellCommand::redo()    { _applyContent(_newContent); }
 std::string EditRichCellCommand::getDescription() const
 {
     if (!_description.empty()) {
-        return "Node " + std::to_string(_nodeId) + ": " + _description;
+        return "[" + std::to_string(_nodeId) + "] " + _description;
     }
 
     // Match the descriptions produced by TextEditCommand
-    std::string description = "Node " + std::to_string(_nodeId) + ": ";
+    std::string description = "[" + std::to_string(_nodeId) + "] ";
     Glib::ustring oldText = _oldContent.getPlainText();
     Glib::ustring newText = _newContent.getPlainText();
 
@@ -309,5 +309,5 @@ void EditCodeboxContentCommand::redo()
 
 std::string EditCodeboxContentCommand::getDescription() const
 {
-    return "Node " + std::to_string(_nodeId) + ": Edit codebox";
+    return "[" + std::to_string(_nodeId) + "] Edit codebox";
 }
