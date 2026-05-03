@@ -185,7 +185,8 @@ bool CtCommandManager::undo()
     }
     catch (const std::exception& e) {
         spdlog::error("Command undo failed: {} - {}", cmd->getDescription(), e.what());
-        // Discard the failed command to prevent infinite retry loops
+        // Push back onto undo stack so the command isn't lost.
+        _undoStack.push_back(std::move(cmd));
         return false;
     }
 }
@@ -210,7 +211,9 @@ bool CtCommandManager::redo()
     }
     catch (const std::exception& e) {
         spdlog::error("Command redo failed: {} - {}", cmd->getDescription(), e.what());
-        // Discard the failed command to prevent infinite retry loops
+        // Push back onto redo stack so the command isn't lost.  Batch redo
+        // stops on the first failure, so this won't cause an infinite loop.
+        _redoStack.push_back(std::move(cmd));
         return false;
     }
 }
@@ -291,7 +294,7 @@ void CtCommandManager::undo(size_t count)
     spdlog::info("CtCommandManager: Undoing {} command(s)", actualCount);
 
     for (size_t i = 0; i < actualCount; ++i) {
-        undo();  // Call single undo() method
+        if (!undo()) break;  // Stop on first failure
     }
 }
 
@@ -307,7 +310,7 @@ void CtCommandManager::redo(size_t count)
     spdlog::debug("CtCommandManager: Redoing {} command(s)", actualCount);
 
     for (size_t i = 0; i < actualCount; ++i) {
-        redo();  // Call single redo() method
+        if (!redo()) break;  // Stop on first failure
     }
 }
 

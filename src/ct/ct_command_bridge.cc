@@ -634,9 +634,12 @@ void CtCommandBridge::undo(size_t count)
 
     spdlog::info("CtCommandBridge: undoing {} command(s)", actualCount);
 
-    // Call single-step undo() for each operation to ensure proper UI updates
+    // Call single-step undo() for each operation to ensure proper UI updates.
+    // Stop on first failure to avoid cascading errors and command loss.
     for (size_t i = 0; i < actualCount; ++i) {
-        undo();  // Call the single-step undo() method
+        size_t stackBefore = _commandManager.getUndoStackDescriptions().size();
+        undo();
+        if (_commandManager.getUndoStackDescriptions().size() >= stackBefore) break;
     }
 
     // Update undo/redo menus after all operations complete
@@ -654,9 +657,12 @@ void CtCommandBridge::redo(size_t count)
 
     spdlog::info("CtCommandBridge: redoing {} command(s)", actualCount);
 
-    // Call single-step redo() for each operation to ensure proper UI updates
+    // Call single-step redo() for each operation to ensure proper UI updates.
+    // Stop on first failure to avoid cascading errors and command loss.
     for (size_t i = 0; i < actualCount; ++i) {
-        redo();  // Call the single-step redo() method
+        size_t stackBefore = _commandManager.getRedoStackDescriptions().size();
+        redo();
+        if (_commandManager.getRedoStackDescriptions().size() >= stackBefore) break;
     }
 
     // Update undo/redo menus after all operations complete
@@ -747,8 +753,20 @@ void CtCommandBridge::beginTextEditSession(gint64 nodeId)
             spdlog::info("CtCommandBridge: lazy-added node {} to model on first edit visit", nodeId);
         } else if (nodeId == _lastSyncedNodeId) {
             // The previous session for this node ended cleanly — delta commands kept
-            // the model in sync.  Skip re-syncing from the buffer.
-            spdlog::debug("CtCommandBridge: skipping model re-sync for node {} (delta-synced)", nodeId);
+            // the model in sync.  Verify model/buffer agree before skipping re-sync:
+            // a new empty node can end its first session with "no changes" (both empty),
+            // but between sessions the buffer may receive keypress content that the
+            // model never saw.
+            int bufLen = buffer->get_char_count();
+            int modLen = static_cast<int>(node->getContent().length());
+            if (modLen != bufLen) {
+                spdlog::warn("CtCommandBridge: model/buffer length mismatch for node {} "
+                             "(model={}, buffer={}) — forcing re-sync despite delta-sync flag",
+                             nodeId, modLen, bufLen);
+                node->setContent(buildContentFromBuffer(buffer, treeIter.get_anchored_widgets()));
+            } else {
+                spdlog::debug("CtCommandBridge: skipping model re-sync for node {} (delta-synced)", nodeId);
+            }
         } else if (node->getContent().isEmpty() && buffer->get_char_count() > 0) {
             // Node was registered by initializeFromExistingDocument() (props-only, no content).
             // Sync content from the live buffer before starting the edit session.
@@ -2794,6 +2812,11 @@ void CtCommandBridge::BridgeObserver::onNodeMoved(gint64 nodeId, gint64 newParen
     };
     auto newGtkIterForChildren = newGtkIter;
     rebuildChildren(nodeId, &newGtkIterForChildren);
+
+    // Mark the moved node for DB hierarchy update — without this, the DB still
+    // records the old father_id and _remove_db_node_with_children will cascade-
+    // delete this node if the old parent is later removed.
+    treeStore.to_ct_tree_iter(newGtkIter).pending_edit_db_node_hier();
 
     // Re-apply expansion state
     treeStore.get_store()->foreach_iter([&](const Gtk::TreeModel::iterator& it) {
