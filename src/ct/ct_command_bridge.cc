@@ -838,7 +838,7 @@ void CtCommandBridge::endTextEditSession()
         // If no text-edit command was created, create a new compound for tags only
         if (!cc) {
             auto tagCompound = std::make_unique<CompoundCommand>(
-                "Node " + std::to_string(nodeId) + ": Format");
+                "[" + std::to_string(nodeId) + "] Format");
             tagCompound->setNodeId(nodeId);
             tagCompound->setDocumentModel(_docModel);
             tagCompound->setOldCursorPos(cursorPos);
@@ -1352,8 +1352,8 @@ void CtCommandBridge::flushRichCellSession()
     std::string desc;
     if (compound) {
         desc = compound->getDescription();
-        // Strip "Node N: " prefix — EditRichCellCommand adds its own
-        std::string prefix = "Node " + std::to_string(_widgetEditNodeId) + ": ";
+        // Strip "N " prefix — EditRichCellCommand adds its own
+        std::string prefix = "[" + std::to_string(_widgetEditNodeId) + "] ";
         if (desc.find(prefix) == 0) {
             desc = desc.substr(prefix.length());
         }
@@ -1651,8 +1651,8 @@ void CtCommandBridge::endFormatChange()
 
     // Build a CompoundCommand wrapping one sub-command per coalesced tag change.
     // The compound description uses the human-friendly formatType (e.g. "bold").
-    std::string desc = "Node " + std::to_string(_formatChangeNodeId)
-                       + ": Format (" + _captureFormatType + ")";
+    std::string desc = "[" + std::to_string(_formatChangeNodeId)
+                       + "] Format (" + _captureFormatType + ")";
     auto compound = std::make_unique<CompoundCommand>(desc);
     compound->setNodeId(_formatChangeNodeId);
     compound->setDocumentModel(_docModel);
@@ -1805,7 +1805,7 @@ void CtCommandBridge::endPaste()
 
         if (cmd) {
             if (auto* cc = dynamic_cast<CompoundCommand*>(cmd.get())) {
-                cc->setDescription("Node " + std::to_string(_captureNodeId) + ": Paste clipboard");
+                cc->setDescription("[" + std::to_string(_captureNodeId) + "] Paste clipboard");
                 double scrollPosNew = -1.0;
                 auto adj = _pMainWin->getScrolledwindowText().get_vadjustment();
                 if (adj) scrollPosNew = adj->get_value();
@@ -1915,7 +1915,7 @@ void CtCommandBridge::endCut()
 
     if (cmd) {
         if (auto* cc = dynamic_cast<CompoundCommand*>(cmd.get())) {
-            cc->setDescription("Node " + std::to_string(_captureNodeId) + ": Cut clipboard");
+            cc->setDescription("[" + std::to_string(_captureNodeId) + "] Cut clipboard");
             double scrollPosNew = -1.0;
             auto adj = _pMainWin->getScrolledwindowText().get_vadjustment();
             if (adj) scrollPosNew = adj->get_value();

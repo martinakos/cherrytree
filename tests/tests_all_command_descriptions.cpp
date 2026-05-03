@@ -163,8 +163,8 @@ void TestAllCommandDescriptionsApp::_test_all_commands_have_node_id(CtMainWin* p
     auto descriptions = pBridge->getUndoStackDescriptions();
 
     for (const auto& desc : descriptions) {
-        EXPECT_TRUE(desc.find("Node") != std::string::npos)
-            << "Command should contain node reference, got: " << desc;
+        EXPECT_TRUE(!desc.empty() && desc[0] == '[')
+            << "Command should start with [nodeId], got: " << desc;
     }
 }
 

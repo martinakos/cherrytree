@@ -59,7 +59,7 @@ void EditNodePropertiesCommand::undo()
 
 std::string EditNodePropertiesCommand::getDescription() const
 {
-    return "Edit node properties";
+    return "[" + std::to_string(_nodeId) + "] Edit node properties";
 }
 
 // ─── AddNodeCommand ───────────────────────────────────────────────────────────
@@ -103,7 +103,7 @@ void AddNodeCommand::undo()
 
 std::string AddNodeCommand::getDescription() const
 {
-    return "Add node";
+    return "[" + std::to_string(_nodeId) + "] Add node";
 }
 
 // ─── DeleteNodeCommand ────────────────────────────────────────────────────────
@@ -225,7 +225,7 @@ void DeleteNodeCommand::undo()
 
 std::string DeleteNodeCommand::getDescription() const
 {
-    return "Delete node";
+    return "[" + std::to_string(_snap.entries.empty() ? -1 : _snap.entries.front().nodeId) + "] Delete node";
 }
 
 // ─── MoveNodeCommand ──────────────────────────────────────────────────────────
@@ -255,5 +255,5 @@ void MoveNodeCommand::undo()
 
 std::string MoveNodeCommand::getDescription() const
 {
-    return "Move node";
+    return "[" + std::to_string(_nodeId) + "] Move node";
 }
