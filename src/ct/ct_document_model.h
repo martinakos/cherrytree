@@ -114,7 +114,7 @@ public:
     // Node content (stored as structured model)
     const CtNodeContent& getContent() const { return _content; }
     CtNodeContent& getContent() { return _content; }
-    void setContent(const CtNodeContent& content) { _content = content; }
+    void setContent(const CtNodeContent& content);
 
     // Tree structure
     CtNodeModel* getParent() const { return _parent; }

@@ -32,6 +32,10 @@ CtNodeModel::CtNodeModel(gint64 nodeId)
 {
 }
 
+void CtNodeModel::setContent(const CtNodeContent& content)
+{
+    _content = content;
+}
 
 void CtNodeModel::addChild(std::shared_ptr<CtNodeModel> child)
 {

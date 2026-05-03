@@ -60,7 +60,11 @@ void TextEditCommand::execute()
         return;
     }
 
-    spdlog::debug("TextEditCommand: executing for node {}", _nodeId);
+    spdlog::debug("TextEditCommand: executing for node {} (current model: elements={}, length={}, "
+                  "newContent: elements={}, length={})",
+                  _nodeId,
+                  node->getContent().getElements().size(), node->getContent().length(),
+                  _newContent.getElements().size(), _newContent.length());
     node->setContent(_newContent);
     _docModel->notifyNodeChanged(_nodeId);
 }
@@ -78,7 +82,11 @@ void TextEditCommand::undo()
         return;
     }
 
-    spdlog::debug("TextEditCommand: undoing for node {}", _nodeId);
+    spdlog::debug("TextEditCommand: undoing for node {} (current model: elements={}, length={}, "
+                  "oldContent: elements={}, length={})",
+                  _nodeId,
+                  node->getContent().getElements().size(), node->getContent().length(),
+                  _oldContent.getElements().size(), _oldContent.length());
     node->setContent(_oldContent);
     _docModel->notifyNodeChanged(_nodeId);
 }
@@ -204,28 +212,12 @@ std::unique_ptr<CtCommand> CtTextEditSession::end(const Glib::RefPtr<Gtk::TextBu
         }
     }
 
-    // If all captured commands have empty descriptions (e.g., only single spaces),
-    // don't create a command - the space is already in the buffer
-    bool allEmpty = true;
-    for (const auto& cmd : _capturedCommands) {
-        if (!cmd->getDescription().empty()) {
-            allEmpty = false;
-            break;
-        }
-    }
-    if (allEmpty) {
-        _active = false;
-        _capturedCommands.clear();
-        return nullptr;
-    }
-
     // Model was kept in sync via onBufferInsert/onBufferErase for all node types
 
     // Build description from sub-commands
     std::string description;
     if (_capturedCommands.size() == 1) {
         description = _capturedCommands[0]->getDescription();
-        // Handle single command with empty description (e.g., single space)
         if (description.empty()) {
             description = "[" + std::to_string(_nodeId) + "] Edit text";
         }
@@ -234,7 +226,6 @@ std::unique_ptr<CtCommand> CtTextEditSession::end(const Glib::RefPtr<Gtk::TextBu
         std::vector<std::string> parts;
         for (const auto& cmd : _capturedCommands) {
             std::string desc = cmd->getDescription();
-            // Skip empty descriptions (single spaces used as separators)
             if (desc.empty()) continue;
             // Strip "N " prefix
             std::string prefix = "[" + std::to_string(_nodeId) + "] ";
@@ -413,11 +404,10 @@ void CtTextEditSession::onBufferInsert(const Gtk::TextBuffer::iterator& pos,
             try {
                 node->getContent().insertText(offset, text, attrs);
             } catch (const std::out_of_range& e) {
-                // Model is out of sync with buffer - this can happen after widget
-                // insertions or other buffer modifications outside a session.
-                // Log and skip; the next beginTextEditSession will re-sync.
-                spdlog::warn("onBufferInsert: model out of sync at offset {} (model length={}): {}",
-                             offset, node->getContent().length(), e.what());
+                spdlog::error("onBufferInsert: model out of sync at offset {} (model length={}): {} — "
+                              "skipping command capture to avoid phantom undo entry",
+                              offset, node->getContent().length(), e.what());
+                return;
             }
         }
     }
@@ -498,6 +488,10 @@ void InsertTextCommand::execute()
         return;
     }
 
+    spdlog::debug("InsertTextCommand::execute() - inserting {} chars at offset {} (model: elements={}, length={})",
+                  static_cast<int>(_text.length()), _offset,
+                  node->getContent().getElements().size(), node->getContent().length());
+
     // Insert text into the content model
     int endOffset = node->getContent().insertText(_offset, _text, _attributes);
     _insertedLength = endOffset - _offset;
@@ -517,17 +511,16 @@ void InsertTextCommand::undo()
         return;
     }
 
-    spdlog::debug("InsertTextCommand::undo() - deleting {} chars at offset {}",
-                  static_cast<int>(_text.length()), _offset);
+    spdlog::debug("InsertTextCommand::undo() - deleting {} chars at offset {} (model: elements={}, length={})",
+                  static_cast<int>(_text.length()), _offset,
+                  node->getContent().getElements().size(), node->getContent().length());
 
     // Use delta-based undo
     int lengthToDelete = static_cast<int>(_text.length());
     node->getContent().deleteRange(_offset, lengthToDelete);
 
     // Notify observers
-    spdlog::info("InsertTextCommand::undo - about to call notifyNodeChanged for node {}", _nodeId);
     _docModel->notifyNodeChanged(_nodeId);
-    spdlog::info("InsertTextCommand::undo - notifyNodeChanged completed for node {}", _nodeId);
 
     spdlog::debug("InsertTextCommand: undone - deleted {} chars at offset {} in node {}",
                   static_cast<int>(_text.length()), _offset, _nodeId);
@@ -545,9 +538,7 @@ std::string InsertTextCommand::getDescription() const
 
     // Handle special characters for readable single-line display
     if (_text == " ") {
-        // Single space only - this is a word separator, hide it from undo list
-        // Return empty description so it can be filtered out
-        return "";
+        description += "Space";
     }
     else if (_text == "\n") {
         description += "Newline";
@@ -656,6 +647,10 @@ void DeleteRangeCommand::undo()
         return;
     }
 
+    spdlog::debug("DeleteRangeCommand::undo() - reinserting {} elements at offset {} (model: elements={}, length={})",
+                  _deletedContent.elements.size(), _start,
+                  node->getContent().getElements().size(), node->getContent().length());
+
     // Re-insert the deleted content
     node->getContent().reinsertContent(_deletedContent);
 
@@ -673,6 +668,10 @@ void DeleteRangeCommand::redo()
         spdlog::error("DeleteRangeCommand: node {} not found for redo", _nodeId);
         return;
     }
+
+    spdlog::debug("DeleteRangeCommand::redo() - deleting {} chars at offset {} (model: elements={}, length={})",
+                  _length, _start,
+                  node->getContent().getElements().size(), node->getContent().length());
 
     // Delete again (don't call execute() because we don't want to overwrite _deletedContent)
     node->getContent().deleteRange(_start, _length);
