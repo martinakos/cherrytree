@@ -63,7 +63,6 @@ void CtMainWin::init_app_actions_gtk4()
 #include <sigc++/signal.h>
 #include <sigc++/functors/slot.h>
 #endif
-#include <chrono>
 #include "ct_main_win.h"
 #include "ct_actions.h"
 #include "ct_storage_control.h"
@@ -241,20 +240,7 @@ CtMainWin::CtMainWin(bool                            no_gui,
     for (auto pToolbar : _pToolbars) {
         _vboxMain.pack_start(*pToolbar, false, false);
     }
-    // Initialize undo/redo dropdown menus
-    menu_update_undo_redo_menus();
-
-    // Connect signals to update menus right before they're shown
-    if (_pUndoMenuToolButton) {
-        _pUndoMenuToolButton->signal_show_menu().connect([this](){
-            menu_update_undo_redo_menus();
-        });
-    }
-    if (_pRedoMenuToolButton) {
-        _pRedoMenuToolButton->signal_show_menu().connect([this](){
-            menu_update_undo_redo_menus();
-        });
-    }
+    _setup_undo_redo_popovers();
 #else
     Gtk::MenuButton* recentBtn{}; Gtk::Button* saveBtn{};
     _gtk4Toolbars = _uCtMenu->build_toolbars4(recentBtn, saveBtn);
@@ -1273,100 +1259,157 @@ void CtMainWin::menu_set_items_recent_documents()
 
 void CtMainWin::menu_update_undo_redo_menus()
 {
-#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
-    auto start = std::chrono::high_resolution_clock::now();
-    // Prevent recursion when signal handlers trigger menu updates
-    if (_updatingUndoRedoMenus) return;
-    _updatingUndoRedoMenus = true;
-
-    auto pBridge = get_command_bridge();
-    if (!pBridge) {
-        _updatingUndoRedoMenus = false;
-        return;
-    }
-
-    // Update undo menu
-    if (_pUndoMenuToolButton) {
-        _pUndoMenuToolButton->set_arrow_tooltip_text(_("Undo Multiple Actions"));
-        Gtk::Menu* pOldMenu = _pUndoMenuToolButton->get_menu();
-        if (pOldMenu) {
-            delete pOldMenu;
-        }
-
-        auto* pUndoMenu = new Gtk::Menu();  // Not managed - MenuToolButton takes ownership
-        auto undoDescriptions = pBridge->getUndoStackDescriptions();
-
-        if (undoDescriptions.empty()) {
-            auto* pMenuItem = Gtk::manage(new Gtk::MenuItem(_("No actions to undo")));
-            pMenuItem->set_sensitive(false);
-            pUndoMenu->append(*pMenuItem);
-        } else {
-            size_t count = 0;
-            for (const auto& desc : undoDescriptions) {
-                count++;
-                auto* pMenuItem = Gtk::manage(new Gtk::MenuItem(desc));
-                pMenuItem->signal_activate().connect([this, count](){
-                    auto pBridge = get_command_bridge();
-                    if (pBridge) {
-                        pBridge->undo(count);
-                    }
-                });
-                pUndoMenu->append(*pMenuItem);
-
-                // Limit to 20 items to avoid excessive menu length
-                if (count >= 20) break;
-            }
-        }
-
-        pUndoMenu->show_all();
-        _pUndoMenuToolButton->set_menu(*pUndoMenu);
-    }
-
-    // Update redo menu
-    if (_pRedoMenuToolButton) {
-        _pRedoMenuToolButton->set_arrow_tooltip_text(_("Redo Multiple Actions"));
-        Gtk::Menu* pOldMenu = _pRedoMenuToolButton->get_menu();
-        if (pOldMenu) {
-            delete pOldMenu;
-        }
-
-        auto* pRedoMenu = new Gtk::Menu();  // Not managed - MenuToolButton takes ownership
-        auto redoDescriptions = pBridge->getRedoStackDescriptions();
-
-        if (redoDescriptions.empty()) {
-            auto* pMenuItem = Gtk::manage(new Gtk::MenuItem(_("No actions to redo")));
-            pMenuItem->set_sensitive(false);
-            pRedoMenu->append(*pMenuItem);
-        } else {
-            size_t count = 0;
-            for (const auto& desc : redoDescriptions) {
-                count++;
-                auto* pMenuItem = Gtk::manage(new Gtk::MenuItem(desc));
-                pMenuItem->signal_activate().connect([this, count](){
-                    auto pBridge = get_command_bridge();
-                    if (pBridge) {
-                        pBridge->redo(count);
-                    }
-                });
-                pRedoMenu->append(*pMenuItem);
-
-                // Limit to 20 items to avoid excessive menu length
-                if (count >= 20) break;
-            }
-        }
-
-        pRedoMenu->show_all();
-        _pRedoMenuToolButton->set_menu(*pRedoMenu);
-    }
-
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    if (duration > 10) {
-        spdlog::warn("CtMainWin: menu_update_undo_redo_menus took {}ms", duration);
-    }
-    _updatingUndoRedoMenus = false;
-#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
+    // No-op: undo/redo dropdowns are now handled by _show_undo_redo_popover()
 }
+
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
+namespace {
+struct UndoRedoCols : public Gtk::TreeModel::ColumnRecord {
+    Gtk::TreeModelColumn<Glib::ustring> desc;
+    Gtk::TreeModelColumn<size_t>        idx;
+    UndoRedoCols() { add(desc); add(idx); }
+};
+UndoRedoCols g_undoRedoCols;
+} // namespace
+
+void CtMainWin::_setup_undo_redo_popovers()
+{
+    auto setup_one = [this](Gtk::MenuToolButton* pButton, bool isUndo) {
+        if (!pButton) return;
+        pButton->set_arrow_tooltip_text(isUndo ? _("Undo Multiple Actions") : _("Redo Multiple Actions"));
+
+        // Dummy menu — only purpose is to keep the arrow button sensitive.
+        auto* pDummy = new Gtk::Menu();
+        pButton->set_menu(*pDummy);
+
+        // WINDOW_POPUP bypasses GtkMenuShell's captured_event, which would
+        // otherwise swallow clicks on non-MenuItem children (e.g. TreeView rows).
+        auto* pPopup = new Gtk::Window(Gtk::WINDOW_POPUP);
+        pPopup->set_type_hint(Gdk::WINDOW_TYPE_HINT_COMBO);
+        pPopup->set_transient_for(*this);
+        g_signal_connect(G_OBJECT(pButton->gobj()), "destroy",
+            G_CALLBACK(+[](GtkWidget*, gpointer data) { delete static_cast<Gtk::Window*>(data); }),
+            static_cast<gpointer>(pPopup));
+
+        auto* pScrolled = Gtk::manage(new Gtk::ScrolledWindow());
+        pScrolled->set_policy(Gtk::POLICY_NEVER, Gtk::POLICY_AUTOMATIC);
+
+        auto* pTreeView = Gtk::manage(new Gtk::TreeView());
+        pTreeView->set_headers_visible(false);
+        pTreeView->set_activate_on_single_click(true);
+        pTreeView->set_hover_selection(true);
+        pTreeView->append_column("", g_undoRedoCols.desc);
+        pTreeView->get_column(0)->set_sizing(Gtk::TREE_VIEW_COLUMN_AUTOSIZE);
+        pTreeView->set_margin_start(6);
+        pTreeView->set_margin_end(6);
+        pScrolled->add(*pTreeView);
+        pPopup->add(*pScrolled);
+
+        // gtk_grab_add routes events from outside the popup to the popup window,
+        // while events inside the popup (TreeView, Scrollbar) still go directly
+        // to their widgets because they are ancestors of the grab widget.
+        auto dismiss = [pPopup, pDummy]() {
+            gtk_grab_remove(GTK_WIDGET(pPopup->gobj()));
+            pPopup->hide();
+            g_signal_emit_by_name(pDummy->gobj(), "deactivate");
+        };
+
+        pTreeView->signal_row_activated().connect([this, dismiss, pTreeView, isUndo](
+                const Gtk::TreeModel::Path& path, Gtk::TreeViewColumn*) {
+            auto pModel = pTreeView->get_model();
+            if (!pModel) return;
+            auto iter = pModel->get_iter(path);
+            if (!iter) return;
+            size_t idx = (*iter)[g_undoRedoCols.idx];
+            dismiss();
+            if (idx == 0) return;
+            auto pBr = get_command_bridge();
+            if (pBr) {
+                if (isUndo) pBr->undo(idx);
+                else        pBr->redo(idx);
+            }
+        });
+
+        // Click outside popup (event redirected here by gtk_grab_add)
+        pPopup->signal_button_press_event().connect([pPopup, dismiss](GdkEventButton* ev) -> bool {
+            int popX = 0, popY = 0, popW = 0, popH = 0;
+            pPopup->get_position(popX, popY);
+            pPopup->get_size(popW, popH);
+            if ((int)ev->x_root < popX || (int)ev->x_root >= popX + popW ||
+                (int)ev->y_root < popY || (int)ev->y_root >= popY + popH) {
+                dismiss();
+                return true;
+            }
+            return false;
+        }, false);
+
+        pPopup->signal_key_press_event().connect([dismiss](GdkEventKey* ev) -> bool {
+            if (ev->keyval == GDK_KEY_Escape) { dismiss(); return true; }
+            return false;
+        }, false);
+
+        this->signal_focus_out_event().connect([pPopup, dismiss](GdkEventFocus*) -> bool {
+            if (pPopup->get_visible()) {
+                dismiss();
+            }
+            return false;
+        }, false);
+
+        pButton->signal_show_menu().connect([this, pButton, pDummy, pPopup, pScrolled, pTreeView, isUndo]() {
+            if (_updatingUndoRedoMenus) return;
+            _updatingUndoRedoMenus = true;
+            auto pBridge = get_command_bridge();
+            if (!pBridge) { _updatingUndoRedoMenus = false; return; }
+
+            auto pStore = Gtk::ListStore::create(g_undoRedoCols);
+            auto descriptions = isUndo ? pBridge->getUndoStackDescriptions() : pBridge->getRedoStackDescriptions();
+            if (descriptions.empty()) {
+                auto row = *pStore->append();
+                row[g_undoRedoCols.desc] = isUndo ? _("No actions to undo") : _("No actions to redo");
+                row[g_undoRedoCols.idx] = 0;
+                pTreeView->set_sensitive(false);
+            } else {
+                pTreeView->set_sensitive(true);
+                size_t i = 0;
+                for (const auto& d : descriptions) {
+                    auto row = *pStore->append();
+                    row[g_undoRedoCols.desc] = d;
+                    row[g_undoRedoCols.idx] = ++i;
+                }
+            }
+            pTreeView->set_model(pStore);
+
+            const int popW = 250;
+            int minH = 0, natH = 0;
+            pTreeView->get_preferred_height(minH, natH);
+            int targetH = natH > 0 ? std::min(natH, 600) : 300;
+            pScrolled->set_size_request(popW, targetH);
+
+            _updatingUndoRedoMenus = false;
+
+            Glib::signal_idle().connect_once([this, pButton, pDummy, pPopup, popW]() {
+                pDummy->popdown();
+
+                auto gdkBtnWin = pButton->get_window();
+                if (!gdkBtnWin) return;
+                int originX = 0, originY = 0;
+                gdkBtnWin->get_origin(originX, originY);
+                auto alloc = pButton->get_allocation();
+                // Start below the dropdown arrow (right ~20px of the button)
+                int screenX = originX + alloc.get_x() + alloc.get_width() - 20;
+                int screenY = originY + alloc.get_y() + alloc.get_height();
+
+                pPopup->move(screenX, screenY);
+                pPopup->show_all();
+                gtk_grab_add(GTK_WIDGET(pPopup->gobj()));
+            });
+        });
+    };
+
+    setup_one(_pUndoMenuToolButton, true);
+    setup_one(_pRedoMenuToolButton, false);
+}
+#endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
 
 void CtMainWin::menu_set_visible_exit_app(bool visible)
 {
@@ -1401,6 +1444,7 @@ void CtMainWin::menu_rebuild_toolbars(bool new_toolbar)
             }
         }
         menu_set_items_recent_documents();
+        _setup_undo_redo_popovers();
         window_title_update();
 #if GTKMM_MAJOR_VERSION < 4
         for (auto pToolbar : _pToolbars) {
