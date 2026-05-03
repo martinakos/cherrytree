@@ -740,10 +740,9 @@ void CtStorageSqlite::_write_node_to_db(const CtTreeIter* ct_tree_iter,
 
     // write hier
     if (node_state.hier) {
-        if (node_state.is_update_of_existing) {
-            // clear old hierarchy
-            _exec_bind_int64(TABLE_CHILDREN_DELETE, node_id);
-        }
+        // Always clear old hierarchy first — a node marked as "new" may already
+        // have a DB row from a prior save (e.g. undo-of-delete then redo-of-add).
+        _exec_bind_int64(TABLE_CHILDREN_DELETE, node_id);
         Sqlite3StmtAuto stmt{_pDb, TABLE_CHILDREN_INSERT};
         if (stmt.is_bad()) {
             throw std::runtime_error(ERR_SQLITE_PREPV2 + sqlite3_errmsg(_pDb));
@@ -785,8 +784,8 @@ void CtStorageSqlite::_write_node_to_db(const CtTreeIter* ct_tree_iter,
     bool has_table{false};
     bool has_image{false};
     if (node_state.buff) {
-        if (node_state.is_update_of_existing and ((is_richtxt & 0x01) or node_state.prop)) {
-            // if it's a rich text or has property changed (maybe was a rich text) clear old widgets
+        if ((is_richtxt & 0x01) or node_state.prop) {
+            // Always clear old widgets — a "new" node may have stale DB rows.
             _exec_bind_int64(TABLE_CODEBOX_DELETE, node_id);
             _exec_bind_int64(TABLE_TABLE_DELETE, node_id);
             _exec_bind_int64(TABLE_IMAGE_DELETE, node_id);
@@ -849,9 +848,8 @@ void CtStorageSqlite::_write_node_to_db(const CtTreeIter* ct_tree_iter,
 
         // full node rewrite (buf + prop)
         if (node_state.prop) {
-            if (node_state.is_update_of_existing) {
-                _exec_bind_int64(TABLE_NODE_DELETE, node_id);
-            }
+            // Always delete first — see children table comment above.
+            _exec_bind_int64(TABLE_NODE_DELETE, node_id);
             Sqlite3StmtAuto stmt{_pDb, TABLE_NODE_INSERT};
             if (stmt.is_bad()) {
                 throw std::runtime_error(ERR_SQLITE_PREPV2 + sqlite3_errmsg(_pDb));
