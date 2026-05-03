@@ -91,10 +91,10 @@ void TextEditCommand::redo()
 std::string TextEditCommand::getDescription() const
 {
     if (!_description.empty()) {
-        return "Node " + std::to_string(_nodeId) + ": " + _description;
+        return "[" + std::to_string(_nodeId) + "] " + _description;
     }
 
-    std::string description = "Node " + std::to_string(_nodeId) + ": ";
+    std::string description = "[" + std::to_string(_nodeId) + "] ";
 
     Glib::ustring oldText = _oldContent.getText();
     Glib::ustring newText = _newContent.getText();
@@ -227,7 +227,7 @@ std::unique_ptr<CtCommand> CtTextEditSession::end(const Glib::RefPtr<Gtk::TextBu
         description = _capturedCommands[0]->getDescription();
         // Handle single command with empty description (e.g., single space)
         if (description.empty()) {
-            description = "Node " + std::to_string(_nodeId) + ": Edit text";
+            description = "[" + std::to_string(_nodeId) + "] Edit text";
         }
     } else {
         // Multiple commands - build combined description
@@ -236,8 +236,8 @@ std::unique_ptr<CtCommand> CtTextEditSession::end(const Glib::RefPtr<Gtk::TextBu
             std::string desc = cmd->getDescription();
             // Skip empty descriptions (single spaces used as separators)
             if (desc.empty()) continue;
-            // Strip "Node X: " prefix
-            std::string prefix = "Node " + std::to_string(_nodeId) + ": ";
+            // Strip "N " prefix
+            std::string prefix = "[" + std::to_string(_nodeId) + "] ";
             if (desc.find(prefix) == 0) {
                 desc = desc.substr(prefix.length());
             }
@@ -248,7 +248,7 @@ std::unique_ptr<CtCommand> CtTextEditSession::end(const Glib::RefPtr<Gtk::TextBu
         }
 
         // Combine all parts with " + "
-        description = "Node " + std::to_string(_nodeId) + ": ";
+        description = "[" + std::to_string(_nodeId) + "] ";
         if (parts.empty()) {
             description += "Edit text";
         } else {
@@ -541,7 +541,7 @@ void InsertTextCommand::redo()
 
 std::string InsertTextCommand::getDescription() const
 {
-    std::string description = "Node " + std::to_string(_nodeId) + ": ";
+    std::string description = "[" + std::to_string(_nodeId) + "] ";
 
     // Handle special characters for readable single-line display
     if (_text == " ") {
@@ -683,7 +683,7 @@ void DeleteRangeCommand::redo()
 
 std::string DeleteRangeCommand::getDescription() const
 {
-    return "Node " + std::to_string(_nodeId) + ": Delete " + std::to_string(_length) + " chars";
+    return "[" + std::to_string(_nodeId) + "] Delete " + std::to_string(_length) + " chars";
 }
 
 // ApplyFormatCommand implementation
@@ -760,7 +760,7 @@ void ApplyFormatCommand::redo()
 
 std::string ApplyFormatCommand::getDescription() const
 {
-    return "Node " + std::to_string(_nodeId) + ": Format " + _attribute + "=" + _value;
+    return "[" + std::to_string(_nodeId) + "] Format " + _attribute + "=" + _value;
 }
 
 // RemoveFormatCommand implementation
@@ -835,6 +835,6 @@ void RemoveFormatCommand::redo()
 
 std::string RemoveFormatCommand::getDescription() const
 {
-    return "Node " + std::to_string(_nodeId) + ": Remove format " + _attribute;
+    return "[" + std::to_string(_nodeId) + "] Remove format " + _attribute;
 }
 

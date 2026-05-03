@@ -1254,7 +1254,7 @@ static void _test_undo_redo_description_format(CtMainWin* pWin)
         spdlog::info("    '{}'", desc);
     };
 
-    std::string pfx = "Node " + std::to_string(nodeId) + ": ";
+    std::string pfx = "[" + std::to_string(nodeId) + "] ";
 
     // --- 1. Word + space: space is hidden from the description ---
     spdlog::info("  1. word + space");
@@ -1514,7 +1514,7 @@ static void _test_cut_undo_redo_content_restoration(CtMainWin* pWin)
     {
         auto descs = pBridge->getUndoStackDescriptions();
         ASSERT_FALSE(descs.empty()) << "Cut should have created an undo entry";
-        ASSERT_EQ(descs[0], "Node " + std::to_string(nodeId) + ": Cut clipboard");
+        ASSERT_EQ(descs[0], "[" + std::to_string(nodeId) + "] Cut clipboard");
     }
 
     // Undo the cut: "EFGH" should be restored
@@ -2700,7 +2700,7 @@ static void _test_rich_cell_edit_description_format(CtMainWin* pWin)
     pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
     GuiEventSimulator::process_pending_events();
 
-    std::string pfx = "Node " + std::to_string(nodeId) + ": ";
+    std::string pfx = "[" + std::to_string(nodeId) + "] ";
 
     // Helper: assert description is single-line (suitable for dropdown)
     auto assertSingleLine = [](const std::string& desc) {
@@ -7794,7 +7794,7 @@ static void _test_rich_table_row_col_copy_paste(CtMainWin* pWin)
     GuiEventSimulator::process_pending_events();
     resetState();
 
-    const std::string nodePrefix = "Node " + std::to_string(pWin->curr_tree_iter().get_node_id()) + ": ";
+    const std::string nodePrefix = "[" + std::to_string(pWin->curr_tree_iter().get_node_id()) + "] ";
 
     // -----------------------------------------------------------------------
     // T1: Copy row, paste row into same table (matching cols) → inserts new row
