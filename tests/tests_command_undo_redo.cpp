@@ -8,6 +8,8 @@
 #include "ct_app.h"
 #include "ct_clipboard.h"
 #include "ct_command_bridge.h"
+#include "ct_text_commands.h"
+#include "ct_node_commands.h"
 #include <gtest/gtest.h>
 #include <fstream>
 
@@ -248,6 +250,155 @@ TEST(CommandUndoRedoTests, MiddleClickPrimaryPasteCreatesUndoCommand)
     g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
 
     TestPastePrimaryApp app;
+    const std::vector<std::string> vecArgs{"cherrytree"};
+    gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
+    const int ret_val = app.run(vecArgs.size(), pp_args);
+    g_strfreev(pp_args);
+    ASSERT_EQ(0, ret_val);
+}
+
+// ─── InsertTextCommand space description ────────────────────────────────────
+// Regression: single-space InsertTextCommands used to return "" as description,
+// causing CtTextEditSession::end() to discard entire sessions and lose model
+// changes from the undo stack.
+
+TEST(CommandUndoRedoTests, InsertTextCommand_SpaceHasDescription)
+{
+    auto model = std::make_shared<CtDocumentModel>();
+    auto node = model->createNode(1);
+    model->addNode(node, 0);
+
+    InsertTextCommand cmd(model, 1, 0, " ", {});
+    std::string desc = cmd.getDescription();
+    ASSERT_FALSE(desc.empty());
+    ASSERT_NE(desc.find("Space"), std::string::npos);
+}
+
+// ─── CtTextEditSession: space-only sessions produce commands ────────────────
+// Regression: sessions with only space inserts were discarded by the allEmpty
+// check, silently dropping model changes from the undo history.
+
+TEST(CommandUndoRedoTests, SpaceOnlySession_ProducesCommand)
+{
+    auto model = std::make_shared<CtDocumentModel>();
+    auto node = model->createNode(1);
+    node->setName("test");
+    node->setSyntax("custom-colors");
+    model->addNode(node, 0);
+
+    CtTextEditSession session(model);
+
+    // Simulate what beginTextEditSession + buffer insert does:
+    // create a minimal buffer, begin session, then manually call onBufferInsert
+    auto buffer = Gtk::TextBuffer::create();
+    session.begin(1, buffer, nullptr);
+
+    // Insert a space into both the model and the session
+    node->getContent().insertText(0, " ", {});
+    buffer->insert(buffer->end(), " ");
+
+    auto cmd = session.end(buffer, {}, 1);
+    ASSERT_NE(cmd, nullptr);
+    ASSERT_FALSE(cmd->getDescription().empty());
+}
+
+// ─── pushNodeCommand restarts edit session ──────────────────────────────────
+// Regression: after pushNodeCommand, no edit session was active. Characters
+// typed before the next cursor-change event went into the GTK buffer untracked,
+// making them invisible to undo/redo.
+
+class TestNodeCommandSessionApp : public CtApp
+{
+public:
+    TestNodeCommandSessionApp() : CtApp{"_test_node_cmd_session", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
+
+private:
+    void on_activate() final;
+};
+
+void TestNodeCommandSessionApp::on_activate()
+{
+    _on_startup();
+
+    CtMainWin* pWin = _create_window(true);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, "", "", UT::testPassword));
+
+    pWin->show_all();
+    pWin->hide();
+    auto drainEvents = [](){ while (gtk_events_pending()) gtk_main_iteration_do(false); };
+    drainEvents();
+
+    auto pBridge = pWin->get_command_bridge();
+    ASSERT_TRUE(pBridge && pBridge->isActive());
+
+    // Select a rich-text node
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    drainEvents();
+
+    auto docModel = pBridge->getDocumentModel();
+    auto node = docModel->getNodeById(nodeId);
+    ASSERT_TRUE(node);
+
+    // Flush any auto-started session
+    pBridge->endTextEditSession();
+    drainEvents();
+
+    size_t undoStackBefore = pBridge->getUndoStackDescriptions().size();
+
+    // Simulate a node command (AddNodeCommand for a child node)
+    CtNodeProps props;
+    props.name = "temp_child";
+    props.syntax = "custom-colors";
+    gint64 childId = 9999;
+    auto addCmd = std::make_unique<AddNodeCommand>(
+        docModel.get(), childId, nodeId, -1, props, CtNodeContent{});
+    pBridge->pushNodeCommand(std::move(addCmd));
+    drainEvents();
+
+    // After pushNodeCommand, an edit session should be active.
+    // Insert text into the current buffer — it should be captured.
+    auto buffer = pWin->curr_buffer();
+    ASSERT_TRUE(buffer);
+    buffer->insert(buffer->end(), "tracked");
+    pBridge->endTextEditSession();
+    drainEvents();
+
+    // The undo stack should have grown by at least 2:
+    // 1 for AddNodeCommand + 1 for the text edit
+    size_t undoStackAfter = pBridge->getUndoStackDescriptions().size();
+    EXPECT_GE(undoStackAfter, undoStackBefore + 2);
+
+    // Undo all and redo all — the text edit must survive the round-trip
+    while (pBridge->canUndo()) {
+        pBridge->undo();
+        drainEvents();
+    }
+    while (pBridge->canRedo()) {
+        pBridge->redo();
+        drainEvents();
+    }
+
+    // After full redo, the buffer should contain "tracked"
+    buffer = pWin->curr_buffer();
+    if (buffer) {
+        Glib::ustring text = buffer->get_text();
+        EXPECT_TRUE(text.find("tracked") != Glib::ustring::npos)
+            << "Expected 'tracked' in buffer after full undo+redo, got: " << text.raw();
+    }
+
+    pWin->force_exit() = true;
+    remove_window(*pWin);
+}
+
+TEST(CommandUndoRedoTests, PushNodeCommand_RestartsEditSession)
+{
+    g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
+
+    TestNodeCommandSessionApp app;
     const std::vector<std::string> vecArgs{"cherrytree"};
     gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
     const int ret_val = app.run(vecArgs.size(), pp_args);
