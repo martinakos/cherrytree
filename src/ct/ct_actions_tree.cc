@@ -330,7 +330,7 @@ void CtActions::node_subnodes_paste2(CtTreeIter& other_ct_tree_iter,
         topPosition = rootNode ? static_cast<int>(rootNode->getChildren().size()) : 0;
     }
 
-    auto compound = std::make_unique<CompoundCommand>("Duplicate node");
+    auto compound = std::make_unique<CompoundCommand>("[" + std::to_string(other_ct_tree_iter.get_node_id()) + "] Duplicate node");
     gint64 topNodeId = 0;
 
     // node_id_get() scans the GTK tree for the current max ID each call, so
@@ -721,7 +721,7 @@ void CtActions::node_edit()
                 if (thisNodeId == currPair.first or newData.sharedNodesMasterId == currPair.first) {
                     isInSharedGroup = true;
                     // Build compound command covering all group members
-                    auto compound = std::make_unique<CompoundCommand>("Edit node properties");
+                    auto compound = std::make_unique<CompoundCommand>("[" + std::to_string(thisNodeId) + "] Edit node properties");
                     compound->addCommand(std::make_unique<EditNodePropertiesCommand>(pModel, thisNodeId, oldProps, newProps));
                     currPair.second.insert(currPair.first); // include master
                     for (const gint64 gid : currPair.second) {
@@ -768,7 +768,7 @@ void CtActions::node_inherit_syntax()
     auto* pModel = (pBridge && pBridge->isActive()) ? pBridge->getDocumentModel().get() : nullptr;
 
     if (pModel) {
-        auto compound = std::make_unique<CompoundCommand>("Inherit syntax");
+        auto compound = std::make_unique<CompoundCommand>("[" + std::to_string(_pCtMainWin->curr_tree_iter().get_node_id()) + "] Inherit syntax");
         std::function<void(Gtk::TreeModel::iterator)> collect;
         collect = [&](Gtk::TreeModel::iterator parent) {
             #if GTKMM_MAJOR_VERSION >= 4
@@ -1070,7 +1070,7 @@ void CtActions::node_toggle_read_only()
             for (auto& currPair : shared_nodes_map) {
                 if (thisNodeId == currPair.first or masterId == currPair.first) {
                     isInSharedGroup = true;
-                    auto compound = std::make_unique<CompoundCommand>("Toggle read-only");
+                    auto compound = std::make_unique<CompoundCommand>("[" + std::to_string(thisNodeId) + "] Toggle read-only");
                     currPair.second.insert(currPair.first);
                     for (const gint64 gid : currPair.second) {
                         CtTreeIter other = ct_treestore.get_node_from_node_id(gid);

@@ -471,8 +471,8 @@ void CtActions::apply_tag_link()
         pBridge->endTextEditSession();
         // Override the auto-generated "Type '...'" description with "Insert link"
         if (auto* pCmd = dynamic_cast<CompoundCommand*>(pBridge->getCommandManager().peekUndoCommand())) {
-            pCmd->setDescription("Node " + std::to_string(_pCtMainWin->curr_tree_iter().get_node_id())
-                                 + ": Insert link");
+            pCmd->setDescription("[" + std::to_string(_pCtMainWin->curr_tree_iter().get_node_id())
+                                 + "] Insert link");
         }
         pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
     }
