@@ -719,3 +719,102 @@ TEST(NodeCommandsTest, CommandManager_CompoundUndoRedoAsUnit)
     EXPECT_FALSE(mgr.canUndo());
     EXPECT_TRUE(mgr.canRedo());
 }
+
+// ─── DeleteNodeCommand: sibling preservation (regression for save-corruption bug)
+
+TEST(NodeCommandsTest, DeleteNodeCmd_SiblingsSurviveDeletion)
+{
+    CtDocumentModel model;
+    ObserverLog log;
+    model.addObserver(&log);
+
+    // root → [A(1), B(2), C(3)]
+    for (gint64 id : {1, 2, 3}) {
+        auto n = model.createNode(id);
+        n->setName(id == 1 ? "A" : id == 2 ? "B" : "C");
+        model.addNode(n, 0, -1);
+    }
+    log.clear();
+
+    SubtreeSnapshot snap = model.snapshotSubtree(2);
+    DeleteNodeCommand cmd(&model, nullptr, snap, {}, {}, {}, 0, -1);
+    cmd.execute();
+
+    // Only node 2 should be deleted
+    EXPECT_NE(nullptr, model.getNodeById(1));
+    EXPECT_EQ(nullptr, model.getNodeById(2));
+    EXPECT_NE(nullptr, model.getNodeById(3));
+
+    // Observer must see exactly one delete notification, for node 2 only
+    ASSERT_EQ(1, log.countType("deleted"));
+    EXPECT_EQ(2, log.events[0].id);
+
+    // Remaining siblings should be intact under root
+    auto root = model.getNodeById(0);
+    ASSERT_EQ(2u, root->getChildren().size());
+    EXPECT_EQ(1, root->getChildren()[0]->getNodeId());
+    EXPECT_EQ(3, root->getChildren()[1]->getNodeId());
+}
+
+TEST(NodeCommandsTest, DeleteNodeCmd_UndoRedoPreservesSiblings)
+{
+    CtDocumentModel model;
+
+    // root → [A(1), B(2), C(3)]
+    for (gint64 id : {1, 2, 3}) {
+        auto n = model.createNode(id);
+        n->setName(id == 1 ? "A" : id == 2 ? "B" : "C");
+        model.addNode(n, 0, -1);
+    }
+
+    SubtreeSnapshot snap = model.snapshotSubtree(2);
+    DeleteNodeCommand cmd(&model, nullptr, snap, {}, {}, {}, 0, -1);
+    cmd.execute();
+    cmd.undo();
+
+    // All three siblings restored
+    EXPECT_NE(nullptr, model.getNodeById(1));
+    EXPECT_NE(nullptr, model.getNodeById(2));
+    EXPECT_NE(nullptr, model.getNodeById(3));
+    auto root = model.getNodeById(0);
+    ASSERT_EQ(3u, root->getChildren().size());
+    EXPECT_EQ(1, root->getChildren()[0]->getNodeId());
+    EXPECT_EQ(2, root->getChildren()[1]->getNodeId());
+    EXPECT_EQ(3, root->getChildren()[2]->getNodeId());
+
+    // Redo: only B deleted again, siblings survive
+    cmd.redo();
+    EXPECT_NE(nullptr, model.getNodeById(1));
+    EXPECT_EQ(nullptr, model.getNodeById(2));
+    EXPECT_NE(nullptr, model.getNodeById(3));
+    ASSERT_EQ(2u, root->getChildren().size());
+    EXPECT_EQ(1, root->getChildren()[0]->getNodeId());
+    EXPECT_EQ(3, root->getChildren()[1]->getNodeId());
+}
+
+TEST(NodeCommandsTest, DeleteNodeCmd_OnlyTargetSubtreeDeleteNotifications)
+{
+    CtDocumentModel model;
+    ObserverLog log;
+    model.addObserver(&log);
+
+    // root → [A(1), B(2 → D(4)), C(3)]
+    for (gint64 id : {1, 2, 3}) {
+        model.addNode(model.createNode(id), 0, -1);
+    }
+    model.addNode(model.createNode(4), 2, -1);  // D is child of B
+    log.clear();
+
+    SubtreeSnapshot snap = model.snapshotSubtree(2);
+    DeleteNodeCommand cmd(&model, nullptr, snap, {}, {}, {}, 0, -1);
+    cmd.execute();
+
+    // Exactly 2 deletes: D(4) then B(2), bottom-up
+    ASSERT_EQ(2, log.countType("deleted"));
+    EXPECT_EQ(4, log.events[0].id);
+    EXPECT_EQ(2, log.events[1].id);
+
+    // Siblings A and C untouched
+    EXPECT_NE(nullptr, model.getNodeById(1));
+    EXPECT_NE(nullptr, model.getNodeById(3));
+}
