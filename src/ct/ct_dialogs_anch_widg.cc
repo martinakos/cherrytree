@@ -636,13 +636,13 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
     auto spinbutton_columns = Gtk::SpinButton{adj_columns};
     spinbutton_columns.set_value(pCtConfig->tableColumns);
 
-    auto label_col_width = Gtk::Label{_("Default Width")};
+    auto label_col_width = Gtk::Label{_("Min Width")};
     label_col_width.set_halign(Gtk::Align::ALIGN_START);
     auto adj_col_width = Gtk::Adjustment::create(pCtConfig->tableColWidthDefault, 1, 10000, 1);
     auto spinbutton_col_width = Gtk::SpinButton{adj_col_width};
     spinbutton_col_width.set_value(pCtConfig->tableColWidthDefault);
 
-    auto label_row_height = Gtk::Label{_("Default Height")};
+    auto label_row_height = Gtk::Label{_("Min Height")};
     label_row_height.set_halign(Gtk::Align::ALIGN_START);
     auto adj_row_height = Gtk::Adjustment::create(pCtConfig->tableRowHeightDefault, 0, 2000, 1);
     auto spinbutton_row_height_ins = Gtk::SpinButton{adj_row_height};
@@ -844,7 +844,7 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
         combo_scope_colw.append(_("Table"));
         combo_scope_colw.set_active(0);
 
-        auto label_colw_val = Gtk::Label{_("Width")};
+        auto label_colw_val = Gtk::Label{_("Min Width")};
         label_colw_val.set_halign(Gtk::Align::ALIGN_START);
         label_colw_val.set_sensitive(false);
         const int initColW = (currentColWidth > 0) ? currentColWidth : pCtConfig->tableColWidthDefault;
