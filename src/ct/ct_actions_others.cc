@@ -1511,6 +1511,41 @@ void CtActions::table_rows_sort_ascending()
     }
 }
 
+void CtActions::_table_cell_set_halign(const std::string& halign)
+{
+    if (not _is_there_anch_widg_selection_or_error('t')) return;
+    if (_pCtMainWin->curr_tree_iter().get_node_read_only()) return;
+    if (curr_table_anchor->get_type() != CtAnchWidgType::TableRich) return;
+
+    const size_t row = curr_table_anchor->current_row();
+    const size_t col = curr_table_anchor->current_column();
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+        int widgetOffset = curr_table_anchor->getOffset();
+        auto oldDesc = pBridge->getDocumentModel()->getNodeById(nodeId)->getContent().getWidgetDescAt(widgetOffset);
+
+        CtTableStyle style = curr_table_anchor->getTableStyle();
+        style.cellHAlign[{row, col}] = halign;
+        curr_table_anchor->setTableStyle(style);
+
+        auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
+        pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Set cell align " + halign);
+    }
+    else {
+        CtTableStyle style = curr_table_anchor->getTableStyle();
+        style.cellHAlign[{row, col}] = halign;
+        curr_table_anchor->setTableStyle(style);
+    }
+    _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
+}
+
+void CtActions::table_cell_align_left()   { _table_cell_set_halign("left"); }
+void CtActions::table_cell_align_center() { _table_cell_set_halign("center"); }
+void CtActions::table_cell_align_right()  { _table_cell_set_halign("right"); }
+
 void CtActions::table_edit_properties()
 {
     if (not _is_there_anch_widg_selection_or_error('t')) return;

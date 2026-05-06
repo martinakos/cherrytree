@@ -202,6 +202,12 @@ void CtMenu::init_actions(CtActions* pActions)
             _("Sort all the Rows Descending"), sigc::mem_fun(*pActions, &CtActions::table_rows_sort_descending)});
         _actions.push_back(CtMenuAction{editor_cat, "table_rows_sort_ascending", "ct_sort-asc", _("Sort Rows As_cending"), None,
             _("Sort all the Rows Ascending"), sigc::mem_fun(*pActions, &CtActions::table_rows_sort_ascending)});
+        _actions.push_back(CtMenuAction{editor_cat, "table_cell_align_left", "ct_justify-left", _("Cell Align H. _Left"), None,
+            _("Align Current Cell Content Horizontally Left"), sigc::mem_fun(*pActions, &CtActions::table_cell_align_left)});
+        _actions.push_back(CtMenuAction{editor_cat, "table_cell_align_center", "ct_justify-center", _("Cell Align H. _Center"), None,
+            _("Align Current Cell Content Horizontally Center"), sigc::mem_fun(*pActions, &CtActions::table_cell_align_center)});
+        _actions.push_back(CtMenuAction{editor_cat, "table_cell_align_right", "ct_justify-right", _("Cell Align H. _Right"), None,
+            _("Align Current Cell Content Horizontally Right"), sigc::mem_fun(*pActions, &CtActions::table_cell_align_right)});
         _actions.push_back(CtMenuAction{editor_cat, "table_edit_properties", "ct_table_edit", _("_Edit Table Properties..."), None,
             _("Edit the Table Properties"), sigc::mem_fun(*pActions, &CtActions::table_edit_properties)});
         _actions.push_back(CtMenuAction{editor_cat, "table_export", "ct_table_save", _("_Table Export..."), None,

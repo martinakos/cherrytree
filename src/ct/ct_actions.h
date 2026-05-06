@@ -509,10 +509,14 @@ public:
     void table_row_down();
     void table_rows_sort_descending();
     void table_rows_sort_ascending();
+    void table_cell_align_left();
+    void table_cell_align_center();
+    void table_cell_align_right();
     void table_edit_properties();
     void table_export();
 
 private:
+    void _table_cell_set_halign(const std::string& halign);
     // helper for import actions
     void _import_from_file(CtImporterInterface* importer, const bool dummy_root = false);
     void _import_from_dir(CtImporterInterface* importer, const std::string& custom_dir);
