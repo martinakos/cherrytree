@@ -1624,7 +1624,8 @@ void CtMainWin::update_selected_node_statusbar_info()
     }
     else {
         const std::string separator_text{"  -  "};
-        statusbar_text = Glib::ustring{_("Node Type")} + _(": ");
+        statusbar_text = Glib::ustring{_("Node")} + _(": ") + std::to_string(treeIter.get_node_id());
+        statusbar_text += separator_text + _("Type") + _(": ");
         const std::string syntaxHighl = treeIter.get_node_syntax_highlighting();
         if (CtConst::RICH_TEXT_ID == syntaxHighl) {
             statusbar_text += _("Rich Text");
