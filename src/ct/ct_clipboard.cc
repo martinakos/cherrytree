@@ -97,12 +97,25 @@ void CtClipboard::paste_from_primary(Gtk::TextView* pTextView, CtCodebox* pCodeb
 void CtClipboard::paste_primary_at_click(Gtk::TextView* pTextView, int event_x, int event_y, CtCodebox* pCodebox)
 {
 #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
+    // place_cursor() clears the buffer selection, which releases X11 PRIMARY ownership.
+    // If this buffer currently owns PRIMARY (has a selection), save the text first so
+    // we can restore it after cursor placement.
+    auto text_buffer = pTextView->get_buffer();
+    Glib::ustring savedPrimary;
+    if (text_buffer->get_has_selection()) {
+        Gtk::TextIter sel_start, sel_end;
+        text_buffer->get_selection_bounds(sel_start, sel_end);
+        savedPrimary = text_buffer->get_text(sel_start, sel_end);
+    }
     int x, y;
     pTextView->window_to_buffer_coords(Gtk::TEXT_WINDOW_TEXT, event_x, event_y, x, y);
     Gtk::TextIter text_iter;
     pTextView->get_iter_at_location(text_iter, x, y);
-    pTextView->get_buffer()->place_cursor(text_iter);
+    text_buffer->place_cursor(text_iter);
     pTextView->grab_focus();
+    if (not savedPrimary.empty()) {
+        Gtk::Clipboard::get(GDK_SELECTION_PRIMARY)->set_text(savedPrimary);
+    }
     paste_from_primary(pTextView, pCodebox);
 #else
     (void)pTextView; (void)event_x; (void)event_y; (void)pCodebox;
