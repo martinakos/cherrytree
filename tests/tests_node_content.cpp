@@ -125,6 +125,47 @@ TEST(CtNodeContentTest, SplitSpansDifferentAttributes)
     EXPECT_EQ("italic", elements[1].textSpan.getAttribute("style"));
 }
 
+// Regression: inserting a differently-attributed character in the MIDDLE of
+// an existing span used to read the original span's attributes after a vector
+// reallocation, segfaulting when the freed memory was reused (e.g. typing at
+// the start of formatted text pasted from a rich table cell).
+TEST(CtNodeContentTest, InsertMidSpanDifferentAttributesPreservesTrailingAttrs)
+{
+    CtNodeContent content;
+
+    std::map<std::string, std::string> coloredAttrs;
+    coloredAttrs["foreground"] = "#33d17a";
+
+    std::map<std::string, std::string> plainAttrs;
+
+    // Use a long string so std::string heap-allocates (defeats SSO),
+    // making any read-after-realloc more likely to dereference garbage.
+    const std::string longText(200, 'A');
+    content.insertText(0, longText, coloredAttrs);
+
+    // Insert one plain char in the middle — triggers split-in-middle path.
+    // Two consecutive _elements.insert() calls; the first can reallocate
+    // and invalidate the local reference used by the second.
+    content.insertText(100, "X", plainAttrs);
+
+    const auto& elements = content.getElements();
+    ASSERT_EQ(3u, elements.size());
+
+    EXPECT_TRUE(elements[0].isTextSpan());
+    EXPECT_EQ(std::string(100, 'A'), elements[0].textSpan.text);
+    EXPECT_EQ("#33d17a", elements[0].textSpan.getAttribute("foreground"));
+
+    EXPECT_TRUE(elements[1].isTextSpan());
+    EXPECT_EQ("X", elements[1].textSpan.text);
+    EXPECT_EQ("", elements[1].textSpan.getAttribute("foreground"));
+
+    EXPECT_TRUE(elements[2].isTextSpan());
+    EXPECT_EQ(std::string(100, 'A'), elements[2].textSpan.text);
+    // The trailing span must keep the original "foreground" attribute —
+    // that's the value the bug was reading from a dangling reference.
+    EXPECT_EQ("#33d17a", elements[2].textSpan.getAttribute("foreground"));
+}
+
 // Test deleting text range
 TEST(CtNodeContentTest, DeleteRange)
 {
