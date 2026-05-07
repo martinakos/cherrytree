@@ -1,3 +1,19 @@
+cherrytree-docmodel (1.6.3+docmodel8-1) plucky; urgency=low
+
+  * rich table: cell horizontal alignment (left/center/right) toolbar actions, fully undo/redo-able
+  * rich table: fix paste alignment — widgets from right-aligned cells no longer inherit cell alignment in main buffer
+  * rich table: fix undo image size — PNG images now restore their manually-set display size on undo
+  * node undo/redo: node add, delete, move, and edit-properties are now undoable operations
+  * node undo/redo: fix node delete corrupting its sibling in the DB on save
+  * node undo/redo: fix redo failure after node operations
+  * node undo/redo: hardened against edge cases and DB save failures
+  * undo/redo UI: dropdown is now scrollable
+  * undo/redo UI: descriptions now use [Node ID] Operation format
+  * undo/redo UI: dropdown auto-dismisses on outside click or app focus loss; max height increased to 600
+  * UI: table dialogs rename Width/Height to Min Width/Min Height; statusbar now shows node ID
+
+ -- Giuseppe Penone <giuspen@gmail.com>  Thu, 07 May 2026 12:00:00 +0000
+
 cherrytree-docmodel (1.6.3+docmodel7-1) plucky; urgency=low
 
   * rich table: configurable minimum row height (default 25), vertical alignment, wrap-mode and formatting preserved on copy-paste and undo
