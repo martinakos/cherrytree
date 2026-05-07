@@ -138,6 +138,7 @@ static void _test_cut_undo_redo_content_restoration(CtMainWin* pWin);
 static void _test_scroll_position_captured_in_commands(CtMainWin* pWin);
 static void _test_paste_delta_plain_text_undo_redo(CtMainWin* pWin);
 static void _test_paste_delta_creates_correct_command_type(CtMainWin* pWin);
+static void _test_primary_paste_self_select(CtMainWin* pWin);
 static void _test_codebox_edit_delta_undo_redo(CtMainWin* pWin);
 static void _test_table_cell_edit_delta_undo_redo(CtMainWin* pWin);
 static void _test_widget_edit_no_change_no_command(CtMainWin* pWin);
@@ -1757,6 +1758,45 @@ static void _test_paste_delta_creates_correct_command_type(CtMainWin* pWin)
         << "Full undo should remove xml paste text";
 
     spdlog::info("✓ Paste delta vs XML command type test passed");
+}
+
+static void _test_primary_paste_self_select(CtMainWin* pWin)
+{
+    spdlog::info("Test: middle-click paste when selection is in the same buffer");
+
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter) << "Node 'b' must exist";
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    auto pBridge = pWin->get_command_bridge();
+    pBridge->endTextEditSession();
+
+    auto buffer = pWin->curr_buffer();
+    Gtk::TextView* textView = &pWin->get_text_view().mm();
+
+    buffer->set_text("AAABBBCCC");
+    GuiEventSimulator::process_pending_events();
+
+    // Select "AAA" (offsets 0–3); this makes the buffer the X11 PRIMARY owner.
+    buffer->select_range(buffer->get_iter_at_offset(0), buffer->get_iter_at_offset(3));
+    GuiEventSimulator::process_pending_events();
+    ASSERT_TRUE(buffer->get_has_selection()) << "Buffer should have a selection before paste";
+
+    // Find window coords for offset 6 (start of "CCC") to middle-click there.
+    Gdk::Rectangle rect;
+    textView->get_iter_location(buffer->get_iter_at_offset(6), rect);
+    int win_x, win_y;
+    textView->buffer_to_window_coords(Gtk::TEXT_WINDOW_TEXT, rect.get_x(), rect.get_y(), win_x, win_y);
+
+    CtClipboard{pWin}.paste_primary_at_click(textView, win_x, win_y, nullptr);
+    GuiEventSimulator::process_pending_events();
+
+    EXPECT_EQ(Glib::ustring{"AAABBBAAACCC"}, buffer->get_text())
+        << "Middle-click should paste the selected text at the click position";
+    spdlog::info("✓ Primary paste from same-buffer selection test passed");
+#endif
 }
 
 static void _test_codebox_edit_delta_undo_redo(CtMainWin* pWin)
@@ -6732,6 +6772,7 @@ void TestCutPasteApp::on_activate()
     _test_cut_undo_redo_content_restoration(pWin);
     _test_paste_delta_plain_text_undo_redo(pWin);
     _test_paste_delta_creates_correct_command_type(pWin);
+    _test_primary_paste_self_select(pWin);
 
     pWin->force_exit() = true;
     remove_window(*pWin);
