@@ -790,11 +790,11 @@ void CtMainWin::_on_textview_event_after(GdkEvent* event)
                 update_selected_node_statusbar_info();
             }
         }
-        else if (event->key.keyval == GDK_KEY_space && _ctTextview.mm().has_focus()) {
-            // End session after space - the space is included in the session with the word
+        else if ((event->key.keyval == GDK_KEY_space || event->key.keyval == GDK_KEY_Tab) && _ctTextview.mm().has_focus()) {
+            // End session after space/tab - the character is included in the session with the word
             // but won't be shown in the description (unless multiple consecutive spaces)
             if (_pCtCommandBridge && _pCtCommandBridge->isActive()) {
-                spdlog::debug("Key release (space): ending text edit session after word+space");
+                spdlog::debug("Key release (space/tab): ending text edit session after word+space/tab");
                 _pCtCommandBridge->endTextEditSession();
                 _pCtCommandBridge->beginTextEditSession(curr_tree_iter().get_node_id());
             }
