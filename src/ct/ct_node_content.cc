@@ -218,12 +218,14 @@ int CtNodeContent::insertText(int offset, const Glib::ustring& text, const std::
         _elements.insert(_elements.begin() + location.elementIndex + 1, CtContentElement(CtTextSpan(text, attributes)));
         _mergeAdjacentSpans(location.elementIndex);
     } else {
-        // Split in middle
+        // Split in middle.  Copy attributes by value before any insert() — the
+        // first insert can reallocate _elements and invalidate `span`/`elem`.
         Glib::ustring afterText = span.text.substr(location.offsetInElement);
+        auto afterAttributes = span.attributes;
         span.text = span.text.substr(0, location.offsetInElement);
 
         _elements.insert(_elements.begin() + location.elementIndex + 1, CtContentElement(CtTextSpan(text, attributes)));
-        _elements.insert(_elements.begin() + location.elementIndex + 2, CtContentElement(CtTextSpan(afterText, span.attributes)));
+        _elements.insert(_elements.begin() + location.elementIndex + 2, CtContentElement(CtTextSpan(afterText, afterAttributes)));
 
         _mergeAdjacentSpans(location.elementIndex);
     }
