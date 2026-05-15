@@ -202,7 +202,7 @@ void CtHtml2Xml::_parse_style_attribute(const Glib::ustring& style_data)
             if (!color.empty())
                 _add_tag_style(CtConst::TAG_FOREGROUND, color);
         } else if (attr_name == CtConst::TAG_BACKGROUND || attr_name == "background-color") {
-            auto color = _convert_html_color(attr_value);
+            auto color = _convert_html_color(attr_value, true/*is_background*/);
             if (!color.empty())
                 _add_tag_style(CtConst::TAG_BACKGROUND, color);
         } else if (attr_name == "text-decoration") {
@@ -340,7 +340,10 @@ void CtHtml2Xml::handle_starttag(std::string_view tag, const char** atts)
         else if (tag == "dd") _rich_text_serialize(CtConst::CHAR_NEWLINE + Glib::ustring(CtConst::CHAR_TAB));
     }
     else if (_state == ParserState::PARSING_TABLE) {
-        if (tag == "div") { // table is used as layout
+        if (tag == "caption") {
+            _state = ParserState::PARSING_BODY;
+        }
+        else if (tag == "div") { // table is used as layout
             if (_table.empty()) {
                 _table.clear();
                 _html_td_tag_open = false;
@@ -354,30 +357,65 @@ void CtHtml2Xml::handle_starttag(std::string_view tag, const char** atts)
         else if (tag == "tr") {
             _table.push_back(std::list<table_cell>());
             _html_td_tag_open = false;
+            for (auto& tag_attr: char2list_attrs(atts))
+                if (tag_attr.name == CtConst::TAG_STYLE)
+                    _parse_style_attribute(Glib::ustring(tag_attr.value.begin()));
         }
         else if (tag == "td" || tag == "th") {
             _html_td_tag_open = true;
             if (_table.empty()) // case of first missing <tr>, this is the header even if <td>
                 _table.push_back(std::list<table_cell>());
             int rowspan = 1;
-            for (auto& tag_attr: char2list_attrs(atts))
+            int colspan = 1;
+            if (tag == "th")
+                _add_tag_style(CtConst::TAG_WEIGHT, CtConst::TAG_PROP_VAL_HEAVY);
+            for (auto& tag_attr: char2list_attrs(atts)) {
                 if (tag_attr.name == "rowspan")
                     rowspan = std::atoi(tag_attr.value.begin());
-            _table.back().push_back(table_cell{rowspan, ""});
+                else if (tag_attr.name == "colspan")
+                    colspan = std::atoi(tag_attr.value.begin());
+                else if (tag_attr.name == CtConst::TAG_STYLE)
+                    _parse_style_attribute(Glib::ustring(tag_attr.value.begin()));
+            }
+            _table.back().push_back(table_cell{rowspan, colspan, {}});
         }
         else if (tag == "img" || tag == "v:imagedata") {
             for (auto& tag_attr: char2list_attrs(atts))
                 if (tag_attr.name == "src")
                     _insert_image(tag_attr.value.begin(), str::repeat(CtConst::CHAR_NEWLINE, 2));
         }
-        else if (tag == "br" && _html_td_tag_open) _table.back().back().text += CtConst::CHAR_NEWLINE;
+        else if (tag == "br" && _html_td_tag_open) {
+            auto& spans = _table.back().back().spans;
+            if (!spans.empty()) spans.back().text += CtConst::CHAR_NEWLINE;
+            else spans.push_back({{}, CtConst::CHAR_NEWLINE});
+        }
         else if (tag == "ol" && _html_td_tag_open) { _list_type = 'o'; _list_num = 1; }
         else if (tag == "ul" && _html_td_tag_open) { _list_type = 'u'; _list_num = 0; }
         else if (tag == "li" && _html_td_tag_open) {
-            if (_list_type == 'u') _table.back().back().text += _pCtConfig->charsListbul[0] + CtConst::CHAR_SPACE;
-            else {
-                _table.back().back().text += std::to_string(_list_num) + ". ";
-                _list_num += 1;
+            std::string prefix;
+            if (_list_type == 'u') prefix = _pCtConfig->charsListbul[0] + CtConst::CHAR_SPACE;
+            else { prefix = std::to_string(_list_num) + ". "; _list_num += 1; }
+            auto& spans = _table.back().back().spans;
+            if (!spans.empty()) spans.back().text += prefix;
+            else spans.push_back({{}, prefix});
+        }
+        else if (_html_td_tag_open) {
+            if (tag == "strong" || tag == "b") _add_tag_style(CtConst::TAG_WEIGHT, CtConst::TAG_PROP_VAL_HEAVY);
+            else if (tag == "i" || tag == "em") _add_tag_style(CtConst::TAG_STYLE, CtConst::TAG_PROP_VAL_ITALIC);
+            else if (tag == "u") _add_tag_style(CtConst::TAG_UNDERLINE, CtConst::TAG_PROP_VAL_SINGLE);
+            else if (tag == "s") _add_tag_style(CtConst::TAG_STRIKETHROUGH, CtConst::TAG_PROP_VAL_TRUE);
+            else if (tag == "code") _add_tag_style(CtConst::TAG_FAMILY, CtConst::TAG_PROP_VAL_MONOSPACE);
+            else if (tag == "span") {
+                for (const auto& tag_attr : char2list_attrs(atts))
+                    if (tag_attr.name == CtConst::TAG_STYLE)
+                        _parse_style_attribute(Glib::ustring(tag_attr.value.begin()));
+            }
+            else if (tag == "font") {
+                for (const auto& tag_attr : char2list_attrs(atts))
+                    if (tag_attr.name == "color") {
+                        const std::string color = _convert_html_color(str::trim(Glib::ustring(tag_attr.value.begin())));
+                        if (!color.empty()) _add_tag_style(CtConst::TAG_FOREGROUND, color);
+                    }
             }
         }
     }
@@ -393,7 +431,11 @@ void CtHtml2Xml::handle_endtag(std::string_view tag)
             _state = ParserState::PARSING_BODY;
     }
     else if (_state == ParserState::PARSING_BODY) {
-        if (tag == "p") _rich_text_serialize(CtConst::CHAR_NEWLINE);
+        if (tag == "caption") {
+            _rich_text_serialize(CtConst::CHAR_NEWLINE);
+            _state = ParserState::PARSING_TABLE;
+        }
+        else if (tag == "p") _rich_text_serialize(CtConst::CHAR_NEWLINE);
         else if (tag == "div") _rich_text_serialize(CtConst::CHAR_NEWLINE);
         else if (tag == "pre") _html_pre_tag_open = false;
         else if (tag == CtConst::TAG_PROP_VAL_H1 or tag == CtConst::TAG_PROP_VAL_H2 or tag == CtConst::TAG_PROP_VAL_H3 or
@@ -411,8 +453,11 @@ void CtHtml2Xml::handle_endtag(std::string_view tag)
     else if (_state == ParserState::PARSING_TABLE)
     {
         if (tag == "p" || tag == "li") {
-            if (_html_td_tag_open)
-                _table.back().back().text += CtConst::CHAR_NEWLINE;
+            if (_html_td_tag_open) {
+                auto& spans = _table.back().back().spans;
+                if (!spans.empty()) spans.back().text += CtConst::CHAR_NEWLINE;
+                else spans.push_back({{}, CtConst::CHAR_NEWLINE});
+            }
         }
         else if (tag == "td" || tag == "th") {
             _html_td_tag_open = false;
@@ -449,7 +494,14 @@ void CtHtml2Xml::handle_data(const std::string& text)
     }
     if (_state == ParserState::PARSING_TABLE && _html_td_tag_open) {
         clean_data = str::replace(clean_data, CtConst::CHAR_TAB, "");
-        _table.back().back().text += clean_data;
+        if (!clean_data.empty()) {
+            auto attrs = _current_cell_attrs();
+            auto& spans = _table.back().back().spans;
+            if (!spans.empty() && spans.back().attrs == attrs)
+                spans.back().text += std::string(clean_data);
+            else
+                spans.push_back({std::move(attrs), std::string(clean_data)});
+        }
     }
 }
 
@@ -529,22 +581,32 @@ void CtHtml2Xml::_put_tag_styles_on_top_cache()
         _slot_styles_cache.pop_back();
 }
 
-std::string CtHtml2Xml::_convert_html_color(const std::string& html_color)
+std::map<std::string, std::string> CtHtml2Xml::_current_cell_attrs() const
+{
+    std::map<std::string, std::string> attrs;
+    for (const auto& ts : _tag_styles)
+        if (!ts.style.empty())
+            attrs[ts.style] = ts.value;
+    return attrs;
+}
+
+std::string CtHtml2Xml::_convert_html_color(const std::string& html_color, bool is_background)
 {
     Gdk::RGBA rgba;
     if (!rgba.set(html_color))
         return "";
 
-    // new method to remove too white and too black colors
     // from https://stackoverflow.com/questions/596216/formula-to-determine-brightness-of-rgb-color
     auto sRGBtoLin = [](double colorChannel) {
         if (colorChannel <= 0.04045) return colorChannel / 12.92;
         else return pow((( colorChannel + 0.055)/1.055),2.4);
     };
     double Y = (0.2126 * sRGBtoLin(rgba.get_red()) + 0.7152 * sRGBtoLin(rgba.get_green()) + 0.0722 * sRGBtoLin(rgba.get_blue()));
-    if (Y < 0.05 /* <5% */ || Y > 0.95 /* >95% */)
-        return ""; // though I think it should explicitly return black/white
-
+    // Filter near-black for foreground (indistinguishable from default) and near-white for both
+    if (Y > 0.95)
+        return "";
+    if (Y < 0.05 && !is_background)
+        return "";
 
     return CtRgbUtil::rgb_to_string_24(rgba);
 }
@@ -643,11 +705,16 @@ void CtHtml2Xml::_insert_table()
 
     if (_table.empty()) return;
 
+    // add more cells for colspan > 1
+    for (auto& row : _table)
+        for (auto iter = row.begin(); iter != row.end(); ++ iter)
+            if (iter->colspan > 1)
+                row.insert(std::next(iter), iter->colspan - 1, table_cell{1, 1, {}});
     // add more cells for rowspan > 1
     for (auto& row : _table)
         for (auto iter = row.begin(); iter != row.end(); ++ iter)
             if (iter->rowspan > 1)
-                row.insert(std::next(iter), iter->rowspan - 1, {1, ""});
+                row.insert(std::next(iter), iter->rowspan - 1, table_cell{1, 1, {}});
     // find bigger row size
     size_t row_len = 0;
     for (auto& row : _table)
@@ -656,11 +723,11 @@ void CtHtml2Xml::_insert_table()
     for (auto& row : _table)
         for (auto iter = row.begin(); iter != row.end(); ++ iter)
             if (iter->rowspan == 0 && row.size() < row_len)
-                row.insert(std::next(iter), row_len - row.size(), {1, ""});
+                row.insert(std::next(iter), row_len - row.size(), table_cell{1, 1, {}});
     // add more cell just in case
     for (auto& row : _table)
         if (row.size() < row_len)
-            row.insert(row.end(), row_len - row.size(), {1, ""});
+            row.insert(row.end(), row_len - row.size(), table_cell{1, 1, {}});
 
     std::vector<std::vector<Glib::ustring>> table_matrix;
     table_matrix.reserve(_table.size());
@@ -668,11 +735,95 @@ void CtHtml2Xml::_insert_table()
         table_matrix.push_back(std::vector<Glib::ustring>{});
         table_matrix.back().reserve(row.size());
         for (const auto& cell : row)
-            table_matrix.back().push_back(str::trim(cell.text));
+            table_matrix.back().push_back(str::trim(cell.plain_text()));
     }
 
-    const bool is_light = table_matrix.size() > 0 and table_matrix.size() * table_matrix.front().size() > static_cast<unsigned>(_pCtConfig->tableCellsGoLight);
-    CtXmlHelper::table_to_xml(_slot_root, table_matrix, _char_offset, CtConst::TAG_PROP_VAL_LEFT, _pCtConfig->tableColWidthDefault, "", is_light);
+    // Check if a #rrggbb color is too light for use as foreground on a white background
+    auto is_color_too_light = [](const std::string& color) -> bool {
+        if (color.size() != 7 || color[0] != '#') return false;
+        unsigned r = std::stoul(color.substr(1, 2), nullptr, 16);
+        unsigned g = std::stoul(color.substr(3, 2), nullptr, 16);
+        unsigned b = std::stoul(color.substr(5, 2), nullptr, 16);
+        double Y = 0.2126 * (r / 255.0) + 0.7152 * (g / 255.0) + 0.0722 * (b / 255.0);
+        return Y > 0.5;
+    };
+
+    // Extract per-cell background colors and clean up span attrs for table use
+    // cell_bg: maps (output_row, col) -> color string
+    std::map<std::pair<int,int>, std::string> cell_bg;
+    bool has_rich = false;
+    {
+        int src_row = 0;
+        for (auto& row : _table) {
+            int col = 0;
+            for (auto& cell : row) {
+                for (auto& span : cell.spans) {
+                    // Extract background as cell-level property
+                    auto bg_it = span.attrs.find(CtConst::TAG_BACKGROUND);
+                    if (bg_it != span.attrs.end()) {
+                        cell_bg[{src_row, col}] = bg_it->second;
+                        span.attrs.erase(bg_it);
+                    }
+                    // Drop foreground colors too light for white background
+                    auto fg_it = span.attrs.find(CtConst::TAG_FOREGROUND);
+                    if (fg_it != span.attrs.end() && is_color_too_light(fg_it->second))
+                        span.attrs.erase(fg_it);
+                    if (!span.attrs.empty())
+                        has_rich = true;
+                }
+                ++col;
+            }
+            ++src_row;
+        }
+    }
+    if (!cell_bg.empty()) has_rich = true;
+
+    if (has_rich) {
+        xmlpp::Element* p_table = _slot_root->add_child("table");
+        p_table->set_attribute("char_offset", std::to_string(_char_offset));
+        p_table->set_attribute(CtConst::TAG_JUSTIFICATION, CtConst::TAG_PROP_VAL_LEFT);
+        p_table->set_attribute("col_min",    std::to_string(_pCtConfig->tableColWidthDefault));
+        p_table->set_attribute("col_max",    std::to_string(_pCtConfig->tableColWidthDefault));
+        p_table->set_attribute("col_widths", "");
+        p_table->set_attribute("is_rich", "1");
+
+        if (!cell_bg.empty()) {
+            std::string cellBgStr;
+            for (const auto& [key, color] : cell_bg) {
+                if (!cellBgStr.empty()) cellBgStr += ";";
+                cellBgStr += std::to_string(key.first) + "," + std::to_string(key.second) + ":" + color;
+            }
+            p_table->set_attribute("cell_bg_colors", cellBgStr);
+        }
+
+        auto write_row = [&](const std::list<table_cell>& row) {
+            xmlpp::Element* p_row = p_table->add_child("row");
+            for (const auto& cell : row) {
+                xmlpp::Element* p_cell = p_row->add_child("cell");
+                if (cell.spans.empty()) {
+                    p_cell->add_child("rich_text");
+                } else {
+                    for (const auto& span : cell.spans) {
+                        xmlpp::Element* p_rt = p_cell->add_child("rich_text");
+                        for (const auto& attr : span.attrs)
+                            p_rt->set_attribute(attr.first, attr.second);
+                        p_rt->set_child_text(str::replace(span.text, "\xC2\xA0", " "));
+                    }
+                }
+            }
+        };
+        // header row (first) goes at the end — CherryTree convention
+        bool is_first = true;
+        const std::list<table_cell>* p_header = nullptr;
+        for (const auto& row : _table) {
+            if (is_first) { p_header = &row; is_first = false; continue; }
+            write_row(row);
+        }
+        if (p_header) write_row(*p_header);
+    } else {
+        const bool is_light = table_matrix.size() > 0 and table_matrix.size() * table_matrix.front().size() > static_cast<unsigned>(_pCtConfig->tableCellsGoLight);
+        CtXmlHelper::table_to_xml(_slot_root, table_matrix, _char_offset, CtConst::TAG_PROP_VAL_LEFT, _pCtConfig->tableColWidthDefault, "", is_light);
+    }
 
     _char_offset += 1;
 }
@@ -691,7 +842,7 @@ void CtHtml2Xml::_insert_codebox()
     p_codebox_node->set_attribute("syntax_highlighting", CtConst::PLAIN_TEXT_ID);
     p_codebox_node->set_attribute("highlight_brackets", std::to_string(false));
     p_codebox_node->set_attribute("show_line_numbers", std::to_string(false));
-    p_codebox_node->add_child_text(str::trim(_table.back().back().text));
+    p_codebox_node->add_child_text(str::trim(_table.back().back().plain_text()));
 
     _char_offset += 1;
 }
