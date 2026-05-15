@@ -331,10 +331,21 @@ private:
         std::string style;
         std::string value;
     };
+    struct cell_span
+    {
+        std::map<std::string, std::string> attrs;
+        std::string                        text;
+    };
     struct table_cell
     {
-        int         rowspan;
-        std::string text;
+        int                    rowspan;
+        int                    colspan;
+        std::vector<cell_span> spans;
+        std::string plain_text() const {
+            std::string s;
+            for (const auto& sp : spans) s += sp.text;
+            return s;
+        }
     };
     struct slot_styles
     {
@@ -371,7 +382,8 @@ private:
     int  _get_tag_style_id();
     void _put_tag_styles_on_top_cache();
 
-    std::string _convert_html_color(const std::string& html_color);
+    std::map<std::string, std::string> _current_cell_attrs() const;
+    std::string _convert_html_color(const std::string& html_color, bool is_background = false);
     void        _insert_image(std::string img_path, std::string trailing_chars);
     void        _insert_table();
     void        _insert_codebox();
