@@ -673,10 +673,10 @@ void CtClipboard::_selection_to_clipboard(Glib::RefPtr<Gtk::TextBuffer> text_buf
     const std::list<CtAnchoredWidget*>* pCellWidgets = pRichCell ? &cellWidgetsFull : nullptr;
 
     CtClipboardData* clip_data = new CtClipboardData{};
-    clip_data->html_text = CtExport2Html{_pCtMainWin}.selection_export_to_html(text_buffer, iter_sel_start, iter_sel_end, !pCodebox ? node_syntax_high : CtConst::PLAIN_TEXT_ID);
+    clip_data->html_text = CtExport2Html{_pCtMainWin}.selection_export_to_html(text_buffer, iter_sel_start, iter_sel_end, !pCodebox ? node_syntax_high : CtConst::PLAIN_TEXT_ID, pCellWidgets);
     if (not pCodebox and CtConst::RICH_TEXT_ID == node_syntax_high) {
         std::vector<std::string> targets_vector;
-        clip_data->plain_text = CtExport2Txt{_pCtMainWin}.selection_export_to_txt(ct_tree_iter, text_buffer, iter_sel_start.get_offset(), iter_sel_end.get_offset(), true);
+        clip_data->plain_text = CtExport2Txt{_pCtMainWin}.selection_export_to_txt(ct_tree_iter, text_buffer, iter_sel_start.get_offset(), iter_sel_end.get_offset(), true, pCellWidgets);
         clip_data->rich_text = rich_text_get_from_text_buffer_selection(ct_tree_iter, text_buffer, iter_sel_start, iter_sel_end, 'n', false, pCellWidgets);
         if (not CtClipboard::_static_force_plain_text) {
             targets_vector = {CtConst::TARGET_CTD_PLAIN_TEXT, CtConst::TARGET_CTD_RICH_TEXT, CtConst::TARGETS_HTML[0], CtConst::TARGETS_HTML[1]};
