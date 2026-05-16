@@ -13,6 +13,8 @@
 #include "ct_list.h"
 #include "ct_image.h"
 #include "ct_clipboard.h"
+#include "ct_export2html.h"
+#include "ct_export2txt.h"
 #include <gtest/gtest.h>
 #include <gdk/gdkkeysyms.h>
 #include <random>
@@ -299,6 +301,13 @@ private:
 class TestRichTableAlignApp : public CtApp {
 public:
     TestRichTableAlignApp() : CtApp{"_test_gui_rich_table_align"} { _no_gui = true; }
+private:
+    void on_activate() final;
+};
+
+class TestRichCellClipboardApp : public CtApp {
+public:
+    TestRichCellClipboardApp() : CtApp{"_test_gui_rich_cell_clipboard"} { _no_gui = true; }
 private:
     void on_activate() final;
 };
@@ -9108,6 +9117,208 @@ void TestRichTableAlignApp::on_activate()
     remove_window(*pWin);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Rich Cell Clipboard Tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Verify that focus-out from a rich cell preserves the X11 PRIMARY selection
+// so that middle-click paste still works after clicking outside the cell.
+static void _test_rich_cell_focus_out_preserves_primary(CtMainWin* pWin)
+{
+    spdlog::info("Test: Rich cell focus-out preserves PRIMARY selection");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    auto resetState = [&]() {
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        while (pBridge->canRedo()) pActions->requested_step_ahead();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        GuiEventSimulator::process_pending_events();
+    };
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+    resetState();
+
+    // Insert a 1×1 rich table with known text
+    std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+    richData[0][0].textSpans.push_back(CtTextSpan{"hello world"});
+    insertRichTableAtEnd(pWin, pBridge, richData);
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+
+    // Activate cell and select text in its buffer
+    gint64 nodeId = pWin->curr_tree_iter().get_node_id();
+    pBridge->endWidgetEdit();
+    pActions->curr_table_anchor = pTable;
+    pTable->set_current_row_column(0, 0);
+    pWin->curr_buffer()->place_cursor(pWin->curr_buffer()->get_iter_at_offset(pTable->getOffset()));
+    pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+    GuiEventSimulator::process_pending_events();
+
+    auto cellBuf = pTable->get_buffer(0, 0);
+    ASSERT_TRUE(cellBuf);
+    cellBuf->select_range(cellBuf->begin(), cellBuf->end());
+    GuiEventSimulator::process_pending_events();
+
+    // Verify cell buffer has the selection
+    ASSERT_TRUE(cellBuf->get_has_selection());
+    Gtk::TextIter sel_start, sel_end;
+    cellBuf->get_selection_bounds(sel_start, sel_end);
+    Glib::ustring selectedText = cellBuf->get_text(sel_start, sel_end);
+    ASSERT_EQ(Glib::ustring{"hello world"}, selectedText);
+
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
+    auto primaryClip = Gtk::Clipboard::get(GDK_SELECTION_PRIMARY);
+
+    // Seed PRIMARY with the selection (GTK does this automatically on real
+    // displays, but in a hidden-window test we set it explicitly).
+    primaryClip->set_text(selectedText);
+    GuiEventSimulator::process_pending_events();
+
+    // Emit focus-out-event on the cell's text view to trigger our handler
+    auto* pCell = pTable->getCellAt(0, 0);
+    ASSERT_TRUE(pCell);
+    auto& cellTV = pCell->get_text_view().mm();
+    GdkEventFocus focusEvent;
+    memset(&focusEvent, 0, sizeof(focusEvent));
+    focusEvent.type = GDK_FOCUS_CHANGE;
+    focusEvent.in = FALSE;
+    auto gdkWin = cellTV.get_window(Gtk::TEXT_WINDOW_TEXT);
+    focusEvent.window = gdkWin ? gdkWin->gobj() : nullptr;
+    gtk_widget_event(GTK_WIDGET(cellTV.gobj()), reinterpret_cast<GdkEvent*>(&focusEvent));
+    GuiEventSimulator::process_pending_events();
+
+    // The selection should be cleared in the buffer
+    EXPECT_FALSE(cellBuf->get_has_selection())
+        << "Focus-out should clear the in-cell selection";
+
+    // PRIMARY should still hold the text we had selected
+    Glib::ustring primaryText = primaryClip->wait_for_text();
+    EXPECT_EQ(Glib::ustring{"hello world"}, primaryText)
+        << "PRIMARY clipboard should preserve cell text after focus-out";
+#endif
+
+    resetState();
+}
+
+// Verify that Ctrl+C from a rich cell copies only the selected text,
+// not the entire table (regression test for the export functions using
+// main-node widgets instead of cell widgets).
+static void _test_rich_cell_copy_exports_only_selected_text(CtMainWin* pWin)
+{
+    spdlog::info("Test: Rich cell copy exports only selected text, not whole table");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    auto resetState = [&]() {
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        while (pBridge->canRedo()) pActions->requested_step_ahead();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        GuiEventSimulator::process_pending_events();
+    };
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+    resetState();
+
+    // Insert a 2×2 rich table
+    std::vector<std::vector<CtCellContent>> richData(2, std::vector<CtCellContent>(2));
+    richData[0][0].textSpans.push_back(CtTextSpan{"alpha"});
+    richData[0][1].textSpans.push_back(CtTextSpan{"beta"});
+    richData[1][0].textSpans.push_back(CtTextSpan{"gamma"});
+    richData[1][1].textSpans.push_back(CtTextSpan{"delta"});
+    insertRichTableAtEnd(pWin, pBridge, richData);
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+
+    // Activate cell (0,0) for editing
+    gint64 nodeId = pWin->curr_tree_iter().get_node_id();
+    pBridge->endWidgetEdit();
+    pActions->curr_table_anchor = pTable;
+    pTable->set_current_row_column(0, 0);
+    pWin->curr_buffer()->place_cursor(pWin->curr_buffer()->get_iter_at_offset(pTable->getOffset()));
+    pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+    GuiEventSimulator::process_pending_events();
+
+    auto cellBuf = pTable->get_buffer(0, 0);
+    ASSERT_TRUE(cellBuf);
+
+    // Select all text in the cell
+    auto iterStart = cellBuf->begin();
+    auto iterEnd = cellBuf->end();
+    cellBuf->select_range(iterStart, iterEnd);
+    GuiEventSimulator::process_pending_events();
+
+    // Get the cell's embedded widgets for the fixed export path
+    auto* pCell = dynamic_cast<CtRichCell*>(pTable->getCellAt(0, 0));
+    ASSERT_TRUE(pCell);
+    std::list<CtAnchoredWidget*> cellWidgets(pCell->getEmbeddedWidgets().begin(),
+                                              pCell->getEmbeddedWidgets().end());
+
+    // --- Test selection_export_to_html ---
+    // With cell widgets (the fix): should contain "alpha", not "<table"
+    Glib::ustring htmlWithCellWidgets = CtExport2Html{pWin}.selection_export_to_html(
+        cellBuf, cellBuf->begin(), cellBuf->end(), CtConst::RICH_TEXT_ID, &cellWidgets);
+    EXPECT_TRUE(htmlWithCellWidgets.find("alpha") != Glib::ustring::npos)
+        << "HTML export with cell widgets should contain the selected text";
+    EXPECT_TRUE(htmlWithCellWidgets.find("<table") == Glib::ustring::npos)
+        << "HTML export with cell widgets should NOT contain a <table> tag";
+
+    // Without cell widgets (the old buggy path): might pick up the table from the
+    // main node if the table's offset falls in the cell buffer's offset range.
+    // We don't assert on this because it depends on offsets, but the above test
+    // proves the fix works.
+
+    // --- Test selection_export_to_txt ---
+    // With cell widgets (the fix): should be just "alpha"
+    CtTreeIter treeIter = pWin->curr_tree_iter();
+    Glib::ustring plainWithCellWidgets = CtExport2Txt{pWin}.selection_export_to_txt(
+        treeIter, cellBuf, iterStart.get_offset(), iterEnd.get_offset(), false, &cellWidgets);
+    EXPECT_EQ(Glib::ustring{"alpha"}, plainWithCellWidgets)
+        << "Plain text export with cell widgets should be just the cell text";
+
+    // --- Test rich_text_get_from_text_buffer_selection ---
+    Glib::ustring richXml = CtClipboard{pWin}.rich_text_get_from_text_buffer_selection(
+        treeIter, cellBuf, cellBuf->begin(), cellBuf->end(), 'n', false, &cellWidgets);
+    EXPECT_TRUE(richXml.find("alpha") != Glib::ustring::npos)
+        << "Rich text XML should contain the selected text";
+    // The rich XML should not contain table serialization
+    EXPECT_TRUE(richXml.find("<table>") == Glib::ustring::npos)
+        << "Rich text XML should NOT contain table serialization";
+
+    pBridge->endWidgetEdit();
+    GuiEventSimulator::process_pending_events();
+    resetState();
+}
+
+void TestRichCellClipboardApp::on_activate()
+{
+    _on_startup();
+    CtMainWin* pWin = _create_window(true/*start_hidden*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+    pWin->show_all();
+    pWin->hide();
+    GuiEventSimulator::process_pending_events();
+
+    _test_rich_cell_focus_out_preserves_primary(pWin);
+    _test_rich_cell_copy_exports_only_selected_text(pWin);
+
+    pWin->force_exit() = true;
+    remove_window(*pWin);
+}
+
 // --- Helper to flush pending GTK events after each TEST ---
 static void flush_gtk_events()
 {
@@ -9280,6 +9491,18 @@ TEST(CommandGuiSimulationTests, RichTableAlignTests)
 {
     g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
     TestRichTableAlignApp app;
+    const std::vector<std::string> vecArgs{"cherrytree"};
+    gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
+    const int ret_val = app.run(vecArgs.size(), pp_args);
+    g_strfreev(pp_args);
+    ASSERT_EQ(0, ret_val);
+    flush_gtk_events();
+}
+
+TEST(CommandGuiSimulationTests, RichCellClipboardTests)
+{
+    g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
+    TestRichCellClipboardApp app;
     const std::vector<std::string> vecArgs{"cherrytree"};
     gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
     const int ret_val = app.run(vecArgs.size(), pp_args);
