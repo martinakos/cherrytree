@@ -256,12 +256,14 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
 
     auto vbox_misc = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_VERTICAL});
     auto checkbutton_word_count = Gtk::manage(new Gtk::CheckButton{_("Enable Word Count in Statusbar")});
+    auto checkbutton_node_size = Gtk::manage(new Gtk::CheckButton{_("Enable Node Size in Statusbar")});
     auto checkbutton_win_title_doc_dir = Gtk::manage(new Gtk::CheckButton{_("Show the Document Directory in the Window Title")});
     auto checkbutton_nn_header_full_path = Gtk::manage(new Gtk::CheckButton{_("Show the Full Path in the Node Name Header")});
     auto checkbutton_bookmarks_top_menu = Gtk::manage(new Gtk::CheckButton{_("Dedicated Bookmarks Menu in Menubar")});
     auto checkbutton_menubar_in_titlebar = Gtk::manage(new Gtk::CheckButton{_("Menubar in Titlebar")});
 
     checkbutton_word_count->set_active(_pConfig->wordCountOn);
+    checkbutton_node_size->set_active(_pConfig->nodeSizeOn);
     checkbutton_win_title_doc_dir->set_active(_pConfig->winTitleShowDocDir);
     checkbutton_nn_header_full_path->set_active(_pConfig->nodeNameHeaderShowFullPath);
     checkbutton_bookmarks_top_menu->set_active(_pConfig->bookmarksInTopMenu);
@@ -366,6 +368,7 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
 
 #if GTKMM_MAJOR_VERSION >= 4
     vbox_misc->append(*checkbutton_word_count);
+    vbox_misc->append(*checkbutton_node_size);
     vbox_misc->append(*checkbutton_win_title_doc_dir);
     vbox_misc->append(*checkbutton_nn_header_full_path);
     vbox_misc->append(*checkbutton_bookmarks_top_menu);
@@ -378,6 +381,7 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     vbox_misc->append(*hbox_find_all_max_in_page);
 #else
     vbox_misc->pack_start(*checkbutton_word_count, false, false);
+    vbox_misc->pack_start(*checkbutton_node_size, false, false);
     vbox_misc->pack_start(*checkbutton_win_title_doc_dir, false, false);
     vbox_misc->pack_start(*checkbutton_nn_header_full_path, false, false);
     vbox_misc->pack_start(*checkbutton_bookmarks_top_menu, false, false);
@@ -549,6 +553,10 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     });
     checkbutton_word_count->signal_toggled().connect([this, checkbutton_word_count](){
         _pConfig->wordCountOn = checkbutton_word_count->get_active();
+        apply_for_each_window([](CtMainWin* win) { win->update_selected_node_statusbar_info(); });
+    });
+    checkbutton_node_size->signal_toggled().connect([this, checkbutton_node_size](){
+        _pConfig->nodeSizeOn = checkbutton_node_size->get_active();
         apply_for_each_window([](CtMainWin* win) { win->update_selected_node_statusbar_info(); });
     });
     spinbutton_toolbar_icons_size->signal_value_changed().connect([this, spinbutton_toolbar_icons_size](){
