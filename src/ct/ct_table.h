@@ -423,6 +423,7 @@ public:
     void row_move_up(const size_t rowIdx, const bool from_move_down) override;
 
     void apply_zoom(const double scaleFactor) override;
+    void refreshCellBorders() { _applyCellBordersScaled(); }
 
     void set_col_width_default(const int colWidthDefault, bool clearOverrides = false) override;
     void set_col_width(const int colWidth, std::optional<size_t> optColIdx = std::nullopt) override;
