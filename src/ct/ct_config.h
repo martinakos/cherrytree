@@ -266,6 +266,7 @@ public:
     int                                         autosaveMinutes{1};
     bool                                        checkVersion{false};
     bool                                        wordCountOn{true};
+    bool                                        nodeSizeOn{false};
     bool                                        reloadDocLast{true};
     bool                                        rememberRecentDocs{true};
     bool                                        showStartDialog{true};
