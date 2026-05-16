@@ -83,10 +83,25 @@ void CtExport2Txt::nodes_all_export_to_txt(bool all_tree, fs::path export_dir, f
 }
 
 // Export the Buffer To Txt
-Glib::ustring CtExport2Txt::selection_export_to_txt(CtTreeIter tree_iter, Glib::RefPtr<Gtk::TextBuffer> text_buffer, int sel_start, int sel_end, bool check_link_target)
+Glib::ustring CtExport2Txt::selection_export_to_txt(CtTreeIter tree_iter, Glib::RefPtr<Gtk::TextBuffer> text_buffer, int sel_start, int sel_end, bool check_link_target,
+                                                    const std::list<CtAnchoredWidget*>* pCellWidgets/*=nullptr*/)
 {
     Glib::ustring plain_text;
-    std::list<CtAnchoredWidget*> widgets = tree_iter.get_anchored_widgets(sel_start, sel_end);
+    std::list<CtAnchoredWidget*> widgets;
+    if (pCellWidgets) {
+        for (auto* w : *pCellWidgets) {
+            if (auto anchor = w->getTextChildAnchor()) {
+                auto wIter = text_buffer->get_iter_at_child_anchor(anchor);
+                int off = wIter.get_offset();
+                if (off >= sel_start && off < sel_end) {
+                    widgets.push_back(w);
+                }
+            }
+        }
+    }
+    else {
+        widgets = tree_iter.get_anchored_widgets(sel_start, sel_end);
+    }
 
     int start_offset = sel_start >= 0 ? sel_start : 0;
     for (CtAnchoredWidget* widget : widgets) {
