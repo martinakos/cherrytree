@@ -2997,6 +2997,10 @@ void CtCommandBridge::BridgeObserver::onNodePropertiesChanged(
         win.switch_buffer_text_source(
             treeIter.get_node_text_buffer(), treeIter,
             newProps.syntax, oldProps.syntax);
+    }
+
+    // Refresh main icon when syntax or custom icon changed
+    if (oldProps.syntax != newProps.syntax || oldProps.customIconId != newProps.customIconId) {
         treeStore.update_node_icon(treeIter);
     }
 
