@@ -711,8 +711,9 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
         content_area->pack_start(checkbutton_is_rich);
         content_area->pack_start(checkbutton_table_ins_from_file);
     } else if (not pTableStyle) {
-        // Edit mode for light/heavy tables: show lightweight toggle
+        // Edit mode for light/heavy tables: show type selection
         content_area->pack_start(checkbutton_is_light);
+        content_area->pack_start(checkbutton_is_rich);
     } else if (pTableStyle) {
         // Edit mode: show border / background style controls
         enum class PropScope { None = 0, Cell, Row, Column, Table };
