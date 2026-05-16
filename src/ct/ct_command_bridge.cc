@@ -943,8 +943,8 @@ void CtCommandBridge::cancelTextEditSession()
 
 void CtCommandBridge::beginWidgetEdit(gint64 nodeId, CtAnchoredWidget* widget, int row, int col)
 {
-    _lastSyncedNodeId = -1;  // widget edit may modify buffer outside delta tracking
     if (!_active || !_pMainWin) {
+        _lastSyncedNodeId = -1;
         return;
     }
 
@@ -958,6 +958,8 @@ void CtCommandBridge::beginWidgetEdit(gint64 nodeId, CtAnchoredWidget* widget, i
     if (_editSession && _editSession->isActive()) {
         endTextEditSession();
     }
+    // Invalidate AFTER endTextEditSession (which sets _lastSyncedNodeId = nodeId)
+    _lastSyncedNodeId = -1;
 
     // If we're already tracking a different node, flush it first
     if (_widgetEditNodeId != 0 && _widgetEditNodeId != nodeId) {
@@ -1815,6 +1817,8 @@ void CtCommandBridge::endPaste()
 {
     if (!_active || !_pMainWin || _currentOp != BridgeOp::CapturingPaste) return;
 
+    gint64 pasteNodeId = _captureNodeId;
+
     // Session (delta) path — session is active when pasteContainsWidgets was false
     if (_editSession && _editSession->isActive()) {
         auto& treeStore = _pMainWin->get_tree_store();
@@ -1855,6 +1859,23 @@ void CtCommandBridge::endPaste()
     } else {
         // XML snapshot path
         endXmlCapture("Paste clipboard");
+    }
+
+    // Re-apply cell borders on all rich tables in the node. Pasting content
+    // can shift widget positions, and GTK3 may fail to repaint the border
+    // windows of embedded text views after the re-layout.
+    _refreshRichTableBorders(pasteNodeId);
+}
+
+void CtCommandBridge::_refreshRichTableBorders(gint64 nodeId)
+{
+    auto& treeStore = _pMainWin->get_tree_store();
+    CtTreeIter treeIter = treeStore.get_node_from_node_id(nodeId);
+    if (!treeIter) return;
+    for (auto* w : treeIter.get_anchored_widgets()) {
+        if (w->get_type() == CtAnchWidgType::TableRich) {
+            static_cast<CtTableRich*>(w)->refreshCellBorders();
+        }
     }
 }
 
@@ -1960,8 +1981,10 @@ void CtCommandBridge::endCut()
         addCommandToStack(std::move(cmd));
     }
 
+    gint64 cutNodeId = _captureNodeId;
     _currentOp = BridgeOp::None;
     _captureNodeId = 0;
+    _refreshRichTableBorders(cutNodeId);
 }
 
 void CtCommandBridge::beginXmlCapture(BridgeOp op, gint64 nodeId)

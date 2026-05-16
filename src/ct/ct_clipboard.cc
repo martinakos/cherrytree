@@ -701,6 +701,14 @@ void CtClipboard::_selection_to_clipboard(Glib::RefPtr<Gtk::TextBuffer> text_buf
         }
         _set_clipboard_data(targets_vector, clip_data);
     }
+
+    if (isRichCell) {
+        for (auto* w : ct_tree_iter.get_anchored_widgets()) {
+            if (w->get_type() == CtAnchWidgType::TableRich) {
+                static_cast<CtTableRich*>(w)->refreshCellBorders();
+            }
+        }
+    }
 }
 
 void CtClipboard::_set_clipboard_data(const std::vector<std::string>& targets_list, CtClipboardData* clip_data)

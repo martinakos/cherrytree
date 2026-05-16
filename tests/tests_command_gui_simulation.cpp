@@ -204,6 +204,7 @@ static void _test_rich_cell_image_resize_uses_original(CtMainWin* pWin);
 static void _test_rich_table_row_col_copy_paste(CtMainWin* pWin);
 static void _test_rich_table_latex_follows_cell_halign(CtMainWin* pWin);
 static void _test_rich_table_align_and_height_tests(CtMainWin* pWin);
+static void _test_rich_cell_copy_preserves_borders(CtMainWin* pWin);
 
 // --- Isolated App classes, one per test group ---
 
@@ -9302,6 +9303,99 @@ static void _test_rich_cell_copy_exports_only_selected_text(CtMainWin* pWin)
     resetState();
 }
 
+static void _test_rich_cell_copy_preserves_borders(CtMainWin* pWin)
+{
+    spdlog::info("Test: Copying text from rich cell preserves cell border window sizes");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    auto resetState = [&]() {
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        while (pBridge->canRedo()) pActions->requested_step_ahead();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        GuiEventSimulator::process_pending_events();
+    };
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+    resetState();
+
+    // Insert a 2×2 rich table with known text
+    std::vector<std::vector<CtCellContent>> richData(2, std::vector<CtCellContent>(2));
+    richData[0][0].textSpans.push_back(CtTextSpan{"alpha"});
+    richData[0][1].textSpans.push_back(CtTextSpan{"beta"});
+    richData[1][0].textSpans.push_back(CtTextSpan{"gamma"});
+    richData[1][1].textSpans.push_back(CtTextSpan{"delta"});
+    insertRichTableAtEnd(pWin, pBridge, richData);
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+
+    // Activate cell (0,0) for editing
+    gint64 nodeId = pWin->curr_tree_iter().get_node_id();
+    pBridge->endWidgetEdit();
+    pActions->curr_table_anchor = pTable;
+    pTable->set_current_row_column(0, 0);
+    pWin->curr_buffer()->place_cursor(pWin->curr_buffer()->get_iter_at_offset(pTable->getOffset()));
+    pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+    GuiEventSimulator::process_pending_events();
+
+    auto cellBuf = pTable->get_buffer(0, 0);
+    ASSERT_TRUE(cellBuf);
+
+    // Record the border window sizes before copy
+    auto* pCell = pTable->getCellAt(0, 0);
+    ASSERT_TRUE(pCell);
+    auto& cellTV = pCell->get_text_view().mm();
+    const int leftBefore = cellTV.get_border_window_size(Gtk::TEXT_WINDOW_LEFT);
+    const int topBefore = cellTV.get_border_window_size(Gtk::TEXT_WINDOW_TOP);
+    const int rightBefore = cellTV.get_border_window_size(Gtk::TEXT_WINDOW_RIGHT);
+    const int bottomBefore = cellTV.get_border_window_size(Gtk::TEXT_WINDOW_BOTTOM);
+
+    // Cell (0,0) should have left and top borders (it's the corner cell)
+    ASSERT_GT(leftBefore, 0) << "Cell (0,0) should have a left border";
+    ASSERT_GT(topBefore, 0) << "Cell (0,0) should have a top border";
+
+    // Select all text in the cell and trigger copy-clipboard
+    cellBuf->select_range(cellBuf->begin(), cellBuf->end());
+    GuiEventSimulator::process_pending_events();
+    ASSERT_TRUE(cellBuf->get_has_selection());
+
+    g_signal_emit_by_name(G_OBJECT(cellTV.gobj()), "copy-clipboard");
+    GuiEventSimulator::process_pending_events();
+
+    // Border window sizes must be preserved after copy
+    EXPECT_EQ(leftBefore, cellTV.get_border_window_size(Gtk::TEXT_WINDOW_LEFT))
+        << "Left border window size must not change after copy";
+    EXPECT_EQ(topBefore, cellTV.get_border_window_size(Gtk::TEXT_WINDOW_TOP))
+        << "Top border window size must not change after copy";
+    EXPECT_EQ(rightBefore, cellTV.get_border_window_size(Gtk::TEXT_WINDOW_RIGHT))
+        << "Right border window size must not change after copy";
+    EXPECT_EQ(bottomBefore, cellTV.get_border_window_size(Gtk::TEXT_WINDOW_BOTTOM))
+        << "Bottom border window size must not change after copy";
+
+    // Also verify cell (1,1) — interior cell with right+bottom only
+    auto* pCellInner = pTable->getCellAt(1, 1);
+    ASSERT_TRUE(pCellInner);
+    auto& innerTV = pCellInner->get_text_view().mm();
+    EXPECT_EQ(0, innerTV.get_border_window_size(Gtk::TEXT_WINDOW_LEFT))
+        << "Interior cell (1,1) should have no left border";
+    EXPECT_EQ(0, innerTV.get_border_window_size(Gtk::TEXT_WINDOW_TOP))
+        << "Interior cell (1,1) should have no top border";
+    EXPECT_GT(innerTV.get_border_window_size(Gtk::TEXT_WINDOW_RIGHT), 0)
+        << "Interior cell (1,1) should have a right border";
+    EXPECT_GT(innerTV.get_border_window_size(Gtk::TEXT_WINDOW_BOTTOM), 0)
+        << "Interior cell (1,1) should have a bottom border";
+
+    pBridge->endWidgetEdit();
+    GuiEventSimulator::process_pending_events();
+    resetState();
+}
+
 void TestRichCellClipboardApp::on_activate()
 {
     _on_startup();
@@ -9314,6 +9408,7 @@ void TestRichCellClipboardApp::on_activate()
 
     _test_rich_cell_focus_out_preserves_primary(pWin);
     _test_rich_cell_copy_exports_only_selected_text(pWin);
+    _test_rich_cell_copy_preserves_borders(pWin);
 
     pWin->force_exit() = true;
     remove_window(*pWin);

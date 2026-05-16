@@ -206,6 +206,9 @@ private:
     // Helper to update buffer from XML
     void updateBufferFromXml(Glib::RefPtr<Gtk::TextBuffer> buffer, const Glib::ustring& xml, const std::string& syntax = "custom-colors", const CtTreeIter* treeIter = nullptr);
 
+    // Re-apply cell borders on all rich tables in the given node.
+    void _refreshRichTableBorders(gint64 nodeId);
+
     // Shared implementation for paste/cut begin: flush widget edit, guard against re-entry,
     // snapshot initial structured content.
     void beginXmlCapture(BridgeOp op, gint64 nodeId);
