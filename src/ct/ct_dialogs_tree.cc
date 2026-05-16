@@ -25,6 +25,80 @@
 #include "ct_main_win.h"
 #include "ct_treestore.h"
 
+namespace {
+
+size_t _calc_node_size(CtTreeIter treeIter)
+{
+    size_t totalBytes = 0;
+    Glib::RefPtr<Gtk::TextBuffer> pTextBuffer = treeIter.get_node_text_buffer();
+    if (pTextBuffer) {
+        totalBytes += pTextBuffer->get_text().bytes();
+    }
+    totalBytes += treeIter.get_node_name().bytes();
+    totalBytes += treeIter.get_node_tags().bytes();
+    for (auto* pWidget : treeIter.get_anchored_widgets_fast()) {
+        switch (pWidget->get_type()) {
+            case CtAnchWidgType::ImagePng:
+                totalBytes += dynamic_cast<CtImagePng*>(pWidget)->get_raw_blob().size();
+                break;
+            case CtAnchWidgType::ImageEmbFile:
+                totalBytes += dynamic_cast<CtImageEmbFile*>(pWidget)->get_raw_blob().size();
+                break;
+            case CtAnchWidgType::CodeBox:
+                totalBytes += dynamic_cast<CtCodebox*>(pWidget)->get_text_content().bytes();
+                break;
+            case CtAnchWidgType::ImageLatex:
+                totalBytes += dynamic_cast<CtImageLatex*>(pWidget)->get_latex_text().bytes();
+                break;
+            case CtAnchWidgType::TableHeavy:
+            case CtAnchWidgType::TableLight:
+            case CtAnchWidgType::TableRich: {
+                auto* pTable = dynamic_cast<CtTableCommon*>(pWidget);
+                for (size_t r = 0; r < pTable->get_num_rows(); ++r) {
+                    for (size_t c = 0; c < pTable->get_num_columns(); ++c) {
+                        auto* pCell = pTable->getCellAt(r, c);
+                        if (pCell) totalBytes += pCell->get_text_content().bytes();
+                    }
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+    return totalBytes;
+}
+
+size_t _calc_subtree_size(CtTreeIter treeIter)
+{
+    size_t totalBytes = _calc_node_size(treeIter);
+    CtTreeIter child = treeIter.first_child();
+    while (child) {
+        totalBytes += _calc_subtree_size(child);
+        ++child;
+    }
+    return totalBytes;
+}
+
+Glib::ustring _format_size(size_t bytes)
+{
+    if (bytes < 1024) {
+        return std::to_string(bytes) + " B";
+    }
+    else if (bytes < 1024 * 1024) {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%.1f KB", bytes / 1024.0);
+        return buf;
+    }
+    else {
+        char buf[32];
+        snprintf(buf, sizeof(buf), "%.1f MB", bytes / (1024.0 * 1024.0));
+        return buf;
+    }
+}
+
+} // anonymous namespace
+
 bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
                                  CtMainWin* pCtMainWin,
                                  CtNodeData& nodeData,
@@ -154,6 +228,11 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
     ro_checkbutton->set_active(nodeData.isReadOnly);
 
     Glib::ustring id_str = Glib::ustring{_("Unique Id")} + ": " + std::to_string(nodeData.nodeId);
+    CtTreeIter currIter = pCtMainWin->get_tree_store().get_node_from_node_id(nodeData.nodeId);
+    if (currIter) {
+        size_t subtreeSize = _calc_subtree_size(currIter);
+        id_str += Glib::ustring{"  —  "} + _("Total Size") + _(": ") + _format_size(subtreeSize);
+    }
     CtSharedNodesMap shared_nodes_map;
     if (pCtMainWin->get_tree_store().populate_shared_nodes_map(shared_nodes_map) > 0u) {
         for (auto& currPair : shared_nodes_map) {

@@ -1646,6 +1646,60 @@ void CtMainWin::update_selected_node_statusbar_info()
             const int words_count = _uCtActions->get_word_count_for_statusbar();
             statusbar_text += separator_text + _("Word Count") + _(": ") + std::to_string(words_count);
         }
+        if (_pCtConfig->nodeSizeOn) {
+            size_t totalBytes = 0;
+            auto pTextBuffer = treeIter.get_node_text_buffer();
+            if (pTextBuffer) {
+                totalBytes += pTextBuffer->get_text().bytes();
+            }
+            totalBytes += treeIter.get_node_name().bytes();
+            totalBytes += treeIter.get_node_tags().bytes();
+            for (auto* pWidget : treeIter.get_anchored_widgets_fast()) {
+                switch (pWidget->get_type()) {
+                    case CtAnchWidgType::ImagePng:
+                        totalBytes += dynamic_cast<CtImagePng*>(pWidget)->get_raw_blob().size();
+                        break;
+                    case CtAnchWidgType::ImageEmbFile:
+                        totalBytes += dynamic_cast<CtImageEmbFile*>(pWidget)->get_raw_blob().size();
+                        break;
+                    case CtAnchWidgType::CodeBox:
+                        totalBytes += dynamic_cast<CtCodebox*>(pWidget)->get_text_content().bytes();
+                        break;
+                    case CtAnchWidgType::ImageLatex:
+                        totalBytes += dynamic_cast<CtImageLatex*>(pWidget)->get_latex_text().bytes();
+                        break;
+                    case CtAnchWidgType::TableHeavy:
+                    case CtAnchWidgType::TableLight:
+                    case CtAnchWidgType::TableRich: {
+                        auto* pTable = dynamic_cast<CtTableCommon*>(pWidget);
+                        for (size_t r = 0; r < pTable->get_num_rows(); ++r) {
+                            for (size_t c = 0; c < pTable->get_num_columns(); ++c) {
+                                auto* pCell = pTable->getCellAt(r, c);
+                                if (pCell) totalBytes += pCell->get_text_content().bytes();
+                            }
+                        }
+                        break;
+                    }
+                    default:
+                        break;
+                }
+            }
+            Glib::ustring sizeStr;
+            if (totalBytes < 1024) {
+                sizeStr = std::to_string(totalBytes) + " B";
+            }
+            else if (totalBytes < 1024 * 1024) {
+                char buf[32];
+                snprintf(buf, sizeof(buf), "%.1f KB", totalBytes / 1024.0);
+                sizeStr = buf;
+            }
+            else {
+                char buf[32];
+                snprintf(buf, sizeof(buf), "%.1f MB", totalBytes / (1024.0 * 1024.0));
+                sizeStr = buf;
+            }
+            statusbar_text += separator_text + _("Size") + _(": ") + sizeStr;
+        }
         if (treeIter.get_node_creating_time() > 0) {
             const Glib::ustring timestamp_creation = str::time_format(_pCtConfig->timestampFormat, treeIter.get_node_creating_time());
             statusbar_text += separator_text + _("Date Created") + _(": ") + timestamp_creation;
