@@ -127,6 +127,10 @@ void CtActions::table_insert()
             return;
         }
     }
+    // Capture selection before the dialog (for prefilling cell 0,0 in rich tables).
+    Gtk::TextIter iter_sel_start, iter_sel_end;
+    const bool has_selection = _curr_buffer()->get_selection_bounds(iter_sel_start, iter_sel_end);
+
     bool is_light{_pCtConfig->tableColumns*_pCtConfig->tableRows > _pCtConfig->tableCellsGoLight};
     bool is_rich{false};
     CtDialogs::TableHandleResp res = CtDialogs::table_handle_dialog(
@@ -137,18 +141,68 @@ void CtActions::table_insert()
         is_rich);
     if (res == CtDialogs::TableHandleResp::Cancel) return;
 
-    const auto charOffset = _curr_buffer()->get_insert()->get_iter().get_offset();
     int col_width = _pCtConfig->tableColWidthDefault;
     auto pBridge = _pCtMainWin->get_command_bridge();
 
     if (is_rich) {
+        if (pBridge && pBridge->isActive()) {
+            pBridge->endTextEditSession();
+        }
+
+        // Extract selection content as CtCellContent for cell [0][0].
+        CtCellContent selContent;
+        const int selStart = has_selection ? iter_sel_start.get_offset() : -1;
+        const int selLength = has_selection ? (iter_sel_end.get_offset() - iter_sel_start.get_offset()) : 0;
+        if (has_selection) {
+            std::map<int, CtAnchoredWidget*> widgetByOffset;
+            auto widgets = _pCtMainWin->curr_tree_iter().get_anchored_widgets(
+                iter_sel_start.get_offset(), iter_sel_end.get_offset() - 1);
+            for (auto* w : widgets) {
+                widgetByOffset[w->getOffset()] = w;
+            }
+            const int baseOffset = iter_sel_start.get_offset();
+            std::map<std::string, std::string> currentAttrs = extractAttributesFromIter(iter_sel_start);
+            Glib::ustring currentText;
+            auto finalizeSpan = [&]() {
+                if (!currentText.empty()) {
+                    selContent.textSpans.push_back(CtTextSpan{currentText, currentAttrs});
+                    currentText.clear();
+                }
+            };
+            Gtk::TextIter iter = iter_sel_start;
+            while (iter != iter_sel_end) {
+                auto pAnchor = iter.get_child_anchor();
+                if (pAnchor) {
+                    finalizeSpan();
+                    auto wIt = widgetByOffset.find(iter.get_offset());
+                    if (wIt != widgetByOffset.end()) {
+                        selContent.embeddedWidgets.push_back(
+                            extractWidgetDesc(wIt->second, iter.get_offset() - baseOffset));
+                    }
+                    iter.forward_char();
+                    continue;
+                }
+                auto iterAttrs = extractAttributesFromIter(iter);
+                if (currentAttrs != iterAttrs) {
+                    finalizeSpan();
+                    currentAttrs = iterAttrs;
+                }
+                currentText += iter.get_char();
+                iter.forward_char();
+            }
+            finalizeSpan();
+            _curr_buffer()->erase(iter_sel_start, iter_sel_end);
+        }
+
+        const auto charOffset = _curr_buffer()->get_insert()->get_iter().get_offset();
+
         // Build rich table: rows×columns of empty CtCellContent
         std::vector<std::vector<CtCellContent>> richData;
         for (int r = 0; r < _pCtConfig->tableRows; ++r) {
             richData.push_back(std::vector<CtCellContent>(_pCtConfig->tableColumns, CtCellContent{}));
         }
-        if (pBridge && pBridge->isActive()) {
-            pBridge->endTextEditSession();
+        if (!selContent.textSpans.empty() || !selContent.embeddedWidgets.empty()) {
+            richData[0][0] = std::move(selContent);
         }
         auto pCtTable = new CtTableRich{_pCtMainWin, richData, col_width, charOffset, "", CtTableColWidths{}};
         if (_pCtConfig->tableRowHeightDefault > 0) {
@@ -165,14 +219,37 @@ void CtActions::table_insert()
         if (pBridge && pBridge->isActive()) {
             gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
             auto desc = extractWidgetDesc(pCtTable, charOffset);
-            auto cmd = std::make_unique<InsertWidgetDeltaCommand>(
-                pBridge->getDocumentModel(), nodeId, charOffset, desc, "Insert table");
-            pBridge->addCommandToStack(std::move(cmd));
+            if (has_selection) {
+                auto compound = std::make_unique<CompoundCommand>("Insert table from selection");
+                compound->setDocumentModel(pBridge->getDocumentModel());
+                compound->setNodeId(nodeId);
+                compound->setOldCursorPos(selStart);
+                compound->setNewCursorPos(charOffset);
+                auto delCmd = std::make_unique<DeleteRangeCommand>(
+                    pBridge->getDocumentModel(), nodeId, selStart, selLength, selStart, selStart);
+                compound->addCommand(std::move(delCmd));
+                auto insCmd = std::make_unique<InsertWidgetDeltaCommand>(
+                    pBridge->getDocumentModel(), nodeId, charOffset, desc, "Insert table");
+                compound->addCommand(std::move(insCmd));
+                pBridge->addCommandToStack(std::move(compound));
+            }
+            else {
+                auto cmd = std::make_unique<InsertWidgetDeltaCommand>(
+                    pBridge->getDocumentModel(), nodeId, charOffset, desc, "Insert table");
+                pBridge->addCommandToStack(std::move(cmd));
+            }
             auto node = pBridge->getDocumentModel()->getNodeById(nodeId);
-            if (node) node->getContent().insertWidget(charOffset, desc);
+            if (node) {
+                if (has_selection) {
+                    node->getContent().deleteRange(selStart, selLength);
+                }
+                node->getContent().insertWidget(charOffset, desc);
+            }
         }
         return;
     }
+
+    const auto charOffset = _curr_buffer()->get_insert()->get_iter().get_offset();
 
     std::list<std::vector<std::string>> rows;
     if (res == CtDialogs::TableHandleResp::Ok) {

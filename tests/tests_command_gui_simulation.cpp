@@ -156,6 +156,7 @@ static void _test_rich_cell_edit_multiple_cells_separate_commands(CtMainWin* pWi
 static void _test_rich_cell_no_change_no_command(CtMainWin* pWin);
 static void _test_rich_cell_edit_then_format_separate_commands(CtMainWin* pWin);
 static void _test_rich_table_full_undo_redo_cycle(CtMainWin* pWin);
+static void _test_rich_table_insert_from_selection(CtMainWin* pWin);
 static void _test_format_underline_undo_redo(CtMainWin* pWin);
 static void _test_format_strikethrough_undo_redo(CtMainWin* pWin);
 static void _test_format_monospace_undo_redo(CtMainWin* pWin);
@@ -3595,6 +3596,187 @@ static void _test_rich_table_full_undo_redo_cycle(CtMainWin* pWin)
     spdlog::info("✓ Full rich table lifecycle undo/redo cycle test passed");
 }
 
+static void _test_rich_table_insert_from_selection(CtMainWin* pWin)
+{
+    spdlog::info("Test: Insert rich table from selection — prefill cell 0,0, single undo step");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+    auto docModel = pBridge->getDocumentModel();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    auto buffer = pWin->curr_buffer();
+    Glib::ustring initialText = buffer->get_text();
+
+    // Type "Hello World" at end through the text view (signals captured by session)
+    buffer->place_cursor(buffer->end());
+    auto* textView = &pWin->get_text_view().mm();
+    GuiEventSimulator::simulate_text_typed(textView, "Hello World");
+    pBridge->endTextEditSession();
+    GuiEventSimulator::process_pending_events();
+    // Remember the range we typed
+    const int typedEnd = buffer->get_insert()->get_iter().get_offset();
+    const int typedStart = typedEnd - 11; // "Hello World" = 11 chars
+    // Apply bold to "World" (last 5 chars)
+    {
+        buffer->select_range(buffer->get_iter_at_offset(typedEnd - 5), buffer->get_iter_at_offset(typedEnd));
+        pActions->apply_tag_bold();
+        GuiEventSimulator::process_pending_events();
+    }
+
+    // Select "Hello World" (the text we just typed)
+    int selEnd = typedEnd;
+    int selStart = typedStart;
+    buffer->select_range(buffer->get_iter_at_offset(selStart), buffer->get_iter_at_offset(selEnd));
+
+    Gtk::TextIter iter_sel_start, iter_sel_end;
+    ASSERT_TRUE(buffer->get_selection_bounds(iter_sel_start, iter_sel_end));
+
+    // Simulate the table_insert from-selection flow (same as ct_actions_edit.cc)
+    pBridge->endTextEditSession();
+
+    CtCellContent selContent;
+    const int baseOffset = iter_sel_start.get_offset();
+    const int selLength = iter_sel_end.get_offset() - baseOffset;
+    {
+        std::map<int, CtAnchoredWidget*> widgetByOffset;
+        auto widgets = pWin->curr_tree_iter().get_anchored_widgets(
+            iter_sel_start.get_offset(), iter_sel_end.get_offset() - 1);
+        for (auto* w : widgets) widgetByOffset[w->getOffset()] = w;
+
+        std::map<std::string, std::string> currentAttrs = extractAttributesFromIter(iter_sel_start);
+        Glib::ustring currentText;
+        auto finalizeSpan = [&]() {
+            if (!currentText.empty()) {
+                selContent.textSpans.push_back(CtTextSpan{currentText, currentAttrs});
+                currentText.clear();
+            }
+        };
+        Gtk::TextIter iter = iter_sel_start;
+        while (iter != iter_sel_end) {
+            auto pAnchor = iter.get_child_anchor();
+            if (pAnchor) {
+                finalizeSpan();
+                auto wIt = widgetByOffset.find(iter.get_offset());
+                if (wIt != widgetByOffset.end()) {
+                    selContent.embeddedWidgets.push_back(
+                        extractWidgetDesc(wIt->second, iter.get_offset() - baseOffset));
+                }
+                iter.forward_char();
+                continue;
+            }
+            auto iterAttrs = extractAttributesFromIter(iter);
+            if (currentAttrs != iterAttrs) {
+                finalizeSpan();
+                currentAttrs = iterAttrs;
+            }
+            currentText += iter.get_char();
+            iter.forward_char();
+        }
+        finalizeSpan();
+        buffer->erase(iter_sel_start, iter_sel_end);
+    }
+
+    const int charOffset = buffer->get_insert()->get_iter().get_offset();
+
+    // Build 2×2 rich table with selContent in [0][0]
+    std::vector<std::vector<CtCellContent>> richData(2, std::vector<CtCellContent>(2));
+    richData[0][0] = std::move(selContent);
+
+    auto* pTable = new CtTableRich{pWin, richData, 60, charOffset, "", CtTableColWidths{}};
+    pTable->insertInTextBuffer(buffer);
+    pWin->get_tree_store().addAnchoredWidgets(
+        pWin->curr_tree_iter(), {pTable}, &pWin->get_text_view().mm());
+
+    {
+        auto desc = extractWidgetDesc(pTable, charOffset);
+        auto compound = std::make_unique<CompoundCommand>("Insert table from selection");
+        compound->setDocumentModel(docModel);
+        compound->setNodeId(nodeId);
+        compound->setOldCursorPos(selStart);
+        compound->setNewCursorPos(charOffset);
+        auto delCmd = std::make_unique<DeleteRangeCommand>(
+            docModel, nodeId, selStart, selLength, selStart, selStart);
+        compound->addCommand(std::move(delCmd));
+        auto insCmd = std::make_unique<InsertWidgetDeltaCommand>(
+            docModel, nodeId, charOffset, desc, "Insert table");
+        compound->addCommand(std::move(insCmd));
+        pBridge->addCommandToStack(std::move(compound));
+        auto node = docModel->getNodeById(nodeId);
+        if (node) {
+            node->getContent().deleteRange(selStart, selLength);
+            node->getContent().insertWidget(charOffset, desc);
+        }
+    }
+    GuiEventSimulator::process_pending_events();
+
+    // Verify: table exists and cell [0][0] has "Hello World"
+    {
+        auto* rt = findFirstRichTable(pWin);
+        ASSERT_TRUE(rt) << "Rich table should exist after insert from selection";
+        auto buf00 = rt->get_buffer(0, 0);
+        ASSERT_TRUE(buf00);
+        EXPECT_EQ(Glib::ustring{"Hello World"}, buf00->get_text());
+        // Verify "World" portion is bold
+        auto iterW = buf00->get_iter_at_offset(6); // start of "World"
+        bool hasBold = false;
+        for (auto& tag : iterW.get_tags()) {
+            if (tag->property_name().get_value().find("weight") != std::string::npos) {
+                hasBold = true;
+                break;
+            }
+        }
+        EXPECT_TRUE(hasBold) << "\"World\" in cell [0][0] should be bold";
+    }
+
+    // Verify: compound command is on top of undo stack
+    auto descs = pBridge->getUndoStackDescriptions();
+    ASSERT_GE(descs.size(), 1u);
+    EXPECT_TRUE(descs[0].find("Insert table from selection") != std::string::npos)
+        << "Top undo entry should be 'Insert table from selection', got: " << descs[0];
+    EXPECT_TRUE(descs[0].find("[") != std::string::npos)
+        << "Undo description should include [nodeId] prefix, got: " << descs[0];
+
+    // Undo: table removed, "Hello World" text restored
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    {
+        auto* rt = findFirstRichTable(pWin);
+        EXPECT_FALSE(rt) << "Rich table should be gone after undo";
+        Glib::ustring restoredText = buffer->get_text();
+        EXPECT_TRUE(restoredText.find("Hello World") != std::string::npos)
+            << "\"Hello World\" should be restored after undo";
+    }
+
+    // Redo: table back with content
+    pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+
+    {
+        auto* rt = findFirstRichTable(pWin);
+        ASSERT_TRUE(rt) << "Rich table should be back after redo";
+        auto buf00 = rt->get_buffer(0, 0);
+        ASSERT_TRUE(buf00);
+        EXPECT_EQ(Glib::ustring{"Hello World"}, buf00->get_text());
+    }
+
+    // Clean up
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("✓ Insert rich table from selection test passed");
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Signal-based format undo/redo tests (Plan 10.5d)
 // Each test follows: type "hello" → select → apply format → verify model →
@@ -6828,6 +7010,7 @@ void TestRichTableApp::on_activate()
     _test_rich_cell_no_change_no_command(pWin);
     _test_rich_cell_edit_then_format_separate_commands(pWin);
     _test_rich_table_full_undo_redo_cycle(pWin);
+    _test_rich_table_insert_from_selection(pWin);
 
     pWin->force_exit() = true;
     remove_window(*pWin);
