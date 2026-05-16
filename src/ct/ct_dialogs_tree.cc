@@ -60,7 +60,16 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
     auto fg_checkbutton = Gtk::manage(new Gtk::CheckButton{_("Use Selected Color")});
     fg_checkbutton->set_active(not nodeData.foregroundRgb24.empty());
     Glib::ustring real_fg = not nodeData.foregroundRgb24.empty() ? nodeData.foregroundRgb24 : (not pCtConfig->currColour_nn.empty() ? pCtConfig->currColour_nn.c_str() : "red");
-    auto fg_colorbutton = Gtk::manage(new Gtk::ColorButton{Gdk::RGBA{real_fg}});
+    Gdk::RGBA fg_rgba{real_fg};
+    auto fg_colorbutton = Gtk::manage(new Gtk::Button);
+    auto fg_color_area = Gtk::manage(new Gtk::DrawingArea);
+    fg_color_area->set_size_request(24, 16);
+    fg_color_area->signal_draw().connect([&fg_rgba](const Cairo::RefPtr<Cairo::Context>& cr) -> bool {
+        Gdk::Cairo::set_source_rgba(cr, fg_rgba);
+        cr->paint();
+        return true;
+    });
+    fg_colorbutton->add(*fg_color_area);
     fg_colorbutton->set_sensitive(not nodeData.foregroundRgb24.empty());
 
     auto c_icon_checkbutton = Gtk::manage(new Gtk::CheckButton{_("Use Selected Icon")});
@@ -227,14 +236,15 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
     fg_checkbutton->signal_toggled().connect([fg_colorbutton, fg_checkbutton](){
         fg_colorbutton->set_sensitive(fg_checkbutton->get_active());
     });
-    fg_colorbutton->signal_clicked().connect([pCtMainWin, fg_colorbutton](){
-        Glib::ustring ret_colour = fg_colorbutton->get_rgba().to_string();
+    fg_colorbutton->signal_clicked().connect([pCtMainWin, &fg_rgba, fg_color_area](){
+        Glib::ustring ret_colour = fg_rgba.to_string();
         CtDialogs::CtPickDlgState res{CtDialogs::CtPickDlgState::CALL_AGAIN};
         while (CtDialogs::CtPickDlgState::CALL_AGAIN == res) {
             res = CtDialogs::colour_pick_dialog(pCtMainWin, _("Pick a Color"), ret_colour, false/*allow_remove_colour*/);
         }
         if (CtPickDlgState::SELECTED == res) {
-            fg_colorbutton->set_rgba(Gdk::RGBA{ret_colour});
+            fg_rgba = Gdk::RGBA{ret_colour};
+            fg_color_area->queue_draw();
         }
     });
     c_icon_checkbutton->signal_toggled().connect([c_icon_checkbutton, c_icon_button, &nodeData, &currCustomIconId](){
@@ -320,7 +330,7 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
     }
     nodeData.isBold = is_bold_checkbutton->get_active();
     if (fg_checkbutton->get_active()) {
-        nodeData.foregroundRgb24 = CtRgbUtil::get_rgb24str_from_str_any(fg_colorbutton->get_rgba().to_string());
+        nodeData.foregroundRgb24 = CtRgbUtil::get_rgb24str_from_str_any(fg_rgba.to_string());
         pCtConfig->currColour_nn = nodeData.foregroundRgb24;
     }
     else {
