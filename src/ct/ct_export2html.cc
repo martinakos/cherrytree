@@ -328,7 +328,8 @@ void CtExport2Html::_tree_links_text_iter(CtTreeIter tree_iter,
 Glib::ustring CtExport2Html::selection_export_to_html(Glib::RefPtr<Gtk::TextBuffer> text_buffer,
                                                       Gtk::TextIter start_iter,
                                                       Gtk::TextIter end_iter,
-                                                      const Glib::ustring& syntax_highlighting)
+                                                      const Glib::ustring& syntax_highlighting,
+                                                      const std::list<CtAnchoredWidget*>* pCellWidgets/*=nullptr*/)
 {
     Glib::ustring html_text = str::format(HTML_HEADER, "");
     if (syntax_highlighting == CtConst::RICH_TEXT_ID) {
@@ -336,7 +337,21 @@ Glib::ustring CtExport2Html::selection_export_to_html(Glib::RefPtr<Gtk::TextBuff
         int images_count{0};
         fs::path tempFolder = _pCtMainWin->get_ct_tmp()->getHiddenDirPath("IMAGE_TEMP_FOLDER");
         int start_offset = start_iter.get_offset();
-        std::list<CtAnchoredWidget*> widgets = _pCtMainWin->curr_tree_iter().get_anchored_widgets(start_iter.get_offset(), end_iter.get_offset());
+        std::list<CtAnchoredWidget*> widgets;
+        if (pCellWidgets) {
+            for (auto* w : *pCellWidgets) {
+                if (auto anchor = w->getTextChildAnchor()) {
+                    auto wIter = text_buffer->get_iter_at_child_anchor(anchor);
+                    int off = wIter.get_offset();
+                    if (off >= start_iter.get_offset() && off < end_iter.get_offset()) {
+                        widgets.push_back(w);
+                    }
+                }
+            }
+        }
+        else {
+            widgets = _pCtMainWin->curr_tree_iter().get_anchored_widgets(start_iter.get_offset(), end_iter.get_offset());
+        }
         for (CtAnchoredWidget* widget : widgets) {
             int end_offset = widget->getOffset();
             node_html_text += html_process_slot(_pCtConfig, _pCtMainWin, start_offset, end_offset, text_buffer, false/*single_file*/);
