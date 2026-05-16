@@ -95,6 +95,9 @@ void CompoundCommand::redo()
 
 std::string CompoundCommand::getDescription() const
 {
+    if (_nodeId > 0 && (_description.empty() || _description[0] != '[')) {
+        return "[" + std::to_string(_nodeId) + "] " + _description;
+    }
     return _description;
 }
 
