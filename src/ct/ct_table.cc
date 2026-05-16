@@ -1489,7 +1489,23 @@ void CtTableRich::_new_rich_cell_attach(const size_t rowIdx, const size_t colIdx
     textView.signal_focus_out_event().connect([this, pCell](GdkEventFocus*) {
         if (not _pCtMainWin->user_active()) return false;
         auto buffer = pCell->get_buffer();
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
+        // place_cursor() clears the buffer selection, which releases X11 PRIMARY
+        // ownership.  Save the selected text first so middle-click paste still works
+        // after the cell loses focus.
+        Glib::ustring savedPrimary;
+        if (buffer->get_has_selection()) {
+            Gtk::TextIter sel_start, sel_end;
+            buffer->get_selection_bounds(sel_start, sel_end);
+            savedPrimary = buffer->get_text(sel_start, sel_end);
+        }
+#endif
         buffer->place_cursor(buffer->get_iter_at_mark(buffer->get_insert()));
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
+        if (not savedPrimary.empty()) {
+            Gtk::Clipboard::get(GDK_SELECTION_PRIMARY)->set_text(savedPrimary);
+        }
+#endif
         return false;
     });
 

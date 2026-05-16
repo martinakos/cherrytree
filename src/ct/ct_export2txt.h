@@ -38,7 +38,8 @@ public:
 public:
     Glib::ustring node_export_to_txt(CtTreeIter tree_iter, fs::path filepath, CtExportOptions export_options, int sel_start, int sel_end);
     void          nodes_all_export_to_txt(bool all_tree, fs::path export_dir, fs::path single_txt_filepath, CtExportOptions export_options);
-    Glib::ustring selection_export_to_txt(CtTreeIter tree_iter, Glib::RefPtr<Gtk::TextBuffer> text_buffer, int sel_start, int sel_end, bool check_link_target);
+    Glib::ustring selection_export_to_txt(CtTreeIter tree_iter, Glib::RefPtr<Gtk::TextBuffer> text_buffer, int sel_start, int sel_end, bool check_link_target,
+                                          const std::list<CtAnchoredWidget*>* pCellWidgets = nullptr);
 
     Glib::ustring get_table_plain(CtTableCommon* table_orig);
     Glib::ustring get_codebox_plain(CtCodebox* codebox);

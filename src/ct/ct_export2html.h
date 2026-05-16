@@ -62,7 +62,8 @@ public:
     void          nodes_all_export_to_multiple_html(bool all_tree, const CtExportOptions& options);
     void          nodes_all_export_to_single_html(bool all_tree, const CtExportOptions& options);
     Glib::ustring selection_export_to_html(Glib::RefPtr<Gtk::TextBuffer> text_buffer, Gtk::TextIter start_iter,
-                                           Gtk::TextIter end_iter, const Glib::ustring& syntax_highlighting);
+                                           Gtk::TextIter end_iter, const Glib::ustring& syntax_highlighting,
+                                           const std::list<CtAnchoredWidget*>* pCellWidgets = nullptr);
     Glib::ustring table_export_to_html(CtTableCommon* table);
     Glib::ustring codebox_export_to_html(CtCodebox* codebox);
     bool          prepare_html_folder(fs::path dir_place, fs::path new_folder, bool export_overwrite, fs::path& export_path);
