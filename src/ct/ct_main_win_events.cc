@@ -83,10 +83,6 @@ void CtMainWin::_on_treeview_cursor_changed()
 
         const bool is_bookmarked = _uCtTreestore->is_node_bookmarked(nodeId);
         menu_update_bookmark_menu_item(is_bookmarked);
-        window_header_update();
-        window_header_update_lock_icon(treeIter.get_node_read_only());
-        window_header_update_ghost_icon(treeIter.get_node_is_excluded_from_search() or treeIter.get_node_children_are_excluded_from_search());
-        window_header_update_bookmark_icon(is_bookmarked);
         update_selected_node_statusbar_info();
         update_node_zoom_label();
 
@@ -100,11 +96,13 @@ void CtMainWin::_on_treeview_cursor_changed()
         }
 
         // Remove this node if it's already in history (avoid duplicates)
-        for (auto it = _visitedNodes.begin(); it != _visitedNodes.end(); ) {
-            if (*it == nodeId) {
-                it = _visitedNodes.erase(it);
-            } else {
-                ++it;
+        if (!_pCtConfig->nodesOnNodeNameHeaderFIFO) {
+            for (auto it = _visitedNodes.begin(); it != _visitedNodes.end(); ) {
+                if (*it == nodeId) {
+                    it = _visitedNodes.erase(it);
+                } else {
+                    ++it;
+                }
             }
         }
 
@@ -117,6 +115,11 @@ void CtMainWin::_on_treeview_cursor_changed()
             _visitedNodes.pop_front();
             if (_visitedNodesIdx > 0) _visitedNodesIdx--;
         }
+
+        window_header_update();
+        window_header_update_lock_icon(treeIter.get_node_read_only());
+        window_header_update_ghost_icon(treeIter.get_node_is_excluded_from_search() or treeIter.get_node_children_are_excluded_from_search());
+        window_header_update_bookmark_icon(is_bookmarked);
     }
 
     // Begin new edit session for command bridge AFTER cursor restoration,
