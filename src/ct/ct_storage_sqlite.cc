@@ -25,6 +25,7 @@
 #include "ct_storage_xml.h"
 #include "ct_storage_control.h"
 #include "ct_main_win.h"
+#include "ct_image.h"
 #include "ct_logging.h"
 #include "ct_gtk_compat.h"
 #include <unistd.h>
@@ -554,7 +555,10 @@ void CtStorageSqlite::_image_from_db(const gint64& nodeId, std::list<CtAnchoredW
             const int blobSize = sqlite3_column_bytes(stmt, 4);
             const std::string rawBlob(reinterpret_cast<const char*>(pBlob), static_cast<size_t>(blobSize));
             if (not fileName.empty()) {
-                if (fileName == CtImageLatex::LatexSpecialFilename) {
+                if (fileName == CtHorizLine::SpecialFilename) {
+                    anchoredWidgets.push_back(new CtHorizLine{_pCtMainWin, charOffset, justification});
+                }
+                else if (fileName == CtImageLatex::LatexSpecialFilename) {
                     anchoredWidgets.push_back(new CtImageLatex{_pCtMainWin,
                                                                rawBlob,
                                                                charOffset,

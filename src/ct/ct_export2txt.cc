@@ -23,6 +23,7 @@
 
 #include "ct_export2txt.h"
 #include "ct_main_win.h"
+#include "ct_image.h"
 
 CtExport2Txt::CtExport2Txt(CtMainWin* pCtMainWin)
  : _pCtMainWin(pCtMainWin)
@@ -108,7 +109,8 @@ Glib::ustring CtExport2Txt::selection_export_to_txt(CtTreeIter tree_iter, Glib::
         int end_offset = widget->getOffset();
         Glib::ustring text_slot = _plain_process_slot(start_offset, end_offset, text_buffer, false);
         plain_text += text_slot;
-        if (auto ctTable = dynamic_cast<CtTableCommon*>(widget)) plain_text += get_table_plain(ctTable);
+        if (dynamic_cast<CtHorizLine*>(widget)) plain_text += "---";
+        else if (auto ctTable = dynamic_cast<CtTableCommon*>(widget)) plain_text += get_table_plain(ctTable);
         else if (auto ctCodebox = dynamic_cast<CtCodebox*>(widget)) plain_text += get_codebox_plain(ctCodebox);
         else if (auto ctLatex = dynamic_cast<CtImageLatex*>(widget)) plain_text += get_latex_plain(ctLatex);
         start_offset = end_offset;

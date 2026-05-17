@@ -1098,3 +1098,90 @@ bool CtImageEmbFile::_on_button_press_event(GdkEventButton* event)
     return true; // do not propagate the event
 }
 #endif
+
+// CtHorizLine
+
+/*static*/const std::string CtHorizLine::SpecialFilename{"__ct_horiz_line"};
+
+CtHorizLine::CtHorizLine(CtMainWin* pCtMainWin,
+                         const int charOffset,
+                         const std::string& justification)
+ : CtAnchoredWidget{pCtMainWin, charOffset, justification}
+{
+    _drawArea.set_size_request(100, 14);
+    _drawArea.signal_draw().connect(sigc::mem_fun(*this, &CtHorizLine::_on_draw));
+    _frame.add(_drawArea);
+    show_all();
+}
+
+bool CtHorizLine::_on_draw(const Cairo::RefPtr<Cairo::Context>& cr)
+{
+    const int width = _drawArea.get_allocated_width();
+    const int height = _drawArea.get_allocated_height();
+    auto styleCtx = _drawArea.get_style_context();
+    Gdk::RGBA fgColor = styleCtx->get_color(Gtk::STATE_FLAG_NORMAL);
+    cr->set_source_rgba(fgColor.get_red(), fgColor.get_green(), fgColor.get_blue(), 1.0);
+    cr->set_line_width(2.0);
+    const double y = height / 2.0;
+    cr->move_to(0, y);
+    cr->line_to(width, y);
+    cr->stroke();
+    return true;
+}
+
+void CtHorizLine::apply_width_height(const int parentTextWidth)
+{
+    if (parentTextWidth > 0) {
+        _drawArea.set_size_request(parentTextWidth, 14);
+    }
+}
+
+void CtHorizLine::to_xml(xmlpp::Element* p_node_parent, const int offset_adjustment, CtStorageCache*, const std::string&)
+{
+    xmlpp::Element* p_node = p_node_parent->add_child("encoded_png");
+    p_node->set_attribute("char_offset", std::to_string(_charOffset + offset_adjustment));
+    p_node->set_attribute(CtConst::TAG_JUSTIFICATION, _justification);
+    p_node->set_attribute("filename", SpecialFilename);
+}
+
+CtWidgetDesc CtHorizLine::to_widget_desc(int charOffset)
+{
+    CtWidgetDesc desc(CtAnchWidgType::HorizLine);
+    desc.setProperty("char_offset", std::to_string(charOffset));
+    desc.setProperty(CtConst::TAG_JUSTIFICATION, _justification);
+    desc.setProperty("filename", SpecialFilename);
+    return desc;
+}
+
+bool CtHorizLine::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offset_adjustment, CtStorageCache*)
+{
+    bool retVal{true};
+    sqlite3_stmt* p_stmt;
+    if (sqlite3_prepare_v2(pDb, CtStorageSqlite::TABLE_IMAGE_INSERT, -1, &p_stmt, nullptr) != SQLITE_OK) {
+        spdlog::error("{}: {}", CtStorageSqlite::ERR_SQLITE_PREPV2, sqlite3_errmsg(pDb));
+        retVal = false;
+    }
+    else {
+        sqlite3_bind_int64(p_stmt, 1, node_id);
+        sqlite3_bind_int64(p_stmt, 2, _charOffset + offset_adjustment);
+        sqlite3_bind_text(p_stmt, 3, _justification.c_str(), _justification.size(), SQLITE_STATIC);
+        sqlite3_bind_text(p_stmt, 4, "", -1, SQLITE_STATIC); // anchor
+        sqlite3_bind_blob(p_stmt, 5, nullptr, 0, SQLITE_STATIC); // blob
+        sqlite3_bind_text(p_stmt, 6, SpecialFilename.c_str(), SpecialFilename.size(), SQLITE_STATIC);
+        sqlite3_bind_text(p_stmt, 7, "", -1, SQLITE_STATIC); // link
+        sqlite3_bind_int64(p_stmt, 8, 0); // time
+        sqlite3_bind_int64(p_stmt, 9, 0); // display_width
+        sqlite3_bind_int64(p_stmt, 10, 0); // display_height
+        if (sqlite3_step(p_stmt) != SQLITE_DONE) {
+            spdlog::error("{}: {}", CtStorageSqlite::ERR_SQLITE_STEP, sqlite3_errmsg(pDb));
+            retVal = false;
+        }
+        sqlite3_finalize(p_stmt);
+    }
+    return retVal;
+}
+
+std::shared_ptr<CtAnchoredWidgetState> CtHorizLine::get_state()
+{
+    return nullptr;
+}
