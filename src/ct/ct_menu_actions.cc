@@ -133,6 +133,8 @@ void CtMenu::init_actions(CtActions* pActions)
             _("Insert a Special Character"), sigc::mem_fun(*pActions, &CtActions::special_char_insert)});
         _actions.push_back(CtMenuAction{editor_cat, "insert_horiz_rule", "ct_horiz_rule", _("Insert _Horizontal Rule"), KB_CONTROL+"r",
             _("Insert Horizontal Rule"), sigc::mem_fun(*pActions, &CtActions::horizontal_rule_insert)});
+        _actions.push_back(CtMenuAction{editor_cat, "insert_horiz_line", "ct_horiz_rule", _("Insert Horizontal _Line"), None,
+            _("Insert Horizontal Line"), sigc::mem_fun(*pActions, &CtActions::horiz_line_insert)});
         _actions.push_back(CtMenuAction{editor_cat, "case_down", "ct_case_lower", _("_Lower Case of Selection/Word"), KB_CONTROL+"w",
             _("Lower the Case of the Selection/the Underlying Word"), sigc::mem_fun(*pActions, &CtActions::text_selection_lower_case)});
         _actions.push_back(CtMenuAction{editor_cat, "case_up", "ct_case_upper", _("_Upper Case of Selection/Word"), KB_CONTROL+KB_SHIFT+"w",

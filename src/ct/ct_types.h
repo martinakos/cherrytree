@@ -51,7 +51,7 @@ enum class CtDocEncrypt { None, True, False };
 
 #ifndef CTANCH_WIDG_TYPE_DEFINED
 #define CTANCH_WIDG_TYPE_DEFINED
-enum class CtAnchWidgType { None, CodeBox, TableHeavy, TableLight, TableRich, ImagePng, ImageAnchor, ImageLatex, ImageEmbFile, Link };
+enum class CtAnchWidgType { None, CodeBox, TableHeavy, TableLight, TableRich, ImagePng, ImageAnchor, ImageLatex, ImageEmbFile, Link, HorizLine };
 #endif
 
 enum class CtAnchorExpCollState { None, Expanded, Collapsed };

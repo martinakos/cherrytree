@@ -820,6 +820,30 @@ void CtActions::horizontal_rule_insert()
     proof.text_view->get_buffer()->insert_at_cursor(_pCtConfig->hRule + CtConst::CHAR_NEWLINE);
 }
 
+void CtActions::horiz_line_insert()
+{
+    if (not _node_sel_and_rich_text()) return;
+    if (not _is_curr_node_not_read_only_or_error()) return;
+
+    const int charOffset = _curr_buffer()->get_insert()->get_iter().get_offset();
+    auto* pAnchoredWidget = new CtHorizLine{_pCtMainWin, charOffset, ""};
+    pAnchoredWidget->insertInTextBuffer(_curr_buffer());
+    _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
+                                                     {pAnchoredWidget},
+                                                     &_pCtMainWin->get_text_view().mm());
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive() && !pBridge->isSuppressingTextEdits()) {
+        gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+        auto desc = extractWidgetDesc(pAnchoredWidget, charOffset);
+        auto cmd = std::make_unique<InsertWidgetDeltaCommand>(
+            pBridge->getDocumentModel(), nodeId, charOffset, desc, "Insert horizontal line");
+        pBridge->addCommandToStack(std::move(cmd));
+        auto node = pBridge->getDocumentModel()->getNodeById(nodeId);
+        if (node) node->getContent().insertWidget(charOffset, desc);
+    }
+}
+
 // Lowers the Case of the Selected Text/the Underlying Word
 void CtActions::text_selection_lower_case()
 {

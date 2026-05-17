@@ -413,6 +413,7 @@ public:
     void timestamp_insert();
     void special_char_insert();
     void horizontal_rule_insert();
+    void horiz_line_insert();
     void text_selection_lower_case();
     void text_selection_upper_case();
     void text_selection_toggle_case();
