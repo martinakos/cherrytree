@@ -73,7 +73,7 @@ private:
 struct CtWinHeader
 {
     Gtk::Box         headerBox{Gtk::ORIENTATION_HORIZONTAL};
-    Gtk::ButtonBox   buttonBox{Gtk::ORIENTATION_HORIZONTAL};
+    Gtk::Box         buttonBox{Gtk::ORIENTATION_HORIZONTAL, 2};
     Gtk::Label       nameLabel;
     Gtk::Image       lockIcon;
     Gtk::Image       bookmarkIcon;
