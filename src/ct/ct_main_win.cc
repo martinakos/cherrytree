@@ -906,10 +906,16 @@ void CtMainWin::window_header_update()
         CtMiscUtil::get_node_hierarchical_name(curr_tree_iter(), " / ", false).c_str() : curr_tree_iter().get_node_name().c_str();
     std::string foreground = curr_tree_iter().get_node_foreground();
     foreground = foreground.empty() ? _pCtConfig->ttDefFg : foreground;
-    _ctWinHeader.nameLabel.set_markup(
-        "<span foreground=\"" + foreground + "\" font_desc=\"" + _pCtConfig->treeFont + "\" font_weight=\"bold\">" + str::xml_escape(name) + "</span>");
+    if (_pCtConfig->showNodeNameLabel) {
+        _ctWinHeader.nameLabel.set_markup(
+            "<span foreground=\"" + foreground + "\" font_desc=\"" + _pCtConfig->treeFont + "\" font_weight=\"bold\">" + str::xml_escape(name) + "</span>");
+    }
+    else {
+        _ctWinHeader.nameLabel.set_label("");
+    }
 
     // update last visited buttons
+    _ctWinHeader.buttonBox.set_homogeneous(!_pCtConfig->nodesOnNodeNameHeaderAutoSize);
     if (0 == _pCtConfig->nodesOnNodeNameHeader) {
 #if GTKMM_MAJOR_VERSION >= 4
         while (auto pChild = _ctWinHeader.buttonBox.get_first_child()) {
@@ -978,7 +984,7 @@ void CtMainWin::window_header_update()
         // Populate recent nodes from navigation history
         _ctWinHeader.button_to_node_id.clear();
         for (auto iter = _visitedNodes.rbegin(); iter != _visitedNodes.rend(); ++iter) {
-            if (*iter == curr_node_id) continue;
+            if (!_pCtConfig->nodesOnNodeNameHeaderFIFO && *iter == curr_node_id) continue;
             if (CtTreeIter ct_tree_iter = ctTreestore.get_node_from_node_id(*iter)) {
                 Glib::ustring name = "<span font_desc=\"" + _pCtConfig->treeFont + "\">" + str::xml_escape(ct_tree_iter.get_node_name()) + "</span>";
                 Glib::ustring tooltip = CtMiscUtil::get_node_hierarchical_name(ct_tree_iter, "/", false);
@@ -997,9 +1003,9 @@ void CtMainWin::window_header_update()
                                 pLabel->set_label(name);
                                 pLabel->set_use_markup(true);
 #if GTKMM_MAJOR_VERSION >= 4
-                                pLabel->set_ellipsize(Pango::EllipsizeMode::END);
+                                pLabel->set_ellipsize(_pCtConfig->nodesOnNodeNameHeaderAutoSize ? Pango::EllipsizeMode::NONE : Pango::EllipsizeMode::END);
 #else
-                                pLabel->set_ellipsize(Pango::ELLIPSIZE_END);
+                                pLabel->set_ellipsize(_pCtConfig->nodesOnNodeNameHeaderAutoSize ? Pango::ELLIPSIZE_NONE : Pango::ELLIPSIZE_END);
 #endif
                             }
                             else if (auto pImage = dynamic_cast<Gtk::Image*>(pWidget)) {
@@ -1022,6 +1028,9 @@ void CtMainWin::window_header_update()
                         spdlog::debug("? pHBox");
                     }
                     pButton->set_tooltip_text(tooltip);
+                    if (_pCtConfig->nodesOnNodeNameHeaderAutoSize) {
+                        pButton->set_size_request(-1, -1);
+                    }
 #if GTKMM_MAJOR_VERSION < 4
                     pButton->show_all();
 #endif
