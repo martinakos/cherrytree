@@ -1,3 +1,17 @@
+cherrytree-docmodel (1.6.3+docmodel9-1) plucky; urgency=low
+
+  * HTML paste: preserve rich formatting, cell backgrounds, and colspan in tables
+  * rich table: prefill cell 0,0 from selection on insert
+  * rich table: show Rich Table checkbox when editing light/heavy table properties
+  * rich table: fix cell border disappearing on copy/paste/cut
+  * rich table: fix clipboard — preserve PRIMARY on focus-out, copy only selected text
+  * UI: add horizontal line widget (Insert → Horizontal Line)
+  * UI: header bar preferences — auto-size buttons, FIFO history, show/hide controls
+  * UI: node size display in statusbar and node properties dialog
+  * UI: fix node properties dialog — double color picker and icon not refreshing
+
+ -- Giuseppe Penone <giuspen@gmail.com>  Sat, 17 May 2026 12:00:00 +0000
+
 cherrytree-docmodel (1.6.3+docmodel8-1) plucky; urgency=low
 
   * rich table: cell horizontal alignment (left/center/right) toolbar actions, fully undo/redo-able
