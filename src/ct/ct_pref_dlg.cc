@@ -258,6 +258,8 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     auto checkbutton_word_count = Gtk::manage(new Gtk::CheckButton{_("Enable Word Count in Statusbar")});
     auto checkbutton_node_size = Gtk::manage(new Gtk::CheckButton{_("Enable Node Size in Statusbar")});
     auto checkbutton_win_title_doc_dir = Gtk::manage(new Gtk::CheckButton{_("Show the Document Directory in the Window Title")});
+    auto checkbutton_show_node_name_header = Gtk::manage(new Gtk::CheckButton{_("Show Node Name Header")});
+    auto checkbutton_show_node_name_label = Gtk::manage(new Gtk::CheckButton{_("Show Node Name in Header")});
     auto checkbutton_nn_header_full_path = Gtk::manage(new Gtk::CheckButton{_("Show the Full Path in the Node Name Header")});
     auto checkbutton_bookmarks_top_menu = Gtk::manage(new Gtk::CheckButton{_("Dedicated Bookmarks Menu in Menubar")});
     auto checkbutton_menubar_in_titlebar = Gtk::manage(new Gtk::CheckButton{_("Menubar in Titlebar")});
@@ -265,6 +267,8 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     checkbutton_word_count->set_active(_pConfig->wordCountOn);
     checkbutton_node_size->set_active(_pConfig->nodeSizeOn);
     checkbutton_win_title_doc_dir->set_active(_pConfig->winTitleShowDocDir);
+    checkbutton_show_node_name_header->set_active(_pConfig->showNodeNameHeader);
+    checkbutton_show_node_name_label->set_active(_pConfig->showNodeNameLabel);
     checkbutton_nn_header_full_path->set_active(_pConfig->nodeNameHeaderShowFullPath);
     checkbutton_bookmarks_top_menu->set_active(_pConfig->bookmarksInTopMenu);
     checkbutton_menubar_in_titlebar->set_active(_pConfig->menubarInTitlebar);
@@ -293,6 +297,11 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     hbox_nodes_on_node_name_header->pack_start(*label_nodes_on_node_name_header, false, false);
     hbox_nodes_on_node_name_header->pack_start(*spinbutton_nodes_on_node_name_header, false, false);
 #endif
+
+    auto checkbutton_nodes_on_header_auto_size = Gtk::manage(new Gtk::CheckButton{_("Auto-Size Last Visited Node Buttons to Fit Name")});
+    checkbutton_nodes_on_header_auto_size->set_active(_pConfig->nodesOnNodeNameHeaderAutoSize);
+    auto checkbutton_nodes_on_header_fifo = Gtk::manage(new Gtk::CheckButton{_("Last Visited Nodes as History (Allow Duplicates)")});
+    checkbutton_nodes_on_header_fifo->set_active(_pConfig->nodesOnNodeNameHeaderFIFO);
 
     auto hbox_scrollbar_min_size = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 4/*spacing*/});
     auto label_scrollbar_min_size = Gtk::manage(new Gtk::Label{_("Scrollbar Slider Minimum Size (0 = System Default)")});
@@ -370,11 +379,15 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     vbox_misc->append(*checkbutton_word_count);
     vbox_misc->append(*checkbutton_node_size);
     vbox_misc->append(*checkbutton_win_title_doc_dir);
+    vbox_misc->append(*checkbutton_show_node_name_header);
+    vbox_misc->append(*checkbutton_show_node_name_label);
     vbox_misc->append(*checkbutton_nn_header_full_path);
     vbox_misc->append(*checkbutton_bookmarks_top_menu);
     vbox_misc->append(*checkbutton_menubar_in_titlebar);
     vbox_misc->append(*hbox_toolbar_icons_size);
     vbox_misc->append(*hbox_nodes_on_node_name_header);
+    vbox_misc->append(*checkbutton_nodes_on_header_auto_size);
+    vbox_misc->append(*checkbutton_nodes_on_header_fifo);
     vbox_misc->append(*hbox_scrollbar_min_size);
     vbox_misc->append(*hbox_scrollbar_overlay);
     vbox_misc->append(*hbox_tooltips_enable);
@@ -383,11 +396,15 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     vbox_misc->pack_start(*checkbutton_word_count, false, false);
     vbox_misc->pack_start(*checkbutton_node_size, false, false);
     vbox_misc->pack_start(*checkbutton_win_title_doc_dir, false, false);
+    vbox_misc->pack_start(*checkbutton_show_node_name_header, false, false);
+    vbox_misc->pack_start(*checkbutton_show_node_name_label, false, false);
     vbox_misc->pack_start(*checkbutton_nn_header_full_path, false, false);
     vbox_misc->pack_start(*checkbutton_bookmarks_top_menu, false, false);
     vbox_misc->pack_start(*checkbutton_menubar_in_titlebar, false, false);
     vbox_misc->pack_start(*hbox_toolbar_icons_size, false, false);
     vbox_misc->pack_start(*hbox_nodes_on_node_name_header, false, false);
+    vbox_misc->pack_start(*checkbutton_nodes_on_header_auto_size, false, false);
+    vbox_misc->pack_start(*checkbutton_nodes_on_header_fifo, false, false);
     vbox_misc->pack_start(*hbox_scrollbar_min_size, false, false);
     vbox_misc->pack_start(*hbox_scrollbar_overlay, false, false);
     vbox_misc->pack_start(*hbox_tooltips_enable, false, false);
@@ -539,6 +556,14 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
         _pConfig->winTitleShowDocDir = checkbutton_win_title_doc_dir->get_active();
         _pCtMainWin->window_title_update();
     });
+    checkbutton_show_node_name_header->signal_toggled().connect([this, checkbutton_show_node_name_header](){
+        _pConfig->showNodeNameHeader = checkbutton_show_node_name_header->get_active();
+        apply_for_each_window([this](CtMainWin* win) { win->show_hide_win_header(_pConfig->showNodeNameHeader); });
+    });
+    checkbutton_show_node_name_label->signal_toggled().connect([this, checkbutton_show_node_name_label](){
+        _pConfig->showNodeNameLabel = checkbutton_show_node_name_label->get_active();
+        apply_for_each_window([](CtMainWin* win) { win->window_header_update(); });
+    });
     checkbutton_nn_header_full_path->signal_toggled().connect([this, checkbutton_nn_header_full_path](){
         _pConfig->nodeNameHeaderShowFullPath = checkbutton_nn_header_full_path->get_active();
         _pCtMainWin->window_header_update();
@@ -565,6 +590,14 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     });
     spinbutton_nodes_on_node_name_header->signal_value_changed().connect([this, spinbutton_nodes_on_node_name_header](){
         _pConfig->nodesOnNodeNameHeader = spinbutton_nodes_on_node_name_header->get_value_as_int();
+        apply_for_each_window([](CtMainWin* win) { win->window_header_update(); });
+    });
+    checkbutton_nodes_on_header_auto_size->signal_toggled().connect([this, checkbutton_nodes_on_header_auto_size](){
+        _pConfig->nodesOnNodeNameHeaderAutoSize = checkbutton_nodes_on_header_auto_size->get_active();
+        apply_for_each_window([](CtMainWin* win) { win->window_header_update(); });
+    });
+    checkbutton_nodes_on_header_fifo->signal_toggled().connect([this, checkbutton_nodes_on_header_fifo](){
+        _pConfig->nodesOnNodeNameHeaderFIFO = checkbutton_nodes_on_header_fifo->get_active();
         apply_for_each_window([](CtMainWin* win) { win->window_header_update(); });
     });
     spinbutton_scrollbar_min_size->signal_value_changed().connect([this, spinbutton_scrollbar_min_size](){
