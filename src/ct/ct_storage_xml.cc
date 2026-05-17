@@ -643,6 +643,9 @@ CtAnchoredWidget* CtStorageXmlHelper::_create_image_from_xml(xmlpp::Element* xml
     fs::path file_name = static_cast<std::string>(xml_element->get_attribute_value("filename"));
     xmlpp::TextNode* pTextNode = xml_element->get_child_text();
     const std::string encodedBlob = pTextNode ? pTextNode->get_content() : "";
+    if (file_name == CtHorizLine::SpecialFilename) {
+        return new CtHorizLine{_pCtMainWin, charOffset, justification};
+    }
     if (file_name == CtImageLatex::LatexSpecialFilename) {
         return new CtImageLatex{_pCtMainWin, encodedBlob, charOffset, justification, CtImageEmbFile::get_next_unique_id()};
     }

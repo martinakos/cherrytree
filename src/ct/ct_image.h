@@ -235,3 +235,27 @@ protected:
     const size_t  _uniqueId;
     fs::path      _pathLastMultiFile;
 };
+
+class CtHorizLine : public CtAnchoredWidget
+{
+public:
+    CtHorizLine(CtMainWin* pCtMainWin,
+                const int charOffset,
+                const std::string& justification);
+    ~CtHorizLine() override {}
+
+    static const std::string SpecialFilename;
+
+    void apply_width_height(const int parentTextWidth) override;
+    void apply_syntax_highlighting(const bool /*forceReApply*/) override {}
+    void to_xml(xmlpp::Element* p_node_parent, const int offset_adjustment, CtStorageCache* cache, const std::string& multifile_dir) override;
+    bool to_sqlite(sqlite3* pDb, const gint64 node_id, const int offset_adjustment, CtStorageCache* cache) override;
+    void set_modified_false() override {}
+    CtAnchWidgType get_type() const override { return CtAnchWidgType::HorizLine; }
+    std::shared_ptr<CtAnchoredWidgetState> get_state() override;
+    CtWidgetDesc to_widget_desc(int charOffset) override;
+
+private:
+    bool _on_draw(const Cairo::RefPtr<Cairo::Context>& cr);
+    Gtk::DrawingArea _drawArea;
+};
