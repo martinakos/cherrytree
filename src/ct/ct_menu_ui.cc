@@ -238,6 +238,7 @@ const char* CtMenu::_get_ui_str_menu()
     <menuitem action='insert_timestamp'/>
     <menuitem action='insert_special_char'/>
     <menuitem action='insert_horiz_rule'/>
+    <menuitem action='insert_horiz_line'/>
     <menu action='ListSubMenu'>
      <menuitem action='handle_bull_list'/>
      <menuitem action='handle_num_list'/>
@@ -484,6 +485,7 @@ const char* CtMenu::_get_popup_menu_ui_str_text()
     <menuitem action='insert_timestamp'/>
     <menuitem action='insert_special_char'/>
     <menuitem action='insert_horiz_rule'/>
+    <menuitem action='insert_horiz_line'/>
     <menu action='ListSubMenu'>
       <menuitem action='handle_bull_list'/>
       <menuitem action='handle_num_list'/>
@@ -526,6 +528,7 @@ const char* CtMenu::_get_popup_menu_ui_str_code()
     <menuitem action='insert_timestamp'/>
     <menuitem action='insert_special_char'/>
     <menuitem action='insert_horiz_rule'/>
+    <menuitem action='insert_horiz_line'/>
   </menu>
   <menu action='ChangeCaseSubMenu'>
     <menuitem action='case_down'/>

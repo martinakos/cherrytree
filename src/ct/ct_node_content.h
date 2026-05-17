@@ -66,7 +66,7 @@ class CtMainWin;
 // This enum must be kept in sync with the one in ct_types.h
 #ifndef CTANCH_WIDG_TYPE_DEFINED
 #define CTANCH_WIDG_TYPE_DEFINED
-enum class CtAnchWidgType { None, CodeBox, TableHeavy, TableLight, TableRich, ImagePng, ImageAnchor, ImageLatex, ImageEmbFile, Link };
+enum class CtAnchWidgType { None, CodeBox, TableHeavy, TableLight, TableRich, ImagePng, ImageAnchor, ImageLatex, ImageEmbFile, Link, HorizLine };
 #endif
 
 // Rich content for a single table cell: formatted text runs + embedded widgets.

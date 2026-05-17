@@ -272,6 +272,9 @@ std::list<CtAnchoredWidget*> buildBufferFromContent(
                         widget = pImage;
                     }
                 }
+                else if (widgetDesc.type == CtAnchWidgType::HorizLine) {
+                    widget = new CtHorizLine{pCtMainWin, charOffset, justification};
+                }
                 else {
                     spdlog::warn("buildBufferFromContent: unknown widget type {}, skipping",
                                 static_cast<int>(widgetDesc.type));
