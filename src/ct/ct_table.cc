@@ -1481,8 +1481,13 @@ void CtTableRich::_new_rich_cell_attach(const size_t rowIdx, const size_t colIdx
     textView.signal_motion_notify_event().connect([this, pCell](GdkEventMotion* event) -> bool {
         if (not _pCtMainWin->user_active()) return false;
         CtTextView& cellTV = pCell->get_text_view();
+        auto& tv = cellTV.mm();
+        auto textWin = tv.get_window(Gtk::TEXT_WINDOW_TEXT);
+        if (not textWin or event->window != textWin->gobj()) {
+            return false;
+        }
         int x, y;
-        cellTV.mm().window_to_buffer_coords(Gtk::TEXT_WINDOW_TEXT, int(event->x), int(event->y), x, y);
+        tv.window_to_buffer_coords(Gtk::TEXT_WINDOW_TEXT, int(event->x), int(event->y), x, y);
         cellTV.cursor_and_tooltips_handler(x, y);
         return false;
     }, false);
