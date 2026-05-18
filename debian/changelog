@@ -9,8 +9,12 @@ cherrytree-docmodel (1.6.3+docmodel9-1) plucky; urgency=low
   * UI: header bar preferences — auto-size buttons, FIFO history, show/hide controls
   * UI: node size display in statusbar and node properties dialog
   * UI: fix node properties dialog — double color picker and icon not refreshing
+  * rich table: fix cell borders disappearing on mouse hover
+  * rich table: fix right-click copy deselecting text
+  * fix monospace text ignoring explicit color formatting
+  * clipboard: improve HTML for pasting into external apps
 
- -- Giuseppe Penone <giuspen@gmail.com>  Sat, 17 May 2026 12:00:00 +0000
+ -- Martin Tosas <martin.tosas@gmail.com>  Sun, 18 May 2026 12:00:00 +0000
 
 cherrytree-docmodel (1.6.3+docmodel8-1) plucky; urgency=low
 
@@ -26,7 +30,7 @@ cherrytree-docmodel (1.6.3+docmodel8-1) plucky; urgency=low
   * undo/redo UI: dropdown auto-dismisses on outside click or app focus loss; max height increased to 600
   * UI: table dialogs rename Width/Height to Min Width/Min Height; statusbar now shows node ID
 
- -- Giuseppe Penone <giuspen@gmail.com>  Thu, 07 May 2026 12:00:00 +0000
+ -- Martin Tosas <martin.tosas@gmail.com>  Thu, 07 May 2026 12:00:00 +0000
 
 cherrytree-docmodel (1.6.3+docmodel7-1) plucky; urgency=low
 
@@ -36,7 +40,7 @@ cherrytree-docmodel (1.6.3+docmodel7-1) plucky; urgency=low
   * zoom: rigid scaling for rich tables and codeboxes; images apply current zoom on insert/paste so first paint is correct
   * middle-click paste (PRIMARY selection) routed through the undo bridge
 
- -- Giuseppe Penone <giuspen@gmail.com>  Thu, 01 May 2026 12:00:00 +0000
+ -- Martin Tosas <martin.tosas@gmail.com>  Thu, 01 May 2026 12:00:00 +0000
 
 cherrytree-docmodel (1.6.3+docmodel6-1) plucky; urgency=low
 
@@ -47,7 +51,7 @@ cherrytree-docmodel (1.6.3+docmodel6-1) plucky; urgency=low
   * fixed wrong image pasted after Ctrl+C from rich cell
   * fixed cursor jumping to top of page on undo/redo
 
- -- Giuseppe Penone <giuspen@gmail.com>  Fri, 18 Apr 2026 12:00:00 +0000
+ -- Martin Tosas <martin.tosas@gmail.com>  Fri, 18 Apr 2026 12:00:00 +0000
 
 cherrytree-docmodel (1.6.3+docmodel5-1) plucky; urgency=low
 
@@ -60,4 +64,4 @@ cherrytree-docmodel (1.6.3+docmodel5-1) plucky; urgency=low
   * incomplete languages: ar, bg, fa, fi, fr, hi_IN, hr, hu, lt, nl, pt, sk, sv, zh_CN (want to help and update one? write me https://www.giuspen.net/feedback/)
 
 
- -- Giuseppe Penone <giuspen@gmail.com>  Mon, 12 Jan 2026 21:34:00 +0000
+ -- Martin Tosas <martin.tosas@gmail.com>  Mon, 12 Jan 2026 21:34:00 +0000
