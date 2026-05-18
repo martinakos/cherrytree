@@ -336,7 +336,7 @@ Glib::ustring CtExport2Html::selection_export_to_html(Glib::RefPtr<Gtk::TextBuff
                                                       const Glib::ustring& syntax_highlighting,
                                                       const std::list<CtAnchoredWidget*>* pCellWidgets/*=nullptr*/)
 {
-    Glib::ustring html_text = str::format(HTML_HEADER, "");
+    Glib::ustring html_text{HTML_HEADER_CLIPBOARD};
     if (syntax_highlighting == CtConst::RICH_TEXT_ID) {
         Glib::ustring node_html_text;
         int images_count{0};
@@ -368,18 +368,13 @@ Glib::ustring CtExport2Html::selection_export_to_html(Glib::RefPtr<Gtk::TextBuff
         }
         node_html_text += html_process_slot(_pCtConfig, _pCtMainWin, start_offset, end_iter.get_offset(), text_buffer, false/*single_file*/);
 
-        std::vector<Glib::ustring> node_lines = str::split(node_html_text, "\n");
-        if (node_lines.size() > 0) {
-            std::vector<bool> rtl_for_lines = CtStrUtil::get_rtl_for_lines(start_iter.get_text(end_iter));
-            while (rtl_for_lines.size() < node_lines.size()) { rtl_for_lines.push_back(false); }
-            const size_t lastIdx = node_lines.size() - 1;
-            for (size_t i = 0; i <= lastIdx; ++i) {
-                if (i < lastIdx or not node_lines.at(i).empty()) {
-                    if (rtl_for_lines.at(i)) html_text += "<p dir=\"rtl\">" + node_lines.at(i) + "</p>";
-                    else html_text += "<p>" + node_lines.at(i) + "</p>";
-                }
-            }
+        // For clipboard, use <br/> for line breaks instead of wrapping each line
+        // in <p> tags — the <p> wrapping breaks <ul>/<ol> list structure and
+        // produces invalid HTML that external apps cannot parse correctly.
+        while (node_html_text.size() >= 1 and node_html_text[node_html_text.size() - 1] == '\n') {
+            node_html_text.erase(node_html_text.size() - 1);
         }
+        html_text += str::replace(node_html_text, "\n", "<br/>");
     }
     else {
         html_text += _html_get_from_code_buffer(text_buffer,
@@ -388,23 +383,23 @@ Glib::ustring CtExport2Html::selection_export_to_html(Glib::RefPtr<Gtk::TextBuff
                                                 syntax_highlighting,
                                                 true/*from_selection*/);
     }
-    html_text += HTML_FOOTER;
+    html_text += HTML_FOOTER_CLIPBOARD;
     return html_text;
 }
 
 Glib::ustring CtExport2Html::table_export_to_html(CtTableCommon* table)
 {
-    Glib::ustring html_text = str::format(HTML_HEADER, "");
+    Glib::ustring html_text{HTML_HEADER_CLIPBOARD};
     html_text += _get_table_html(table);
-    html_text += HTML_FOOTER;
+    html_text += HTML_FOOTER_CLIPBOARD;
     return html_text;
 }
 
 Glib::ustring CtExport2Html::codebox_export_to_html(CtCodebox* codebox)
 {
-    Glib::ustring html_text = str::format(HTML_HEADER, "");
+    Glib::ustring html_text{HTML_HEADER_CLIPBOARD};
     html_text += _get_codebox_html(codebox);
-    html_text += HTML_FOOTER;
+    html_text += HTML_FOOTER_CLIPBOARD;
     return html_text;
 }
 
@@ -438,9 +433,23 @@ Glib::ustring CtExport2Html::_get_image_html(CtImage* image,
         image_name = std::to_string(pCtTreeIter->get_node_id_data_holder()) + "-" + std::to_string(images_count) + ".png";
         image_rel_path = (fs::path{"images"} / image_name).string_unix();
     }
-    else {
+    else if (single_file) {
         image_name = std::to_string(images_count) + ".png";
-        image_rel_path = "file://" + (images_dir / image_name).string_unix();
+        image_rel_path = (fs::path{"images"} / image_name).string_unix();
+    }
+    else {
+        // Clipboard path: embed as base64 data URI so external apps can paste the image
+        g_autofree gchar* pBuffer{NULL};
+        gsize buffer_size;
+        image->get_pixbuf()->save_to_buffer(pBuffer, buffer_size, "png");
+        Glib::ustring data_uri = "data:image/png;base64," + Glib::Base64::encode(std::string(pBuffer, buffer_size));
+        Glib::ustring image_html = "<img src=\"" + data_uri + "\" />";
+        CtImagePng* png = dynamic_cast<CtImagePng*>(image);
+        if (png and not png->get_link().empty()) {
+            Glib::ustring href = _get_href_from_link_prop_val(_pCtMainWin, png->get_link(), single_file);
+            image_html = "<a href=\"" + href + "\">" + image_html + "</a>";
+        }
+        return image_html;
     }
 
     Glib::ustring image_html = "<img src=\"" + image_rel_path + "\" alt=\"" + image_rel_path + "\" />";
