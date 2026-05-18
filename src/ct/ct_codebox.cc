@@ -130,11 +130,17 @@ void CtTextCell::applyCellBorder(int wTop, int wRight, int wBottom, int wLeft,
         _rCssProviderCellBorder.reset();
     }
     _drawConn.disconnect();
+    _sizeAllocConn.disconnect();
 
-    textView.set_border_window_size(Gtk::TEXT_WINDOW_TOP,    std::max(0, wTop));
-    textView.set_border_window_size(Gtk::TEXT_WINDOW_RIGHT,  std::max(0, wRight));
-    textView.set_border_window_size(Gtk::TEXT_WINDOW_BOTTOM, std::max(0, wBottom));
-    textView.set_border_window_size(Gtk::TEXT_WINDOW_LEFT,   std::max(0, wLeft));
+    _borderWTop    = std::max(0, wTop);
+    _borderWRight  = std::max(0, wRight);
+    _borderWBottom = std::max(0, wBottom);
+    _borderWLeft   = std::max(0, wLeft);
+
+    textView.set_border_window_size(Gtk::TEXT_WINDOW_TOP,    _borderWTop);
+    textView.set_border_window_size(Gtk::TEXT_WINDOW_RIGHT,  _borderWRight);
+    textView.set_border_window_size(Gtk::TEXT_WINDOW_BOTTOM, _borderWBottom);
+    textView.set_border_window_size(Gtk::TEXT_WINDOW_LEFT,   _borderWLeft);
 
     _cornerColorTL = cornerColorTL;
     _cornerColorTR = cornerColorTR;
@@ -156,18 +162,34 @@ void CtTextCell::applyCellBorder(int wTop, int wRight, int wBottom, int wLeft,
         styleCtx->add_provider(_rCssProviderCellBorder, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
 
 #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
+        // GtkSourceView's internal gutter recalculates border window sizes
+        // (typically to 0 when no line-number renderers are present).
+        // Re-apply our intended sizes after each allocation.
+        _sizeAllocConn = textView.signal_size_allocate().connect([this](Gtk::Allocation&) {
+            auto& tv = _ctTextview.mm();
+            if (tv.get_border_window_size(Gtk::TEXT_WINDOW_TOP)    != _borderWTop ||
+                tv.get_border_window_size(Gtk::TEXT_WINDOW_RIGHT)  != _borderWRight ||
+                tv.get_border_window_size(Gtk::TEXT_WINDOW_BOTTOM) != _borderWBottom ||
+                tv.get_border_window_size(Gtk::TEXT_WINDOW_LEFT)   != _borderWLeft)
+            {
+                tv.set_border_window_size(Gtk::TEXT_WINDOW_TOP,    _borderWTop);
+                tv.set_border_window_size(Gtk::TEXT_WINDOW_RIGHT,  _borderWRight);
+                tv.set_border_window_size(Gtk::TEXT_WINDOW_BOTTOM, _borderWBottom);
+                tv.set_border_window_size(Gtk::TEXT_WINDOW_LEFT,   _borderWLeft);
+            }
+        });
+
         // Paint border stripes and corner rectangles directly via signal_draw.
-        // GTK3 CSS on border windows can fail to repaint after scrolling or
-        // re-allocation, so this provides a reliable fallback that keeps all
-        // borders visible regardless of CSS invalidation issues.
+        // Connected AFTER the class closure so our painting covers any stale
+        // or missing CSS background from GtkSourceView's gutter rendering.
         _drawConn = textView.signal_draw().connect(
             [this](const Cairo::RefPtr<Cairo::Context>& cr) -> bool {
                 const int totalW = _ctTextview.mm().get_allocated_width();
                 const int totalH = _ctTextview.mm().get_allocated_height();
-                const int bTop   = _ctTextview.mm().get_border_window_size(Gtk::TEXT_WINDOW_TOP);
-                const int bBot   = _ctTextview.mm().get_border_window_size(Gtk::TEXT_WINDOW_BOTTOM);
-                const int bLeft  = _ctTextview.mm().get_border_window_size(Gtk::TEXT_WINDOW_LEFT);
-                const int bRight = _ctTextview.mm().get_border_window_size(Gtk::TEXT_WINDOW_RIGHT);
+                const int bTop   = _borderWTop;
+                const int bBot   = _borderWBottom;
+                const int bLeft  = _borderWLeft;
+                const int bRight = _borderWRight;
                 auto paintRect = [&](const std::string& color, int cx, int cy, int cw, int ch) {
                     if (color.empty() || cw <= 0 || ch <= 0) return;
                     Gdk::RGBA rgba{color};
@@ -175,20 +197,18 @@ void CtTextCell::applyCellBorder(int wTop, int wRight, int wBottom, int wLeft,
                     cr->rectangle(cx, cy, cw, ch);
                     cr->fill();
                 };
-                // Border stripes (excluding corner areas)
                 const int innerW = totalW - bLeft - bRight;
                 const int innerH = totalH - bTop - bBot;
                 if (bTop > 0)    paintRect(_borderColorTop,    bLeft, 0,              innerW, bTop);
                 if (bBot > 0)    paintRect(_borderColorBottom, bLeft, totalH - bBot,   innerW, bBot);
                 if (bLeft > 0)   paintRect(_borderColorLeft,   0,     bTop,            bLeft,  innerH);
                 if (bRight > 0)  paintRect(_borderColorRight,  totalW - bRight, bTop,  bRight, innerH);
-                // Corner rectangles (each junction uses its own resolved color)
                 if (bTop > 0 && bLeft > 0)   paintRect(_cornerColorTL, 0, 0, bLeft, bTop);
                 if (bTop > 0 && bRight > 0)  paintRect(_cornerColorTR, totalW - bRight, 0, bRight, bTop);
                 if (bBot > 0 && bLeft > 0)   paintRect(_cornerColorBL, 0, totalH - bBot, bLeft, bBot);
                 if (bBot > 0 && bRight > 0)  paintRect(_cornerColorBR, totalW - bRight, totalH - bBot, bRight, bBot);
                 return false;
-            });
+            }, true/*after*/);
 #endif
     }
 }
