@@ -375,6 +375,11 @@ std::string CtMainWin::get_text_tag_name_exist_or_create(const std::string& prop
            // spdlog::error("!! unsupported propertyName={} propertyValue={}", propertyName, propertyValue);
         }
         _rGtkTextTagTable->add(rTextTag);
+        if (CtConst::TAG_FAMILY == propertyName and CtConst::TAG_PROP_VAL_MONOSPACE == propertyValue) {
+            // Monospace tag embeds foreground/background from config; set lowest
+            // priority so explicit color tags always override those defaults.
+            rTextTag->set_priority(0);
+        }
     }
     return tagName;
 }
