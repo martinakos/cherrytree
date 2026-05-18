@@ -188,6 +188,7 @@ protected:
     size_t           _currentRow{0u};
     size_t           _currentColumn{0u};
     CtTableStyle     _tableStyle;
+    bool             _popupMenuActive{false};
 };
 
 struct CtTableLightColumns : public Gtk::TreeModelColumnRecord
