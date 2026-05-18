@@ -348,6 +348,8 @@ bool CtTableCommon::on_table_button_press_event(GdkEventButton* event)
 void CtTableCommon::on_cell_populate_popup(Gtk::Menu* menu)
 {
     if (not _pCtMainWin->user_active()) return;
+    _popupMenuActive = true;
+    menu->signal_hide().connect([this]{ _popupMenuActive = false; });
     const size_t rowIdx = current_row();
     const size_t colIdx = current_column();
     _pCtMainWin->get_ct_actions()->curr_table_anchor = this;
@@ -1488,6 +1490,7 @@ void CtTableRich::_new_rich_cell_attach(const size_t rowIdx, const size_t colIdx
     // Clear in-cell text selection when this cell loses focus
     textView.signal_focus_out_event().connect([this, pCell](GdkEventFocus*) {
         if (not _pCtMainWin->user_active()) return false;
+        if (_popupMenuActive) return false;
         auto buffer = pCell->get_buffer();
 #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
         // place_cursor() clears the buffer selection, which releases X11 PRIMARY
