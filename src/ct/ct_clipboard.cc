@@ -587,6 +587,83 @@ void CtClipboard::from_xml_string_to_buffer(Glib::RefPtr<Gtk::TextBuffer> text_b
     }
 }
 
+std::string CtClipboard::_clipboard_html_flatten_lists(const std::string& html)
+{
+    std::string out;
+    out.reserve(html.size());
+    int depth = 0;
+    size_t i = 0;
+    while (i < html.size()) {
+        if (html.compare(i, 3, "<ul") == 0 || html.compare(i, 3, "<ol") == 0) {
+            auto end = html.find('>', i);
+            if (end != std::string::npos) {
+                if (!out.empty() && out.size() >= 5 && out.compare(out.size() - 5, 5, "<br/>") != 0) {
+                    out += "<br/>";
+                }
+                depth++;
+                i = end + 1;
+                continue;
+            }
+        }
+        if (html.compare(i, 5, "</ul>") == 0 || html.compare(i, 5, "</ol>") == 0) {
+            if (depth > 0) depth--;
+            i += 5;
+            continue;
+        }
+        if (depth > 0 && html.compare(i, 4, "<li>") == 0) {
+            for (int d = 0; d < depth; d++) {
+                out += "\xc2\xa0\xc2\xa0\xc2\xa0";
+            }
+            out += "\xe2\x80\xa2 ";
+            i += 4;
+            continue;
+        }
+        if (depth > 0 && html.compare(i, 5, "</li>") == 0) {
+            i += 5;
+            size_t next = i;
+            while (next < html.size() && (html[next] == ' ' || html[next] == '\n')) next++;
+            bool lastItem = (next >= html.size() ||
+                             html.compare(next, 5, "</ul>") == 0 ||
+                             html.compare(next, 5, "</ol>") == 0);
+            if (!lastItem) {
+                out += "<br/>";
+            }
+            continue;
+        }
+        out += html[i];
+        i++;
+    }
+
+    // Convert leading spaces after <br/> to non-breaking spaces
+    // so HTML renderers preserve the indentation
+    std::string result;
+    result.reserve(out.size());
+    size_t j = 0;
+    while (j < out.size()) {
+        if (out.compare(j, 5, "<br/>") == 0) {
+            result += "<br/>";
+            j += 5;
+            while (j < out.size() && out[j] == ' ') {
+                result += "\xc2\xa0";
+                j++;
+            }
+        }
+        else {
+            result += out[j];
+            j++;
+        }
+    }
+    return result;
+}
+
+Glib::ustring CtClipboard::_clipboard_html_add_inline_styles(Glib::ustring html)
+{
+    html = Glib::ustring{_clipboard_html_flatten_lists(html.raw())};
+    html = str::replace(html, "<th style=\"", "<th style=\"font-weight:normal;font-family:sans-serif;");
+    html = str::replace(html, "<td style=\"", "<td style=\"font-family:sans-serif;");
+    return html;
+}
+
 // Write the Selected Content to the Clipboard
 void CtClipboard::_selection_to_clipboard(Glib::RefPtr<Gtk::TextBuffer> text_buffer,
                                           Gtk::TextView* /*sourceview*/,
@@ -643,7 +720,7 @@ void CtClipboard::_selection_to_clipboard(Glib::RefPtr<Gtk::TextBuffer> text_buf
             else if (auto table = dynamic_cast<CtTableCommon*>(widget_vector.front())) {
                 CtClipboardData* clip_data = new CtClipboardData{};
                 table->to_xml(clip_data->xml_doc.create_root_node("root"), 0, nullptr, std::string{});
-                clip_data->html_text = CtExport2Html{_pCtMainWin}.table_export_to_html(table);
+                clip_data->html_text = _clipboard_html_add_inline_styles(CtExport2Html{_pCtMainWin}.table_export_to_html(table));
                 clip_data->plain_text = CtExport2Txt{_pCtMainWin}.get_table_plain(table);
 
                 _set_clipboard_data({CtConst::TARGET_CTD_TABLE, CtConst::TARGETS_HTML[0], CtConst::TARGETS_HTML[1], CtConst::TARGET_CTD_PLAIN_TEXT}, clip_data);
@@ -652,7 +729,7 @@ void CtClipboard::_selection_to_clipboard(Glib::RefPtr<Gtk::TextBuffer> text_buf
             else if (auto codebox = dynamic_cast<CtCodebox*>(widget_vector.front())) {
                 CtClipboardData* clip_data = new CtClipboardData{};
                 codebox->to_xml(clip_data->xml_doc.create_root_node("root"), 0, nullptr, std::string{});
-                clip_data->html_text = CtExport2Html{_pCtMainWin}.codebox_export_to_html(codebox);
+                clip_data->html_text = _clipboard_html_add_inline_styles(CtExport2Html{_pCtMainWin}.codebox_export_to_html(codebox));
                 if (1 == num_chars) {
                     clip_data->plain_text = _codebox_to_yaml(codebox);
                 }
@@ -673,7 +750,7 @@ void CtClipboard::_selection_to_clipboard(Glib::RefPtr<Gtk::TextBuffer> text_buf
     const std::list<CtAnchoredWidget*>* pCellWidgets = pRichCell ? &cellWidgetsFull : nullptr;
 
     CtClipboardData* clip_data = new CtClipboardData{};
-    clip_data->html_text = CtExport2Html{_pCtMainWin}.selection_export_to_html(text_buffer, iter_sel_start, iter_sel_end, !pCodebox ? node_syntax_high : CtConst::PLAIN_TEXT_ID, pCellWidgets);
+    clip_data->html_text = _clipboard_html_add_inline_styles(CtExport2Html{_pCtMainWin}.selection_export_to_html(text_buffer, iter_sel_start, iter_sel_end, !pCodebox ? node_syntax_high : CtConst::PLAIN_TEXT_ID, pCellWidgets));
     if (not pCodebox and CtConst::RICH_TEXT_ID == node_syntax_high) {
         std::vector<std::string> targets_vector;
         clip_data->plain_text = CtExport2Txt{_pCtMainWin}.selection_export_to_txt(ct_tree_iter, text_buffer, iter_sel_start.get_offset(), iter_sel_end.get_offset(), true, pCellWidgets);

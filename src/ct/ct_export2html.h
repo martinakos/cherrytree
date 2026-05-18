@@ -43,6 +43,17 @@ private:
 </head>
 <body>
 )HTML"; // after <body> should not be any whitespaces
+    const Glib::ustring HTML_HEADER_CLIPBOARD = R"HTML(<!doctype html>
+<html>
+<head>
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+</head>
+<body><div style="font-family:sans-serif">
+)HTML";
+    const Glib::ustring HTML_FOOTER_CLIPBOARD = R"HTML(
+</div></body>
+</html>
+)HTML";
     const Glib::ustring HTML_FOOTER = R"HTML(
 </body>
 </html>
