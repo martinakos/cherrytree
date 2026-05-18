@@ -81,7 +81,12 @@ protected:
     std::string _borderColorRight;
     std::string _borderColorBottom;
     std::string _borderColorLeft;
+    int _borderWTop{0};
+    int _borderWRight{0};
+    int _borderWBottom{0};
+    int _borderWLeft{0};
     sigc::connection _drawConn;
+    sigc::connection _sizeAllocConn;
 };
 
 class CtCodebox : public CtAnchoredWidget, public CtTextCell
