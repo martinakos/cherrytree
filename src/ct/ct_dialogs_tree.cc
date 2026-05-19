@@ -229,9 +229,9 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
 
     Glib::ustring id_str = Glib::ustring{_("Unique Id")} + ": " + std::to_string(nodeData.nodeId);
     CtTreeIter currIter = pCtMainWin->get_tree_store().get_node_from_node_id(nodeData.nodeId);
-    if (currIter) {
-        size_t subtreeSize = _calc_subtree_size(currIter);
-        id_str += Glib::ustring{"  —  "} + _("Total Size") + _(": ") + _format_size(subtreeSize);
+    bool hasCurrIter = static_cast<bool>(currIter);
+    if (hasCurrIter) {
+        id_str += Glib::ustring{"  —  "} + _("Total Size") + _(": ") + _("…");
     }
     CtSharedNodesMap shared_nodes_map;
     if (pCtMainWin->get_tree_store().populate_shared_nodes_map(shared_nodes_map) > 0u) {
@@ -239,7 +239,6 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
             if (nodeData.nodeId == currPair.first or
                 nodeData.sharedNodesMasterId == currPair.first)
             {
-                // add the master id to the set of non master ids of the group
                 id_str += CtConst::CHAR_NEWLINE + _("Shared Nodes Group") + ": " + std::to_string(currPair.first);
                 for (const gint64 nodeId : currPair.second) {
                     id_str += ", " + std::to_string(nodeId);
@@ -263,6 +262,20 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
     pContentArea->pack_start(*id_label);
     pContentArea->show_all();
     name_entry->grab_focus();
+
+    if (hasCurrIter) {
+        Glib::signal_timeout().connect_once([id_label, currIter, &nodeData](){
+            size_t subtreeSize = _calc_subtree_size(currIter);
+            Glib::ustring updated = Glib::ustring{_("Unique Id")} + ": " + std::to_string(nodeData.nodeId);
+            updated += Glib::ustring{"  —  "} + _("Total Size") + _(": ") + _format_size(subtreeSize);
+            Glib::ustring current = id_label->get_text();
+            Glib::ustring firstLine = current.substr(0, current.find('\n'));
+            if (current.size() > firstLine.size()) {
+                updated += current.substr(firstLine.size());
+            }
+            id_label->set_text(updated);
+        }, 50);
+    }
 
     button_prog_lang->signal_clicked().connect([&dialog, pCtMainWin, button_prog_lang](){
         auto rItemStore = CtChooseDialogListStore::create();
