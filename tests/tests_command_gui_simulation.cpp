@@ -7458,6 +7458,37 @@ static void _test_rich_cell_image_resize_uses_original(CtMainWin* pWin)
     // Cleanup
     while (pBridge->canUndo()) pActions->requested_step_back();
     GuiEventSimulator::process_pending_events();
+
+    // ── Part 3: percentage-style scaling uses high-res original ────────────────
+    // In percentage mode the dialog scales relative to the original image size.
+    // Simulate "50%" by passing a zoom_base at half the original dimensions and
+    // verify the output is derived from the high-res original (red), not the
+    // degraded zoom_base (blue).  Then simulate "100%" (zoom_base == orig size)
+    // and verify the output matches the original dimensions exactly.
+    {
+        auto origPx = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB, false, 8, 100, 80);
+        origPx->fill(0xFF0000FF);
+        auto halfZoom = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB, false, 8, 50, 40);
+        halfZoom->fill(0x0000FFFF);
+
+        auto result50 = CtDialogs::image_handle_dialog(*pWin, halfZoom, origPx);
+        ASSERT_TRUE(result50);
+        EXPECT_EQ(50, result50->get_width())  << "50% zoom_base dimensions preserved";
+        EXPECT_EQ(40, result50->get_height()) << "50% zoom_base dimensions preserved";
+        const guint8* px50 = result50->get_pixels();
+        EXPECT_GT((int)px50[0], 200) << "scaled from orig (red), not zoom_base (blue)";
+        EXPECT_LT((int)px50[2], 50);
+
+        auto fullZoom = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB, false, 8, 100, 80);
+        fullZoom->fill(0x0000FFFF);
+        auto result100 = CtDialogs::image_handle_dialog(*pWin, fullZoom, origPx);
+        ASSERT_TRUE(result100);
+        EXPECT_EQ(100, result100->get_width())  << "100% restores original width";
+        EXPECT_EQ(80, result100->get_height()) << "100% restores original height";
+        const guint8* px100 = result100->get_pixels();
+        EXPECT_GT((int)px100[0], 200) << "scaled from orig (red)";
+        EXPECT_LT((int)px100[2], 50);
+    }
 }
 
 // ─── Zoom-retention regressions: images inside rich cells must keep their ──
