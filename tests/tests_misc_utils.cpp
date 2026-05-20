@@ -23,6 +23,7 @@
 
 #include "ct_misc_utils.h"
 #include "ct_const.h"
+#include "ct_config.h"
 #include "ct_filesystem.h"
 #include "tests_common.h"
 #include <cstdint>
@@ -758,3 +759,20 @@ TEST(MiscUtilsGroup, rgb_contrast_and_luminance)
     ASSERT_GE(CtRgbUtil::get_contrast_ratio(adjusted_blue, dark_bg), 3.5);
 }
 
+TEST(MiscUtilsGroup, config_imageSizeUnitPixels_roundtrip)
+{
+    const std::string tmpPath = Glib::build_filename(Glib::get_tmp_dir(), "ct_test_config.cfg");
+
+    {
+        CtConfig cfgWrite{tmpPath};
+        ASSERT_TRUE(cfgWrite.imageSizeUnitPixels) << "default must be true (pixels)";
+        cfgWrite.imageSizeUnitPixels = false;
+        ASSERT_TRUE(cfgWrite.write_to_file(tmpPath));
+    }
+    {
+        CtConfig cfgRead{tmpPath};
+        EXPECT_FALSE(cfgRead.imageSizeUnitPixels) << "persisted value must survive round-trip";
+    }
+
+    g_remove(tmpPath.c_str());
+}
