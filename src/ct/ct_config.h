@@ -131,6 +131,7 @@ public:
     bool                                        embfileShowFileName{true};
     bool                                        embfileMFNameOnDisk{false};
     int                                         embfileMaxSize{10};
+    bool                                        imageSizeUnitPixels{true};
     bool                                        lineWrapping{true};
     bool                                        autoSmartQuotes{true};
     bool                                        urlAutoLink{true};
