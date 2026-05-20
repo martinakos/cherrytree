@@ -259,6 +259,14 @@ Glib::RefPtr<Gdk::Pixbuf> CtDialogs::image_handle_dialog(Gtk::Window& parent_win
     int width = rOriginalPixbuf->get_width();
     int height = rOriginalPixbuf->get_height();
     double image_w_h_ration = static_cast<double>(width)/height;
+    int orig_width = rHighResPixbuf ? rHighResPixbuf->get_width() : width;
+    int orig_height = rHighResPixbuf ? rHighResPixbuf->get_height() : height;
+    bool lock_aspect = true;
+    bool is_percentage = false;
+    CtConfig* pConfig = nullptr;
+    if (auto* pCtMainWin = dynamic_cast<CtMainWin*>(&parent_win)) {
+        pConfig = pCtMainWin->get_ct_config();
+    }
 
     Gtk::Dialog dialog{_("Image Properties"),
                        parent_win,
@@ -311,17 +319,44 @@ Glib::RefPtr<Gdk::Pixbuf> CtDialogs::image_handle_dialog(Gtk::Window& parent_win
     hbox_3.pack_start(spinbutton_width);
     hbox_3.pack_start(label_height);
     hbox_3.pack_start(spinbutton_height);
+    Gtk::ComboBoxText combobox_unit;
+    combobox_unit.append(_("Pixels"));
+    combobox_unit.append(_("Percentage"));
+    if (pConfig && !pConfig->imageSizeUnitPixels) {
+        is_percentage = true;
+        combobox_unit.set_active(1);
+        rAdj_width->set_upper(1000);
+        rAdj_height->set_upper(1000);
+    } else {
+        combobox_unit.set_active(0);
+    }
+    Gtk::CheckButton checkbutton_lock_ratio{_("Lock aspect ratio")};
+    checkbutton_lock_ratio.set_active(true);
     Gtk::Box* pContentArea = dialog.get_content_area();
     pContentArea->pack_start(hbox_1);
     pContentArea->pack_start(hbox_2, false, false);
     pContentArea->pack_start(hbox_3, false, false);
     pContentArea->set_spacing(6);
+    G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+    auto* pButtonBox = dynamic_cast<Gtk::ButtonBox*>(dialog.get_action_area());
+    G_GNUC_END_IGNORE_DEPRECATIONS
+    if (pButtonBox) {
+        pButtonBox->pack_start(combobox_unit, false, false);
+        pButtonBox->set_child_secondary(combobox_unit, true);
+        pButtonBox->pack_start(checkbutton_lock_ratio, false, false);
+        pButtonBox->set_child_secondary(checkbutton_lock_ratio, true);
+    }
 
     bool stop_update = false;
     auto image_load_into_dialog = [&]() {
         stop_update = true;
-        spinbutton_width.set_value(width);
-        spinbutton_height.set_value(height);
+        if (is_percentage) {
+            spinbutton_width.set_value(100.0 * width / orig_width);
+            spinbutton_height.set_value(100.0 * height / orig_height);
+        } else {
+            spinbutton_width.set_value(width);
+            spinbutton_height.set_value(height);
+        }
         Glib::RefPtr<Gdk::Pixbuf> rPixbuf;
         if (width <= 900 && height <= 600) {
             // original size into the dialog
@@ -331,12 +366,12 @@ Glib::RefPtr<Gdk::Pixbuf> CtDialogs::image_handle_dialog(Gtk::Window& parent_win
             // reduced size visible into the dialog
             if (width > 900) {
                 int img_parms_width = 900;
-                int img_parms_height = (int)(img_parms_width / image_w_h_ration);
+                int img_parms_height = (int)(img_parms_width * height / (double)width);
                 rPixbuf = rOriginalPixbuf->scale_simple(img_parms_width, img_parms_height, Gdk::INTERP_BILINEAR);
             }
             else {
                 int img_parms_height = 600;
-                int img_parms_width = (int)(img_parms_height * image_w_h_ration);
+                int img_parms_width = (int)(img_parms_height * width / (double)height);
                 rPixbuf = rOriginalPixbuf->scale_simple(img_parms_width, img_parms_height, Gdk::INTERP_BILINEAR);
             }
         }
@@ -346,13 +381,15 @@ Glib::RefPtr<Gdk::Pixbuf> CtDialogs::image_handle_dialog(Gtk::Window& parent_win
     button_rotate_90_cw.signal_clicked().connect([&](){
         rOriginalPixbuf = rOriginalPixbuf->rotate_simple(Gdk::PixbufRotation::PIXBUF_ROTATE_CLOCKWISE);
         image_w_h_ration = 1./image_w_h_ration;
-        std::swap(width, height); // new width is the former height and vice versa
+        std::swap(width, height);
+        std::swap(orig_width, orig_height);
         image_load_into_dialog();
     });
     button_rotate_90_ccw.signal_clicked().connect([&](){
         rOriginalPixbuf = rOriginalPixbuf->rotate_simple(Gdk::PixbufRotation::PIXBUF_ROTATE_COUNTERCLOCKWISE);
         image_w_h_ration = 1./image_w_h_ration;
-        std::swap(width, height); // new width is the former height and vice versa
+        std::swap(width, height);
+        std::swap(orig_width, orig_height);
         image_load_into_dialog();
     });
     button_flip_horizontal.signal_clicked().connect([&](){
@@ -368,15 +405,60 @@ Glib::RefPtr<Gdk::Pixbuf> CtDialogs::image_handle_dialog(Gtk::Window& parent_win
     });
     spinbutton_width.signal_value_changed().connect([&](){
         if (stop_update) return;
-        width = spinbutton_width.get_value_as_int();
-        height = (int)(width/image_w_h_ration);
+        if (is_percentage) {
+            double pct = spinbutton_width.get_value();
+            width = std::max(1, static_cast<int>(orig_width * pct / 100.0));
+            if (lock_aspect) {
+                height = std::max(1, static_cast<int>(orig_height * pct / 100.0));
+            }
+        } else {
+            width = spinbutton_width.get_value_as_int();
+            if (lock_aspect) {
+                height = static_cast<int>(width / image_w_h_ration);
+            }
+        }
         image_load_into_dialog();
     });
     spinbutton_height.signal_value_changed().connect([&](){
         if (stop_update) return;
-        height = spinbutton_height.get_value_as_int();
-        width = (int)(height*image_w_h_ration);
+        if (is_percentage) {
+            double pct = spinbutton_height.get_value();
+            height = std::max(1, static_cast<int>(orig_height * pct / 100.0));
+            if (lock_aspect) {
+                width = std::max(1, static_cast<int>(orig_width * pct / 100.0));
+            }
+        } else {
+            height = spinbutton_height.get_value_as_int();
+            if (lock_aspect) {
+                width = static_cast<int>(height * image_w_h_ration);
+            }
+        }
         image_load_into_dialog();
+    });
+    combobox_unit.signal_changed().connect([&](){
+        stop_update = true;
+        is_percentage = (combobox_unit.get_active_row_number() == 1);
+        if (pConfig) {
+            pConfig->imageSizeUnitPixels = !is_percentage;
+        }
+        if (is_percentage) {
+            rAdj_width->set_upper(1000);
+            rAdj_height->set_upper(1000);
+            spinbutton_width.set_value(100.0 * width / orig_width);
+            spinbutton_height.set_value(100.0 * height / orig_height);
+        } else {
+            rAdj_width->set_upper(10000);
+            rAdj_height->set_upper(10000);
+            spinbutton_width.set_value(width);
+            spinbutton_height.set_value(height);
+        }
+        stop_update = false;
+    });
+    checkbutton_lock_ratio.signal_toggled().connect([&](){
+        lock_aspect = checkbutton_lock_ratio.get_active();
+        if (lock_aspect) {
+            image_w_h_ration = static_cast<double>(width) / height;
+        }
     });
     auto on_key_press_dialog = [&](GdkEventKey* pEventKey)->bool{
         if (GDK_KEY_Return == pEventKey->keyval or GDK_KEY_KP_Enter == pEventKey->keyval) {

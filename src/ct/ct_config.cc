@@ -343,6 +343,7 @@ void CtConfig::_populate_keyfile_from_data()
     _uKeyFile->set_boolean(_currentGroup, "object_no_sel_on_click", objectNoSelOnClick);
     _uKeyFile->set_boolean(_currentGroup, "embfile_mfname_ondisk", embfileMFNameOnDisk);
     _uKeyFile->set_integer(_currentGroup, "embfile_max_size", embfileMaxSize);
+    _uKeyFile->set_boolean(_currentGroup, "image_size_unit_pixels", imageSizeUnitPixels);
     _uKeyFile->set_boolean(_currentGroup, "line_wrapping", lineWrapping);
     _uKeyFile->set_boolean(_currentGroup, "auto_smart_quotes", autoSmartQuotes);
     _uKeyFile->set_boolean(_currentGroup, "camelcase_autolink", camelCaseAutoLink);
@@ -688,6 +689,7 @@ void CtConfig::_populate_data_from_keyfile()
     _populate_bool_from_keyfile("object_no_sel_on_click", &objectNoSelOnClick);
     _populate_bool_from_keyfile("embfile_mfname_ondisk", &embfileMFNameOnDisk);
     _populate_int_from_keyfile("embfile_max_size", &embfileMaxSize);
+    _populate_bool_from_keyfile("image_size_unit_pixels", &imageSizeUnitPixels);
     _populate_bool_from_keyfile("line_wrapping", &lineWrapping);
     _populate_bool_from_keyfile("auto_smart_quotes", &autoSmartQuotes);
     _populate_bool_from_keyfile("camelcase_autolink", &camelCaseAutoLink);
