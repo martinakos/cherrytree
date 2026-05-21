@@ -418,16 +418,16 @@ void CtMainWin::_on_textview_populate_popup(Gtk::Menu* menu)
                 }
                 if (do_set_cursor) curr_buffer()->place_cursor(target_iter);
             }
-            //for (auto iter : menu->get_children()) menu->remove(*iter);
+            for (auto iter : menu->get_children()) menu->remove(*iter);
             get_ct_menu().build_popup_menu(menu, CtMenu::POPUP_MENU_TYPE::Link);
         }
         else {
-            //for (auto iter : menu->get_children()) menu->remove(*iter);
+            for (auto iter : menu->get_children()) menu->remove(*iter);
             get_ct_menu().build_popup_menu(menu, CtMenu::POPUP_MENU_TYPE::Text);
         }
     }
     else {
-        //for (auto iter : menu->get_children()) menu->remove(*iter);
+        for (auto iter : menu->get_children()) menu->remove(*iter);
         _uCtActions->getCtMainWin()->get_ct_menu().build_popup_menu(menu, CtMenu::POPUP_MENU_TYPE::Code);
     }
 }

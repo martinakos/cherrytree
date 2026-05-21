@@ -423,6 +423,9 @@ public:
     void text_selection_toggle_case();
     void toggle_ena_dis_spellcheck();
     void toggle_ena_dis_vim_mode();
+    void cut_rich_text();
+    void copy_rich_text();
+    void paste_rich_text();
     void cut_as_plain_text();
     void copy_as_plain_text();
     void paste_as_plain_text();
