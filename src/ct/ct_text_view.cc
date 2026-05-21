@@ -1026,7 +1026,7 @@ void CtTextView::set_spell_check(bool allow_on)
     }
     auto gspell_view = gspell_text_view_get_from_gtk_text_view(gtk_view);
     gspell_text_view_set_inline_spell_checking(gspell_view, allow_on && _pCtConfig->enableSpellCheck);
-    gspell_text_view_set_enable_language_menu(gspell_view, allow_on && _pCtConfig->enableSpellCheck);
+    gspell_text_view_set_enable_language_menu(gspell_view, false);
 #elif defined(HAVE_LIBSPELLING)
     auto gtk_view = GTK_TEXT_VIEW(gobj());
     auto gtk_buffer = gtk_text_view_get_buffer(gtk_view);

@@ -275,6 +275,149 @@ const inline static gchar* TOOLBAR_VEC_DEFAULT {
     "fmt_h1,fmt_h2,fmt_h3,fmt_small,fmt_subscript,fmt_superscript,fmt_monospace"
 };
 
+const inline static gchar* MENUBAR_TOP_LEVEL_DEFAULT {
+    "FileMenu,EditMenu,InsertMenu,FormatMenu,ToolsMenu,TreeMenu,SearchMenu,ViewMenu,BookmarksMenu,HelpMenu"
+};
+const inline static gchar* MENUBAR_FILE_DEFAULT {
+    "ct_new_inst,ct_open_folder,ct_open_file,{RecentDocsSubMenu,},separator,"
+    "{ImportSubMenu,import_ct_folder,import_ct_file,import_indented_list,"
+    "import_txt_file,import_txt_folder,import_html_file,import_html_folder,"
+    "import_md_file,import_md_folder,import_gnote,import_keepnote,import_leo,"
+    "import_mempad,import_notecase,import_rednotebook,import_tomboy,import_treepad,import_zim,},"
+    "{ExportSubMenu,export_pdf,export_html,export_txt,export_ct,},"
+    "separator,ct_vacuum,ct_save,ct_save_as,separator,print_page_setup,do_print,separator,"
+    "{PrefSubMenu,preferences_dlg,pref_import,pref_export,open_cfg_folder,},"
+    "tree_parse_info,doc_path_clip,separator,quit_app,exit_app"
+};
+const inline static gchar* MENUBAR_EDIT_DEFAULT {
+    "act_undo,act_redo,separator,cut_plain,copy_plain,paste_plain,separator,"
+    "{RowSubMenu,cut_row,copy_row,dup_row,mv_up_row,mv_down_row,del_row,},separator,"
+    "{TableSubMenu,table_cut,table_copy,table_delete,table_column_add,"
+    "table_column_cut,table_column_copy,table_column_paste,table_column_delete,"
+    "table_column_left,table_column_right,table_column_increase_width,table_column_decrease_width,"
+    "table_row_add,table_row_cut,table_row_copy,table_row_paste,table_row_delete,"
+    "table_row_up,table_row_down,table_rows_sort_descending,table_rows_sort_ascending,"
+    "table_export,table_edit_properties,},"
+    "{CodeBoxSubMenu,codebox_cut,codebox_copy,codebox_copy_content,codebox_delete,"
+    "codebox_delete_keeping_text,codebox_increase_width,codebox_decrease_width,"
+    "codebox_increase_height,codebox_decrease_height,codebox_load_from_file,"
+    "codebox_save_to_file,codebox_change_properties,}"
+};
+const inline static gchar* MENUBAR_INSERT_DEFAULT {
+    "handle_image,handle_table,handle_codebox,handle_latex,handle_embfile,"
+    "handle_link,handle_anchor,insert_toc,insert_timestamp,insert_special_char,"
+    "insert_horiz_rule,insert_horiz_line,"
+    "{ListSubMenu,handle_bull_list,handle_num_list,handle_todo_list,}"
+};
+const inline static gchar* MENUBAR_FORMAT_DEFAULT {
+    "fmt_clone,fmt_latest,fmt_rm,separator,fmt_color_fg,fmt_color_bg,separator,"
+    "{FontSubMenu,fmt_bold,fmt_italic,fmt_underline,fmt_strikethrough,"
+    "fmt_monospace,fmt_small,fmt_subscript,fmt_superscript,},"
+    "{ChangeCaseSubMenu,case_down,case_up,case_tggl,},"
+    "{HeadingSubMenu,fmt_h1,fmt_h2,fmt_h3,fmt_h4,fmt_h5,fmt_h6,},"
+    "separator,fmt_indent,fmt_unindent,separator,head_expand,head_collapse,separator,"
+    "{JustifySubMenu,fmt_justify_left,fmt_justify_center,fmt_justify_right,fmt_justify_fill,}"
+};
+const inline static gchar* MENUBAR_TOOLS_DEFAULT {
+    "spellcheck_toggle,separator,exec_code_los,exec_code_all,"
+    "strip_trail_spaces,repl_tabs_spaces,separator,command_palette"
+};
+const inline static gchar* MENUBAR_TREE_DEFAULT {
+    "go_node_next,go_node_prev,separator,"
+    "tree_add_node,tree_add_subnode,tree_dup_node,tree_dup_node_subnodes,"
+    "tree_shared_node,tree_copy_node_subnodes,tree_paste_node_subnodes,"
+    "tree_node_date_root,tree_node_date_sel,separator,"
+    "tree_node_prop,tree_node_toggle_ro,tree_node_link,child_nodes_inherit_syntax,separator,"
+    "{BookmarksSubMenu,},node_bookmark,node_unbookmark,separator,"
+    "nodes_all_expand,nodes_all_collapse,separator,"
+    "{TreeMoveSubMenu,tree_node_up,tree_node_down,tree_node_left,tree_node_right,tree_node_new_father,},"
+    "{TreeSortSubMenu,tree_sibl_sort_asc,tree_sibl_sort_desc,separator,tree_all_sort_asc,tree_all_sort_desc,},"
+    "separator,tree_node_del"
+};
+const inline static gchar* MENUBAR_SEARCH_DEFAULT {
+    "select_node,find_in_node_names,find_in_node,find_in_allnodes,find_iter_fw,find_iter_bw,separator,"
+    "replace_in_node,replace_in_allnodes,replace_iter_fw,separator,"
+    "tree_clear_exclude_from_search,separator,toggle_show_allmatches_dlg"
+};
+const inline static gchar* MENUBAR_VIEW_DEFAULT {
+    "toggle_show_tree,toggle_show_treelines,toggle_show_menubar,toggle_show_toolbar,"
+    "toggle_show_statusbar,toggle_show_node_name_head,toggle_show_vte,separator,"
+    "menubar_in_titlebar,toggle_fullscreen,toggle_always_on_top,separator,"
+    "toggle_focus_tree_text,toggle_focus_vte_text,separator,"
+    "toolbar_icons_size_p,toolbar_icons_size_m,separator,more_visit_nnh,less_visit_nnh"
+};
+const inline static gchar* MENUBAR_HELP_DEFAULT {
+    "ct_check_newer,separator,ct_homepage,ct_github,ct_issues,ct_help,separator,ct_about"
+};
+const inline static gchar* POPUP_TEXT_DEFAULT {
+    "separator,cut_rich,copy_rich,paste_rich,separator,"
+    "{RowSubMenu,cut_row,copy_row,dup_row,mv_up_row,mv_down_row,del_row,},"
+    "{FormattingSubMenu,fmt_clone,fmt_latest,fmt_rm,separator,separator,"
+    "fmt_color_fg,fmt_color_bg,separator,"
+    "{FontSubMenu,fmt_bold,fmt_italic,fmt_underline,fmt_strikethrough,"
+    "fmt_monospace,fmt_small,fmt_subscript,fmt_superscript,},"
+    "{ChangeCaseSubMenu,case_down,case_up,case_tggl,},"
+    "{HeadingSubMenu,fmt_h1,fmt_h2,fmt_h3,fmt_h4,fmt_h5,fmt_h6,},"
+    "separator,fmt_indent,fmt_unindent,separator,head_expand,head_collapse,separator,"
+    "{JustifySubMenu,fmt_justify_left,fmt_justify_center,fmt_justify_right,fmt_justify_fill,},},"
+    "{InsertSubMenu,handle_image,handle_table,handle_codebox,handle_latex,handle_embfile,"
+    "handle_link,handle_anchor,insert_toc,insert_timestamp,insert_special_char,"
+    "insert_horiz_rule,insert_horiz_line,"
+    "{ListSubMenu,handle_bull_list,handle_num_list,handle_todo_list,},},"
+    "exec_code_los,exec_code_all,strip_trail_spaces,separator,"
+    "{FindSubMenu,find_in_node,find_in_allnodes,find_in_node_names,find_iter_fw,find_iter_bw,},"
+    "{ReplaceSubMenu,replace_in_node,replace_in_allnodes,replace_iter_fw,}"
+};
+const inline static gchar* POPUP_CODE_DEFAULT {
+    "separator,cut_rich,copy_rich,paste_rich,separator,"
+    "exec_code_los,exec_code_all,strip_trail_spaces,repl_tabs_spaces,"
+    "{InsertSubMenu,insert_timestamp,insert_special_char,insert_horiz_rule,insert_horiz_line,},"
+    "{ChangeCaseSubMenu,case_down,case_up,case_tggl,},"
+    "{RowSubMenu,cut_row,copy_row,del_row,dup_row,mv_up_row,mv_down_row,},"
+    "separator,"
+    "{FindSubMenu,find_in_node,find_in_allnodes,find_in_node_names,find_iter_fw,find_iter_bw,},"
+    "{ReplaceSubMenu,replace_in_node,replace_in_allnodes,replace_iter_fw,}"
+};
+const inline static gchar* POPUP_IMAGE_DEFAULT {
+    "img_cut,img_copy,img_del,separator,img_edit,img_save,separator,img_link_edit,img_link_dismiss"
+};
+const inline static gchar* POPUP_LATEX_DEFAULT {
+    "tex_cut,tex_copy,tex_del,separator,tex_edit,tex_save"
+};
+const inline static gchar* POPUP_ANCHOR_DEFAULT {
+    "anch_cut,anch_copy,anch_del,separator,anch_link,anch_edit"
+};
+const inline static gchar* POPUP_EMBFILE_DEFAULT {
+    "emb_file_cut,emb_file_copy,emb_file_del,separator,emb_file_open,emb_file_save,separator,emb_file_rename"
+};
+const inline static gchar* POPUP_TERMINAL_DEFAULT {
+    "term_copy,term_paste,term_reset"
+};
+const inline static gchar* POPUP_LINK_DEFAULT {
+    "separator,apply_tag_link,separator,link_cut,link_copy,link_dismiss,link_delete"
+};
+const inline static gchar* POPUP_CODEBOX_DEFAULT {
+    "separator,cut_rich,copy_rich,paste_rich,separator,"
+    "codebox_load_from_file,codebox_save_to_file,separator,"
+    "codebox_cut,codebox_copy,codebox_copy_content,codebox_delete,codebox_delete_keeping_text,separator,"
+    "codebox_increase_width,codebox_decrease_width,codebox_increase_height,codebox_decrease_height,separator,"
+    "exec_code_all,exec_code_los,strip_trail_spaces,repl_tabs_spaces,separator,"
+    "codebox_change_properties"
+};
+const inline static gchar* POPUP_TABLE_CELL_DEFAULT {
+    "separator,cut_rich,copy_rich,paste_rich,separator,"
+    "table_cut,table_copy,table_delete,separator,"
+    "{ColumnSubMenu,table_column_add,table_column_cut,table_column_copy,"
+    "table_column_paste,table_column_delete,separator,"
+    "table_column_left,table_column_right,separator,"
+    "table_column_increase_width,table_column_decrease_width,},"
+    "{TableRowSubMenu,table_row_add,table_row_cut,table_row_copy,"
+    "table_row_paste,table_row_delete,separator,"
+    "table_row_up,table_row_down,separator,"
+    "table_rows_sort_ascending,table_rows_sort_descending,},"
+    "separator,table_edit_properties,table_export"
+};
+
 const inline static gchar* LANG_DEFAULT{"default"};
 
 const inline static std::vector<const gchar*> AVAILABLE_LANGS {

@@ -68,6 +68,8 @@ void CtMenu::init_actions(CtActions* pActions)
     _actions.push_back(CtMenuAction{"", "FindSubMenu", "ct_find", _("_Find"), None, None, [](){}});
     _actions.push_back(CtMenuAction{"", "ReplaceSubMenu", "ct_find_replace", _("_Replace"), None, None, [](){}});
     _actions.push_back(CtMenuAction{"", "RowSubMenu", "ct_edit", _("Ro_w"), None, None, [](){}});
+    _actions.push_back(CtMenuAction{"", "ColumnSubMenu", "ct_table_edit", _("Co_lumn"), None, None, [](){}});
+    _actions.push_back(CtMenuAction{"", "TableRowSubMenu", "ct_table_edit", _("_Row"), None, None, [](){}});
     _actions.push_back(CtMenuAction{"", "TableSubMenu", "ct_table_edit", _("_Table"), None, None, [](){}});
     _actions.push_back(CtMenuAction{"", "CodeBoxSubMenu", "ct_codebox_edit", _("_CodeBox"), None, None, [](){}});
     _actions.push_back(CtMenuAction{"", "FormattingSubMenu", "ct_fmt-txt", _("F_ormat"), None, None, [](){}});
@@ -142,6 +144,12 @@ void CtMenu::init_actions(CtActions* pActions)
             _("Upper the Case of the Selection/the Underlying Word"), sigc::mem_fun(*pActions, &CtActions::text_selection_upper_case)});
         _actions.push_back(CtMenuAction{editor_cat, "case_tggl", "ct_case_toggle", _("_Toggle Case of Selection/Word"), KB_CONTROL+"g",
             _("Toggle the Case of the Selection/the Underlying Word"), sigc::mem_fun(*pActions, &CtActions::text_selection_toggle_case)});
+        _actions.push_back(CtMenuAction{editor_cat, "cut_rich", "ct_edit_cut", _("Cu_t"), None,
+            _("Cut"), sigc::mem_fun(*pActions, &CtActions::cut_rich_text)});
+        _actions.push_back(CtMenuAction{editor_cat, "copy_rich", "ct_edit_copy", _("_Copy"), None,
+            _("Copy"), sigc::mem_fun(*pActions, &CtActions::copy_rich_text)});
+        _actions.push_back(CtMenuAction{editor_cat, "paste_rich", "ct_edit_paste", _("_Paste"), None,
+            _("Paste"), sigc::mem_fun(*pActions, &CtActions::paste_rich_text)});
         _actions.push_back(CtMenuAction{editor_cat, "cut_plain", "ct_edit_cut", _("Cu_t as Plain Text"), KB_CONTROL+KB_SHIFT+"x",
             _("Cut as Plain Text, Discard the Rich Text Formatting"), sigc::mem_fun(*pActions, &CtActions::cut_as_plain_text)});
         _actions.push_back(CtMenuAction{editor_cat, "copy_plain", "ct_edit_copy", _("_Copy as Plain Text"), KB_CONTROL+KB_SHIFT+"c",
