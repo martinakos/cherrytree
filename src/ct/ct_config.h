@@ -250,6 +250,26 @@ public:
 
     // [misc]
     std::string                                 toolbarUiList{CtConst::TOOLBAR_VEC_DEFAULT};
+    std::string                                 menubarTopLevelOrder{CtConst::MENUBAR_TOP_LEVEL_DEFAULT};
+    std::string                                 menubarFileUiList{CtConst::MENUBAR_FILE_DEFAULT};
+    std::string                                 menubarEditUiList{CtConst::MENUBAR_EDIT_DEFAULT};
+    std::string                                 menubarInsertUiList{CtConst::MENUBAR_INSERT_DEFAULT};
+    std::string                                 menubarFormatUiList{CtConst::MENUBAR_FORMAT_DEFAULT};
+    std::string                                 menubarToolsUiList{CtConst::MENUBAR_TOOLS_DEFAULT};
+    std::string                                 menubarTreeUiList{CtConst::MENUBAR_TREE_DEFAULT};
+    std::string                                 menubarSearchUiList{CtConst::MENUBAR_SEARCH_DEFAULT};
+    std::string                                 menubarViewUiList{CtConst::MENUBAR_VIEW_DEFAULT};
+    std::string                                 menubarHelpUiList{CtConst::MENUBAR_HELP_DEFAULT};
+    std::string                                 popupTextUiList{CtConst::POPUP_TEXT_DEFAULT};
+    std::string                                 popupCodeUiList{CtConst::POPUP_CODE_DEFAULT};
+    std::string                                 popupImageUiList{CtConst::POPUP_IMAGE_DEFAULT};
+    std::string                                 popupLatexUiList{CtConst::POPUP_LATEX_DEFAULT};
+    std::string                                 popupAnchorUiList{CtConst::POPUP_ANCHOR_DEFAULT};
+    std::string                                 popupEmbfileUiList{CtConst::POPUP_EMBFILE_DEFAULT};
+    std::string                                 popupTerminalUiList{CtConst::POPUP_TERMINAL_DEFAULT};
+    std::string                                 popupLinkUiList{CtConst::POPUP_LINK_DEFAULT};
+    std::string                                 popupCodeboxUiList{CtConst::POPUP_CODEBOX_DEFAULT};
+    std::string                                 popupTableCellUiList{CtConst::POPUP_TABLE_CELL_DEFAULT};
     bool                                        bookmarksInTopMenu{true};
     bool                                        treeTooltips{true};
     bool                                        menusTooltips{true};

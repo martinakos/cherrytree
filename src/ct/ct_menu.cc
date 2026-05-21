@@ -429,7 +429,8 @@ std::vector<Gtk::Toolbar*> CtMenu::build_toolbars(Gtk::MenuToolButton*& pRecentD
 Gtk::MenuBar* CtMenu::build_menubar()
 {
     Gtk::MenuBar* pMenuBar = Gtk::manage(new Gtk::MenuBar());
-    _walk_menu_xml(pMenuBar, _get_ui_str_menu(), nullptr);
+    std::string menuXml = _get_ui_str_menu();
+    _walk_menu_xml(pMenuBar, menuXml.c_str(), nullptr);
     return pMenuBar;
 }
 #endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
@@ -532,91 +533,40 @@ Gtk::Menu* CtMenu::get_popup_menu(POPUP_MENU_TYPE popupMenuType)
 
 void CtMenu::build_popup_menu(Gtk::Menu* pMenu, POPUP_MENU_TYPE popupMenuType)
 {
+    auto walkXml = [this, pMenu](const std::string& xml, const char* xpath) {
+        _walk_menu_xml(pMenu, xml.c_str(), xpath);
+    };
     switch (popupMenuType) {
-        case CtMenu::POPUP_MENU_TYPE::Node: _walk_menu_xml(pMenu, _get_ui_str_menu(), "/menubar/menu[@action='TreeMenu']/*"); break;
-        case CtMenu::POPUP_MENU_TYPE::Text: _walk_menu_xml(pMenu, _get_popup_menu_ui_str_text(), nullptr); break;
-        case CtMenu::POPUP_MENU_TYPE::Code: _walk_menu_xml(pMenu, _get_popup_menu_ui_str_code(), nullptr); break;
-        case CtMenu::POPUP_MENU_TYPE::Image: _walk_menu_xml(pMenu, _get_popup_menu_ui_str_image(), nullptr); break;
-        case CtMenu::POPUP_MENU_TYPE::Latex: _walk_menu_xml(pMenu, _get_popup_menu_ui_str_latex(), nullptr); break;
-        case CtMenu::POPUP_MENU_TYPE::Anchor: _walk_menu_xml(pMenu, _get_popup_menu_ui_str_anchor(), nullptr); break;
-        case CtMenu::POPUP_MENU_TYPE::EmbFile: _walk_menu_xml(pMenu, _get_popup_menu_ui_str_embfile(), nullptr); break;
-        case CtMenu::POPUP_MENU_TYPE::Terminal: _walk_menu_xml(pMenu, _get_popup_menu_ui_str_terminal(), nullptr); break;
-        case CtMenu::POPUP_MENU_TYPE::Link: {
-            _add_menu_separator(pMenu);
-            _add_menu_item(pMenu, find_action("apply_tag_link"));
-            _add_menu_separator(pMenu);
-            _add_menu_item(pMenu, find_action("link_cut"));
-            _add_menu_item(pMenu, find_action("link_copy"));
-            _add_menu_item(pMenu, find_action("link_dismiss"));
-            _add_menu_item(pMenu, find_action("link_delete"));
-        } break;
-        case CtMenu::POPUP_MENU_TYPE::Codebox: {
-            _add_menu_separator(pMenu);
-            _add_menu_item(pMenu, find_action("cut_plain"));
-            _add_menu_item(pMenu, find_action("copy_plain"));
-            _add_menu_separator(pMenu);
-            _add_menu_item(pMenu, find_action("codebox_load_from_file"));
-            _add_menu_item(pMenu, find_action("codebox_save_to_file"));
-            _add_menu_separator(pMenu);
-            _add_menu_item(pMenu, find_action("codebox_cut"));
-            _add_menu_item(pMenu, find_action("codebox_copy"));
-            _add_menu_item(pMenu, find_action("codebox_copy_content"));
-            _add_menu_item(pMenu, find_action("codebox_delete"));
-            _add_menu_item(pMenu, find_action("codebox_delete_keeping_text"));
-            _add_menu_separator(pMenu);
-            _add_menu_item(pMenu, find_action("codebox_increase_width"));
-            _add_menu_item(pMenu, find_action("codebox_decrease_width"));
-            _add_menu_item(pMenu, find_action("codebox_increase_height"));
-            _add_menu_item(pMenu, find_action("codebox_decrease_height"));
-            _add_menu_separator(pMenu);
-            _add_menu_item(pMenu, find_action("exec_code_all"));
-            _add_menu_item(pMenu, find_action("exec_code_los"));
-            _add_menu_item(pMenu, find_action("strip_trail_spaces"));
-            _add_menu_item(pMenu, find_action("repl_tabs_spaces"));
-            _add_menu_separator(pMenu);
-            _add_menu_item(pMenu, find_action("codebox_change_properties"));
-        } break;
-        case CtMenu::POPUP_MENU_TYPE::PopupMenuNum: {
-        } break;
+        case CtMenu::POPUP_MENU_TYPE::Node: walkXml(_get_ui_str_menu(), "/menubar/menu[@action='TreeMenu']/*"); break;
+        case CtMenu::POPUP_MENU_TYPE::Text: walkXml(_get_popup_menu_ui_str_text(), nullptr); break;
+        case CtMenu::POPUP_MENU_TYPE::Code: walkXml(_get_popup_menu_ui_str_code(), nullptr); break;
+        case CtMenu::POPUP_MENU_TYPE::Image: walkXml(_get_popup_menu_ui_str_image(), nullptr); break;
+        case CtMenu::POPUP_MENU_TYPE::Latex: walkXml(_get_popup_menu_ui_str_latex(), nullptr); break;
+        case CtMenu::POPUP_MENU_TYPE::Anchor: walkXml(_get_popup_menu_ui_str_anchor(), nullptr); break;
+        case CtMenu::POPUP_MENU_TYPE::EmbFile: walkXml(_get_popup_menu_ui_str_embfile(), nullptr); break;
+        case CtMenu::POPUP_MENU_TYPE::Terminal: walkXml(_get_popup_menu_ui_str_terminal(), nullptr); break;
+        case CtMenu::POPUP_MENU_TYPE::Link: walkXml(_get_popup_menu_ui_str_link(), nullptr); break;
+        case CtMenu::POPUP_MENU_TYPE::Codebox: walkXml(_get_popup_menu_ui_str_codebox(), nullptr); break;
+        case CtMenu::POPUP_MENU_TYPE::TableCell: walkXml(_get_popup_menu_ui_str_table_cell(), nullptr); break;
+        case CtMenu::POPUP_MENU_TYPE::PopupMenuNum: break;
+    }
+}
+
+void CtMenu::invalidate_popup_menus()
+{
+    for (int i = 0; i < POPUP_MENU_TYPE::PopupMenuNum; ++i) {
+        _popupMenus[i] = nullptr;
     }
 }
 
 void CtMenu::build_popup_menu_table_cell(Gtk::Menu* pMenu,
-                                         const bool first_row,
-                                         const bool first_col,
-                                         const bool last_row,
-                                         const bool last_col)
+                                         const bool /*first_row*/,
+                                         const bool /*first_col*/,
+                                         const bool /*last_row*/,
+                                         const bool /*last_col*/)
 {
-    _add_menu_separator(pMenu);
-    _add_menu_item(pMenu, find_action("table_cut"));
-    _add_menu_item(pMenu, find_action("table_copy"));
-    _add_menu_item(pMenu, find_action("table_delete"));
-    _add_menu_separator(pMenu);
-    _add_menu_item(pMenu, find_action("table_column_add"));
-    _add_menu_item(pMenu, find_action("table_column_cut"));
-    _add_menu_item(pMenu, find_action("table_column_copy"));
-    _add_menu_item(pMenu, find_action("table_column_paste"));
-    _add_menu_item(pMenu, find_action("table_column_delete"));
-    _add_menu_separator(pMenu);
-    if (not first_col) _add_menu_item(pMenu, find_action("table_column_left"));
-    if (not last_col) _add_menu_item(pMenu, find_action("table_column_right"));
-    _add_menu_separator(pMenu);
-    _add_menu_item(pMenu, find_action("table_column_increase_width"));
-    _add_menu_item(pMenu, find_action("table_column_decrease_width"));
-    _add_menu_separator(pMenu);
-    _add_menu_item(pMenu, find_action("table_row_add"));
-    _add_menu_item(pMenu, find_action("table_row_cut"));
-    _add_menu_item(pMenu, find_action("table_row_copy"));
-    _add_menu_item(pMenu, find_action("table_row_paste"));
-    _add_menu_item(pMenu, find_action("table_row_delete"));
-    _add_menu_separator(pMenu);
-    if (not first_row) _add_menu_item(pMenu, find_action("table_row_up"));
-    if (not last_row) _add_menu_item(pMenu, find_action("table_row_down"));
-    _add_menu_item(pMenu, find_action("table_rows_sort_ascending"));
-    _add_menu_item(pMenu, find_action("table_rows_sort_descending"));
-    _add_menu_separator(pMenu);
-    _add_menu_item(pMenu, find_action("table_edit_properties"));
-    _add_menu_item(pMenu, find_action("table_export"));
+    for (auto child : pMenu->get_children()) pMenu->remove(*child);
+    build_popup_menu(pMenu, POPUP_MENU_TYPE::TableCell);
 }
 
 void CtMenu::_walk_menu_xml(Gtk::MenuShell* pMenuShell, const char* document, const char* xpath)

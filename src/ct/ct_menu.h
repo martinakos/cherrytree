@@ -96,7 +96,7 @@ public:
     const std::string KB_ALT     = "<alt>";
     const std::string KB_META    = "<meta>";
 
-    enum POPUP_MENU_TYPE {Node, Text, Code, Link, Codebox, Image, Latex, Anchor, EmbFile, Terminal, PopupMenuNum};
+    enum POPUP_MENU_TYPE {Node, Text, Code, Link, Codebox, Image, Latex, Anchor, EmbFile, Terminal, TableCell, PopupMenuNum};
 
 public:
 #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
@@ -144,6 +144,8 @@ private:
     Gtk::Menu*                 get_popup_menu(POPUP_MENU_TYPE popupMenuType);
     void                       build_popup_menu(Gtk::Menu* pMenu, POPUP_MENU_TYPE popupMenuType);
     void                       build_popup_menu_table_cell(Gtk::Menu* pMenu, const bool first_row, const bool first_col, const bool last_row, const bool last_col);
+    void                       invalidate_popup_menus();
+    std::string&               getMenubarSubmenuConfig(const std::string& menuId);
 
 private:
 #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
@@ -172,14 +174,20 @@ private:
 #endif /* GTKMM_MAJOR_VERSION >= 4 */
 
     std::vector<std::string> _get_ui_str_toolbars();
-    const char*              _get_ui_str_menu();
-    const char*              _get_popup_menu_ui_str_text();
-    const char*              _get_popup_menu_ui_str_code();
-    const char*              _get_popup_menu_ui_str_image();
-    const char*              _get_popup_menu_ui_str_latex();
-    const char*              _get_popup_menu_ui_str_anchor();
-    const char*              _get_popup_menu_ui_str_embfile();
-    const char*              _get_popup_menu_ui_str_terminal();
+    std::string              _get_ui_str_menu();
+    std::string              _get_popup_menu_ui_str_text();
+    std::string              _get_popup_menu_ui_str_code();
+    std::string              _get_popup_menu_ui_str_image();
+    std::string              _get_popup_menu_ui_str_latex();
+    std::string              _get_popup_menu_ui_str_anchor();
+    std::string              _get_popup_menu_ui_str_embfile();
+    std::string              _get_popup_menu_ui_str_terminal();
+    std::string              _get_popup_menu_ui_str_link();
+    std::string              _get_popup_menu_ui_str_codebox();
+    std::string              _get_popup_menu_ui_str_table_cell();
+public:
+    static std::string       generate_menu_xml(const std::string& configStr);
+private:
 
 private:
     CtMainWin*                    const _pCtMainWin;

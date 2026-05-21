@@ -110,519 +110,126 @@ std::vector<std::string> CtMenu::_get_ui_str_toolbars()
     return toolbarUIstr;
 }
 
-const char* CtMenu::_get_ui_str_menu()
+std::string CtMenu::generate_menu_xml(const std::string& configStr)
 {
-    return R"MARKUP(
-<menubar name='MenuBar'>
-  <menu action='FileMenu'>
-    <menuitem action='ct_new_inst'/>
-    <menuitem action='ct_open_folder'/>
-    <menuitem action='ct_open_file'/>
-    <menu action='RecentDocsSubMenu'>
-    </menu>
-    <separator/>
-    <menu action='ImportSubMenu'>
-      <menuitem action='import_ct_folder'/>
-      <menuitem action='import_ct_file'/>
-      <menuitem action='import_indented_list'/>
-      <menuitem action='import_txt_file'/>
-      <menuitem action='import_txt_folder'/>
-      <menuitem action='import_html_file'/>
-      <menuitem action='import_html_folder'/>
-      <menuitem action='import_md_file'/>
-      <menuitem action='import_md_folder'/>
-      <menuitem action='import_gnote'/>
-      <menuitem action='import_keepnote'/>
-      <menuitem action='import_leo'/>
-      <menuitem action='import_mempad'/>
-      <menuitem action='import_notecase'/>
-      <menuitem action='import_rednotebook'/>
-      <menuitem action='import_tomboy'/>
-      <menuitem action='import_treepad'/>
-      <menuitem action='import_zim'/>
-    </menu>
-    <menu action='ExportSubMenu'>
-      <menuitem action='export_pdf'/>
-      <menuitem action='export_html'/>
-      <menuitem action='export_txt'/>
-      <menuitem action='export_ct'/>
-    </menu>
-    <separator/>
-    <menuitem action='ct_vacuum'/>
-    <menuitem action='ct_save'/>
-    <menuitem action='ct_save_as'/>
-    <separator/>
-    <menuitem action='print_page_setup'/>
-    <menuitem action='do_print'/>
-    <separator/>
-    <menu action='PrefSubMenu'>
-      <menuitem action='preferences_dlg'/>
-      <menuitem action='pref_import'/>
-      <menuitem action='pref_export'/>
-      <menuitem action='open_cfg_folder'/>
-    </menu>
-    <menuitem action='tree_parse_info'/>
-    <menuitem action='doc_path_clip'/>
-    <separator/>
-    <menuitem action='quit_app'/>
-    <menuitem action='exit_app'/>
-  </menu>
-
-  <menu action='EditMenu'>
-    <menuitem action='act_undo'/>
-    <menuitem action='act_redo'/>
-    <separator/>
-    <menuitem action='cut_plain'/>
-    <menuitem action='copy_plain'/>
-    <menuitem action='paste_plain'/>
-    <separator/>
-    <menu action='RowSubMenu'>
-      <menuitem action='cut_row'/>
-      <menuitem action='copy_row'/>
-      <menuitem action='dup_row'/>
-      <menuitem action='mv_up_row'/>
-      <menuitem action='mv_down_row'/>
-      <menuitem action='del_row'/>
-    </menu>
-    <separator/>
-    <menu action='TableSubMenu'>
-      <menuitem action='table_cut'/>
-      <menuitem action='table_copy'/>
-      <menuitem action='table_delete'/>
-      <menuitem action='table_column_add'/>
-      <menuitem action='table_column_cut'/>
-      <menuitem action='table_column_copy'/>
-      <menuitem action='table_column_paste'/>
-      <menuitem action='table_column_delete'/>
-      <menuitem action='table_column_left'/>
-      <menuitem action='table_column_right'/>
-      <menuitem action='table_column_increase_width'/>
-      <menuitem action='table_column_decrease_width'/>
-      <menuitem action='table_row_add'/>
-      <menuitem action='table_row_cut'/>
-      <menuitem action='table_row_copy'/>
-      <menuitem action='table_row_paste'/>
-      <menuitem action='table_row_delete'/>
-      <menuitem action='table_row_up'/>
-      <menuitem action='table_row_down'/>
-      <menuitem action='table_rows_sort_descending'/>
-      <menuitem action='table_rows_sort_ascending'/>
-      <menuitem action='table_export'/>
-      <menuitem action='table_edit_properties'/>
-    </menu>
-    <menu action='CodeBoxSubMenu'>
-      <menuitem action='codebox_cut'/>
-      <menuitem action='codebox_copy'/>
-      <menuitem action='codebox_copy_content'/>
-      <menuitem action='codebox_delete'/>
-      <menuitem action='codebox_delete_keeping_text'/>
-      <menuitem action='codebox_increase_width'/>
-      <menuitem action='codebox_decrease_width'/>
-      <menuitem action='codebox_increase_height'/>
-      <menuitem action='codebox_decrease_height'/>
-      <menuitem action='codebox_load_from_file'/>
-      <menuitem action='codebox_save_to_file'/>
-      <menuitem action='codebox_change_properties'/>
-    </menu>
-  </menu>
-
-  <menu action='InsertMenu'>
-    <menuitem action='handle_image'/>
-    <menuitem action='handle_table'/>
-    <menuitem action='handle_codebox'/>
-    <menuitem action='handle_latex'/>
-    <menuitem action='handle_embfile'/>
-    <menuitem action='handle_link'/>
-    <menuitem action='handle_anchor'/>
-    <menuitem action='insert_toc'/>
-    <menuitem action='insert_timestamp'/>
-    <menuitem action='insert_special_char'/>
-    <menuitem action='insert_horiz_rule'/>
-    <menuitem action='insert_horiz_line'/>
-    <menu action='ListSubMenu'>
-     <menuitem action='handle_bull_list'/>
-     <menuitem action='handle_num_list'/>
-     <menuitem action='handle_todo_list'/>
-    </menu>
-  </menu>
-
-  <menu action='FormatMenu'>
-    <menuitem action='fmt_clone'/>
-    <menuitem action='fmt_latest'/>
-    <menuitem action='fmt_rm'/>
-    <separator/>
-    <menuitem action='fmt_color_fg'/>
-    <menuitem action='fmt_color_bg'/>
-    <separator/>
-    <menu action='FontSubMenu'>
-      <menuitem action='fmt_bold'/>
-      <menuitem action='fmt_italic'/>
-      <menuitem action='fmt_underline'/>
-      <menuitem action='fmt_strikethrough'/>
-      <menuitem action='fmt_monospace'/>
-      <menuitem action='fmt_small'/>
-      <menuitem action='fmt_subscript'/>
-      <menuitem action='fmt_superscript'/>
-    </menu>
-    <menu action='ChangeCaseSubMenu'>
-      <menuitem action='case_down'/>
-      <menuitem action='case_up'/>
-      <menuitem action='case_tggl'/>
-    </menu>
-    <menu action='HeadingSubMenu'>
-      <menuitem action='fmt_h1'/>
-      <menuitem action='fmt_h2'/>
-      <menuitem action='fmt_h3'/>
-      <menuitem action='fmt_h4'/>
-      <menuitem action='fmt_h5'/>
-      <menuitem action='fmt_h6'/>
-    </menu>
-    <separator/>
-    <menuitem action='fmt_indent'/>
-    <menuitem action='fmt_unindent'/>
-    <separator/>
-    <menuitem action='head_expand'/>
-    <menuitem action='head_collapse'/>
-    <separator/>
-    <menu action='JustifySubMenu'>
-      <menuitem action='fmt_justify_left'/>
-      <menuitem action='fmt_justify_center'/>
-      <menuitem action='fmt_justify_right'/>
-      <menuitem action='fmt_justify_fill'/>
-    </menu>
-  </menu>
-
-  <menu action='ToolsMenu'>
-    <menuitem action='spellcheck_toggle'/>
-    <separator/>
-    <menuitem action='exec_code_los'/>
-    <menuitem action='exec_code_all'/>
-    <menuitem action='strip_trail_spaces'/>
-    <menuitem action='repl_tabs_spaces'/>
-    <separator/>
-    <menuitem action='command_palette'/>
-  </menu>
-
-  <menu action='TreeMenu'>
-    <menuitem action='go_node_next'/>
-    <menuitem action='go_node_prev'/>
-    <separator/>
-    <menuitem action='tree_add_node'/>
-    <menuitem action='tree_add_subnode'/>
-    <menuitem action='tree_dup_node'/>
-    <menuitem action='tree_dup_node_subnodes'/>
-    <menuitem action='tree_shared_node'/>
-    <menuitem action='tree_copy_node_subnodes'/>
-    <menuitem action='tree_paste_node_subnodes'/>
-    <menuitem action='tree_node_date_root'/>
-    <menuitem action='tree_node_date_sel'/>
-    <separator/>
-    <menuitem action='tree_node_prop'/>
-    <menuitem action='tree_node_toggle_ro'/>
-    <menuitem action='tree_node_link'/>
-    <menuitem action='child_nodes_inherit_syntax'/>
-    <separator/>
-    <menu action='BookmarksSubMenu'>
-    </menu>
-    <menuitem action='node_bookmark'/>
-    <menuitem action='node_unbookmark'/>
-    <separator/>
-    <menuitem action='nodes_all_expand'/>
-    <menuitem action='nodes_all_collapse'/>
-    <separator/>
-    <menu action='TreeMoveSubMenu'>
-      <menuitem action='tree_node_up'/>
-      <menuitem action='tree_node_down'/>
-      <menuitem action='tree_node_left'/>
-      <menuitem action='tree_node_right'/>
-      <menuitem action='tree_node_new_father'/>
-    </menu>
-    <menu action='TreeSortSubMenu'>
-      <menuitem action='tree_sibl_sort_asc'/>
-      <menuitem action='tree_sibl_sort_desc'/>
-      <separator/>
-      <menuitem action='tree_all_sort_asc'/>
-      <menuitem action='tree_all_sort_desc'/>
-    </menu>
-    <separator/>
-    <menuitem action='tree_node_del'/>
-  </menu>
-
-  <menu action='SearchMenu'>
-    <menuitem action='select_node'/>
-    <menuitem action='find_in_node_names'/>
-    <menuitem action='find_in_node'/>
-    <menuitem action='find_in_allnodes'/>
-    <menuitem action='find_iter_fw'/>
-    <menuitem action='find_iter_bw'/>
-    <separator/>
-    <menuitem action='replace_in_node'/>
-    <menuitem action='replace_in_allnodes'/>
-    <menuitem action='replace_iter_fw'/>
-    <separator/>
-    <menuitem action='tree_clear_exclude_from_search'/>
-    <separator/>
-    <menuitem action='toggle_show_allmatches_dlg'/>
-  </menu>
-
-  <menu action='ViewMenu'>
-    <menuitem action='toggle_show_tree'/>
-    <menuitem action='toggle_show_treelines'/>
-    <menuitem action='toggle_show_menubar'/>
-    <menuitem action='toggle_show_toolbar'/>
-    <menuitem action='toggle_show_statusbar'/>
-    <menuitem action='toggle_show_node_name_head'/>
-    <menuitem action='toggle_show_vte'/>
-    <separator/>
-    <menuitem action='menubar_in_titlebar'/>
-    <menuitem action='toggle_fullscreen'/>
-    <menuitem action='toggle_always_on_top'/>
-    <separator/>
-    <menuitem action='toggle_focus_tree_text'/>
-    <menuitem action='toggle_focus_vte_text'/>
-    <separator/>
-    <menuitem action='toolbar_icons_size_p'/>
-    <menuitem action='toolbar_icons_size_m'/>
-    <separator/>
-    <menuitem action='more_visit_nnh'/>
-    <menuitem action='less_visit_nnh'/>
-  </menu>
-
-  <menu action='BookmarksMenu'>
-  </menu>
-
-  <menu action='HelpMenu'>
-    <menuitem action='ct_check_newer'/>
-    <separator/>
-    <menuitem action='ct_homepage'/>
-    <menuitem action='ct_github'/>
-    <menuitem action='ct_issues'/>
-    <menuitem action='ct_help'/>
-    <separator/>
-    <menuitem action='ct_about'/>
-  </menu>
-</menubar>
-    )MARKUP";
+    std::string xml;
+    for (const std::string& token : str::split(configStr, ",")) {
+        if (token.empty()) continue;
+        if (token == CtConst::TAG_SEPARATOR) {
+            xml += "<separator/>";
+        }
+        else if (token.front() == '{') {
+            xml += "<menu action='" + token.substr(1) + "'>";
+        }
+        else if (token == "}") {
+            xml += "</menu>";
+        }
+        else {
+            xml += "<menuitem action='" + token + "'/>";
+        }
+    }
+    return xml;
 }
 
-const char* CtMenu::_get_popup_menu_ui_str_text()
+std::string CtMenu::_get_ui_str_menu()
 {
-    return R"MARKUP(
-<popup>
-  <separator/>
-  <menuitem action='cut_plain'/>
-  <menuitem action='copy_plain'/>
-  <menuitem action='paste_plain'/>
-  <separator/>
-  <menu action='RowSubMenu'>
-    <menuitem action='cut_row'/>
-    <menuitem action='copy_row'/>
-    <menuitem action='dup_row'/>
-    <menuitem action='mv_up_row'/>
-    <menuitem action='mv_down_row'/>
-    <menuitem action='del_row'/>
-  </menu>
-  <menu action='FormattingSubMenu'>
-    <menuitem action='fmt_clone'/>
-    <menuitem action='fmt_latest'/>
-    <menuitem action='fmt_rm'/>
-    <separator/>
-    <separator/>
-    <menuitem action='fmt_color_fg'/>
-    <menuitem action='fmt_color_bg'/>
-    <separator/>
-    <menu action='FontSubMenu'>
-      <menuitem action='fmt_bold'/>
-      <menuitem action='fmt_italic'/>
-      <menuitem action='fmt_underline'/>
-      <menuitem action='fmt_strikethrough'/>
-      <menuitem action='fmt_monospace'/>
-      <menuitem action='fmt_small'/>
-      <menuitem action='fmt_subscript'/>
-      <menuitem action='fmt_superscript'/>
-    </menu>
-      <menu action='ChangeCaseSubMenu'>
-      <menuitem action='case_down'/>
-      <menuitem action='case_up'/>
-      <menuitem action='case_tggl'/>
-    </menu>
-    <menu action='HeadingSubMenu'>
-      <menuitem action='fmt_h1'/>
-      <menuitem action='fmt_h2'/>
-      <menuitem action='fmt_h3'/>
-      <menuitem action='fmt_h4'/>
-      <menuitem action='fmt_h5'/>
-      <menuitem action='fmt_h6'/>
-    </menu>
-    <separator/>
-    <menuitem action='fmt_indent'/>
-    <menuitem action='fmt_unindent'/>
-    <separator/>
-    <menuitem action='head_expand'/>
-    <menuitem action='head_collapse'/>
-    <separator/>
-    <menu action='JustifySubMenu'>
-      <menuitem action='fmt_justify_left'/>
-      <menuitem action='fmt_justify_center'/>
-      <menuitem action='fmt_justify_right'/>
-      <menuitem action='fmt_justify_fill'/>
-    </menu>
-  </menu>
-  <menu action='InsertSubMenu'>
-    <menuitem action='handle_image'/>
-    <menuitem action='handle_table'/>
-    <menuitem action='handle_codebox'/>
-    <menuitem action='handle_latex'/>
-    <menuitem action='handle_embfile'/>
-    <menuitem action='handle_link'/>
-    <menuitem action='handle_anchor'/>
-    <menuitem action='insert_toc'/>
-    <menuitem action='insert_timestamp'/>
-    <menuitem action='insert_special_char'/>
-    <menuitem action='insert_horiz_rule'/>
-    <menuitem action='insert_horiz_line'/>
-    <menu action='ListSubMenu'>
-      <menuitem action='handle_bull_list'/>
-      <menuitem action='handle_num_list'/>
-      <menuitem action='handle_todo_list'/>
-    </menu>
-  </menu>
-  <menuitem action='exec_code_los'/>
-  <menuitem action='exec_code_all'/>
-  <menuitem action='strip_trail_spaces'/>
-  <separator/>
-  <menu action='FindSubMenu'>
-    <menuitem action='find_in_node'/>
-    <menuitem action='find_in_allnodes'/>
-    <menuitem action='find_in_node_names'/>
-    <menuitem action='find_iter_fw'/>
-    <menuitem action='find_iter_bw'/>
-  </menu>
-  <menu action='ReplaceSubMenu'>
-    <menuitem action='replace_in_node'/>
-    <menuitem action='replace_in_allnodes'/>
-    <menuitem action='replace_iter_fw'/>
-  </menu>
-</popup>
-    )MARKUP";
+    std::string xml = "<menubar name='MenuBar'>";
+    static const std::map<std::string, std::string*> submenuConfigMap = {
+        {"FileMenu",   &_pCtConfig->menubarFileUiList},
+        {"EditMenu",   &_pCtConfig->menubarEditUiList},
+        {"InsertMenu", &_pCtConfig->menubarInsertUiList},
+        {"FormatMenu", &_pCtConfig->menubarFormatUiList},
+        {"ToolsMenu",  &_pCtConfig->menubarToolsUiList},
+        {"TreeMenu",   &_pCtConfig->menubarTreeUiList},
+        {"SearchMenu", &_pCtConfig->menubarSearchUiList},
+        {"ViewMenu",   &_pCtConfig->menubarViewUiList},
+        {"HelpMenu",   &_pCtConfig->menubarHelpUiList},
+    };
+    for (const std::string& menuId : str::split(_pCtConfig->menubarTopLevelOrder, ",")) {
+        if (menuId.empty()) continue;
+        if (menuId == "BookmarksMenu") {
+            xml += "<menu action='BookmarksMenu'></menu>";
+            continue;
+        }
+        auto it = submenuConfigMap.find(menuId);
+        if (it != submenuConfigMap.end()) {
+            xml += "<menu action='" + menuId + "'>";
+            xml += generate_menu_xml(*it->second);
+            xml += "</menu>";
+        }
+    }
+    xml += "</menubar>";
+    return xml;
 }
 
-const char* CtMenu::_get_popup_menu_ui_str_code()
+std::string& CtMenu::getMenubarSubmenuConfig(const std::string& menuId)
 {
-    return R"MARKUP(
-<popup>
-  <separator/>
-  <menuitem action='cut_plain'/>
-  <menuitem action='copy_plain'/>
-  <separator/>
-  <menuitem action='exec_code_los'/>
-  <menuitem action='exec_code_all'/>
-  <menuitem action='strip_trail_spaces'/>
-  <menuitem action='repl_tabs_spaces'/>
-  <menu action='InsertSubMenu'>
-    <menuitem action='insert_timestamp'/>
-    <menuitem action='insert_special_char'/>
-    <menuitem action='insert_horiz_rule'/>
-    <menuitem action='insert_horiz_line'/>
-  </menu>
-  <menu action='ChangeCaseSubMenu'>
-    <menuitem action='case_down'/>
-    <menuitem action='case_up'/>
-    <menuitem action='case_tggl'/>
-  </menu>
-  <menu action='RowSubMenu'>
-    <menuitem action='cut_row'/>
-    <menuitem action='copy_row'/>
-    <menuitem action='del_row'/>
-    <menuitem action='dup_row'/>
-    <menuitem action='mv_up_row'/>
-    <menuitem action='mv_down_row'/>
-  </menu>
-  <separator/>
-  <menu action='FindSubMenu'>
-    <menuitem action='find_in_node'/>
-    <menuitem action='find_in_allnodes'/>
-    <menuitem action='find_in_node_names'/>
-    <menuitem action='find_iter_fw'/>
-    <menuitem action='find_iter_bw'/>
-  </menu>
-  <menu action='ReplaceSubMenu'>
-    <menuitem action='replace_in_node'/>
-    <menuitem action='replace_in_allnodes'/>
-    <menuitem action='replace_iter_fw'/>
-  </menu>
-</popup>
-    )MARKUP";
+    static const std::map<std::string, std::string CtConfig::*> configMap = {
+        {"FileMenu",   &CtConfig::menubarFileUiList},
+        {"EditMenu",   &CtConfig::menubarEditUiList},
+        {"InsertMenu", &CtConfig::menubarInsertUiList},
+        {"FormatMenu", &CtConfig::menubarFormatUiList},
+        {"ToolsMenu",  &CtConfig::menubarToolsUiList},
+        {"TreeMenu",   &CtConfig::menubarTreeUiList},
+        {"SearchMenu", &CtConfig::menubarSearchUiList},
+        {"ViewMenu",   &CtConfig::menubarViewUiList},
+        {"HelpMenu",   &CtConfig::menubarHelpUiList},
+    };
+    auto it = configMap.find(menuId);
+    if (it != configMap.end()) {
+        return _pCtConfig->*(it->second);
+    }
+    static std::string empty;
+    empty.clear();
+    return empty;
 }
 
-const char* CtMenu::_get_popup_menu_ui_str_image()
+std::string CtMenu::_get_popup_menu_ui_str_text()
 {
-    return R"MARKUP(
-<popup>
-  <menuitem action='img_cut'/>
-  <menuitem action='img_copy'/>
-  <menuitem action='img_del'/>
-  <separator/>
-  <menuitem action='img_edit'/>
-  <menuitem action='img_save'/>
-  <separator/>
-  <menuitem action='img_link_edit'/>
-  <menuitem action='img_link_dismiss'/>
-</popup>
-    )MARKUP";
+    return "<popup>" + generate_menu_xml(_pCtConfig->popupTextUiList) + "</popup>";
 }
 
-const char* CtMenu::_get_popup_menu_ui_str_latex()
+std::string CtMenu::_get_popup_menu_ui_str_code()
 {
-    return R"MARKUP(
-<popup>
-  <menuitem action='tex_cut'/>
-  <menuitem action='tex_copy'/>
-  <menuitem action='tex_del'/>
-  <separator/>
-  <menuitem action='tex_edit'/>
-  <menuitem action='tex_save'/>
-</popup>
-    )MARKUP";
+    return "<popup>" + generate_menu_xml(_pCtConfig->popupCodeUiList) + "</popup>";
 }
 
-const char* CtMenu::_get_popup_menu_ui_str_anchor()
+std::string CtMenu::_get_popup_menu_ui_str_image()
 {
-    return R"MARKUP(
-<popup>
-  <menuitem action='anch_cut'/>
-  <menuitem action='anch_copy'/>
-  <menuitem action='anch_del'/>
-  <separator/>
-  <menuitem action='anch_link'/>
-  <menuitem action='anch_edit'/>
-</popup>
-    )MARKUP";
+    return "<popup>" + generate_menu_xml(_pCtConfig->popupImageUiList) + "</popup>";
 }
 
-const char* CtMenu::_get_popup_menu_ui_str_embfile()
+std::string CtMenu::_get_popup_menu_ui_str_latex()
 {
-    return R"MARKUP(
-<popup>
-  <menuitem action='emb_file_cut'/>
-  <menuitem action='emb_file_copy'/>
-  <menuitem action='emb_file_del'/>
-  <separator/>
-  <menuitem action='emb_file_open'/>
-  <menuitem action='emb_file_save'/>
-  <separator/>
-  <menuitem action='emb_file_rename'/>
-</popup>
-    )MARKUP";
+    return "<popup>" + generate_menu_xml(_pCtConfig->popupLatexUiList) + "</popup>";
 }
 
-const char* CtMenu::_get_popup_menu_ui_str_terminal()
+std::string CtMenu::_get_popup_menu_ui_str_anchor()
 {
-    return R"MARKUP(
-<popup>
-  <menuitem action='term_copy'/>
-  <menuitem action='term_paste'/>
-  <menuitem action='term_reset'/>
-</popup>
-    )MARKUP";
+    return "<popup>" + generate_menu_xml(_pCtConfig->popupAnchorUiList) + "</popup>";
+}
+
+std::string CtMenu::_get_popup_menu_ui_str_embfile()
+{
+    return "<popup>" + generate_menu_xml(_pCtConfig->popupEmbfileUiList) + "</popup>";
+}
+
+std::string CtMenu::_get_popup_menu_ui_str_terminal()
+{
+    return "<popup>" + generate_menu_xml(_pCtConfig->popupTerminalUiList) + "</popup>";
+}
+
+std::string CtMenu::_get_popup_menu_ui_str_link()
+{
+    return "<popup>" + generate_menu_xml(_pCtConfig->popupLinkUiList) + "</popup>";
+}
+
+std::string CtMenu::_get_popup_menu_ui_str_codebox()
+{
+    return "<popup>" + generate_menu_xml(_pCtConfig->popupCodeboxUiList) + "</popup>";
+}
+
+std::string CtMenu::_get_popup_menu_ui_str_table_cell()
+{
+    return "<popup>" + generate_menu_xml(_pCtConfig->popupTableCellUiList) + "</popup>";
 }

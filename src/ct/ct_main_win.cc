@@ -1411,6 +1411,31 @@ void CtMainWin::menu_rebuild_toolbars(bool new_toolbar)
     #endif
 }
 
+void CtMainWin::menu_rebuild_menubar()
+{
+#if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
+    _pScrolledWindowMenuBar->remove();
+    _pMenuBar = _uCtMenu->build_menubar();
+    _pScrolledWindowMenuBar->add(*_pMenuBar);
+    _pBookmarksSubmenus[0] = CtMenu::find_menu_item(_pMenuBar, "BookmarksSubMenu");
+    auto pPopupMenuTree = _uCtMenu->get_popup_menu(CtMenu::POPUP_MENU_TYPE::Node);
+    for (Gtk::Widget* child : pPopupMenuTree->get_children()) {
+        if (auto menuItem = dynamic_cast<Gtk::MenuItem*>(child)) {
+            if (menuItem->has_submenu()) {
+                _pBookmarksSubmenus[1] = menuItem;
+                break;
+            }
+        }
+    }
+    _pBookmarksSubmenus[2] = CtMenu::find_menu_item(_pMenuBar, "BookmarksMenu");
+    _pRecentDocsSubmenu = CtMenu::find_menu_item(_pMenuBar, "RecentDocsSubMenu");
+    menu_set_bookmark_menu_items();
+    menu_set_items_recent_documents();
+    menu_top_optional_bookmarks_enforce();
+    _pMenuBar->show_all();
+#endif
+}
+
 void CtMainWin::config_switch_tree_side()
 {
     auto tree_width = _scrolledwindowTree.get_width();

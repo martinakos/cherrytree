@@ -49,6 +49,8 @@ private:
     Gtk::Widget* build_tab_interface();
     Gtk::Widget* build_tab_links();
     Gtk::Widget* build_tab_toolbar();
+    Gtk::Widget* build_tab_menubar();
+    Gtk::Widget* build_tab_context_menus();
     Gtk::Widget* build_tab_kb_shortcuts();
     Gtk::Widget* build_tab_misc();
 
@@ -78,6 +80,12 @@ private:
     bool add_new_item_in_toolbar_model(Gtk::TreeView* treeview, Glib::RefPtr<Gtk::ListStore> model);
     void update_config_toolbar_from_model(Glib::RefPtr<Gtk::ListStore> model);
 
+    void fill_menu_editor_model(Glib::RefPtr<Gtk::ListStore> model, const std::string& configStr);
+    void populate_row_in_menu_editor(Gtk::TreeModel::iterator row, const Glib::ustring& key, int depth);
+    bool add_new_item_in_menu_editor(Gtk::TreeView* treeview, Glib::RefPtr<Gtk::ListStore> model);
+    bool remove_selected_from_menu_editor(Gtk::TreeView* treeview, Glib::RefPtr<Gtk::ListStore> model);
+    std::string update_config_from_menu_editor(Glib::RefPtr<Gtk::ListStore> model);
+
     void fill_shortcut_model(Glib::RefPtr<Gtk::TreeStore> model);
     bool edit_shortcut(Gtk::TreeView* treeview);
     bool edit_shortcut_dialog(std::string& shortcut, const std::string& default_shortcut);
@@ -105,6 +113,7 @@ private:
 private:
     UniversalModelColumns _commandModelColumns;
     UniversalModelColumns _toolbarModelColumns;
+    UniversalModelColumns _menuEditorModelColumns;
     UniversalModelColumns _shortcutModelColumns;
     CtMainWin* const      _pCtMainWin;
     CtMenu* const         _pCtMenu;
