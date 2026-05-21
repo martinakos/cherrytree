@@ -456,6 +456,26 @@ void CtConfig::_populate_keyfile_from_data()
     // [misc]
     _currentGroup = "misc";
     _uKeyFile->set_string(_currentGroup, "toolbar_ui_list", toolbarUiList);
+    _uKeyFile->set_string(_currentGroup, "menubar_top_level_order", menubarTopLevelOrder);
+    _uKeyFile->set_string(_currentGroup, "menubar_file_ui_list", menubarFileUiList);
+    _uKeyFile->set_string(_currentGroup, "menubar_edit_ui_list", menubarEditUiList);
+    _uKeyFile->set_string(_currentGroup, "menubar_insert_ui_list", menubarInsertUiList);
+    _uKeyFile->set_string(_currentGroup, "menubar_format_ui_list", menubarFormatUiList);
+    _uKeyFile->set_string(_currentGroup, "menubar_tools_ui_list", menubarToolsUiList);
+    _uKeyFile->set_string(_currentGroup, "menubar_tree_ui_list", menubarTreeUiList);
+    _uKeyFile->set_string(_currentGroup, "menubar_search_ui_list", menubarSearchUiList);
+    _uKeyFile->set_string(_currentGroup, "menubar_view_ui_list", menubarViewUiList);
+    _uKeyFile->set_string(_currentGroup, "menubar_help_ui_list", menubarHelpUiList);
+    _uKeyFile->set_string(_currentGroup, "popup_text_ui_list", popupTextUiList);
+    _uKeyFile->set_string(_currentGroup, "popup_code_ui_list", popupCodeUiList);
+    _uKeyFile->set_string(_currentGroup, "popup_image_ui_list", popupImageUiList);
+    _uKeyFile->set_string(_currentGroup, "popup_latex_ui_list", popupLatexUiList);
+    _uKeyFile->set_string(_currentGroup, "popup_anchor_ui_list", popupAnchorUiList);
+    _uKeyFile->set_string(_currentGroup, "popup_embfile_ui_list", popupEmbfileUiList);
+    _uKeyFile->set_string(_currentGroup, "popup_terminal_ui_list", popupTerminalUiList);
+    _uKeyFile->set_string(_currentGroup, "popup_link_ui_list", popupLinkUiList);
+    _uKeyFile->set_string(_currentGroup, "popup_codebox_ui_list", popupCodeboxUiList);
+    _uKeyFile->set_string(_currentGroup, "popup_table_cell_ui_list", popupTableCellUiList);
     _uKeyFile->set_boolean(_currentGroup, "systray", systrayOn);
     _uKeyFile->set_boolean(_currentGroup, "start_on_systray", startOnSystray);
     _uKeyFile->set_boolean(_currentGroup, "autosave_on", autosaveOn);
@@ -833,6 +853,26 @@ void CtConfig::_populate_data_from_keyfile()
             toolbarUiList.insert(pos, "act_undo,act_redo,separator,");
         }
     }
+    _populate_string_from_keyfile("menubar_top_level_order", &menubarTopLevelOrder);
+    _populate_string_from_keyfile("menubar_file_ui_list", &menubarFileUiList);
+    _populate_string_from_keyfile("menubar_edit_ui_list", &menubarEditUiList);
+    _populate_string_from_keyfile("menubar_insert_ui_list", &menubarInsertUiList);
+    _populate_string_from_keyfile("menubar_format_ui_list", &menubarFormatUiList);
+    _populate_string_from_keyfile("menubar_tools_ui_list", &menubarToolsUiList);
+    _populate_string_from_keyfile("menubar_tree_ui_list", &menubarTreeUiList);
+    _populate_string_from_keyfile("menubar_search_ui_list", &menubarSearchUiList);
+    _populate_string_from_keyfile("menubar_view_ui_list", &menubarViewUiList);
+    _populate_string_from_keyfile("menubar_help_ui_list", &menubarHelpUiList);
+    _populate_string_from_keyfile("popup_text_ui_list", &popupTextUiList);
+    _populate_string_from_keyfile("popup_code_ui_list", &popupCodeUiList);
+    _populate_string_from_keyfile("popup_image_ui_list", &popupImageUiList);
+    _populate_string_from_keyfile("popup_latex_ui_list", &popupLatexUiList);
+    _populate_string_from_keyfile("popup_anchor_ui_list", &popupAnchorUiList);
+    _populate_string_from_keyfile("popup_embfile_ui_list", &popupEmbfileUiList);
+    _populate_string_from_keyfile("popup_terminal_ui_list", &popupTerminalUiList);
+    _populate_string_from_keyfile("popup_link_ui_list", &popupLinkUiList);
+    _populate_string_from_keyfile("popup_codebox_ui_list", &popupCodeboxUiList);
+    _populate_string_from_keyfile("popup_table_cell_ui_list", &popupTableCellUiList);
     _populate_bool_from_keyfile("systray", &systrayOn);
     _populate_bool_from_keyfile("start_on_systray", &startOnSystray);
     if (savedFromPyGtk) {

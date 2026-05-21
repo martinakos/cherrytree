@@ -805,6 +805,13 @@ static void _test_gui_complex_operations_undo_redo(CtMainWin* pWin)
     }
     ASSERT_EQ(initialXml, node->getContent().toXml()) << "Second full undo should restore initial state";
 
+    // Redo all so widgets are back in the buffer — GTK's BTree crashes on
+    // teardown if anchored-widget slots were removed by undo.
+    while (pBridge->canRedo()) {
+        pActions->requested_step_ahead();
+    }
+    GuiEventSimulator::process_pending_events();
+
     spdlog::info("✓ Test passed: {} ops, {} commands, full undo/redo cycle verified",
                  totalOps, totalCommands);
 }

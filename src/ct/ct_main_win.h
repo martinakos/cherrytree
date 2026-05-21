@@ -207,6 +207,7 @@ public:
     void menu_set_items_recent_documents();
     void menu_set_visible_exit_app(bool visible);
     void menu_rebuild_toolbars(bool new_toolbar);
+    void menu_rebuild_menubar();
     void menu_update_undo_redo_menus();
 #if GTKMM_MAJOR_VERSION >= 4
     void init_app_actions_gtk4();

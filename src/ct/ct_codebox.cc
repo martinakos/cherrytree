@@ -287,6 +287,7 @@ CtCodebox::CtCodebox(CtMainWin* pCtMainWin,
     _ctTextview.mm().signal_populate_popup().connect([this](Gtk::Menu* menu){
         if (not _pCtMainWin->user_active()) return;
         _pCtMainWin->get_ct_actions()->curr_codebox_anchor = this;
+        for (auto child : menu->get_children()) menu->remove(*child);
         _pCtMainWin->get_ct_menu().build_popup_menu(menu, CtMenu::POPUP_MENU_TYPE::Codebox);
     });
     _ctTextview.mm().signal_key_press_event().connect(sigc::mem_fun(*this, &CtCodebox::_on_key_press_event), false);
