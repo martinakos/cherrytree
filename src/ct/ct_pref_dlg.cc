@@ -86,6 +86,8 @@ CtPrefDlg::CtPrefDlg(CtMainWin* parent)
     pNotebook->append_page(*build_tab_interface(),          _("Interface"));
     pNotebook->append_page(*build_tab_links(),              _("Links"));
     pNotebook->append_page(*build_tab_toolbar(),            _("Toolbar"));
+    pNotebook->append_page(*build_tab_menubar(),            _("Menu Bar"));
+    pNotebook->append_page(*build_tab_context_menus(),      _("Context Menus"));
     pNotebook->append_page(*build_tab_kb_shortcuts(),       _("Keyboard Shortcuts"));
     pNotebook->append_page(*build_tab_misc(),               _("Miscellaneous"));
 

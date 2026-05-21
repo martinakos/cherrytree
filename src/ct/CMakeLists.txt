@@ -64,7 +64,9 @@ set(CT_SHARED_FILES
   ct_misc_utils.cc
   ct_p7za_iface.cc
   ct_pref_dlg.cc
+  ct_pref_dlg_context_menus.cc
   ct_pref_dlg_kb_shortcuts.cc
+  ct_pref_dlg_menubar.cc
   ct_pref_dlg_misc.cc
   ct_pref_dlg_plain_text_n_code.cc
   ct_pref_dlg_rich_text.cc

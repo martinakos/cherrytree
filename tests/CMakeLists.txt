@@ -71,6 +71,7 @@ package_add_test(run_tests_no_x
   tests_filesystem.cpp
   tests_imports.cpp
   tests_html_parse.cpp
+  tests_menu_config.cpp
   tests_misc_utils.cpp
   tests_node_content.cpp
   tests_tmp_n_p7zip.cpp

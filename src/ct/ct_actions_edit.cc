@@ -893,6 +893,26 @@ void CtActions::_validate_enable_spell_check()
     }
 }
 
+void CtActions::cut_rich_text()
+{
+    if (not _is_curr_node_not_read_only_or_error()) return;
+    auto proof = _get_text_view_n_buffer_codebox_proof();
+    g_signal_emit_by_name(G_OBJECT(proof.text_view->gobj()), "cut-clipboard");
+}
+
+void CtActions::copy_rich_text()
+{
+    auto proof = _get_text_view_n_buffer_codebox_proof();
+    g_signal_emit_by_name(G_OBJECT(proof.text_view->gobj()), "copy-clipboard");
+}
+
+void CtActions::paste_rich_text()
+{
+    if (not _is_curr_node_not_read_only_or_error()) return;
+    auto proof = _get_text_view_n_buffer_codebox_proof();
+    g_signal_emit_by_name(G_OBJECT(proof.text_view->gobj()), "paste-clipboard");
+}
+
 // Copy as Plain Text
 void CtActions::cut_as_plain_text()
 {
