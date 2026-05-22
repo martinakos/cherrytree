@@ -93,6 +93,7 @@ public:
     void beginTextEditSession(gint64 nodeId);
     void endTextEditSession();
     void cancelTextEditSession();
+    void onCursorMoved();
 
     // Format change helpers (captures before/after for undo)
     void beginFormatChange(gint64 nodeId, const std::string& formatType);
