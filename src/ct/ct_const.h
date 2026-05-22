@@ -269,10 +269,11 @@ const inline static gchar* TOOLBAR_VEC_DEFAULT {
     "tree_add_node,tree_add_subnode,separator,go_node_prev,go_node_next,separator,act_undo,act_redo,"
     "separator,ct_open_folder,*,ct_save,export_pdf,separator,"
     "find_in_allnodes,separator,handle_bull_list,handle_num_list,handle_todo_list,fmt_indent,fmt_unindent,"
-    "separator,handle_image,handle_table,handle_codebox,handle_latex,handle_embfile,"
+    "separator,table_cell_align_left,table_cell_align_center,table_cell_align_right,"
+    "separator,insert_horiz_line,handle_image,handle_table,handle_codebox,handle_latex,handle_embfile,"
     "handle_link,handle_anchor,separator,fmt_clone,fmt_latest,fmt_rm,fmt_color_fg,"
     "fmt_color_bg,fmt_bold,fmt_italic,fmt_underline,fmt_strikethrough,"
-    "fmt_h1,fmt_h2,fmt_h3,fmt_small,fmt_subscript,fmt_superscript,fmt_monospace"
+    "fmt_h1,fmt_h2,fmt_h3,fmt_small,fmt_superscript,fmt_subscript,fmt_monospace"
 };
 
 const inline static gchar* MENUBAR_TOP_LEVEL_DEFAULT {
@@ -290,7 +291,8 @@ const inline static gchar* MENUBAR_FILE_DEFAULT {
     "tree_parse_info,doc_path_clip,separator,quit_app,exit_app"
 };
 const inline static gchar* MENUBAR_EDIT_DEFAULT {
-    "act_undo,act_redo,separator,cut_plain,copy_plain,paste_plain,separator,"
+    "act_undo,act_redo,separator,cut_rich,copy_rich,paste_rich,separator,"
+    "cut_plain,copy_plain,paste_plain,separator,"
     "{RowSubMenu,cut_row,copy_row,dup_row,mv_up_row,mv_down_row,del_row,},separator,"
     "{TableSubMenu,table_cut,table_copy,table_delete,table_column_add,"
     "table_column_cut,table_column_copy,table_column_paste,table_column_delete,"
@@ -350,31 +352,14 @@ const inline static gchar* MENUBAR_HELP_DEFAULT {
     "ct_check_newer,separator,ct_homepage,ct_github,ct_issues,ct_help,separator,ct_about"
 };
 const inline static gchar* POPUP_TEXT_DEFAULT {
-    "separator,cut_rich,copy_rich,paste_rich,separator,"
-    "{RowSubMenu,cut_row,copy_row,dup_row,mv_up_row,mv_down_row,del_row,},"
-    "{FormattingSubMenu,fmt_clone,fmt_latest,fmt_rm,separator,separator,"
-    "fmt_color_fg,fmt_color_bg,separator,"
-    "{FontSubMenu,fmt_bold,fmt_italic,fmt_underline,fmt_strikethrough,"
-    "fmt_monospace,fmt_small,fmt_subscript,fmt_superscript,},"
-    "{ChangeCaseSubMenu,case_down,case_up,case_tggl,},"
-    "{HeadingSubMenu,fmt_h1,fmt_h2,fmt_h3,fmt_h4,fmt_h5,fmt_h6,},"
-    "separator,fmt_indent,fmt_unindent,separator,head_expand,head_collapse,separator,"
-    "{JustifySubMenu,fmt_justify_left,fmt_justify_center,fmt_justify_right,fmt_justify_fill,},},"
-    "{InsertSubMenu,handle_image,handle_table,handle_codebox,handle_latex,handle_embfile,"
-    "handle_link,handle_anchor,insert_toc,insert_timestamp,insert_special_char,"
-    "insert_horiz_rule,insert_horiz_line,"
-    "{ListSubMenu,handle_bull_list,handle_num_list,handle_todo_list,},},"
-    "exec_code_los,exec_code_all,strip_trail_spaces,separator,"
-    "{FindSubMenu,find_in_node,find_in_allnodes,find_in_node_names,find_iter_fw,find_iter_bw,},"
-    "{ReplaceSubMenu,replace_in_node,replace_in_allnodes,replace_iter_fw,}"
+    "separator,cut_rich,copy_rich,paste_rich,separator,cut_plain,copy_plain,paste_plain"
 };
 const inline static gchar* POPUP_CODE_DEFAULT {
     "separator,cut_rich,copy_rich,paste_rich,separator,"
     "exec_code_los,exec_code_all,strip_trail_spaces,repl_tabs_spaces,"
     "{InsertSubMenu,insert_timestamp,insert_special_char,insert_horiz_rule,insert_horiz_line,},"
     "{ChangeCaseSubMenu,case_down,case_up,case_tggl,},"
-    "{RowSubMenu,cut_row,copy_row,del_row,dup_row,mv_up_row,mv_down_row,},"
-    "separator,"
+    "{RowSubMenu,cut_row,copy_row,del_row,dup_row,mv_up_row,mv_down_row,},separator,"
     "{FindSubMenu,find_in_node,find_in_allnodes,find_in_node_names,find_iter_fw,find_iter_bw,},"
     "{ReplaceSubMenu,replace_in_node,replace_in_allnodes,replace_iter_fw,}"
 };
