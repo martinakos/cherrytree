@@ -941,6 +941,15 @@ void CtCommandBridge::cancelTextEditSession()
     _lastSyncedNodeId = -1;  // cancelled session — can't guarantee model sync
 }
 
+void CtCommandBridge::onCursorMoved()
+{
+    if (!_active || !_editSession || !_editSession->isActive()) return;
+    if (!_editSession->hasCapturedCommands()) return;
+    gint64 nodeId = _editSession->getActiveNodeId();
+    endTextEditSession();
+    beginTextEditSession(nodeId);
+}
+
 void CtCommandBridge::beginWidgetEdit(gint64 nodeId, CtAnchoredWidget* widget, int row, int col)
 {
     if (!_active || !_pMainWin) {
