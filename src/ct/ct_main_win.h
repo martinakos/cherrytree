@@ -46,10 +46,18 @@
 
 struct CtStatusBar
 {
-    Gtk::Statusbar   statusBar;
     Gtk::Label       cursorPos;
+    Gtk::Label       nodeField;
+    Gtk::Label       typeField;
+    Gtk::Label       tagsField;
+    Gtk::Label       spellField;
+    Gtk::Label       wordCountField;
+    Gtk::Label       sizeField;
+    Gtk::Label       dateCreatedField;
+    Gtk::Label       dateModifiedField;
+    Gtk::Separator   fieldSeparators[8];
+    Gtk::Label       messageLabel;
     Gtk::Label       zoomLabel;
-    guint            statusId;
     Gtk::ProgressBar progressBar;
     Gtk::Button      stopButton;
     Gtk::Frame       frame;
@@ -57,16 +65,27 @@ struct CtStatusBar
 
     void set_progress_stop(bool stop) { _progress_stop = stop; }
     bool is_progress_stop()           { return _progress_stop; }
-    void push(const Glib::ustring& text) { statusBar.push(text, statusId); }
-    void pop() { statusBar.pop(statusId); }
-    void update_status(const Glib::ustring& text) { pop(); push(text); }
+    void push(const Glib::ustring& text);
+    void pop();
+    void update_status(const Glib::ustring& text);
+    void update_node_fields(const Glib::ustring& nodeId,
+                            const Glib::ustring& type,
+                            const Glib::ustring& tags,
+                            const Glib::ustring& spell,
+                            const Glib::ustring& wordCount,
+                            const Glib::ustring& size,
+                            const Glib::ustring& dateCreated,
+                            const Glib::ustring& dateModified);
+    void clear_node_fields();
     void new_cursor_pos(const int r, const int c);
     void update_zoom_level(int zoomPercent);
 
 private:
+    static void _set_field(Gtk::Label& label, Gtk::Separator& sep, const Glib::ustring& boldKey, const Glib::ustring& val);
     bool _progress_stop{false};
     int _r{-1};
     int _c{-1};
+    std::vector<Glib::ustring> _msgStack;
 };
 
 struct CtWinHeader
