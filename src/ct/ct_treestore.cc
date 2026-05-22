@@ -27,6 +27,7 @@
 #include "ct_misc_utils.h"
 #include "ct_storage_control.h"
 #include "ct_actions.h"
+#include "ct_command_bridge.h"
 #include "ct_logging.h"
 
 #if GTKMM_MAJOR_VERSION >= 4
@@ -1346,9 +1347,9 @@ void CtTreeStore::_on_textbuffer_mark_set(const Gtk::TextIter& /*iter*/, const G
 {
     if (_pCtMainWin->user_active()) {
         if (rMark->get_name() == "insert") {
-            const auto currTreeIter = _pCtMainWin->curr_tree_iter();
-            if (currTreeIter and currTreeIter.get_node_is_rich_text()) {
-                // Command pattern handles cursor position tracking via edit sessions
+            auto pBridge = _pCtMainWin->get_command_bridge();
+            if (pBridge && pBridge->isActive()) {
+                pBridge->onCursorMoved();
             }
             _pCtMainWin->get_text_view().column_edit_selection_update();
         }
