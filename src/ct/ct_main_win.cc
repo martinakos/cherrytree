@@ -70,18 +70,96 @@ void CtMainWin::init_app_actions_gtk4()
 #include "ct_dialogs.h"
 #include "ct_command_bridge.h"
 
+void CtStatusBar::_set_field(Gtk::Label& label, Gtk::Separator& sep, const Glib::ustring& boldKey, const Glib::ustring& val)
+{
+    if (val.empty()) {
+        label.hide();
+        sep.hide();
+    }
+    else {
+        label.set_markup("<b>" + Glib::Markup::escape_text(boldKey) +
+                         "</b><span foreground=\"#e06666\">" +
+                         Glib::Markup::escape_text(val) + "</span>");
+        label.show();
+        sep.show();
+    }
+}
+
+void CtStatusBar::update_node_fields(const Glib::ustring& nodeId,
+                                     const Glib::ustring& type,
+                                     const Glib::ustring& tags,
+                                     const Glib::ustring& spell,
+                                     const Glib::ustring& wordCount,
+                                     const Glib::ustring& size,
+                                     const Glib::ustring& dateCreated,
+                                     const Glib::ustring& dateModified)
+{
+    messageLabel.hide();
+    _set_field(nodeField,         fieldSeparators[0], Glib::ustring{_("Node")} + _(": "), nodeId);
+    _set_field(typeField,         fieldSeparators[1], Glib::ustring{_("Type")} + _(": "), type);
+    _set_field(tagsField,         fieldSeparators[2], Glib::ustring{_("Tags")} + _(": "), tags);
+    _set_field(spellField,        fieldSeparators[3], Glib::ustring{_("Spell Check")} + _(": "), spell);
+    _set_field(wordCountField,    fieldSeparators[4], Glib::ustring{_("Word Count")} + _(": "), wordCount);
+    _set_field(sizeField,         fieldSeparators[5], Glib::ustring{_("Size")} + _(": "), size);
+    _set_field(dateCreatedField,  fieldSeparators[6], Glib::ustring{_("Date Created")} + _(": "), dateCreated);
+    _set_field(dateModifiedField, fieldSeparators[7], Glib::ustring{_("Date Modified")} + _(": "), dateModified);
+}
+
+void CtStatusBar::clear_node_fields()
+{
+    nodeField.hide();
+    typeField.hide();
+    tagsField.hide();
+    spellField.hide();
+    wordCountField.hide();
+    sizeField.hide();
+    dateCreatedField.hide();
+    dateModifiedField.hide();
+    for (auto& sep : fieldSeparators) sep.hide();
+}
+
+void CtStatusBar::push(const Glib::ustring& text)
+{
+    _msgStack.push_back(text);
+    clear_node_fields();
+    messageLabel.set_text(text);
+    messageLabel.show();
+}
+
+void CtStatusBar::pop()
+{
+    if (not _msgStack.empty()) {
+        _msgStack.pop_back();
+    }
+    if (not _msgStack.empty()) {
+        messageLabel.set_text(_msgStack.back());
+        messageLabel.show();
+    }
+    else {
+        messageLabel.set_text("");
+        messageLabel.hide();
+    }
+}
+
+void CtStatusBar::update_status(const Glib::ustring& text)
+{
+    clear_node_fields();
+    messageLabel.set_text(text);
+    messageLabel.show();
+}
+
 void CtStatusBar::update_zoom_level(int zoomPercent)
 {
-    zoomLabel.set_text(fmt::format(" Zoom: {}% ", zoomPercent > 0 ? zoomPercent : 100));
+    zoomLabel.set_markup(fmt::format(" <b>Zoom: {}%</b> ", zoomPercent > 0 ? zoomPercent : 100));
 }
 
 void CtStatusBar::new_cursor_pos(const int r, const int c)
 {
     if (_r != r or _c != c) {
 #if GLIBMM_MAJOR_VERSION > 2 || (GLIBMM_MAJOR_VERSION == 2 && GLIBMM_MINOR_VERSION >= 62)
-        cursorPos.set_text(Glib::ustring::sprintf(" (%d,%d)", r, c));
+        cursorPos.set_markup(Glib::ustring::sprintf(" <b>(%d,%d)</b>", r, c));
 #else /* glibmm < 2.62 */
-        cursorPos.set_text(fmt::format(" ({},{})", r, c));
+        cursorPos.set_markup(fmt::format(" <b>({},{})</b>", r, c));
 #endif /* glibmm < 2.62 */
         _r = r;
         _c = c;
@@ -825,12 +903,61 @@ void CtMainWin::update_theme()
 
 Gtk::Box& CtMainWin::_init_status_bar()
 {
-    _ctStatusBar.statusId = _ctStatusBar.statusBar.get_context_id("");
+    struct FieldSpec {
+        Gtk::Label* label;
+        int minWidth;
+        int marginStart;
+    };
+    std::vector<FieldSpec> fields = {
+        { &_ctStatusBar.nodeField,         100, 6 },
+        { &_ctStatusBar.typeField,         120, 6 },
+        { &_ctStatusBar.tagsField,         120, 6 },
+        { &_ctStatusBar.spellField,        140, 6 },
+        { &_ctStatusBar.wordCountField,    130, 6 },
+        { &_ctStatusBar.sizeField,         110, 6 },
+        { &_ctStatusBar.dateCreatedField,  230, 6 },
+        { &_ctStatusBar.dateModifiedField, 200, 6 },
+    };
+    for (auto& f : fields) {
+        f.label->set_size_request(f.minWidth, -1);
+        f.label->set_xalign(0.0f);
+        f.label->set_margin_top(4);
+        f.label->set_margin_bottom(4);
+        f.label->set_margin_start(f.marginStart);
+        f.label->set_no_show_all(true);
+        f.label->hide();
+    }
+
+    _ctStatusBar.cursorPos.set_size_request(80, -1);
+    _ctStatusBar.cursorPos.set_xalign(0.0f);
+    _ctStatusBar.cursorPos.set_margin_start(4);
+    _ctStatusBar.cursorPos.set_margin_top(4);
+    _ctStatusBar.cursorPos.set_margin_bottom(4);
+    _ctStatusBar.messageLabel.set_xalign(0.0f);
+    _ctStatusBar.messageLabel.set_margin_top(4);
+    _ctStatusBar.messageLabel.set_margin_bottom(4);
+    _ctStatusBar.messageLabel.set_no_show_all(true);
+    _ctStatusBar.messageLabel.hide();
+    _ctStatusBar.zoomLabel.set_size_request(100, -1);
+    _ctStatusBar.zoomLabel.set_xalign(1.0f);
+    _ctStatusBar.zoomLabel.set_margin_end(4);
+    _ctStatusBar.zoomLabel.set_margin_top(4);
+    _ctStatusBar.zoomLabel.set_margin_bottom(4);
+
+    for (auto& sep : _ctStatusBar.fieldSeparators) {
+        sep.set_no_show_all(true);
+        sep.hide();
+    }
+
     #if GTKMM_MAJOR_VERSION >= 4
     _ctStatusBar.frame.set_child(_ctStatusBar.progressBar);
     _ctStatusBar.stopButton.set_image_from_icon_name("ct_stop", Gtk::IconSize::INHERIT);
     _ctStatusBar.hbox.append(_ctStatusBar.cursorPos);
-    _ctStatusBar.hbox.append(_ctStatusBar.statusBar);
+    for (size_t i = 0; i < fields.size(); ++i) {
+        _ctStatusBar.hbox.append(_ctStatusBar.fieldSeparators[i]);
+        _ctStatusBar.hbox.append(*fields[i].label);
+    }
+    _ctStatusBar.hbox.append(_ctStatusBar.messageLabel);
     _ctStatusBar.hbox.append(_ctStatusBar.zoomLabel);
     _ctStatusBar.hbox.append(_ctStatusBar.frame);
     _ctStatusBar.hbox.append(_ctStatusBar.stopButton);
@@ -839,20 +966,19 @@ Gtk::Box& CtMainWin::_init_status_bar()
     _ctStatusBar.frame.add(_ctStatusBar.progressBar);
     _ctStatusBar.stopButton.set_image_from_icon_name("ct_stop", Gtk::ICON_SIZE_MENU);
     _ctStatusBar.hbox.pack_start(_ctStatusBar.cursorPos, false, false);
-    _ctStatusBar.hbox.pack_start(_ctStatusBar.statusBar, true, true);
-    _ctStatusBar.hbox.pack_start(_ctStatusBar.zoomLabel, false, false);
-    _ctStatusBar.hbox.pack_start(_ctStatusBar.frame, false, true);
-    _ctStatusBar.hbox.pack_start(_ctStatusBar.stopButton, false, true);
+    for (size_t i = 0; i < fields.size(); ++i) {
+        _ctStatusBar.hbox.pack_start(_ctStatusBar.fieldSeparators[i], false, false);
+        _ctStatusBar.hbox.pack_start(*fields[i].label, false, false);
+    }
+    _ctStatusBar.hbox.pack_start(_ctStatusBar.messageLabel, true, true);
+    _ctStatusBar.hbox.pack_end(_ctStatusBar.stopButton, false, true);
+    _ctStatusBar.hbox.pack_end(_ctStatusBar.frame, false, true);
+    _ctStatusBar.hbox.pack_end(_ctStatusBar.zoomLabel, false, false);
     #endif
 
     _ctStatusBar.hbox.get_style_context()->add_class("ct-status-bar");
-    // todo: move to css
     #if GTKMM_MAJOR_VERSION < 4
     _ctStatusBar.frame.set_border_width(1);
-    _ctStatusBar.statusBar.set_margin_top(0);
-    _ctStatusBar.statusBar.set_margin_bottom(0);
-    ((Gtk::Frame*)_ctStatusBar.statusBar.get_children()[0])->get_child()->set_margin_top(1);
-    ((Gtk::Frame*)_ctStatusBar.statusBar.get_children()[0])->get_child()->set_margin_bottom(1);
     _ctStatusBar.hbox.set_border_width(0);
     #endif
 
@@ -1628,106 +1754,95 @@ void CtMainWin::reset()
 void CtMainWin::update_selected_node_statusbar_info()
 {
     CtTreeIter treeIter = curr_tree_iter();
-    Glib::ustring statusbar_text;
     if (not treeIter) {
-        statusbar_text = _("No Node is Selected");
+        _ctStatusBar.clear_node_fields();
+        _ctStatusBar.update_status(_("No Node is Selected"));
+        return;
     }
-    else {
-        const std::string separator_text{"  -  "};
-        statusbar_text = Glib::ustring{_("Node")} + _(": ") + std::to_string(treeIter.get_node_id());
-        statusbar_text += separator_text + _("Type") + _(": ");
-        const std::string syntaxHighl = treeIter.get_node_syntax_highlighting();
-        if (CtConst::RICH_TEXT_ID == syntaxHighl) {
-            statusbar_text += _("Rich Text");
+
+    Glib::ustring typeStr;
+    const std::string syntaxHighl = treeIter.get_node_syntax_highlighting();
+    if (CtConst::RICH_TEXT_ID == syntaxHighl)       typeStr = _("Rich Text");
+    else if (CtConst::PLAIN_TEXT_ID == syntaxHighl) typeStr = _("Plain Text");
+    else                                            typeStr = syntaxHighl;
+
+    Glib::ustring spellStr;
+    if (_pCtConfig->enableSpellCheck && curr_tree_iter().get_node_is_text()) {
+        spellStr = _pCtConfig->spellCheckLang;
+    }
+
+    Glib::ustring wordCountStr;
+    if (_pCtConfig->wordCountOn) {
+        wordCountStr = std::to_string(CtTextIterUtil::get_words_count(_ctTextview.get_buffer()));
+    }
+
+    Glib::ustring sizeStr;
+    if (_pCtConfig->nodeSizeOn) {
+        size_t totalBytes = 0;
+        auto pTextBuffer = treeIter.get_node_text_buffer();
+        if (pTextBuffer) {
+            totalBytes += pTextBuffer->get_text().bytes();
         }
-        else if (CtConst::PLAIN_TEXT_ID == syntaxHighl) {
-            statusbar_text += _("Plain Text");
-        }
-        else {
-            statusbar_text += syntaxHighl;
-        }
-        if (not treeIter.get_node_tags().empty()) {
-            statusbar_text += separator_text + _("Tags") + _(": ") + treeIter.get_node_tags();
-        }
-        if (_pCtConfig->enableSpellCheck && curr_tree_iter().get_node_is_text()) {
-            statusbar_text += separator_text + _("Spell Check") + _(": ") + _pCtConfig->spellCheckLang;
-        }
-        if (_pCtConfig->wordCountOn) {
-            statusbar_text += separator_text + _("Word Count") + _(": ") + std::to_string(CtTextIterUtil::get_words_count(_ctTextview.get_buffer()));
-        }
-        if (_pCtConfig->nodeSizeOn) {
-            size_t totalBytes = 0;
-            auto pTextBuffer = treeIter.get_node_text_buffer();
-            if (pTextBuffer) {
-                totalBytes += pTextBuffer->get_text().bytes();
-            }
-            totalBytes += treeIter.get_node_name().bytes();
-            totalBytes += treeIter.get_node_tags().bytes();
-            for (auto* pWidget : treeIter.get_anchored_widgets_fast()) {
-                switch (pWidget->get_type()) {
-                    case CtAnchWidgType::ImagePng:
-                        totalBytes += dynamic_cast<CtImagePng*>(pWidget)->get_raw_blob().size();
-                        break;
-                    case CtAnchWidgType::ImageEmbFile:
-                        totalBytes += dynamic_cast<CtImageEmbFile*>(pWidget)->get_raw_blob().size();
-                        break;
-                    case CtAnchWidgType::CodeBox:
-                        totalBytes += dynamic_cast<CtCodebox*>(pWidget)->get_text_content().bytes();
-                        break;
-                    case CtAnchWidgType::ImageLatex:
-                        totalBytes += dynamic_cast<CtImageLatex*>(pWidget)->get_latex_text().bytes();
-                        break;
-                    case CtAnchWidgType::TableHeavy:
-                    case CtAnchWidgType::TableLight:
-                    case CtAnchWidgType::TableRich: {
-                        auto* pTable = dynamic_cast<CtTableCommon*>(pWidget);
-                        for (size_t r = 0; r < pTable->get_num_rows(); ++r) {
-                            for (size_t c = 0; c < pTable->get_num_columns(); ++c) {
-                                auto* pCell = pTable->getCellAt(r, c);
-                                if (pCell) totalBytes += pCell->get_text_content().bytes();
-                            }
+        totalBytes += treeIter.get_node_name().bytes();
+        totalBytes += treeIter.get_node_tags().bytes();
+        for (auto* pWidget : treeIter.get_anchored_widgets_fast()) {
+            switch (pWidget->get_type()) {
+                case CtAnchWidgType::ImagePng:
+                    totalBytes += dynamic_cast<CtImagePng*>(pWidget)->get_raw_blob().size();
+                    break;
+                case CtAnchWidgType::ImageEmbFile:
+                    totalBytes += dynamic_cast<CtImageEmbFile*>(pWidget)->get_raw_blob().size();
+                    break;
+                case CtAnchWidgType::CodeBox:
+                    totalBytes += dynamic_cast<CtCodebox*>(pWidget)->get_text_content().bytes();
+                    break;
+                case CtAnchWidgType::ImageLatex:
+                    totalBytes += dynamic_cast<CtImageLatex*>(pWidget)->get_latex_text().bytes();
+                    break;
+                case CtAnchWidgType::TableHeavy:
+                case CtAnchWidgType::TableLight:
+                case CtAnchWidgType::TableRich: {
+                    auto* pTable = dynamic_cast<CtTableCommon*>(pWidget);
+                    for (size_t r = 0; r < pTable->get_num_rows(); ++r) {
+                        for (size_t c = 0; c < pTable->get_num_columns(); ++c) {
+                            auto* pCell = pTable->getCellAt(r, c);
+                            if (pCell) totalBytes += pCell->get_text_content().bytes();
                         }
-                        break;
                     }
-                    default:
-                        break;
+                    break;
                 }
+                default:
+                    break;
             }
-            Glib::ustring sizeStr;
-            if (totalBytes < 1024) {
-                sizeStr = std::to_string(totalBytes) + " B";
-            }
-            else if (totalBytes < 1024 * 1024) {
-                char buf[32];
-                snprintf(buf, sizeof(buf), "%.1f KB", totalBytes / 1024.0);
-                sizeStr = buf;
-            }
-            else {
-                char buf[32];
-                snprintf(buf, sizeof(buf), "%.1f MB", totalBytes / (1024.0 * 1024.0));
-                sizeStr = buf;
-            }
-            statusbar_text += separator_text + _("Size") + _(": ") + sizeStr;
         }
-        if (treeIter.get_node_creating_time() > 0) {
-            const Glib::ustring timestamp_creation = str::time_format(_pCtConfig->timestampFormat, treeIter.get_node_creating_time());
-            statusbar_text += separator_text + _("Date Created") + _(": ") + timestamp_creation;
-        }
-        if (treeIter.get_node_modification_time() > 0) {
-            const Glib::ustring timestamp_lastsave = str::time_format(_pCtConfig->timestampFormat, treeIter.get_node_modification_time());
-            statusbar_text += separator_text + _("Date Modified") + _(": ") + timestamp_lastsave;
-        }
-        size_t direct_children_count{0};
-        for (auto child_iter = treeIter->children().begin(); child_iter != treeIter->children().end(); ++child_iter) {
-            ++direct_children_count;
-        }
-        const size_t total_children_count = treeIter.get_children_node_ids().size();
-        statusbar_text += separator_text + _("Subnodes") + _(": ") + std::to_string(direct_children_count);
-        if (direct_children_count != total_children_count) {
-            statusbar_text += CtConst::CHAR_SLASH + std::to_string(total_children_count);
-        }
+        char buf[32];
+        if (totalBytes < 1024)
+            snprintf(buf, sizeof(buf), "%zu B", totalBytes);
+        else if (totalBytes < 1024 * 1024)
+            snprintf(buf, sizeof(buf), "%.1f KB", totalBytes / 1024.0);
+        else
+            snprintf(buf, sizeof(buf), "%.1f MB", totalBytes / (1024.0 * 1024.0));
+        sizeStr = buf;
     }
-    _ctStatusBar.update_status(statusbar_text);
+
+    Glib::ustring dateCreatedStr;
+    if (treeIter.get_node_creating_time() > 0) {
+        dateCreatedStr = str::time_format(_pCtConfig->timestampFormat, treeIter.get_node_creating_time());
+    }
+    Glib::ustring dateModifiedStr;
+    if (treeIter.get_node_modification_time() > 0) {
+        dateModifiedStr = str::time_format(_pCtConfig->timestampFormat, treeIter.get_node_modification_time());
+    }
+
+    _ctStatusBar.update_node_fields(
+        std::to_string(treeIter.get_node_id()),
+        typeStr,
+        treeIter.get_node_tags(),
+        spellStr,
+        wordCountStr,
+        sizeStr,
+        dateCreatedStr,
+        dateModifiedStr);
 }
 
 void CtMainWin::update_node_zoom_label()
