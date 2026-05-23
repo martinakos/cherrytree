@@ -78,6 +78,7 @@ struct CtStatusBar
                             const Glib::ustring& dateCreated,
                             const Glib::ustring& dateModified);
     void clear_node_fields();
+    void set_restore_callback(std::function<void()> cb) { _restoreFieldsCb = std::move(cb); }
     void new_cursor_pos(const int r, const int c);
     void update_zoom_level(int zoomPercent);
 
@@ -87,6 +88,7 @@ private:
     int _r{-1};
     int _c{-1};
     std::vector<Glib::ustring> _msgStack;
+    std::function<void()> _restoreFieldsCb;
 };
 
 struct CtWinHeader
