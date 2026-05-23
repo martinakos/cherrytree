@@ -161,6 +161,7 @@ void CtStatusBar::pop()
     else {
         messageLabel.set_text("");
         messageLabel.hide();
+        if (_restoreFieldsCb) _restoreFieldsCb();
     }
 }
 
@@ -1010,6 +1011,7 @@ Gtk::Box& CtMainWin::_init_status_bar()
     _ctStatusBar.hbox.set_border_width(0);
     #endif
 
+    _ctStatusBar.set_restore_callback([this]() { update_selected_node_statusbar_info(); });
     _ctStatusBar.stopButton.signal_clicked().connect([this](){
         _ctStatusBar.set_progress_stop(true);
         _ctStatusBar.stopButton.hide();
