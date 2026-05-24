@@ -341,3 +341,128 @@ TEST(CtNodeContentTest, ClearContent)
     EXPECT_TRUE(content.isEmpty());
     EXPECT_EQ(0, content.length());
 }
+
+// ============================================================================
+// Phase RT-1: CtCellContent and CtWidgetDesc::richTableData
+// ============================================================================
+
+TEST(CtNodeContentTest, RichTable_CtCellContent_PlainText)
+{
+    CtCellContent cell;
+    cell.textSpans.emplace_back("hello");
+    EXPECT_EQ("hello", cell.getPlainText());
+    EXPECT_TRUE(cell.isPlainText());
+}
+
+TEST(CtNodeContentTest, RichTable_CtCellContent_Formatted)
+{
+    CtCellContent cell;
+    std::map<std::string, std::string> boldAttr = {{"weight", "heavy"}};
+    cell.textSpans.emplace_back("bold", boldAttr);
+    cell.textSpans.emplace_back(" normal");
+    EXPECT_EQ("bold normal", cell.getPlainText());
+    EXPECT_FALSE(cell.isPlainText());  // has formatting
+}
+
+TEST(CtNodeContentTest, RichTable_WidgetDesc_HasRichTableData)
+{
+    CtWidgetDesc desc(CtAnchWidgType::TableRich);
+    EXPECT_FALSE(desc.hasRichTableData());
+
+    CtCellContent cell;
+    cell.textSpans.emplace_back("A1");
+    desc.richTableData.push_back({cell});
+    EXPECT_TRUE(desc.hasRichTableData());
+}
+
+TEST(CtNodeContentTest, RichTable_ToXml_FromXml_RoundTrip)
+{
+    // Build a 2×2 rich table widget descriptor
+    CtWidgetDesc desc(CtAnchWidgType::TableRich);
+    desc.setProperty("char_offset", "5");
+    desc.setProperty("justification", "left");
+    desc.setProperty("col_max", "60");
+    desc.setProperty("is_rich", "1");  // stored in properties like is_light for plain tables
+
+    // Row 0 (header): plain cells
+    {
+        CtCellContent h0, h1;
+        h0.textSpans.emplace_back("Name");
+        h1.textSpans.emplace_back("Value");
+        desc.richTableData.push_back({h0, h1});
+    }
+    // Row 1 (data): one plain, one bold
+    {
+        CtCellContent d0, d1;
+        d0.textSpans.emplace_back("foo");
+        std::map<std::string, std::string> bold = {{"weight", "heavy"}};
+        d1.textSpans.emplace_back("bar", bold);
+        desc.richTableData.push_back({d0, d1});
+    }
+
+    // Serialize to XML via CtNodeContent: "Hello" (5 chars) then the widget at offset 5
+    std::map<std::string, std::string> noAttrs;
+    CtNodeContent ncFull;
+    ncFull.insertText(0, "Hello", noAttrs);
+    ncFull.insertWidget(5, desc);
+
+    Glib::ustring xml = ncFull.toXml();
+    EXPECT_NE(std::string::npos, xml.raw().find("is_rich=\"1\""));
+    EXPECT_NE(std::string::npos, xml.raw().find("<rich_text"));
+    EXPECT_NE(std::string::npos, xml.raw().find("weight=\"heavy\""));
+
+    // Round-trip: parse back
+    CtNodeContent ncParsed = CtNodeContent::fromXml(xml, nullptr);
+
+    // Find the widget in the parsed content
+    CtWidgetDesc parsedDesc;
+    for (const auto& elem : ncParsed.getElements()) {
+        if (elem.isWidget() && elem.widget.type == CtAnchWidgType::TableRich) {
+            parsedDesc = elem.widget;
+            break;
+        }
+    }
+    ASSERT_EQ(CtAnchWidgType::TableRich, parsedDesc.type);
+    ASSERT_TRUE(parsedDesc.hasRichTableData());
+    ASSERT_EQ(2u, parsedDesc.richTableData.size());     // 2 rows
+    ASSERT_EQ(2u, parsedDesc.richTableData[0].size());  // 2 cols
+
+    // Header row
+    EXPECT_EQ("Name",  parsedDesc.richTableData[0][0].getPlainText());
+    EXPECT_EQ("Value", parsedDesc.richTableData[0][1].getPlainText());
+    // Data row
+    EXPECT_EQ("foo", parsedDesc.richTableData[1][0].getPlainText());
+    EXPECT_EQ("bar", parsedDesc.richTableData[1][1].getPlainText());
+    // Bold attribute on bar
+    ASSERT_FALSE(parsedDesc.richTableData[1][1].textSpans.empty());
+    EXPECT_EQ("heavy", parsedDesc.richTableData[1][1].textSpans[0].getAttribute("weight"));
+
+    // Equality operator
+    EXPECT_EQ(desc, parsedDesc);
+}
+
+TEST(CtNodeContentTest, RichTable_PlainTableUnchanged)
+{
+    // Verify that existing plain table serialization is unaffected
+    CtWidgetDesc plainDesc(CtAnchWidgType::TableHeavy);
+    plainDesc.setProperty("char_offset", "0");
+    plainDesc.setProperty("justification", "left");
+    plainDesc.setProperty("col_max", "60");
+    plainDesc.tableData = {{"H1", "H2"}, {"A", "B"}};
+
+    CtNodeContent nc;
+    nc.insertWidget(0, plainDesc);
+    Glib::ustring xml = nc.toXml();
+
+    // Must NOT have is_rich
+    EXPECT_EQ(std::string::npos, xml.raw().find("is_rich"));
+
+    CtNodeContent ncParsed = CtNodeContent::fromXml(xml, nullptr);
+    CtWidgetDesc parsedDesc;
+    for (const auto& elem : ncParsed.getElements()) {
+        if (elem.isWidget()) { parsedDesc = elem.widget; break; }
+    }
+    EXPECT_EQ(CtAnchWidgType::TableHeavy, parsedDesc.type);
+    EXPECT_FALSE(parsedDesc.hasRichTableData());
+    EXPECT_TRUE(parsedDesc.hasTableData());
+}

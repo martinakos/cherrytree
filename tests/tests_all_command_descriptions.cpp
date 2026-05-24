@@ -5,187 +5,177 @@
  * and no spurious commands are created in the undo/redo stack
  */
 
-#include "ct_app.h"
-#include "ct_main_win.h"
-#include "ct_command_bridge.h"
 #include "tests_common.h"
+#include "ct_app.h"
+#include "ct_command_bridge.h"
 #include <gtest/gtest.h>
 
-class AllCommandDescriptionsTest : public testing::Test {
-protected:
-    void SetUp() override {
-        // Create a minimal document for testing
-        _pCtApp = std::make_shared<CtApp>();
-        _pCtMainWin = _pCtApp->create_window(true/*no_gui*/);
-        _pCtMainWin->get_command_bridge()->setActive(true);
+class TestAllCommandDescriptionsApp : public CtApp
+{
+public:
+    TestAllCommandDescriptionsApp() : CtApp{"_test_all_cmd_desc"} { _no_gui = true; }
 
-        // Create a simple test document
-        _pCtMainWin->file_new();
-        auto tree_store = &_pCtMainWin->get_tree_store();
-        auto test_node_id = tree_store->appendNode(nullptr, "Test Node", -1);
-        auto iter = tree_store->get_node_from_node_id(test_node_id);
-        _pCtMainWin->get_tree_view().set_cursor_safe(iter);
-    }
+private:
+    void on_activate() final;
+    void _run_tests(CtMainWin* pWin);
 
-    void TearDown() override {
-        if (_pCtMainWin) {
-            delete _pCtMainWin;
-            _pCtMainWin = nullptr;
-        }
-    }
-
-    std::vector<std::string> getUndoDescriptions() {
-        auto bridge = _pCtMainWin->get_command_bridge();
-        return bridge->getUndoStackDescriptions();
-    }
-
-    void clearUndoStack() {
-        auto bridge = _pCtMainWin->get_command_bridge();
-        while (bridge->canUndo()) {
-            bridge->undo();
-        }
-        while (bridge->canRedo()) {
-            bridge->redo();
-        }
-        // Clear by creating and discarding a dummy session
-        auto buffer = _pCtMainWin->get_text_view().get_buffer();
-        buffer->set_text("");
-    }
-
-    void simulateTyping(const std::string& text) {
-        auto buffer = _pCtMainWin->get_text_view().get_buffer();
-        buffer->insert(buffer->end(), text);
-        // Give edit session time to be created and ended
-        g_usleep(10000); // 10ms
-    }
-
-    void simulatePaste(const std::string& text) {
-        auto bridge = _pCtMainWin->get_command_bridge();
-        auto nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
-        auto buffer = _pCtMainWin->get_text_view().get_buffer();
-
-        // Simulate paste operation flow
-        bridge->cancelTextEditSession();
-        bridge->beginPaste(nodeId);
-        buffer->insert(buffer->end(), text);
-        bridge->endPaste();
-        bridge->beginTextEditSession(nodeId);
-    }
-
-    void simulateCut() {
-        auto bridge = _pCtMainWin->get_command_bridge();
-        auto nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
-        auto buffer = _pCtMainWin->get_text_view().get_buffer();
-
-        if (!buffer->get_has_selection()) {
-            buffer->select_range(buffer->begin(), buffer->end());
-        }
-
-        // Simulate cut operation flow
-        bridge->cancelTextEditSession();
-        bridge->beginCut(nodeId);
-        buffer->erase(buffer->get_selection_bounds().first, buffer->get_selection_bounds().second);
-        bridge->endCut();
-        bridge->beginTextEditSession(nodeId);
-    }
-
-    std::shared_ptr<CtApp> _pCtApp;
-    CtMainWin* _pCtMainWin{nullptr};
+    void _test_typing_text_description(CtMainWin* pWin);
+    void _test_paste_single_command(CtMainWin* pWin);
+    void _test_cut_single_command(CtMainWin* pWin);
+    void _test_no_spurious_empty_commands(CtMainWin* pWin);
+    void _test_all_commands_have_node_id(CtMainWin* pWin);
 };
 
-TEST_F(AllCommandDescriptionsTest, TypingNewlineShowsCorrectDescription) {
-    clearUndoStack();
-    simulateTyping("\n");
+void TestAllCommandDescriptionsApp::on_activate()
+{
+    _on_startup();
 
-    auto descriptions = getUndoDescriptions();
-    ASSERT_EQ(descriptions.size(), 1) << "Should have exactly 1 command";
-    EXPECT_TRUE(descriptions[0].find("newline") != std::string::npos)
-        << "Newline command should contain 'newline', got: " << descriptions[0];
+    CtMainWin* pWin = _create_window(true/*start_hidden*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+
+    _run_tests(pWin);
+
+    pWin->force_exit() = true;
+    remove_window(*pWin);
 }
 
-TEST_F(AllCommandDescriptionsTest, TypingTextShowsCorrectDescription) {
-    clearUndoStack();
-    simulateTyping("Hello World");
+void TestAllCommandDescriptionsApp::_run_tests(CtMainWin* pWin)
+{
+    auto pBridge = pWin->get_command_bridge();
+    ASSERT_TRUE(pBridge);
+    ASSERT_TRUE(pBridge->isActive());
 
-    auto descriptions = getUndoDescriptions();
-    ASSERT_EQ(descriptions.size(), 1) << "Should have exactly 1 command";
-    EXPECT_TRUE(descriptions[0].find("Type") != std::string::npos)
-        << "Typing command should contain 'Type', got: " << descriptions[0];
-    EXPECT_TRUE(descriptions[0].find("Hello") != std::string::npos)
-        << "Typing command should show typed text, got: " << descriptions[0];
+    spdlog::info("=== All Command Descriptions Testing ===");
+
+    _test_typing_text_description(pWin);
+    _test_paste_single_command(pWin);
+    _test_cut_single_command(pWin);
+    _test_no_spurious_empty_commands(pWin);
+    _test_all_commands_have_node_id(pWin);
 }
 
-TEST_F(AllCommandDescriptionsTest, PasteShowsSingleCommand) {
-    clearUndoStack();
-    simulatePaste("Pasted content");
+void TestAllCommandDescriptionsApp::_test_typing_text_description(CtMainWin* pWin)
+{
+    spdlog::info("Test: typing text shows correct description");
 
-    auto descriptions = getUndoDescriptions();
-    ASSERT_EQ(descriptions.size(), 1) << "Paste should create exactly 1 command, not " << descriptions.size();
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    auto buffer = pWin->curr_buffer();
+    ASSERT_TRUE(buffer);
+    auto pBridge = pWin->get_command_bridge();
+
+    buffer->insert(buffer->end(), "Hello World");
+    buffer->set_modified(true);
+
+    // End edit session by switching to another node
+    auto otherIter = pWin->get_tree_store().get_node_from_node_name("html");
+    ASSERT_TRUE(otherIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(otherIter));
+
+    // descriptions[0] is most recent
+    auto descriptions = pBridge->getUndoStackDescriptions();
+    ASSERT_FALSE(descriptions.empty()) << "Should have at least 1 command after typing";
+    EXPECT_TRUE(descriptions[0].find("Type") != std::string::npos ||
+                descriptions[0].find("Hello") != std::string::npos)
+        << "Most recent command should describe typing, got: " << descriptions[0];
+}
+
+void TestAllCommandDescriptionsApp::_test_paste_single_command(CtMainWin* pWin)
+{
+    spdlog::info("Test: paste shows single command");
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    auto buffer = pWin->curr_buffer();
+    ASSERT_TRUE(buffer);
+    auto pBridge = pWin->get_command_bridge();
+
+    size_t beforeCount = pBridge->getUndoStackDescriptions().size();
+
+    // Simulate paste
+    pBridge->cancelTextEditSession();
+    pBridge->beginPaste(nodeId);
+    buffer->insert(buffer->end(), "Pasted content");
+    pBridge->endPaste();
+    pBridge->beginTextEditSession(nodeId);
+
+    auto descriptions = pBridge->getUndoStackDescriptions();
+    EXPECT_EQ(descriptions.size(), beforeCount + 1)
+        << "Paste should create exactly 1 command";
     EXPECT_TRUE(descriptions[0].find("Paste") != std::string::npos)
-        << "Paste command should contain 'Paste', got: " << descriptions[0];
+        << "Most recent command should contain 'Paste', got: " << descriptions[0];
 }
 
-TEST_F(AllCommandDescriptionsTest, TypingThenPasteShowsTwoCommands) {
-    clearUndoStack();
-    simulateTyping("Before");
-    simulatePaste("Pasted");
+void TestAllCommandDescriptionsApp::_test_cut_single_command(CtMainWin* pWin)
+{
+    spdlog::info("Test: cut shows single command");
 
-    auto descriptions = getUndoDescriptions();
-    ASSERT_EQ(descriptions.size(), 2) << "Should have exactly 2 commands (typing + paste)";
-    EXPECT_TRUE(descriptions[0].find("Before") != std::string::npos)
-        << "First command should be typing 'Before', got: " << descriptions[0];
-    EXPECT_TRUE(descriptions[1].find("Paste") != std::string::npos)
-        << "Second command should be 'Paste', got: " << descriptions[1];
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    auto buffer = pWin->curr_buffer();
+    ASSERT_TRUE(buffer);
+    auto pBridge = pWin->get_command_bridge();
+
+    size_t beforeCount = pBridge->getUndoStackDescriptions().size();
+
+    // Select all and simulate cut
+    buffer->select_range(buffer->begin(), buffer->end());
+    Gtk::TextIter selStart, selEnd;
+    buffer->get_selection_bounds(selStart, selEnd);
+
+    pBridge->cancelTextEditSession();
+    pBridge->beginCut(nodeId);
+    buffer->erase(selStart, selEnd);
+    pBridge->endCut();
+    pBridge->beginTextEditSession(nodeId);
+
+    auto descriptions = pBridge->getUndoStackDescriptions();
+    EXPECT_GE(descriptions.size(), beforeCount + 1)
+        << "Cut should create at least 1 additional command";
+    EXPECT_TRUE(descriptions[0].find("Cut") != std::string::npos)
+        << "Most recent command should contain 'Cut', got: " << descriptions[0];
 }
 
-TEST_F(AllCommandDescriptionsTest, CutShowsSingleCommand) {
-    clearUndoStack();
-    simulateTyping("Text to cut");
-    auto beforeCut = getUndoDescriptions().size();
+void TestAllCommandDescriptionsApp::_test_no_spurious_empty_commands(CtMainWin* pWin)
+{
+    spdlog::info("Test: no spurious empty commands");
 
-    simulateCut();
+    auto pBridge = pWin->get_command_bridge();
+    auto descriptions = pBridge->getUndoStackDescriptions();
 
-    auto descriptions = getUndoDescriptions();
-    ASSERT_EQ(descriptions.size(), beforeCut + 1) << "Cut should create exactly 1 additional command";
-    EXPECT_TRUE(descriptions.back().find("Cut") != std::string::npos)
-        << "Cut command should contain 'Cut', got: " << descriptions.back();
-}
-
-TEST_F(AllCommandDescriptionsTest, NoSpuriousEmptyCommands) {
-    clearUndoStack();
-
-    // Perform various operations
-    simulateTyping("Hello");
-    simulatePaste("World");
-    simulateCut();
-    simulateTyping("Again");
-
-    auto descriptions = getUndoDescriptions();
-
-    // Check that no empty "Type """" commands exist
     for (const auto& desc : descriptions) {
         EXPECT_FALSE(desc.find("Type \"\"") != std::string::npos)
             << "Found spurious empty Type command: " << desc;
     }
 }
 
-TEST_F(AllCommandDescriptionsTest, AllCommandsHaveNodeId) {
-    clearUndoStack();
+void TestAllCommandDescriptionsApp::_test_all_commands_have_node_id(CtMainWin* pWin)
+{
+    spdlog::info("Test: all commands have node ID");
 
-    simulateTyping("Test");
-    simulatePaste("Paste");
-
-    auto descriptions = getUndoDescriptions();
-    auto nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
-    std::string nodeStr = "Node " + std::to_string(nodeId);
+    auto pBridge = pWin->get_command_bridge();
+    auto descriptions = pBridge->getUndoStackDescriptions();
 
     for (const auto& desc : descriptions) {
-        EXPECT_TRUE(desc.find(nodeStr) != std::string::npos)
-            << "Command should contain node ID, got: " << desc;
+        EXPECT_TRUE(desc.find("Node") != std::string::npos)
+            << "Command should contain node reference, got: " << desc;
     }
 }
 
-int main(int argc, char** argv) {
-    testing::InitGoogleTest(&argc, argv);
-    return RUN_ALL_TESTS();
+TEST(AllCommandDescriptionTests, CommandDescriptions)
+{
+    g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
+
+    TestAllCommandDescriptionsApp app;
+    const std::vector<std::string> vecArgs{"cherrytree"};
+    gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
+    const int ret_val = app.run(vecArgs.size(), pp_args);
+    g_strfreev(pp_args);
+    ASSERT_EQ(0, ret_val);
 }

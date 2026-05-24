@@ -1,11 +1,8 @@
 /*
  * tests_command_gui_simulation.cpp
  *
- * Phase 6.3 Testing - GUI Event Simulation for Command Pattern
- *
- * This test extends Phase 6.2 by simulating actual GUI interactions
- * (key presses, mouse clicks) and verifying that the command pattern
- * properly captures these user actions for undo/redo.
+ * Simulates GUI interactions (key presses, mouse clicks) and verifies
+ * that the command pattern properly captures them for undo/redo.
  */
 
 #include "tests_common.h"
@@ -151,6 +148,34 @@ private:
     void _test_table_cell_edit_delta_undo_redo(CtMainWin* pWin);
     void _test_widget_edit_no_change_no_command(CtMainWin* pWin);
     void _test_codebox_edit_then_table_edit_separate_commands(CtMainWin* pWin);
+    void _test_modify_widget_delta_undo_redo(CtMainWin* pWin);
+    void _test_rich_table_insert_undo_redo(CtMainWin* pWin);
+    void _test_rich_cell_edit_session_undo_redo(CtMainWin* pWin);
+    void _test_rich_cell_format_undo_redo(CtMainWin* pWin);
+    void _test_rich_cell_edit_description_format(CtMainWin* pWin);
+    void _test_rich_cell_scroll_position_captured(CtMainWin* pWin);
+    void _test_rich_cell_multiple_formats_undo_redo(CtMainWin* pWin);
+    void _test_rich_cell_edit_multiple_cells_separate_commands(CtMainWin* pWin);
+    void _test_rich_cell_no_change_no_command(CtMainWin* pWin);
+    void _test_rich_cell_edit_then_format_separate_commands(CtMainWin* pWin);
+    void _test_rich_table_full_undo_redo_cycle(CtMainWin* pWin);
+
+    // Signal-based format undo/redo tests (10.5d)
+    void _test_format_underline_undo_redo(CtMainWin* pWin);
+    void _test_format_strikethrough_undo_redo(CtMainWin* pWin);
+    void _test_format_monospace_undo_redo(CtMainWin* pWin);
+    void _test_format_small_undo_redo(CtMainWin* pWin);
+    void _test_format_superscript_undo_redo(CtMainWin* pWin);
+    void _test_format_subscript_undo_redo(CtMainWin* pWin);
+    void _test_format_h1_undo_redo(CtMainWin* pWin);
+    void _test_format_justify_undo_redo(CtMainWin* pWin);
+    void _test_format_indent_undo_redo(CtMainWin* pWin);
+    void _test_format_toggle_bold_off(CtMainWin* pWin);
+    void _test_format_remove_formatting_undo_redo(CtMainWin* pWin);
+    void _test_format_bold_then_italic_undo_each(CtMainWin* pWin);
+    void _test_format_bold_italic_underline_stack(CtMainWin* pWin);
+    void _test_format_overlapping_ranges(CtMainWin* pWin);
+    void _test_format_then_type_separate_undo(CtMainWin* pWin);
 };
 
 void TestGuiSimulationApp::on_activate()
@@ -180,7 +205,7 @@ void TestGuiSimulationApp::_run_tests(CtMainWin* pWin)
     ASSERT_TRUE(pBridge);
     ASSERT_TRUE(pBridge->isActive());
 
-    spdlog::info("=== Phase 6.3: GUI Event Simulation Testing ===");
+    spdlog::info("=== GUI Event Simulation Testing ===");
 
     _test_gui_complex_operations_undo_redo(pWin);
     _test_buffer_signal_handlers_direct(pWin);
@@ -197,8 +222,36 @@ void TestGuiSimulationApp::_run_tests(CtMainWin* pWin)
     _test_table_cell_edit_delta_undo_redo(pWin);
     _test_widget_edit_no_change_no_command(pWin);
     _test_codebox_edit_then_table_edit_separate_commands(pWin);
+    _test_modify_widget_delta_undo_redo(pWin);
+    _test_rich_table_insert_undo_redo(pWin);
+    _test_rich_cell_edit_session_undo_redo(pWin);
+    _test_rich_cell_format_undo_redo(pWin);
+    _test_rich_cell_edit_description_format(pWin);
+    _test_rich_cell_scroll_position_captured(pWin);
+    _test_rich_cell_multiple_formats_undo_redo(pWin);
+    _test_rich_cell_edit_multiple_cells_separate_commands(pWin);
+    _test_rich_cell_no_change_no_command(pWin);
+    _test_rich_cell_edit_then_format_separate_commands(pWin);
+    _test_rich_table_full_undo_redo_cycle(pWin);
 
-    spdlog::info("=== Phase 6.3 GUI simulation test passed! ===");
+    // Signal-based format undo/redo tests
+    _test_format_underline_undo_redo(pWin);
+    _test_format_strikethrough_undo_redo(pWin);
+    _test_format_monospace_undo_redo(pWin);
+    _test_format_small_undo_redo(pWin);
+    _test_format_superscript_undo_redo(pWin);
+    _test_format_subscript_undo_redo(pWin);
+    _test_format_h1_undo_redo(pWin);
+    _test_format_justify_undo_redo(pWin);
+    _test_format_indent_undo_redo(pWin);
+    _test_format_toggle_bold_off(pWin);
+    _test_format_remove_formatting_undo_redo(pWin);
+    _test_format_bold_then_italic_undo_each(pWin);
+    _test_format_bold_italic_underline_stack(pWin);
+    _test_format_overlapping_ranges(pWin);
+    _test_format_then_type_separate_undo(pWin);
+
+    spdlog::info("=== GUI simulation test passed! ===");
 }
 
 void TestGuiSimulationApp::_test_gui_complex_operations_undo_redo(CtMainWin* pWin)
@@ -264,9 +317,9 @@ void TestGuiSimulationApp::_test_gui_complex_operations_undo_redo(CtMainWin* pWi
         "alpha", "beta", "gamma", "delta", "epsilon", "hello", "world", "test", "data"
     };
 
-    // Phase 1: Type initial words so we have content to format
+    // Step 1: Type initial words so we have content to format
     // Type 10 words with spaces/enters to create initial content
-    spdlog::info("  Phase 1: Creating initial text content (10 words)");
+    spdlog::info("  Step 1: Creating initial text content (10 words)");
     std::vector<std::string> typedWords;
     for (int i = 0; i < 10; i++) {
         std::uniform_int_distribution<int> wordDist(0, words.size() - 1);
@@ -293,8 +346,8 @@ void TestGuiSimulationApp::_test_gui_complex_operations_undo_redo(CtMainWin* pWi
         pBridge->beginTextEditSession(nodeId);
     }
 
-    // Phase 2: Build randomized operation sequence (~40 more operations)
-    spdlog::info("  Phase 2: Building randomized operation sequence");
+    // Step 2: Build randomized operation sequence (~40 more operations)
+    spdlog::info("  Step 2: Building randomized operation sequence");
 
     std::uniform_int_distribution<int> wordOpsDist(10, 15);
     std::uniform_int_distribution<int> formatOpsDist(8, 12);
@@ -374,8 +427,8 @@ void TestGuiSimulationApp::_test_gui_complex_operations_undo_redo(CtMainWin* pWi
                  10, numWordOps, numFormatOps, numImageOps, numCodeboxOps, numTableOps);
     spdlog::info("  Total operations: {}", totalOps);
 
-    // Phase 3: Execute randomized operations
-    spdlog::info("  Phase 3: Executing randomized operations");
+    // Step 3: Execute randomized operations
+    spdlog::info("  Step 3: Executing randomized operations");
 
     bool pendingWord = false;  // Track if we typed a word without terminator
     int opNum = 10;  // Start after initial 10 words
@@ -658,8 +711,8 @@ void TestGuiSimulationApp::_test_gui_complex_operations_undo_redo(CtMainWin* pWi
         spdlog::info("  Final XML length (normalized): {}", finalXml.size());
     }
 
-    // Phase 4: Verify undo/redo cycle produces consistent results
-    spdlog::info("  Phase 4: Verifying undo/redo cycle");
+    // Step 4: Verify undo/redo cycle produces consistent results
+    spdlog::info("  Step 4: Verifying undo/redo cycle");
 
     int totalCommands = 0;
     while (pBridge->canUndo()) {
@@ -804,7 +857,7 @@ void TestGuiSimulationApp::_test_cursor_restoration_after_undo_redo(CtMainWin* p
     // Type some text and record cursor positions
     std::vector<int> cursorPositions;
 
-    spdlog::info("  Phase 1: Type words and record cursor positions");
+    spdlog::info("  Step 1: Type words and record cursor positions");
     for (int i = 0; i < 3; i++) {
         pBridge->beginTextEditSession(nodeId);
 
@@ -837,7 +890,7 @@ void TestGuiSimulationApp::_test_cursor_restoration_after_undo_redo(CtMainWin* p
     GuiEventSimulator::process_pending_events();
 
     // Test cursor restoration during undo
-    spdlog::info("  Phase 2: Undo and verify cursor positions");
+    spdlog::info("  Step 2: Undo and verify cursor positions");
     int undoCount = 0;
     while (pBridge->canUndo()) {
         int cursorBefore = buffer->property_cursor_position();
@@ -861,7 +914,7 @@ void TestGuiSimulationApp::_test_cursor_restoration_after_undo_redo(CtMainWin* p
     spdlog::info("    After full undo: cursor at position {}", cursorAtStart);
 
     // Test cursor restoration during redo
-    spdlog::info("  Phase 3: Redo and verify cursor positions");
+    spdlog::info("  Step 3: Redo and verify cursor positions");
     int redoCount = 0;
     while (pBridge->canRedo()) {
         int cursorBefore = buffer->property_cursor_position();
@@ -887,7 +940,7 @@ void TestGuiSimulationApp::_test_cursor_restoration_after_undo_redo(CtMainWin* p
     spdlog::info("✓ Cursor restoration test passed");
 }
 
-void TestGuiSimulationApp::_test_gtk_accelerator_bindings(CtMainWin* pWin)
+void TestGuiSimulationApp::_test_gtk_accelerator_bindings(CtMainWin* /*pWin*/)
 {
     spdlog::info("Test: GTK accelerator bindings verification");
     spdlog::info("  Checking that keyboard shortcuts are properly registered");
@@ -964,7 +1017,7 @@ void TestGuiSimulationApp::_test_focus_out_session_ending(CtMainWin* pWin)
     Gtk::TextView* textView = &pWin->get_text_view().mm();
 
     // Start editing session
-    spdlog::info("  Phase 1: Start typing text");
+    spdlog::info("  Step 1: Start typing text");
     pBridge->beginTextEditSession(nodeId);
     GuiEventSimulator::simulate_text_typed(textView, "test focus");
     buffer->set_modified(true);
@@ -976,7 +1029,7 @@ void TestGuiSimulationApp::_test_focus_out_session_ending(CtMainWin* pWin)
         << "Text should be in buffer";
 
     // Simulate focus-out event
-    spdlog::info("  Phase 2: Simulate focus-out event");
+    spdlog::info("  Step 2: Simulate focus-out event");
     GdkEventFocus focusEvent;
     memset(&focusEvent, 0, sizeof(focusEvent));
     focusEvent.type = GDK_FOCUS_CHANGE;
@@ -995,7 +1048,7 @@ void TestGuiSimulationApp::_test_focus_out_session_ending(CtMainWin* pWin)
     pBridge->endTextEditSession();
 
     // Verify command was created
-    spdlog::info("  Phase 3: Verify command was created");
+    spdlog::info("  Step 3: Verify command was created");
     ASSERT_TRUE(pBridge->canUndo()) << "Command should be created when focus is lost";
 
     // Undo and verify
@@ -2070,6 +2123,1816 @@ void TestGuiSimulationApp::_test_codebox_edit_then_table_edit_separate_commands(
     GuiEventSimulator::process_pending_events();
 
     spdlog::info("✓ Codebox + table edit separate commands test passed");
+}
+
+void TestGuiSimulationApp::_test_modify_widget_delta_undo_redo(CtMainWin* pWin)
+{
+    spdlog::info("Test: ModifyWidgetDeltaCommand — table row add undo/redo");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    auto buffer = pWin->curr_buffer();
+    auto docModel = pBridge->getDocumentModel();
+
+    // Insert a 2×3 CtTableLight
+    pBridge->endTextEditSession();
+    buffer->place_cursor(buffer->end());
+    int charOffset = buffer->get_insert()->get_iter().get_offset();
+
+    CtTableMatrix tbl;
+    for (int r = 0; r < 2; r++) {
+        tbl.push_back(CtTableRow{});
+        for (int c = 0; c < 3; c++) {
+            tbl.back().push_back(new Glib::ustring{"r" + std::to_string(r) + "c" + std::to_string(c)});
+        }
+    }
+    CtTableLight* pTable = new CtTableLight{pWin, tbl, 60, charOffset, "", CtTableColWidths{}};
+    pTable->insertInTextBuffer(buffer);
+    pWin->get_tree_store().addAnchoredWidgets(
+        pWin->curr_tree_iter(), {pTable}, &pWin->get_text_view().mm());
+
+    {
+        auto desc = extractWidgetDesc(pTable, charOffset);
+        auto insertCmd = std::make_unique<InsertWidgetDeltaCommand>(
+            docModel, nodeId, charOffset, desc, "Insert table");
+        pBridge->addCommandToStack(std::move(insertCmd));
+        auto node = docModel->getNodeById(nodeId);
+        if (node) node->getContent().insertWidget(charOffset, desc);
+    }
+    GuiEventSimulator::process_pending_events();
+
+    ASSERT_EQ(pTable->get_num_rows(), 2u);
+    ASSERT_EQ(pTable->get_num_columns(), 3u);
+
+    // Add a row via ModifyWidgetDeltaCommand
+    {
+        auto node = docModel->getNodeById(nodeId);
+        ASSERT_TRUE(node);
+        auto oldDesc = node->getContent().getWidgetDescAt(charOffset);
+        ASSERT_EQ(oldDesc.type, CtAnchWidgType::TableLight);
+
+        pTable->row_add(0);
+
+        auto newDesc = extractWidgetDesc(pTable, charOffset);
+        auto cmd = std::make_unique<ModifyWidgetDeltaCommand>(
+            docModel, nodeId, charOffset, oldDesc, newDesc, "Add table row");
+        pBridge->addCommandToStack(std::move(cmd));
+        node->getContent().replaceWidget(charOffset, newDesc);
+    }
+    GuiEventSimulator::process_pending_events();
+
+    // Verify 3 rows after add
+    {
+        auto widgets = pWin->curr_tree_iter().get_anchored_widgets();
+        CtTableLight* table = nullptr;
+        for (auto* w : widgets) {
+            if (w->get_type() == CtAnchWidgType::TableLight) {
+                table = static_cast<CtTableLight*>(w);
+                break;
+            }
+        }
+        ASSERT_TRUE(table) << "Table should exist after row add";
+        ASSERT_EQ(table->get_num_rows(), 3u) << "Table should have 3 rows after add";
+        ASSERT_EQ(table->get_num_columns(), 3u) << "Column count unchanged";
+    }
+
+    // Undo: should restore 2 rows
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    {
+        auto widgets = pWin->curr_tree_iter().get_anchored_widgets();
+        CtTableLight* table = nullptr;
+        for (auto* w : widgets) {
+            if (w->get_type() == CtAnchWidgType::TableLight) {
+                table = static_cast<CtTableLight*>(w);
+                break;
+            }
+        }
+        ASSERT_TRUE(table) << "Table should exist after undo";
+        ASSERT_EQ(table->get_num_rows(), 2u) << "Undo should restore 2 rows";
+        ASSERT_EQ(table->get_cell_text(0, 0), "r0c0") << "Cell content preserved after undo";
+    }
+
+    // Redo: should re-add the row
+    pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+
+    {
+        auto widgets = pWin->curr_tree_iter().get_anchored_widgets();
+        CtTableLight* table = nullptr;
+        for (auto* w : widgets) {
+            if (w->get_type() == CtAnchWidgType::TableLight) {
+                table = static_cast<CtTableLight*>(w);
+                break;
+            }
+        }
+        ASSERT_TRUE(table) << "Table should exist after redo";
+        ASSERT_EQ(table->get_num_rows(), 3u) << "Redo should restore 3 rows";
+    }
+
+    // Undo everything
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("✓ ModifyWidgetDeltaCommand undo/redo test passed");
+}
+
+void TestGuiSimulationApp::_test_rich_table_insert_undo_redo(CtMainWin* pWin)
+{
+    spdlog::info("Test: RT-2 CtTableRich — insert, cell content, undo/redo");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    auto buffer = pWin->curr_buffer();
+    auto docModel = pBridge->getDocumentModel();
+
+    pBridge->endTextEditSession();
+    buffer->place_cursor(buffer->end());
+    int charOffset = buffer->get_insert()->get_iter().get_offset();
+
+    // Build 2×2 rich table: header row + one data row, each with a bold + plain span
+    std::vector<std::vector<CtCellContent>> richData;
+    for (int r = 0; r < 2; ++r) {
+        std::vector<CtCellContent> row;
+        for (int c = 0; c < 2; ++c) {
+            CtCellContent cell;
+            CtTextSpan plain;
+            plain.text = Glib::ustring{"r"} + std::to_string(r) + "c" + std::to_string(c);
+            cell.textSpans.push_back(plain);
+            if (r == 1 && c == 0) {
+                // Add a bold span to verify formatted content survives
+                CtTextSpan bold;
+                bold.text = "-bold";
+                bold.attributes["weight"] = "heavy";
+                cell.textSpans.push_back(bold);
+            }
+            row.push_back(std::move(cell));
+        }
+        richData.push_back(std::move(row));
+    }
+
+    auto* pTable = new CtTableRich{pWin, richData, 60, charOffset, "", CtTableColWidths{}};
+    pTable->insertInTextBuffer(buffer);
+    pWin->get_tree_store().addAnchoredWidgets(
+        pWin->curr_tree_iter(), {pTable}, &pWin->get_text_view().mm());
+
+    {
+        auto desc = extractWidgetDesc(pTable, charOffset);
+        ASSERT_EQ(CtAnchWidgType::TableRich, desc.type);
+        ASSERT_TRUE(desc.hasRichTableData());
+        ASSERT_EQ(2u, desc.richTableData.size());
+        ASSERT_EQ(2u, desc.richTableData[0].size());
+
+        auto insertCmd = std::make_unique<InsertWidgetDeltaCommand>(
+            docModel, nodeId, charOffset, desc, "Insert rich table");
+        pBridge->addCommandToStack(std::move(insertCmd));
+        auto node = docModel->getNodeById(nodeId);
+        if (node) node->getContent().insertWidget(charOffset, desc);
+    }
+    GuiEventSimulator::process_pending_events();
+
+    // Verify table is in the buffer
+    {
+        auto widgets = pWin->curr_tree_iter().get_anchored_widgets();
+        CtTableRich* rt = nullptr;
+        for (auto* w : widgets) {
+            if (w->get_type() == CtAnchWidgType::TableRich) {
+                rt = static_cast<CtTableRich*>(w);
+                break;
+            }
+        }
+        ASSERT_TRUE(rt) << "CtTableRich should exist after insert";
+        ASSERT_EQ(2u, rt->get_num_rows());
+        ASSERT_EQ(2u, rt->get_num_columns());
+        // Cell (0,0) plain text should start with "r0c0"
+        auto buf00 = rt->get_buffer(0, 0);
+        ASSERT_TRUE(buf00);
+        EXPECT_EQ(Glib::ustring{"r0c0"}, buf00->get_text());
+        // Cell (1,0) has plain + bold span: "r1c0-bold"
+        auto buf10 = rt->get_buffer(1, 0);
+        ASSERT_TRUE(buf10);
+        EXPECT_EQ(Glib::ustring{"r1c0-bold"}, buf10->get_text());
+    }
+
+    // Undo: table removed
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    {
+        auto widgets = pWin->curr_tree_iter().get_anchored_widgets();
+        bool found = false;
+        for (auto* w : widgets) {
+            if (w->get_type() == CtAnchWidgType::TableRich) { found = true; break; }
+        }
+        EXPECT_FALSE(found) << "CtTableRich should be gone after undo";
+    }
+
+    // Redo: table restored
+    pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+
+    {
+        auto widgets = pWin->curr_tree_iter().get_anchored_widgets();
+        CtTableRich* rt = nullptr;
+        for (auto* w : widgets) {
+            if (w->get_type() == CtAnchWidgType::TableRich) {
+                rt = static_cast<CtTableRich*>(w);
+                break;
+            }
+        }
+        ASSERT_TRUE(rt) << "CtTableRich should be back after redo";
+        ASSERT_EQ(2u, rt->get_num_rows());
+        auto buf10 = rt->get_buffer(1, 0);
+        ASSERT_TRUE(buf10);
+        EXPECT_EQ(Glib::ustring{"r1c0-bold"}, buf10->get_text());
+    }
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("✓ RT-2 CtTableRich insert/undo/redo test passed");
+}
+
+// Helper: find the first CtTableRich in the current node's widgets
+static CtTableRich* findFirstRichTable(CtMainWin* pWin)
+{
+    for (auto* w : pWin->curr_tree_iter().get_anchored_widgets()) {
+        if (w->get_type() == CtAnchWidgType::TableRich)
+            return static_cast<CtTableRich*>(w);
+    }
+    return nullptr;
+}
+
+void TestGuiSimulationApp::_test_rich_cell_edit_session_undo_redo(CtMainWin* pWin)
+{
+    spdlog::info("Test: RT-3 — rich cell edit session undo/redo");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    auto buffer = pWin->curr_buffer();
+    auto docModel = pBridge->getDocumentModel();
+
+    pBridge->endTextEditSession();
+    buffer->place_cursor(buffer->end());
+    int charOffset = buffer->get_insert()->get_iter().get_offset();
+
+    // Insert a 1×2 rich table with "hello" in cell (0,0) and "world" in cell (0,1)
+    std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(2));
+    richData[0][0].textSpans.push_back(CtTextSpan{"hello"});
+    richData[0][1].textSpans.push_back(CtTextSpan{"world"});
+
+    auto* pTable = new CtTableRich{pWin, richData, 60, charOffset, "", CtTableColWidths{}};
+    pTable->insertInTextBuffer(buffer);
+    pWin->get_tree_store().addAnchoredWidgets(
+        pWin->curr_tree_iter(), {pTable}, &pWin->get_text_view().mm());
+
+    auto desc = extractWidgetDesc(pTable, charOffset);
+    auto insertCmd = std::make_unique<InsertWidgetDeltaCommand>(
+        docModel, nodeId, charOffset, desc, "Insert rich table");
+    pBridge->addCommandToStack(std::move(insertCmd));
+    auto node = docModel->getNodeById(nodeId);
+    if (node) node->getContent().insertWidget(charOffset, desc);
+    GuiEventSimulator::process_pending_events();
+
+    // Simulate editing cell (0,0): append " world"
+    pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+    auto cellBuf = pTable->get_buffer(0, 0);
+    ASSERT_TRUE(cellBuf);
+    cellBuf->place_cursor(cellBuf->end());
+    cellBuf->insert_at_cursor(" world");
+    pBridge->endWidgetEdit();
+    GuiEventSimulator::process_pending_events();
+
+    // Undo cell edit: cell (0,0) should revert to "hello"
+    // (undo triggers notifyNodeChanged → buffer rebuild → pTable is invalid after this)
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    {
+        auto* rt = findFirstRichTable(pWin);
+        ASSERT_TRUE(rt) << "CtTableRich must still exist after undo of cell edit";
+        auto buf00 = rt->get_buffer(0, 0);
+        ASSERT_TRUE(buf00);
+        EXPECT_EQ(Glib::ustring{"hello"}, buf00->get_text())
+            << "Cell (0,0) must revert to 'hello' after undo";
+        auto buf01 = rt->get_buffer(0, 1);
+        ASSERT_TRUE(buf01);
+        EXPECT_EQ(Glib::ustring{"world"}, buf01->get_text())
+            << "Cell (0,1) must be untouched";
+    }
+
+    // Redo: cell (0,0) should restore "hello world"
+    pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+
+    {
+        auto* rt = findFirstRichTable(pWin);
+        ASSERT_TRUE(rt);
+        auto buf00 = rt->get_buffer(0, 0);
+        ASSERT_TRUE(buf00);
+        EXPECT_EQ(Glib::ustring{"hello world"}, buf00->get_text())
+            << "Cell (0,0) must restore 'hello world' after redo";
+    }
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("✓ RT-3 rich cell edit session undo/redo test passed");
+}
+
+void TestGuiSimulationApp::_test_rich_cell_format_undo_redo(CtMainWin* pWin)
+{
+    spdlog::info("Test: RT-4 — rich cell format (bold) undo/redo");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    auto buffer = pWin->curr_buffer();
+    auto docModel = pBridge->getDocumentModel();
+
+    pBridge->endTextEditSession();
+    buffer->place_cursor(buffer->end());
+    int charOffset = buffer->get_insert()->get_iter().get_offset();
+
+    // Insert a 1×1 rich table with plain text "hello" in cell (0,0)
+    std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+    richData[0][0].textSpans.push_back(CtTextSpan{"hello"});
+
+    auto* pTable = new CtTableRich{pWin, richData, 60, charOffset, "", CtTableColWidths{}};
+    pTable->insertInTextBuffer(buffer);
+    pWin->get_tree_store().addAnchoredWidgets(
+        pWin->curr_tree_iter(), {pTable}, &pWin->get_text_view().mm());
+
+    auto desc = extractWidgetDesc(pTable, charOffset);
+    auto insertCmd = std::make_unique<InsertWidgetDeltaCommand>(
+        docModel, nodeId, charOffset, desc, "Insert rich table");
+    pBridge->addCommandToStack(std::move(insertCmd));
+    auto node = docModel->getNodeById(nodeId);
+    if (node) node->getContent().insertWidget(charOffset, desc);
+    GuiEventSimulator::process_pending_events();
+
+    // Begin tracking cell (0,0): sets isTrackingRichCell() = true
+    pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+    ASSERT_TRUE(pBridge->isTrackingRichCell()) << "Bridge must be tracking rich cell";
+
+    // Select all text in cell (0,0) so apply_tag_bold sees a selection
+    auto cellBuf = pTable->get_buffer(0, 0);
+    ASSERT_TRUE(cellBuf);
+    cellBuf->select_range(cellBuf->begin(), cellBuf->end());
+
+    // Apply bold — routes through _apply_format_to_active_rich_cell
+    pActions->apply_tag_bold();
+    GuiEventSimulator::process_pending_events();
+
+    // Verify model was updated: cell (0,0) spans should have weight=heavy
+    {
+        auto nd = docModel->getNodeById(nodeId);
+        ASSERT_TRUE(nd);
+        auto d = nd->getContent().getWidgetDescAt(charOffset);
+        ASSERT_TRUE(d.hasRichTableData());
+        ASSERT_FALSE(d.richTableData[0][0].textSpans.empty());
+        bool hasBold = false;
+        for (auto& span : d.richTableData[0][0].textSpans) {
+            if (span.getAttribute("weight") == "heavy") hasBold = true;
+        }
+        EXPECT_TRUE(hasBold) << "Cell (0,0) should have bold attribute after apply_tag_bold";
+    }
+
+    // Undo bold: model should revert to plain "hello"
+    // (notifyNodeChanged fires → new CtTableRich is created)
+    pBridge->endWidgetEdit(); // flush widget tracking before undo
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    {
+        auto* rt = findFirstRichTable(pWin);
+        ASSERT_TRUE(rt) << "CtTableRich must still exist after undo of bold";
+        auto nd = docModel->getNodeById(nodeId);
+        ASSERT_TRUE(nd);
+        auto d = nd->getContent().getWidgetDescAt(charOffset);
+        ASSERT_TRUE(d.hasRichTableData());
+        ASSERT_FALSE(d.richTableData[0][0].textSpans.empty());
+        bool hasBold = false;
+        for (auto& span : d.richTableData[0][0].textSpans) {
+            if (span.getAttribute("weight") == "heavy") hasBold = true;
+        }
+        EXPECT_FALSE(hasBold) << "Cell (0,0) bold should be removed after undo";
+    }
+
+    // Redo bold: model should restore bold
+    pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+
+    {
+        auto nd = docModel->getNodeById(nodeId);
+        ASSERT_TRUE(nd);
+        auto d = nd->getContent().getWidgetDescAt(charOffset);
+        ASSERT_TRUE(d.hasRichTableData());
+        bool hasBold = false;
+        for (auto& span : d.richTableData[0][0].textSpans) {
+            if (span.getAttribute("weight") == "heavy") hasBold = true;
+        }
+        EXPECT_TRUE(hasBold) << "Cell (0,0) bold should be restored after redo";
+    }
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("✓ RT-4 rich cell format undo/redo test passed");
+}
+
+// Helper: insert a rich table into the current node at end of buffer, returning charOffset.
+// Caller provides richData. The table is inserted, added to widgets, and model+undo stack updated.
+static int insertRichTableAtEnd(CtMainWin* pWin, CtCommandBridge* pBridge,
+                                std::vector<std::vector<CtCellContent>>& richData,
+                                const std::string& description = "Insert rich table")
+{
+    auto buffer = pWin->curr_buffer();
+    auto docModel = pBridge->getDocumentModel();
+    gint64 nodeId = pWin->curr_tree_iter().get_node_id();
+
+    pBridge->endTextEditSession();
+    buffer->place_cursor(buffer->end());
+    int charOffset = buffer->get_insert()->get_iter().get_offset();
+
+    auto* pTable = new CtTableRich{pWin, richData, 60, charOffset, "", CtTableColWidths{}};
+    pTable->insertInTextBuffer(buffer);
+    pWin->get_tree_store().addAnchoredWidgets(
+        pWin->curr_tree_iter(), {pTable}, &pWin->get_text_view().mm());
+
+    auto desc = extractWidgetDesc(pTable, charOffset);
+    auto insertCmd = std::make_unique<InsertWidgetDeltaCommand>(
+        docModel, nodeId, charOffset, desc, description);
+    pBridge->addCommandToStack(std::move(insertCmd));
+    auto node = docModel->getNodeById(nodeId);
+    if (node) node->getContent().insertWidget(charOffset, desc);
+    GuiEventSimulator::process_pending_events();
+
+    return charOffset;
+}
+
+void TestGuiSimulationApp::_test_rich_cell_edit_description_format(CtMainWin* pWin)
+{
+    spdlog::info("Test: Rich cell undo descriptions match main-page format");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    std::string pfx = "Node " + std::to_string(nodeId) + ": ";
+
+    // Helper: assert description is single-line (suitable for dropdown)
+    auto assertSingleLine = [](const std::string& desc) {
+        ASSERT_EQ(desc.find('\n'), std::string::npos)
+            << "Description must be single-line for dropdown, got: " << desc;
+    };
+
+    // --- 1. Type text in cell → description should be 'Type "text"' ---
+    {
+        std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+        richData[0][0].textSpans.push_back(CtTextSpan{"hello"});
+        insertRichTableAtEnd(pWin, pBridge, richData);
+
+        auto* pTable = findFirstRichTable(pWin);
+        ASSERT_TRUE(pTable);
+
+        pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+        auto cellBuf = pTable->get_buffer(0, 0);
+        ASSERT_TRUE(cellBuf);
+        cellBuf->place_cursor(cellBuf->end());
+        cellBuf->insert_at_cursor(" world");
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+
+        auto descs = pBridge->getUndoStackDescriptions();
+        ASSERT_GE(descs.size(), 1u);
+        assertSingleLine(descs[0]);
+        EXPECT_EQ(descs[0], pfx + "Type \" world\"")
+            << "Cell text append should produce Type description";
+        spdlog::info("  1. type in cell: '{}'", descs[0]);
+    }
+
+    // --- 2. Delete text in cell → description should be 'Delete N chars' ---
+    {
+        auto* pTable = findFirstRichTable(pWin);
+        ASSERT_TRUE(pTable);
+
+        pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+        auto cellBuf = pTable->get_buffer(0, 0);
+        ASSERT_TRUE(cellBuf);
+        // Delete last 3 chars (" world" → "hello wo" → remove "rld")
+        auto endIter = cellBuf->end();
+        auto startIter = endIter;
+        startIter.backward_chars(3);
+        cellBuf->erase(startIter, endIter);
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+
+        auto descs = pBridge->getUndoStackDescriptions();
+        ASSERT_GE(descs.size(), 1u);
+        assertSingleLine(descs[0]);
+        EXPECT_TRUE(descs[0].find("Delete") != std::string::npos)
+            << "Cell text deletion should produce Delete description, got: " << descs[0];
+        spdlog::info("  2. delete in cell: '{}'", descs[0]);
+    }
+
+    // --- 3. Type newline in cell → description should mention newline ---
+    {
+        auto* pTable = findFirstRichTable(pWin);
+        ASSERT_TRUE(pTable);
+
+        pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+        auto cellBuf = pTable->get_buffer(0, 0);
+        ASSERT_TRUE(cellBuf);
+        cellBuf->place_cursor(cellBuf->end());
+        cellBuf->insert_at_cursor("\n");
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+
+        auto descs = pBridge->getUndoStackDescriptions();
+        ASSERT_GE(descs.size(), 1u);
+        assertSingleLine(descs[0]);
+        EXPECT_TRUE(descs[0].find("newline") != std::string::npos ||
+                    descs[0].find("Newline") != std::string::npos)
+            << "Cell newline should produce newline description, got: " << descs[0];
+        spdlog::info("  3. newline in cell: '{}'", descs[0]);
+    }
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("✓ Rich cell edit description format test passed");
+}
+
+void TestGuiSimulationApp::_test_rich_cell_scroll_position_captured(CtMainWin* pWin)
+{
+    spdlog::info("Test: Rich cell commands capture scroll position");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    // --- 1. Cell text edit captures scroll position ---
+    {
+        std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+        richData[0][0].textSpans.push_back(CtTextSpan{"scrolltest"});
+        insertRichTableAtEnd(pWin, pBridge, richData);
+
+        auto* pTable = findFirstRichTable(pWin);
+        ASSERT_TRUE(pTable);
+
+        pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+        auto cellBuf = pTable->get_buffer(0, 0);
+        cellBuf->place_cursor(cellBuf->end());
+        cellBuf->insert_at_cursor(" appended");
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+
+        CtCommand* cmd = pBridge->getCommandManager().peekUndoCommand();
+        ASSERT_TRUE(cmd) << "Should have command after cell edit";
+        EXPECT_GE(cmd->getOldScrollPos(), 0.0)
+            << "Cell edit command should have oldScrollPos >= 0.0, not -1.0 (uncaptured)";
+        EXPECT_GE(cmd->getNewScrollPos(), 0.0)
+            << "Cell edit command should have newScrollPos >= 0.0, not -1.0 (uncaptured)";
+        spdlog::info("  1. cell edit scroll: old={}, new={}", cmd->getOldScrollPos(), cmd->getNewScrollPos());
+    }
+
+    // --- 2. Cell format change captures scroll position ---
+    {
+        auto* pTable = findFirstRichTable(pWin);
+        ASSERT_TRUE(pTable);
+
+        pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+        ASSERT_TRUE(pBridge->isTrackingRichCell());
+
+        auto cellBuf = pTable->get_buffer(0, 0);
+        cellBuf->select_range(cellBuf->begin(), cellBuf->end());
+        pActions->apply_tag_bold();
+        GuiEventSimulator::process_pending_events();
+
+        CtCommand* cmd = pBridge->getCommandManager().peekUndoCommand();
+        ASSERT_TRUE(cmd) << "Should have command after cell format";
+        EXPECT_GE(cmd->getOldScrollPos(), 0.0)
+            << "Cell format command should have oldScrollPos >= 0.0";
+        EXPECT_GE(cmd->getNewScrollPos(), 0.0)
+            << "Cell format command should have newScrollPos >= 0.0";
+        spdlog::info("  2. cell format scroll: old={}, new={}", cmd->getOldScrollPos(), cmd->getNewScrollPos());
+
+        pBridge->endWidgetEdit();
+    }
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("✓ Rich cell scroll position captured test passed");
+}
+
+void TestGuiSimulationApp::_test_rich_cell_multiple_formats_undo_redo(CtMainWin* pWin)
+{
+    spdlog::info("Test: Multiple format operations in rich cell — each produces separate undo entry");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    // Insert 1×1 rich table with "testformat"
+    std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+    richData[0][0].textSpans.push_back(CtTextSpan{"testformat"});
+    int charOffset = insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+
+    size_t stackSizeAfterInsert = pBridge->getUndoStackDescriptions().size();
+
+    // Begin cell edit session
+    pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+    ASSERT_TRUE(pBridge->isTrackingRichCell());
+    auto cellBuf = pTable->get_buffer(0, 0);
+
+    // Apply bold
+    cellBuf->select_range(cellBuf->begin(), cellBuf->end());
+    pActions->apply_tag_bold();
+    GuiEventSimulator::process_pending_events();
+
+    size_t stackSizeAfterBold = pBridge->getUndoStackDescriptions().size();
+    EXPECT_EQ(stackSizeAfterBold, stackSizeAfterInsert + 1)
+        << "Bold should add exactly one undo entry";
+
+    // Apply italic (stacks on top of bold)
+    cellBuf = pBridge->getActiveRichCellBuffer();
+    ASSERT_TRUE(cellBuf);
+    cellBuf->select_range(cellBuf->begin(), cellBuf->end());
+    pActions->apply_tag_italic();
+    GuiEventSimulator::process_pending_events();
+
+    size_t stackSizeAfterItalic = pBridge->getUndoStackDescriptions().size();
+    EXPECT_EQ(stackSizeAfterItalic, stackSizeAfterBold + 1)
+        << "Italic should add exactly one more undo entry";
+
+    // Apply strikethrough
+    cellBuf = pBridge->getActiveRichCellBuffer();
+    ASSERT_TRUE(cellBuf);
+    cellBuf->select_range(cellBuf->begin(), cellBuf->end());
+    pActions->apply_tag_strikethrough();
+    GuiEventSimulator::process_pending_events();
+
+    size_t stackSizeAfterStrike = pBridge->getUndoStackDescriptions().size();
+    EXPECT_EQ(stackSizeAfterStrike, stackSizeAfterItalic + 1)
+        << "Strikethrough should add exactly one more undo entry";
+
+    pBridge->endWidgetEdit();
+    GuiEventSimulator::process_pending_events();
+
+    // Verify model has all three attributes
+    {
+        auto docModel = pBridge->getDocumentModel();
+        auto nd = docModel->getNodeById(nodeId);
+        ASSERT_TRUE(nd);
+        auto d = nd->getContent().getWidgetDescAt(charOffset);
+        ASSERT_TRUE(d.hasRichTableData());
+        auto& spans = d.richTableData[0][0].textSpans;
+        bool hasBold = false, hasItalic = false, hasStrike = false;
+        for (auto& span : spans) {
+            if (span.getAttribute("weight") == "heavy") hasBold = true;
+            if (span.getAttribute("style") == "italic") hasItalic = true;
+            if (span.getAttribute("strikethrough") == "true") hasStrike = true;
+        }
+        EXPECT_TRUE(hasBold) << "Model should have bold";
+        EXPECT_TRUE(hasItalic) << "Model should have italic";
+        EXPECT_TRUE(hasStrike) << "Model should have strikethrough";
+    }
+
+    // Undo strikethrough: bold+italic remain
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    {
+        auto docModel = pBridge->getDocumentModel();
+        auto nd = docModel->getNodeById(nodeId);
+        auto d = nd->getContent().getWidgetDescAt(charOffset);
+        bool hasBold = false, hasItalic = false, hasStrike = false;
+        for (auto& span : d.richTableData[0][0].textSpans) {
+            if (span.getAttribute("weight") == "heavy") hasBold = true;
+            if (span.getAttribute("style") == "italic") hasItalic = true;
+            if (span.getAttribute("strikethrough") == "true") hasStrike = true;
+        }
+        EXPECT_TRUE(hasBold) << "After undo strike: bold should remain";
+        EXPECT_TRUE(hasItalic) << "After undo strike: italic should remain";
+        EXPECT_FALSE(hasStrike) << "After undo strike: strikethrough should be gone";
+    }
+
+    // Undo italic: only bold remains
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    {
+        auto docModel = pBridge->getDocumentModel();
+        auto nd = docModel->getNodeById(nodeId);
+        auto d = nd->getContent().getWidgetDescAt(charOffset);
+        bool hasBold = false, hasItalic = false;
+        for (auto& span : d.richTableData[0][0].textSpans) {
+            if (span.getAttribute("weight") == "heavy") hasBold = true;
+            if (span.getAttribute("style") == "italic") hasItalic = true;
+        }
+        EXPECT_TRUE(hasBold) << "After undo italic: bold should remain";
+        EXPECT_FALSE(hasItalic) << "After undo italic: italic should be gone";
+    }
+
+    // Undo bold: plain text
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    {
+        auto docModel = pBridge->getDocumentModel();
+        auto nd = docModel->getNodeById(nodeId);
+        auto d = nd->getContent().getWidgetDescAt(charOffset);
+        bool hasBold = false;
+        for (auto& span : d.richTableData[0][0].textSpans) {
+            if (span.getAttribute("weight") == "heavy") hasBold = true;
+        }
+        EXPECT_FALSE(hasBold) << "After undo bold: no bold should remain";
+        EXPECT_EQ(d.richTableData[0][0].getPlainText(), "testformat")
+            << "Plain text should be preserved through format undo cycle";
+    }
+
+    // Redo all three formats
+    pActions->requested_step_ahead(); // bold
+    pActions->requested_step_ahead(); // italic
+    pActions->requested_step_ahead(); // strikethrough
+    GuiEventSimulator::process_pending_events();
+    {
+        auto docModel = pBridge->getDocumentModel();
+        auto nd = docModel->getNodeById(nodeId);
+        auto d = nd->getContent().getWidgetDescAt(charOffset);
+        bool hasBold = false, hasItalic = false, hasStrike = false;
+        for (auto& span : d.richTableData[0][0].textSpans) {
+            if (span.getAttribute("weight") == "heavy") hasBold = true;
+            if (span.getAttribute("style") == "italic") hasItalic = true;
+            if (span.getAttribute("strikethrough") == "true") hasStrike = true;
+        }
+        EXPECT_TRUE(hasBold && hasItalic && hasStrike)
+            << "Redo all three should restore bold+italic+strikethrough";
+    }
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("✓ Multiple formats in rich cell undo/redo test passed");
+}
+
+void TestGuiSimulationApp::_test_rich_cell_edit_multiple_cells_separate_commands(CtMainWin* pWin)
+{
+    spdlog::info("Test: Editing different cells creates separate undo commands");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    // Insert 2×2 rich table
+    std::vector<std::vector<CtCellContent>> richData(2, std::vector<CtCellContent>(2));
+    richData[0][0].textSpans.push_back(CtTextSpan{"a00"});
+    richData[0][1].textSpans.push_back(CtTextSpan{"a01"});
+    richData[1][0].textSpans.push_back(CtTextSpan{"a10"});
+    richData[1][1].textSpans.push_back(CtTextSpan{"a11"});
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    size_t stackSizeAfterInsert = pBridge->getUndoStackDescriptions().size();
+
+    // Edit cell (0,0): append "X"
+    {
+        auto* pTable = findFirstRichTable(pWin);
+        ASSERT_TRUE(pTable);
+        pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+        auto cellBuf = pTable->get_buffer(0, 0);
+        cellBuf->place_cursor(cellBuf->end());
+        cellBuf->insert_at_cursor("X");
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+    }
+
+    EXPECT_EQ(pBridge->getUndoStackDescriptions().size(), stackSizeAfterInsert + 1)
+        << "First cell edit should add one command";
+
+    // Edit cell (1,1): append "Y"
+    {
+        auto* pTable = findFirstRichTable(pWin);
+        ASSERT_TRUE(pTable);
+        pBridge->beginWidgetEdit(nodeId, pTable, 1, 1);
+        auto cellBuf = pTable->get_buffer(1, 1);
+        cellBuf->place_cursor(cellBuf->end());
+        cellBuf->insert_at_cursor("Y");
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+    }
+
+    EXPECT_EQ(pBridge->getUndoStackDescriptions().size(), stackSizeAfterInsert + 2)
+        << "Second cell edit should add another command";
+
+    // Undo cell (1,1) edit: "a11" restored
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    {
+        auto* rt = findFirstRichTable(pWin);
+        ASSERT_TRUE(rt);
+        EXPECT_EQ(rt->get_buffer(1, 1)->get_text(), Glib::ustring{"a11"})
+            << "Undo should restore cell (1,1) to 'a11'";
+        EXPECT_EQ(rt->get_buffer(0, 0)->get_text(), Glib::ustring{"a00X"})
+            << "Cell (0,0) should still have 'a00X' after undoing (1,1)";
+    }
+
+    // Undo cell (0,0) edit: "a00" restored
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    {
+        auto* rt = findFirstRichTable(pWin);
+        ASSERT_TRUE(rt);
+        EXPECT_EQ(rt->get_buffer(0, 0)->get_text(), Glib::ustring{"a00"})
+            << "Undo should restore cell (0,0) to 'a00'";
+    }
+
+    // Redo both
+    pActions->requested_step_ahead();
+    pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+    {
+        auto* rt = findFirstRichTable(pWin);
+        ASSERT_TRUE(rt);
+        EXPECT_EQ(rt->get_buffer(0, 0)->get_text(), Glib::ustring{"a00X"});
+        EXPECT_EQ(rt->get_buffer(1, 1)->get_text(), Glib::ustring{"a11Y"});
+    }
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("✓ Multiple cells separate commands test passed");
+}
+
+void TestGuiSimulationApp::_test_rich_cell_no_change_no_command(CtMainWin* pWin)
+{
+    spdlog::info("Test: Rich cell focus-in/focus-out with no change produces no command");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+    richData[0][0].textSpans.push_back(CtTextSpan{"unchanged"});
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    size_t stackSizeBefore = pBridge->getUndoStackDescriptions().size();
+
+    // Begin and end widget edit without modifying the cell
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+    pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+    ASSERT_TRUE(pBridge->isTrackingRichCell());
+    pBridge->endWidgetEdit();
+    GuiEventSimulator::process_pending_events();
+
+    size_t stackSizeAfter = pBridge->getUndoStackDescriptions().size();
+    EXPECT_EQ(stackSizeAfter, stackSizeBefore)
+        << "No-change cell edit should not add undo command";
+
+    // Verify cell content is still correct
+    {
+        auto* rt = findFirstRichTable(pWin);
+        ASSERT_TRUE(rt);
+        EXPECT_EQ(rt->get_buffer(0, 0)->get_text(), Glib::ustring{"unchanged"});
+    }
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("✓ Rich cell no-change no-command test passed");
+}
+
+void TestGuiSimulationApp::_test_rich_cell_edit_then_format_separate_commands(CtMainWin* pWin)
+{
+    spdlog::info("Test: Text edit then format in same cell creates separate undo entries");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+    richData[0][0].textSpans.push_back(CtTextSpan{"mixed"});
+    int charOffset = insertRichTableAtEnd(pWin, pBridge, richData);
+
+    size_t stackSizeAfterInsert = pBridge->getUndoStackDescriptions().size();
+
+    // Step 1: Edit cell text — append " ops"
+    {
+        auto* pTable = findFirstRichTable(pWin);
+        ASSERT_TRUE(pTable);
+        pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+        auto cellBuf = pTable->get_buffer(0, 0);
+        cellBuf->place_cursor(cellBuf->end());
+        cellBuf->insert_at_cursor(" ops");
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+    }
+
+    size_t stackSizeAfterEdit = pBridge->getUndoStackDescriptions().size();
+    EXPECT_EQ(stackSizeAfterEdit, stackSizeAfterInsert + 1)
+        << "Text edit should add one command";
+
+    // Step 2: Format the cell bold (separate session)
+    {
+        auto* pTable = findFirstRichTable(pWin);
+        ASSERT_TRUE(pTable);
+        pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+        auto cellBuf = pTable->get_buffer(0, 0);
+        cellBuf->select_range(cellBuf->begin(), cellBuf->end());
+        pActions->apply_tag_bold();
+        GuiEventSimulator::process_pending_events();
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+    }
+
+    size_t stackSizeAfterFormat = pBridge->getUndoStackDescriptions().size();
+    EXPECT_EQ(stackSizeAfterFormat, stackSizeAfterEdit + 1)
+        << "Format should add one more command (separate from text edit)";
+
+    // Undo format: text stays "mixed ops" but bold is removed
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    {
+        auto* rt = findFirstRichTable(pWin);
+        ASSERT_TRUE(rt);
+        EXPECT_EQ(rt->get_buffer(0, 0)->get_text(), Glib::ustring{"mixed ops"})
+            << "Text should be preserved after undoing format";
+
+        auto docModel = pBridge->getDocumentModel();
+        auto nd = docModel->getNodeById(nodeId);
+        auto d = nd->getContent().getWidgetDescAt(charOffset);
+        bool hasBold = false;
+        for (auto& span : d.richTableData[0][0].textSpans) {
+            if (span.getAttribute("weight") == "heavy") hasBold = true;
+        }
+        EXPECT_FALSE(hasBold) << "Bold should be removed after undo format";
+    }
+
+    // Undo text edit: cell back to "mixed"
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    {
+        auto* rt = findFirstRichTable(pWin);
+        ASSERT_TRUE(rt);
+        EXPECT_EQ(rt->get_buffer(0, 0)->get_text(), Glib::ustring{"mixed"})
+            << "Text should revert to 'mixed' after undo edit";
+    }
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("✓ Edit then format separate commands test passed");
+}
+
+void TestGuiSimulationApp::_test_rich_table_full_undo_redo_cycle(CtMainWin* pWin)
+{
+    spdlog::info("Test: Full rich table lifecycle — insert, edit cells, format, undo all, redo all");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+    auto docModel = pBridge->getDocumentModel();
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    auto buffer = pWin->curr_buffer();
+    Glib::ustring initialText = buffer->get_text();
+
+    // Step 1: Insert a 2×2 rich table
+    std::vector<std::vector<CtCellContent>> richData(2, std::vector<CtCellContent>(2));
+    richData[0][0].textSpans.push_back(CtTextSpan{"Name"});
+    richData[0][1].textSpans.push_back(CtTextSpan{"Value"});
+    richData[1][0].textSpans.push_back(CtTextSpan{"key"});
+    richData[1][1].textSpans.push_back(CtTextSpan{"val"});
+    int charOffset = insertRichTableAtEnd(pWin, pBridge, richData);
+
+    // Step 2: Edit cell (1,0): "key" → "key1"
+    {
+        auto* pTable = findFirstRichTable(pWin);
+        ASSERT_TRUE(pTable);
+        pBridge->beginWidgetEdit(nodeId, pTable, 1, 0);
+        auto cellBuf = pTable->get_buffer(1, 0);
+        cellBuf->place_cursor(cellBuf->end());
+        cellBuf->insert_at_cursor("1");
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+    }
+
+    // Step 3: Edit cell (1,1): "val" → "val1"
+    {
+        auto* pTable = findFirstRichTable(pWin);
+        ASSERT_TRUE(pTable);
+        pBridge->beginWidgetEdit(nodeId, pTable, 1, 1);
+        auto cellBuf = pTable->get_buffer(1, 1);
+        cellBuf->place_cursor(cellBuf->end());
+        cellBuf->insert_at_cursor("1");
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+    }
+
+    // Step 4: Bold the header row cell (0,0)
+    {
+        auto* pTable = findFirstRichTable(pWin);
+        ASSERT_TRUE(pTable);
+        pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+        auto cellBuf = pTable->get_buffer(0, 0);
+        cellBuf->select_range(cellBuf->begin(), cellBuf->end());
+        pActions->apply_tag_bold();
+        GuiEventSimulator::process_pending_events();
+        pBridge->endWidgetEdit();
+        GuiEventSimulator::process_pending_events();
+    }
+
+    // Verify final state
+    {
+        auto* rt = findFirstRichTable(pWin);
+        ASSERT_TRUE(rt);
+        EXPECT_EQ(rt->get_buffer(1, 0)->get_text(), Glib::ustring{"key1"});
+        EXPECT_EQ(rt->get_buffer(1, 1)->get_text(), Glib::ustring{"val1"});
+
+        auto nd = docModel->getNodeById(nodeId);
+        auto d = nd->getContent().getWidgetDescAt(charOffset);
+        bool headerBold = false;
+        for (auto& span : d.richTableData[0][0].textSpans) {
+            if (span.getAttribute("weight") == "heavy") headerBold = true;
+        }
+        EXPECT_TRUE(headerBold) << "Header cell should be bold";
+    }
+
+    // Count total undo entries: insert + 2 edits + 1 format = 4
+    auto descs = pBridge->getUndoStackDescriptions();
+    EXPECT_GE(descs.size(), 4u)
+        << "Should have at least 4 undo entries (insert + 2 edits + 1 format)";
+
+    spdlog::info("  Undo stack ({} entries):", descs.size());
+    for (size_t i = 0; i < descs.size(); ++i) {
+        spdlog::info("    [{}] {}", i, descs[i]);
+    }
+
+    // Undo everything: no rich table, buffer back to initial
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    {
+        auto* rt = findFirstRichTable(pWin);
+        EXPECT_FALSE(rt) << "Rich table should be gone after full undo";
+        EXPECT_EQ(pWin->curr_buffer()->get_text(), initialText)
+            << "Buffer should match initial text after full undo";
+    }
+
+    // Redo everything: rich table restored with all edits and formatting
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+
+    {
+        auto* rt = findFirstRichTable(pWin);
+        ASSERT_TRUE(rt) << "Rich table should be restored after full redo";
+        EXPECT_EQ(rt->get_buffer(0, 0)->get_text(), Glib::ustring{"Name"});
+        EXPECT_EQ(rt->get_buffer(0, 1)->get_text(), Glib::ustring{"Value"});
+        EXPECT_EQ(rt->get_buffer(1, 0)->get_text(), Glib::ustring{"key1"});
+        EXPECT_EQ(rt->get_buffer(1, 1)->get_text(), Glib::ustring{"val1"});
+
+        auto nd = docModel->getNodeById(nodeId);
+        auto d = nd->getContent().getWidgetDescAt(charOffset);
+        bool headerBold = false;
+        for (auto& span : d.richTableData[0][0].textSpans) {
+            if (span.getAttribute("weight") == "heavy") headerBold = true;
+        }
+        EXPECT_TRUE(headerBold) << "Header bold should survive full redo";
+    }
+
+    // Clean up
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("✓ Full rich table lifecycle undo/redo cycle test passed");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Signal-based format undo/redo tests (Plan 10.5d)
+// Each test follows: type "hello" → select → apply format → verify model →
+// undo → verify gone → redo → verify restored.
+// ─────────────────────────────────────────────────────────────────────────────
+
+namespace {
+
+// Shared setup: navigate to node "b", clear buffer, type "hello", end session.
+// Returns (buffer, nodeId, docModel).
+struct FormatTestSetup {
+    Glib::RefPtr<Gtk::TextBuffer> buffer;
+    gint64 nodeId{0};
+    std::shared_ptr<CtDocumentModel> docModel;
+};
+
+FormatTestSetup prepareFormatTestNode(CtMainWin* pWin)
+{
+    auto pBridge  = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    // Clear undo/redo stacks
+    while (pBridge->canUndo())  pActions->requested_step_back();
+    while (pBridge->canRedo())  pActions->requested_step_ahead();
+    while (pBridge->canUndo())  pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    gint64 nodeId = ctIter.get_node_id();
+    auto buffer = pWin->curr_buffer();
+
+    // Clear any existing content and type fresh text
+    pBridge->beginTextEditSession(nodeId);
+    buffer->set_text("");
+    buffer->insert_at_cursor("hello");
+    buffer->set_modified(true);
+    GuiEventSimulator::process_pending_events();
+    pBridge->endTextEditSession();
+    GuiEventSimulator::process_pending_events();
+
+    return { buffer, nodeId, pBridge->getDocumentModel() };
+}
+
+// Select the word "hello" in the buffer and return the offsets [0,5).
+void selectHello(const Glib::RefPtr<Gtk::TextBuffer>& buf)
+{
+    Gtk::TextIter s, e;
+    ASSERT_TRUE(buf->begin().forward_search("hello", Gtk::TEXT_SEARCH_TEXT_ONLY, s, e))
+        << "Could not find 'hello' in buffer";
+    buf->select_range(s, e);
+}
+
+// Assert a format attribute is present/absent in the model on range [0,5).
+void expectAttr(const std::shared_ptr<CtDocumentModel>& docModel, gint64 nodeId,
+                const std::string& attr, const std::string& val, bool present,
+                const std::string& context)
+{
+    auto node = docModel->getNodeById(nodeId);
+    ASSERT_TRUE(node) << context << ": node not found";
+    bool has = node->getContent().hasAttributeValueInRange(0, 5, attr, val);
+    if (present) {
+        EXPECT_TRUE(has)  << context << ": expected " << attr << "=" << val;
+    } else {
+        EXPECT_FALSE(has) << context << ": unexpected " << attr << "=" << val;
+    }
+}
+
+} // namespace
+
+// ─── Individual format tests ──────────────────────────────────────────────────
+
+void TestGuiSimulationApp::_test_format_underline_undo_redo(CtMainWin* pWin)
+{
+    spdlog::info("Test: Format underline undo/redo (signal-based)");
+    auto pBridge  = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+    auto [buffer, nodeId, docModel] = prepareFormatTestNode(pWin);
+
+    selectHello(buffer);
+    pActions->apply_tag_underline();
+    GuiEventSimulator::process_pending_events();
+
+    expectAttr(docModel, nodeId, "underline", "single", true,  "after apply underline");
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "underline", "single", false, "after undo underline");
+    pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "underline", "single", true,  "after redo underline");
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    spdlog::info("✓ underline undo/redo");
+}
+
+void TestGuiSimulationApp::_test_format_strikethrough_undo_redo(CtMainWin* pWin)
+{
+    spdlog::info("Test: Format strikethrough undo/redo (signal-based)");
+    auto pBridge  = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+    auto [buffer, nodeId, docModel] = prepareFormatTestNode(pWin);
+
+    selectHello(buffer);
+    pActions->apply_tag_strikethrough();
+    GuiEventSimulator::process_pending_events();
+
+    expectAttr(docModel, nodeId, "strikethrough", "true", true,  "after apply strikethrough");
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "strikethrough", "true", false, "after undo strikethrough");
+    pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "strikethrough", "true", true,  "after redo strikethrough");
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    spdlog::info("✓ strikethrough undo/redo");
+}
+
+void TestGuiSimulationApp::_test_format_monospace_undo_redo(CtMainWin* pWin)
+{
+    spdlog::info("Test: Format monospace undo/redo (signal-based)");
+    auto pBridge  = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+    auto [buffer, nodeId, docModel] = prepareFormatTestNode(pWin);
+
+    selectHello(buffer);
+    pActions->apply_tag_monospace();
+    GuiEventSimulator::process_pending_events();
+
+    expectAttr(docModel, nodeId, "family", "monospace", true,  "after apply monospace");
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "family", "monospace", false, "after undo monospace");
+    pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "family", "monospace", true,  "after redo monospace");
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    spdlog::info("✓ monospace undo/redo");
+}
+
+void TestGuiSimulationApp::_test_format_small_undo_redo(CtMainWin* pWin)
+{
+    spdlog::info("Test: Format small undo/redo (signal-based)");
+    auto pBridge  = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+    auto [buffer, nodeId, docModel] = prepareFormatTestNode(pWin);
+
+    selectHello(buffer);
+    pActions->apply_tag_small();
+    GuiEventSimulator::process_pending_events();
+
+    expectAttr(docModel, nodeId, "scale", "small", true,  "after apply small");
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "scale", "small", false, "after undo small");
+    pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "scale", "small", true,  "after redo small");
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    spdlog::info("✓ small undo/redo");
+}
+
+void TestGuiSimulationApp::_test_format_superscript_undo_redo(CtMainWin* pWin)
+{
+    spdlog::info("Test: Format superscript undo/redo (signal-based)");
+    auto pBridge  = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+    auto [buffer, nodeId, docModel] = prepareFormatTestNode(pWin);
+
+    selectHello(buffer);
+    pActions->apply_tag_superscript();
+    GuiEventSimulator::process_pending_events();
+
+    expectAttr(docModel, nodeId, "scale", "sup", true,  "after apply superscript");
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "scale", "sup", false, "after undo superscript");
+    pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "scale", "sup", true,  "after redo superscript");
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    spdlog::info("✓ superscript undo/redo");
+}
+
+void TestGuiSimulationApp::_test_format_subscript_undo_redo(CtMainWin* pWin)
+{
+    spdlog::info("Test: Format subscript undo/redo (signal-based)");
+    auto pBridge  = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+    auto [buffer, nodeId, docModel] = prepareFormatTestNode(pWin);
+
+    selectHello(buffer);
+    pActions->apply_tag_subscript();
+    GuiEventSimulator::process_pending_events();
+
+    expectAttr(docModel, nodeId, "scale", "sub", true,  "after apply subscript");
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "scale", "sub", false, "after undo subscript");
+    pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "scale", "sub", true,  "after redo subscript");
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    spdlog::info("✓ subscript undo/redo");
+}
+
+void TestGuiSimulationApp::_test_format_h1_undo_redo(CtMainWin* pWin)
+{
+    spdlog::info("Test: Format h1 heading undo/redo (signal-based, paragraph-level)");
+    auto pBridge  = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+    auto [buffer, nodeId, docModel] = prepareFormatTestNode(pWin);
+
+    // Place cursor in paragraph (no selection needed — heading applies to whole paragraph)
+    buffer->place_cursor(buffer->begin());
+    pActions->apply_tag_h1();
+    GuiEventSimulator::process_pending_events();
+
+    // h1 applies scale=h1 to the paragraph range
+    {
+        auto node = docModel->getNodeById(nodeId);
+        ASSERT_TRUE(node);
+        EXPECT_TRUE(node->getContent().hasAttributeInRange(0, 5, "scale"))
+            << "after apply h1: scale attribute should be set";
+    }
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    {
+        auto node = docModel->getNodeById(nodeId);
+        ASSERT_TRUE(node);
+        EXPECT_FALSE(node->getContent().hasAttributeInRange(0, 5, "scale"))
+            << "after undo h1: scale attribute should be removed";
+    }
+    pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+    {
+        auto node = docModel->getNodeById(nodeId);
+        ASSERT_TRUE(node);
+        EXPECT_TRUE(node->getContent().hasAttributeInRange(0, 5, "scale"))
+            << "after redo h1: scale attribute should be restored";
+    }
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    spdlog::info("✓ h1 heading undo/redo");
+}
+
+void TestGuiSimulationApp::_test_format_justify_undo_redo(CtMainWin* pWin)
+{
+    spdlog::info("Test: Format justify_center undo/redo (signal-based, paragraph-level)");
+    auto pBridge  = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+    auto [buffer, nodeId, docModel] = prepareFormatTestNode(pWin);
+
+    buffer->place_cursor(buffer->begin());
+    pActions->apply_tag_justify_center();
+    GuiEventSimulator::process_pending_events();
+
+    {
+        auto node = docModel->getNodeById(nodeId);
+        ASSERT_TRUE(node);
+        EXPECT_TRUE(node->getContent().hasAttributeValueInRange(0, 5, "justification", "center"))
+            << "after apply justify_center: justification=center expected";
+    }
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    {
+        auto node = docModel->getNodeById(nodeId);
+        ASSERT_TRUE(node);
+        EXPECT_FALSE(node->getContent().hasAttributeInRange(0, 5, "justification"))
+            << "after undo justify: justification should be removed";
+    }
+    pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+    {
+        auto node = docModel->getNodeById(nodeId);
+        ASSERT_TRUE(node);
+        EXPECT_TRUE(node->getContent().hasAttributeValueInRange(0, 5, "justification", "center"))
+            << "after redo justify_center: justification=center should be restored";
+    }
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    spdlog::info("✓ justify_center undo/redo");
+}
+
+void TestGuiSimulationApp::_test_format_indent_undo_redo(CtMainWin* pWin)
+{
+    spdlog::info("Test: Format indent undo/redo (signal-based, paragraph-level)");
+    auto pBridge  = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+    auto [buffer, nodeId, docModel] = prepareFormatTestNode(pWin);
+
+    buffer->place_cursor(buffer->begin());
+    pActions->apply_tag_indent();
+    GuiEventSimulator::process_pending_events();
+
+    {
+        auto node = docModel->getNodeById(nodeId);
+        ASSERT_TRUE(node);
+        EXPECT_TRUE(node->getContent().hasAttributeInRange(0, 5, "indent"))
+            << "after apply indent: indent attribute expected";
+    }
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    {
+        auto node = docModel->getNodeById(nodeId);
+        ASSERT_TRUE(node);
+        EXPECT_FALSE(node->getContent().hasAttributeInRange(0, 5, "indent"))
+            << "after undo indent: indent should be removed";
+    }
+    pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+    {
+        auto node = docModel->getNodeById(nodeId);
+        ASSERT_TRUE(node);
+        EXPECT_TRUE(node->getContent().hasAttributeInRange(0, 5, "indent"))
+            << "after redo indent: indent should be restored";
+    }
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    spdlog::info("✓ indent undo/redo");
+}
+
+// ─── Toggle and removal tests ─────────────────────────────────────────────────
+
+void TestGuiSimulationApp::_test_format_toggle_bold_off(CtMainWin* pWin)
+{
+    spdlog::info("Test: Toggle bold off (apply bold to already-bold text removes it)");
+    auto pBridge  = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+    auto [buffer, nodeId, docModel] = prepareFormatTestNode(pWin);
+
+    // First apply bold
+    selectHello(buffer);
+    pActions->apply_tag_bold();
+    GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "weight", "heavy", true,  "after first bold apply");
+
+    // Apply bold again to toggle off
+    selectHello(buffer);
+    pActions->apply_tag_bold();
+    GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "weight", "heavy", false, "after toggle-off bold");
+
+    // Undo toggle-off → bold restored
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "weight", "heavy", true,  "after undo toggle-off");
+
+    // Undo first bold → no bold
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "weight", "heavy", false, "after undo first bold");
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    spdlog::info("✓ toggle bold off");
+}
+
+void TestGuiSimulationApp::_test_format_remove_formatting_undo_redo(CtMainWin* pWin)
+{
+    spdlog::info("Test: Remove all formatting is now undoable (10.5d fix)");
+    auto pBridge  = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+    auto [buffer, nodeId, docModel] = prepareFormatTestNode(pWin);
+
+    // Apply bold + italic
+    selectHello(buffer);
+    pActions->apply_tag_bold();
+    GuiEventSimulator::process_pending_events();
+    selectHello(buffer);
+    pActions->apply_tag_italic();
+    GuiEventSimulator::process_pending_events();
+
+    // Both attributes should be set
+    expectAttr(docModel, nodeId, "weight", "heavy",  true, "after bold+italic: bold");
+    expectAttr(docModel, nodeId, "style",  "italic", true, "after bold+italic: italic");
+
+    // Remove all formatting
+    selectHello(buffer);
+    pActions->remove_text_formatting();
+    GuiEventSimulator::process_pending_events();
+
+    expectAttr(docModel, nodeId, "weight", "heavy",  false, "after remove_formatting: bold gone");
+    expectAttr(docModel, nodeId, "style",  "italic", false, "after remove_formatting: italic gone");
+
+    // Undo remove_formatting → both attributes restored
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "weight", "heavy",  true, "after undo remove_formatting: bold restored");
+    expectAttr(docModel, nodeId, "style",  "italic", true, "after undo remove_formatting: italic restored");
+
+    // Redo remove_formatting
+    pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "weight", "heavy",  false, "after redo remove_formatting: bold gone");
+    expectAttr(docModel, nodeId, "style",  "italic", false, "after redo remove_formatting: italic gone");
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    spdlog::info("✓ remove_formatting undo/redo");
+}
+
+// ─── Combination tests ────────────────────────────────────────────────────────
+
+void TestGuiSimulationApp::_test_format_bold_then_italic_undo_each(CtMainWin* pWin)
+{
+    spdlog::info("Test: Bold then italic — two separate undo entries");
+    auto pBridge  = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+    auto [buffer, nodeId, docModel] = prepareFormatTestNode(pWin);
+
+    selectHello(buffer);
+    pActions->apply_tag_bold();
+    GuiEventSimulator::process_pending_events();
+
+    selectHello(buffer);
+    pActions->apply_tag_italic();
+    GuiEventSimulator::process_pending_events();
+
+    // Both present
+    expectAttr(docModel, nodeId, "weight", "heavy",  true, "bold+italic: bold");
+    expectAttr(docModel, nodeId, "style",  "italic", true, "bold+italic: italic");
+
+    // Undo italic (bold should stay)
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "weight", "heavy",  true,  "undo italic: bold stays");
+    expectAttr(docModel, nodeId, "style",  "italic", false, "undo italic: italic gone");
+
+    // Undo bold
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "weight", "heavy",  false, "undo bold: bold gone");
+    expectAttr(docModel, nodeId, "style",  "italic", false, "undo bold: italic stays gone");
+
+    // Redo bold
+    pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "weight", "heavy",  true,  "redo bold: bold restored");
+    expectAttr(docModel, nodeId, "style",  "italic", false, "redo bold: italic still gone");
+
+    // Redo italic
+    pActions->requested_step_ahead();
+    GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "weight", "heavy",  true, "redo italic: bold present");
+    expectAttr(docModel, nodeId, "style",  "italic", true, "redo italic: italic restored");
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    spdlog::info("✓ bold then italic undo each");
+}
+
+void TestGuiSimulationApp::_test_format_bold_italic_underline_stack(CtMainWin* pWin)
+{
+    spdlog::info("Test: Bold+italic+underline stack — 3 separate undo entries");
+    auto pBridge  = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+    auto [buffer, nodeId, docModel] = prepareFormatTestNode(pWin);
+
+    selectHello(buffer); pActions->apply_tag_bold();      GuiEventSimulator::process_pending_events();
+    selectHello(buffer); pActions->apply_tag_italic();    GuiEventSimulator::process_pending_events();
+    selectHello(buffer); pActions->apply_tag_underline(); GuiEventSimulator::process_pending_events();
+
+    // All 3 present
+    expectAttr(docModel, nodeId, "weight",    "heavy",  true, "3-stack: bold");
+    expectAttr(docModel, nodeId, "style",     "italic", true, "3-stack: italic");
+    expectAttr(docModel, nodeId, "underline", "single", true, "3-stack: underline");
+
+    // Undo underline
+    pActions->requested_step_back(); GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "weight",    "heavy",  true,  "undo underline: bold stays");
+    expectAttr(docModel, nodeId, "style",     "italic", true,  "undo underline: italic stays");
+    expectAttr(docModel, nodeId, "underline", "single", false, "undo underline: gone");
+
+    // Undo italic
+    pActions->requested_step_back(); GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "weight",    "heavy",  true,  "undo italic: bold stays");
+    expectAttr(docModel, nodeId, "style",     "italic", false, "undo italic: gone");
+
+    // Undo bold
+    pActions->requested_step_back(); GuiEventSimulator::process_pending_events();
+    expectAttr(docModel, nodeId, "weight",    "heavy",  false, "undo bold: gone");
+
+    // Redo all 3
+    pActions->requested_step_ahead(); GuiEventSimulator::process_pending_events();
+    pActions->requested_step_ahead(); GuiEventSimulator::process_pending_events();
+    pActions->requested_step_ahead(); GuiEventSimulator::process_pending_events();
+
+    expectAttr(docModel, nodeId, "weight",    "heavy",  true, "redo all: bold");
+    expectAttr(docModel, nodeId, "style",     "italic", true, "redo all: italic");
+    expectAttr(docModel, nodeId, "underline", "single", true, "redo all: underline");
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    spdlog::info("✓ bold+italic+underline stack");
+}
+
+void TestGuiSimulationApp::_test_format_overlapping_ranges(CtMainWin* pWin)
+{
+    spdlog::info("Test: Overlapping format ranges — bold 0-3, italic 2-5");
+    auto pBridge  = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+    // Type "abcde" for clear range testing
+    while (pBridge->canUndo())  pActions->requested_step_back();
+    while (pBridge->canRedo())  pActions->requested_step_ahead();
+    while (pBridge->canUndo())  pActions->requested_step_back();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+    gint64 nodeId = ctIter.get_node_id();
+    auto buffer = pWin->curr_buffer();
+    auto docModel = pBridge->getDocumentModel();
+
+    pBridge->beginTextEditSession(nodeId);
+    buffer->set_text("");
+    buffer->insert_at_cursor("abcde");
+    buffer->set_modified(true);
+    GuiEventSimulator::process_pending_events();
+    pBridge->endTextEditSession();
+    GuiEventSimulator::process_pending_events();
+
+    // Bold chars 0-3 ("abc")
+    buffer->select_range(buffer->get_iter_at_offset(0), buffer->get_iter_at_offset(3));
+    pActions->apply_tag_bold();
+    GuiEventSimulator::process_pending_events();
+
+    // Italic chars 2-5 ("cde")
+    buffer->select_range(buffer->get_iter_at_offset(2), buffer->get_iter_at_offset(5));
+    pActions->apply_tag_italic();
+    GuiEventSimulator::process_pending_events();
+
+    // Verify: bold at 0-3, italic at 2-5, overlap at 2-3
+    {
+        auto node = docModel->getNodeById(nodeId);
+        ASSERT_TRUE(node);
+        EXPECT_TRUE(node->getContent().hasAttributeValueInRange(0, 3, "weight", "heavy"))
+            << "overlapping: bold at 0-3";
+        EXPECT_TRUE(node->getContent().hasAttributeValueInRange(2, 3, "style", "italic"))
+            << "overlapping: italic at 2-5";
+    }
+
+    // Undo italic (bold at 0-3 should stay)
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    {
+        auto node = docModel->getNodeById(nodeId);
+        ASSERT_TRUE(node);
+        EXPECT_TRUE( node->getContent().hasAttributeValueInRange(0, 3, "weight", "heavy"))
+            << "undo italic: bold at 0-3 stays";
+        EXPECT_FALSE(node->getContent().hasAttributeInRange(0, 5, "style"))
+            << "undo italic: no italic remains";
+    }
+
+    // Undo bold (no formatting)
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    {
+        auto node = docModel->getNodeById(nodeId);
+        ASSERT_TRUE(node);
+        EXPECT_FALSE(node->getContent().hasAttributeInRange(0, 5, "weight"))
+            << "undo bold: no bold remains";
+    }
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    spdlog::info("✓ overlapping ranges");
+}
+
+void TestGuiSimulationApp::_test_format_then_type_separate_undo(CtMainWin* pWin)
+{
+    spdlog::info("Test: Format + type creates two separate undo entries");
+    auto pBridge  = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+    auto [buffer, nodeId, docModel] = prepareFormatTestNode(pWin);
+
+    // Apply bold to "hello"
+    selectHello(buffer);
+    pActions->apply_tag_bold();
+    GuiEventSimulator::process_pending_events();
+
+    // Type more text (creates a new text edit command)
+    buffer->place_cursor(buffer->end());
+    Gtk::TextView* textView = &pWin->get_text_view().mm();
+    GuiEventSimulator::simulate_text_typed(textView, "world");
+    buffer->set_modified(true);
+    GuiEventSimulator::process_pending_events();
+    pBridge->endTextEditSession();
+    GuiEventSimulator::process_pending_events();
+
+    // Undo stack should have at least 3 entries: type "hello", Format (bold), type "world"
+    {
+        auto descs = pBridge->getUndoStackDescriptions();
+        ASSERT_GE(descs.size(), 2u) << "Expected at least 2 undo entries (format + type)";
+        // The bold format should not be the most-recent entry (typing came after)
+        EXPECT_EQ(descs[0].find("Format (bold)"), std::string::npos)
+            << "Top of undo stack after typing should be the type command, not bold";
+        // Bold should appear somewhere below the top
+        bool foundBold = false;
+        for (const auto& d : descs) {
+            if (d.find("Format (bold)") != std::string::npos) { foundBold = true; break; }
+        }
+        EXPECT_TRUE(foundBold) << "Format (bold) should be in undo stack";
+    }
+
+    // Undo "world" typed → "hello" with bold remains, buffer has only "hello"
+    pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+    {
+        auto node = docModel->getNodeById(nodeId);
+        ASSERT_TRUE(node);
+        // Bold should still be there
+        EXPECT_TRUE(node->getContent().hasAttributeValueInRange(0, 5, "weight", "heavy"))
+            << "After undo type: bold should still be present on 'hello'";
+    }
+
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    spdlog::info("✓ format then type separate undo");
 }
 
 TEST(CommandGuiSimulationTests, Phase6_3_GuiEventSimulation)

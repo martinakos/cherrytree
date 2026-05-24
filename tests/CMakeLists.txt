@@ -88,6 +88,7 @@ package_add_test(run_tests_with_x_2
   tests_read_write.cpp
   tests_command_undo_redo.cpp
   tests_command_gui_simulation.cpp
+  tests_all_command_descriptions.cpp
   ../src/ct/icons.gresource.cc
 )
 

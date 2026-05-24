@@ -26,6 +26,7 @@
 #include "ct_types.h"
 #include "ct_widgets.h"
 #include "ct_filesystem.h"
+#include "ct_node_content.h"
 #include <glibmm/refptr.h>
 #include <gtkmm/treeiter.h>
 #include <gtkmm/textbuffer.h>
@@ -145,11 +146,14 @@ public:
                                        int end_offset,
                                        const gchar change_case);
 
+    CtAnchoredWidget* _create_rich_table_from_xml(xmlpp::Element* xml_element, int charOffset, const Glib::ustring& justification, int colWidthDefault, const CtTableColWidths& colWidths);
+
 private:
     void              _add_rich_text_from_xml(Glib::RefPtr<Gtk::TextBuffer> buffer, xmlpp::Element* xml_element, Gtk::TextIter* text_insert_pos);
     CtAnchoredWidget* _create_image_from_xml(xmlpp::Element* xml_element, int charOffset, const Glib::ustring& justification, const std::string& multifile_dir);
     CtAnchoredWidget* _create_codebox_from_xml(xmlpp::Element* xml_element, int charOffset, const Glib::ustring& justification);
     CtAnchoredWidget* _create_table_from_xml(xmlpp::Element* xml_element, int charOffset, const Glib::ustring& justification);
+    CtWidgetDesc      _parse_embedded_widget_xml(xmlpp::Element* elem);
 
 private:
     CtMainWin* const _pCtMainWin;

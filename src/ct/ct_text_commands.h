@@ -6,14 +6,14 @@
  * CURRENT IMPLEMENTATION (Production Ready - Delta-based):
  * - InsertTextCommand: Lightweight delta (~100 bytes, ~1000x memory reduction vs XML)
  * - DeleteRangeCommand: Stores only deleted content for undo
- * - ApplyFormatCommandV2: Stores only changed attributes
+ * - ApplyFormatCommand: Stores only changed attributes (signal-based capture)
  * - RemoveFormatCommand: Minimal memory footprint
- * - CtTextEditSession: Batches rapid keystrokes into CompoundCommand of deltas
+ * - CtTextEditSession: Batches rapid keystrokes into CompoundCommand of deltas;
+ *   also captures tag-apply/remove signals for the format-change path
  * - Signal-based capture: GTK buffer changes captured in real-time during sessions
  *
- * XML SNAPSHOT COMMANDS (used by paste and format-change paths):
+ * XML SNAPSHOT COMMANDS (used by paste path):
  * - TextEditCommand: XML before/after snapshot (paste and widget fallback)
- * - ApplyFormatCommand: XML before/after snapshot for format changes
  *
  * The delta-based approach provides:
  * - ~40x memory reduction (5KB vs 205KB per edit session)
@@ -91,39 +91,6 @@ private:
     std::string _description;  // When set, bypasses XML-parsing description
 };
 
-// Command for applying formatting to selected text
-// Examples: bold, italic, underline, color, font
-class ApplyFormatCommand : public CtCommand {
-public:
-    ApplyFormatCommand(
-        std::shared_ptr<CtDocumentModel> docModel,
-        gint64 nodeId,
-        const Glib::ustring& oldContentXml,
-        const Glib::ustring& newContentXml,
-        const std::string& formatType,  // For description
-        int oldCursorPos = -1,
-        int newCursorPos = -1
-    );
-
-    void execute() override;
-    void undo() override;
-    void redo() override;
-    std::string getDescription() const override;
-
-    gint64 getNodeId() const override { return _nodeId; }
-    int getOldCursorPos() const override { return _oldCursorPos; }
-    int getNewCursorPos() const override { return _newCursorPos; }
-
-private:
-    std::shared_ptr<CtDocumentModel> _docModel;
-    gint64 _nodeId;
-    Glib::ustring _oldContentXml;
-    Glib::ustring _newContentXml;
-    std::string _formatType;
-    int _oldCursorPos;
-    int _newCursorPos;
-};
-
 // Forward declaration for timeout callback
 class CtCommandBridge;
 
@@ -160,12 +127,42 @@ public:
     // Enable/disable signal capture (for undo/redo operations)
     void setSuppressCapture(bool suppress) { _suppressCapture = suppress; }
 
+    // When true, onBufferInsert/onBufferErase skip node content model updates.
+    // Used for rich cell sessions where the cell buffer is independent of the node model.
+    void setSkipModelSync(bool skip) { _skipModelSync = skip; }
+
+    // True if the session captured any buffer insert/erase events.
+    bool hasCapturedCommands() const { return !_capturedCommands.empty(); }
+
+    // A single apply_tag / remove_tag event captured from GTK buffer signals.
+    struct TagChange {
+        std::string tagName;
+        int start{0};
+        int end{0};
+        bool isApply{false};
+    };
+
+    // Tag-signal capture for format operations (beginFormatChange path).
+    // Connects to signal_apply_tag / signal_remove_tag and accumulates TagChange entries.
+    void startTagCapture(const Glib::RefPtr<Gtk::TextBuffer>& buffer);
+    void stopTagCapture();
+    // Drain pending tag changes, merging consecutive same-tag ranges.
+    std::vector<TagChange> drainAndCoalesceTagChanges();
+
 private:
     // Signal handlers for buffer changes
     void onBufferInsert(const Gtk::TextBuffer::iterator& pos,
                         const Glib::ustring& text, int bytes);
     void onBufferErase(const Gtk::TextBuffer::iterator& start,
                        const Gtk::TextBuffer::iterator& end);
+
+    // Tag signal handlers (format path)
+    void onTagApplied(const Glib::RefPtr<Gtk::TextTag>& tag,
+                      const Gtk::TextIter& start,
+                      const Gtk::TextIter& end);
+    void onTagRemoved(const Glib::RefPtr<Gtk::TextTag>& tag,
+                      const Gtk::TextIter& start,
+                      const Gtk::TextIter& end);
 
     // Start/stop signal capture
     void startSignalCapture(const Glib::RefPtr<Gtk::TextBuffer>& buffer);
@@ -177,9 +174,15 @@ private:
     int _initialCursorPos{-1};
     bool _active{false};
     bool _suppressCapture{false};
+    bool _skipModelSync{false};
     bool _hasWidgets{false};
     sigc::connection _insertConnection;
     sigc::connection _eraseConnection;
+
+    // Tag-signal capture (format path)
+    sigc::connection _applyTagConnection;
+    sigc::connection _removeTagConnection;
+    std::vector<TagChange> _pendingTagChanges;
 
     // Captured commands during the session
     std::vector<std::unique_ptr<CtCommand>> _capturedCommands;
@@ -188,11 +191,7 @@ private:
     Glib::ustring _initialXml;
 };
 
-// ============================================================================
-// Phase 5: Lightweight Delta-Based Commands
-// ============================================================================
-// These commands store only the operation delta instead of full XML snapshots,
-// resulting in ~1000x memory reduction for undo/redo stacks.
+// Delta-based commands: store only the operation delta instead of full XML snapshots.
 
 // Insert text at a specific offset with formatting attributes
 // Note: For nodes with widgets, stores initial XML for proper undo (widgets not captured by toXml())
@@ -267,10 +266,10 @@ private:
 };
 
 // Apply formatting attribute to a range
-// Stores old attribute values for undo
-class ApplyFormatCommandV2 : public CtCommand {
+// Stores old attribute values for undo (captured during execute via model applyFormat)
+class ApplyFormatCommand : public CtCommand {
 public:
-    ApplyFormatCommandV2(
+    ApplyFormatCommand(
         std::shared_ptr<CtDocumentModel> docModel,
         gint64 nodeId,
         int start,
