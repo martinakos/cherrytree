@@ -604,8 +604,24 @@ void CtMenu::build_popup_menu_table_cell(Gtk::Menu* pMenu,
                                          const bool first_row,
                                          const bool first_col,
                                          const bool last_row,
-                                         const bool last_col)
+                                         const bool last_col,
+                                         const bool is_rich)
 {
+    if (is_rich) {
+        _add_menu_separator(pMenu);
+        _add_menu_item(pMenu, find_action("fmt_bold"));
+        _add_menu_item(pMenu, find_action("fmt_italic"));
+        _add_menu_item(pMenu, find_action("fmt_underline"));
+        _add_menu_item(pMenu, find_action("fmt_strikethrough"));
+        _add_menu_item(pMenu, find_action("fmt_monospace"));
+        _add_menu_separator(pMenu);
+        _add_menu_item(pMenu, find_action("fmt_color_fg"));
+        _add_menu_item(pMenu, find_action("fmt_color_bg"));
+        _add_menu_separator(pMenu);
+        _add_menu_item(pMenu, find_action("fmt_small"));
+        _add_menu_item(pMenu, find_action("fmt_superscript"));
+        _add_menu_item(pMenu, find_action("fmt_subscript"));
+    }
     _add_menu_separator(pMenu);
     _add_menu_item(pMenu, find_action("table_cut"));
     _add_menu_item(pMenu, find_action("table_copy"));

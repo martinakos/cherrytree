@@ -25,6 +25,7 @@
 
 #include "ct_codebox.h"
 #include "ct_widgets.h"
+#include "ct_node_content.h"
 #include <optional>
 
 class CtAnchoredWidgetState_TableCommon;
@@ -107,6 +108,7 @@ public:
     bool on_table_button_press_event(GdkEventButton* event);
     void on_cell_populate_popup(Gtk::Menu* menu);
     bool on_cell_key_press_event(GdkEventKey* event);
+    bool on_rich_cell_key_release_event(GdkEventKey* event);
     #endif
 
 protected:
@@ -264,4 +266,96 @@ protected:
 protected:
     CtTableMatrix    _tableMatrix;
     Gtk::Grid        _grid;
+};
+
+// Rich text cell for CtTableRich.
+// Behaves like CtTextCell but uses RICH_TEXT_ID so formatting tags (bold, italic,
+// colours, …) are active in the cell buffer.
+class CtRichCell : public CtTextCell {
+public:
+    CtRichCell(CtMainWin* pCtMainWin, const CtCellContent& content);
+    ~CtRichCell() override;
+
+    // Rebuild buffer from structured content (called by observer on undo/redo).
+    void populateFromContent(const CtCellContent& content);
+
+    // Snapshot current buffer state as structured content (text spans + embedded widgets).
+    CtCellContent extractContent() const;
+
+    // Register a widget (already inserted into the cell buffer) for display in this cell.
+    void addEmbeddedWidget(CtAnchoredWidget* pWidget);
+
+    const std::list<CtAnchoredWidget*>& getEmbeddedWidgets() const { return _embeddedWidgets; }
+
+private:
+    // Create a GTK widget from a stored descriptor (images only; codeboxes/tables deferred).
+    CtAnchoredWidget* _createWidgetFromDesc(const CtWidgetDesc& desc, int charOffset) const;
+
+    CtMainWin* _pCtMainWin;
+    std::list<CtAnchoredWidget*> _embeddedWidgets;
+    std::unique_ptr<CtPairCodeboxMainWin> _uClipboardPair;
+};
+
+// Rich-text table: same grid layout as CtTableHeavy but cells carry formatting.
+class CtTableRich : public CtTableCommon {
+public:
+    CtTableRich(CtMainWin* pCtMainWin,
+                const std::vector<std::vector<CtCellContent>>& richData,
+                const int colWidthDefault,
+                const int charOffset,
+                const std::string& justification,
+                const CtTableColWidths& colWidths,
+                const size_t currRow = 0,
+                const size_t currCol = 0);
+    ~CtTableRich() override;
+
+    void apply_syntax_highlighting(const bool forceReApply) override;
+    void to_xml(xmlpp::Element* p_node_parent, const int offset_adjustment,
+                CtStorageCache* cache, const std::string& multifile_dir) override;
+    std::string to_csv() const override;
+    Glib::ustring get_line_content(const size_t rowIdx, const size_t colIdx,
+                                   const int match_end_offset) const override;
+    void set_modified_false() override;
+    CtAnchWidgType get_type() const override { return CtAnchWidgType::TableRich; }
+    std::shared_ptr<CtAnchoredWidgetState> get_state() override { return nullptr; }
+
+    CtTextView& curr_cell_text_view() const;
+    Glib::RefPtr<Gtk::TextBuffer> get_buffer(const size_t rowIdx, const size_t colIdx) const;
+    CtRichCell* getRichCell(size_t row, size_t col) const;
+
+    void write_strings_matrix(std::vector<std::vector<Glib::ustring>>& rows) const override;
+    size_t get_num_rows() const override { return _tableMatrix.size(); }
+    size_t get_num_columns() const override { return _tableMatrix.front().size(); }
+
+    void column_add(const size_t afterColIdx, const std::vector<Glib::ustring>* pNewColumn = nullptr) override;
+    void column_delete(const size_t colIdx) override;
+    void column_move_left(const size_t colIdx, const bool from_move_right) override;
+    void column_move_right(const size_t colIdx) override;
+    void row_add(const size_t afterRowIdx, const std::vector<Glib::ustring>* pNewRow = nullptr) override;
+    void row_delete(const size_t rowIdx) override;
+    void row_move_up(const size_t rowIdx, const bool from_move_down) override;
+
+    void set_col_width_default(const int colWidthDefault) override;
+    void set_col_width(const int colWidth, std::optional<size_t> optColIdx = std::nullopt) override;
+
+    void grab_focus() const override;
+    void exit_cell_edit() const override {}
+    void set_selection_at_offset_n_delta(const int offset, const int delta) const override;
+
+    int get_curr_cell_curr_line_num() const override;
+    int get_curr_cell_max_line_num() const override;
+    int get_curr_cell_curr_offset() const override;
+    int get_curr_cell_max_offset() const override;
+
+protected:
+    void _new_rich_cell_attach(const size_t rowIdx, const size_t colIdx, CtRichCell* pCell);
+    void _apply_remove_header_style(const bool isApply, CtTextView& textView);
+
+    bool _row_sort(const bool sortAsc) override;
+    void _populate_xml_rows_cells(xmlpp::Element* p_table_node) const override;
+
+    void _on_grid_set_focus_child(Gtk::Widget* pWidget);
+
+    CtTableMatrix _tableMatrix;
+    Gtk::Grid     _grid;
 };

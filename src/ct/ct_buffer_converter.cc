@@ -76,21 +76,50 @@ CtWidgetDesc extractWidgetDesc(CtAnchoredWidget* widget, int charOffset)
         }
 
         if (elem_name == "table") {
-            for (xmlpp::Node* pNodeRow : elem->get_children("row")) {
-                std::vector<Glib::ustring> row;
-                for (xmlpp::Node* pNodeCell : pNodeRow->get_children("cell")) {
-                    const xmlpp::Element* cellElem = dynamic_cast<const xmlpp::Element*>(pNodeCell);
-                    if (cellElem) {
-                        const xmlpp::TextNode* pTextNode = cellElem->get_child_text();
-                        row.push_back(pTextNode ? pTextNode->get_content() : "");
+            const bool is_rich = CtStrUtil::is_str_true(elem->get_attribute_value("is_rich"));
+            if (is_rich) {
+                for (xmlpp::Node* pNodeRow : elem->get_children("row")) {
+                    std::vector<CtCellContent> richRow;
+                    for (xmlpp::Node* pNodeCell : pNodeRow->get_children("cell")) {
+                        CtCellContent cellContent;
+                        const xmlpp::Element* cellElem = dynamic_cast<const xmlpp::Element*>(pNodeCell);
+                        if (cellElem) {
+                            for (xmlpp::Node* pNodeRt : cellElem->get_children("rich_text")) {
+                                const xmlpp::Element* rtElem = dynamic_cast<const xmlpp::Element*>(pNodeRt);
+                                if (!rtElem) continue;
+                                CtTextSpan span;
+                                for (const auto* attr : rtElem->get_attributes()) {
+                                    span.attributes[attr->get_name()] = attr->get_value();
+                                }
+                                const xmlpp::TextNode* tn = rtElem->get_child_text();
+                                span.text = tn ? tn->get_content() : "";
+                                cellContent.textSpans.push_back(std::move(span));
+                            }
+                        }
+                        richRow.push_back(std::move(cellContent));
                     }
+                    if (!richRow.empty()) desc.richTableData.push_back(std::move(richRow));
                 }
-                if (!row.empty()) desc.tableData.push_back(row);
-            }
-            // Header row is written last in XML — move it to front
-            if (!desc.tableData.empty()) {
-                desc.tableData.insert(desc.tableData.begin(), desc.tableData.back());
-                desc.tableData.pop_back();
+                if (!desc.richTableData.empty()) {
+                    desc.richTableData.insert(desc.richTableData.begin(), desc.richTableData.back());
+                    desc.richTableData.pop_back();
+                }
+            } else {
+                for (xmlpp::Node* pNodeRow : elem->get_children("row")) {
+                    std::vector<Glib::ustring> row;
+                    for (xmlpp::Node* pNodeCell : pNodeRow->get_children("cell")) {
+                        const xmlpp::Element* cellElem = dynamic_cast<const xmlpp::Element*>(pNodeCell);
+                        if (cellElem) {
+                            const xmlpp::TextNode* pTextNode = cellElem->get_child_text();
+                            row.push_back(pTextNode ? pTextNode->get_content() : "");
+                        }
+                    }
+                    if (!row.empty()) desc.tableData.push_back(row);
+                }
+                if (!desc.tableData.empty()) {
+                    desc.tableData.insert(desc.tableData.begin(), desc.tableData.back());
+                    desc.tableData.pop_back();
+                }
             }
         } else {
             const xmlpp::TextNode* textNode = elem->get_child_text();
@@ -108,25 +137,6 @@ CtWidgetDesc extractWidgetDesc(CtAnchoredWidget* widget, int charOffset)
     }
 
     return CtWidgetDesc();
-}
-
-// Returns the XML tag name for a given widget type
-static const char* widget_type_to_tag_name(CtAnchWidgType type)
-{
-    switch (type) {
-        case CtAnchWidgType::ImagePng:
-        case CtAnchWidgType::ImageAnchor:
-        case CtAnchWidgType::ImageLatex:
-        case CtAnchWidgType::ImageEmbFile:
-            return "encoded_png";
-        case CtAnchWidgType::CodeBox:
-            return "codebox";
-        case CtAnchWidgType::TableHeavy:
-        case CtAnchWidgType::TableLight:
-            return "table";
-        default:
-            return nullptr;
-    }
 }
 
 // Build a GTK TextBuffer from CtNodeContent
@@ -214,8 +224,9 @@ std::list<CtAnchoredWidget*> buildBufferFromContent(
                                           frameWidth, frameHeight, charOffset, justification,
                                           widthInPixels, highlightBrackets, showLineNumbers};
                 }
-                else if (widgetDesc.type == CtAnchWidgType::TableLight || widgetDesc.type == CtAnchWidgType::TableHeavy) {
-                    // Create table from tableData
+                else if (widgetDesc.type == CtAnchWidgType::TableLight ||
+                         widgetDesc.type == CtAnchWidgType::TableHeavy ||
+                         widgetDesc.type == CtAnchWidgType::TableRich) {
                     const int colWidthDefault = widgetDesc.getColWidthDefault();
                     const std::string colWidthsStr = widgetDesc.getColWidthsStr();
                     CtTableColWidths colWidths;
@@ -223,25 +234,28 @@ std::list<CtAnchoredWidget*> buildBufferFromContent(
                         colWidths = CtStrUtil::gstring_split_to_int(colWidthsStr.c_str(), ",");
                     }
 
-                    // Build CtTableMatrix from tableData
                     CtTableMatrix tableMatrix;
-                    const bool is_light = (widgetDesc.type == CtAnchWidgType::TableLight);
 
-                    for (const auto& row : widgetDesc.tableData) {
-                        tableMatrix.push_back(CtTableRow{});
-                        for (const auto& cell : row) {
-                            if (is_light) {
-                                tableMatrix.back().push_back(new Glib::ustring{cell});
-                            } else {
-                                tableMatrix.back().push_back(new CtTextCell{pCtMainWin, cell, CtConst::TABLE_CELL_TEXT_ID});
+                    if (widgetDesc.type == CtAnchWidgType::TableRich) {
+                        widget = new CtTableRich{pCtMainWin, widgetDesc.richTableData,
+                                                 colWidthDefault, charOffset, justification, colWidths};
+                    } else {
+                        const bool is_light = (widgetDesc.type == CtAnchWidgType::TableLight);
+                        for (const auto& row : widgetDesc.tableData) {
+                            tableMatrix.push_back(CtTableRow{});
+                            for (const auto& cell : row) {
+                                if (is_light) {
+                                    tableMatrix.back().push_back(new Glib::ustring{cell});
+                                } else {
+                                    tableMatrix.back().push_back(new CtTextCell{pCtMainWin, cell, CtConst::TABLE_CELL_TEXT_ID});
+                                }
                             }
                         }
-                    }
-
-                    if (is_light) {
-                        widget = new CtTableLight{pCtMainWin, tableMatrix, colWidthDefault, charOffset, justification, colWidths};
-                    } else {
-                        widget = new CtTableHeavy{pCtMainWin, tableMatrix, colWidthDefault, charOffset, justification, colWidths};
+                        if (is_light) {
+                            widget = new CtTableLight{pCtMainWin, tableMatrix, colWidthDefault, charOffset, justification, colWidths};
+                        } else {
+                            widget = new CtTableHeavy{pCtMainWin, tableMatrix, colWidthDefault, charOffset, justification, colWidths};
+                        }
                     }
                 }
                 else if (widgetDesc.type == CtAnchWidgType::ImageAnchor) {
@@ -392,32 +406,58 @@ CtNodeContent buildContentFromBuffer(
 
                         // Extract content based on widget type
                         if (elem_name == "table") {
-                            // Parse table cell data from <row><cell> structure
-                            for (xmlpp::Node* pNodeRow : elem->get_children("row")) {
-                                std::vector<Glib::ustring> row;
-                                for (xmlpp::Node* pNodeCell : pNodeRow->get_children("cell")) {
-                                    xmlpp::Element* cellElem = dynamic_cast<xmlpp::Element*>(pNodeCell);
-                                    if (cellElem) {
-                                        const xmlpp::TextNode* pTextNode = cellElem->get_child_text();
-                                        const Glib::ustring cellContent = pTextNode ? pTextNode->get_content() : "";
-                                        row.push_back(cellContent);
+                            const bool is_rich = CtStrUtil::is_str_true(elem->get_attribute_value("is_rich"));
+                            if (is_rich) {
+                                // Rich table: <cell><rich_text [attr=val]>text</rich_text>…</cell>
+                                for (xmlpp::Node* pNodeRow : elem->get_children("row")) {
+                                    std::vector<CtCellContent> richRow;
+                                    for (xmlpp::Node* pNodeCell : pNodeRow->get_children("cell")) {
+                                        CtCellContent cellContent;
+                                        const xmlpp::Element* cellElem = dynamic_cast<const xmlpp::Element*>(pNodeCell);
+                                        if (cellElem) {
+                                            for (xmlpp::Node* pNodeRt : cellElem->get_children("rich_text")) {
+                                                const xmlpp::Element* rtElem = dynamic_cast<const xmlpp::Element*>(pNodeRt);
+                                                if (!rtElem) continue;
+                                                CtTextSpan span;
+                                                for (const auto* attr : rtElem->get_attributes()) {
+                                                    span.attributes[attr->get_name()] = attr->get_value();
+                                                }
+                                                const xmlpp::TextNode* tn = rtElem->get_child_text();
+                                                span.text = tn ? tn->get_content() : "";
+                                                cellContent.textSpans.push_back(std::move(span));
+                                            }
+                                        }
+                                        richRow.push_back(std::move(cellContent));
+                                    }
+                                    if (!richRow.empty()) {
+                                        widgetDesc.richTableData.push_back(std::move(richRow));
                                     }
                                 }
-                                if (!row.empty()) {
-                                    widgetDesc.tableData.push_back(row);
+                                // Move header row from last to first
+                                if (!widgetDesc.richTableData.empty()) {
+                                    widgetDesc.richTableData.insert(widgetDesc.richTableData.begin(),
+                                                                    widgetDesc.richTableData.back());
+                                    widgetDesc.richTableData.pop_back();
                                 }
-                            }
-                            // Move header row from last to first (same as storage XML helper does)
-                            if (!widgetDesc.tableData.empty()) {
-                                widgetDesc.tableData.insert(widgetDesc.tableData.begin(), widgetDesc.tableData.back());
-                                widgetDesc.tableData.pop_back();
-                            }
-                            // Also keep in _content for backward compatibility during transition
-                            const xmlpp::TextNode* textNode = elem->get_child_text();
-                            if (textNode) {
-                                Glib::ustring tc = textNode->get_content();
-                                if (!tc.empty()) {
-                                    widgetDesc.setProperty("_content", tc.raw());
+                            } else {
+                                // Plain table: <cell>text</cell>
+                                for (xmlpp::Node* pNodeRow : elem->get_children("row")) {
+                                    std::vector<Glib::ustring> row;
+                                    for (xmlpp::Node* pNodeCell : pNodeRow->get_children("cell")) {
+                                        const xmlpp::Element* cellElem = dynamic_cast<const xmlpp::Element*>(pNodeCell);
+                                        if (cellElem) {
+                                            const xmlpp::TextNode* pTextNode = cellElem->get_child_text();
+                                            row.push_back(pTextNode ? pTextNode->get_content() : "");
+                                        }
+                                    }
+                                    if (!row.empty()) {
+                                        widgetDesc.tableData.push_back(row);
+                                    }
+                                }
+                                if (!widgetDesc.tableData.empty()) {
+                                    widgetDesc.tableData.insert(widgetDesc.tableData.begin(),
+                                                                widgetDesc.tableData.back());
+                                    widgetDesc.tableData.pop_back();
                                 }
                             }
                         } else {

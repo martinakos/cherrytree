@@ -28,6 +28,8 @@
 #include "ct_gtk_compat.h"
 #include "ct_text_commands.h"
 #include "ct_widget_commands.h"
+#include "ct_const.h"
+#include "ct_misc_utils.h"
 #include <libxml++/libxml++.h>
 #include <functional>
 #include <chrono>
@@ -51,6 +53,11 @@ CtCommandBridge::CtCommandBridge(CtMainWin* pMainWin)
     // Create edit session and link it back to this bridge
     _editSession = std::make_unique<CtTextEditSession>(_docModel);
     _editSession->setBridge(this);
+
+    // Rich cell session: captures buffer signals for description building only (no model sync)
+    _richCellSession = std::make_unique<CtTextEditSession>(_docModel);
+    _richCellSession->setBridge(this);
+    _richCellSession->setSkipModelSync(true);
 
     spdlog::info("CtCommandBridge: initialized (inactive by default)");
 }
@@ -273,6 +280,22 @@ void CtCommandBridge::undo()
 
     gint64 affectedNodeId = cmd->getNodeId();
     _pendingCursorPos = cmd->getOldCursorPos();
+    // Save before the undo runs: the observer consumes _pendingCursorPos, and the
+    // node-switch handler resets the cursor to 0 during undo, so scrollTargetOffset
+    // is the only reliable record of where we need to scroll after undo.
+    int const scrollTargetOffset = _pendingCursorPos;
+    // Use the command's stored scroll position if available (reliable for all command types).
+    double const cmdScrollPos = cmd->getOldScrollPos();
+
+    // Save current scroll position as fallback before the buffer gets rebuilt
+    double savedScrollVal = 0;
+    if (not _pMainWin->no_gui()) {
+        savedScrollVal = _pMainWin->getScrolledwindowText().get_vadjustment()->get_value();
+    }
+    // Prefer command's stored scroll position over current vadjustment
+    if (cmdScrollPos >= 0) {
+        savedScrollVal = cmdScrollPos;
+    }
 
     // Switch to the affected node if it's different from current
     auto curr_iter = _pMainWin->curr_tree_iter();
@@ -323,22 +346,38 @@ void CtCommandBridge::undo()
         }
     }
 
-    // Scroll to the cursor position that was just restored by the observer.
-    // Using scroll_to(insert mark) is more reliable than set_value() because it
-    // participates in GTK's layout cycle — set_value() races with deferred widget
-    // size allocation that can override the scroll position.
-    if (auto buf = _pMainWin->curr_buffer()) {
-        _pMainWin->get_text_view().mm().scroll_to(
-            buf->get_insert(), CtTextView::TEXT_SCROLL_MARGIN);
-    }
-
-    // After scroll_to, anchored widgets in the newly-visible area may not have
-    // received an expose event yet (they render black). Schedule a full redraw
-    // via idle callback so it runs after the scroll and layout are complete.
+    // Restore cursor and scroll after layout settles.
+    // Use PRIORITY_LOW so this runs after GTK's size-allocation pass — for nodes
+    // with many anchored widgets, PRIORITY_DEFAULT_IDLE fires too early and
+    // scroll_to computes the wrong pixel position.
     if (not _pMainWin->no_gui()) {
-        Glib::signal_idle().connect_once([pMainWin = _pMainWin](){
+        Glib::signal_idle().connect_once([pMainWin = _pMainWin, scrollTargetOffset, savedScrollVal, cmdScrollPos](){
+            if (auto buf = pMainWin->curr_buffer()) {
+                Gtk::TextView& tv = pMainWin->get_text_view().mm();
+                auto adj = pMainWin->getScrolledwindowText().get_vadjustment();
+                // Place cursor in main buffer (only meaningful for non-widget commands)
+                if (cmdScrollPos < 0 && scrollTargetOffset >= 0) {
+                    int maxOff = buf->get_char_count();
+                    auto targetIter = buf->get_iter_at_offset(std::min(scrollTargetOffset, maxOff));
+                    buf->place_cursor(targetIter);
+                }
+                // Restore scroll position
+                adj->set_value(savedScrollVal);
+                // If no stored scroll position was available, verify cursor is visible
+                if (cmdScrollPos < 0 && scrollTargetOffset >= 0) {
+                    Gdk::Rectangle iterRect, visibleRect;
+                    auto cursorIter = buf->get_iter_at_mark(buf->get_insert());
+                    tv.get_iter_location(cursorIter, iterRect);
+                    tv.get_visible_rect(visibleRect);
+                    if (iterRect.get_y() < visibleRect.get_y() ||
+                        iterRect.get_y() + iterRect.get_height() > visibleRect.get_y() + visibleRect.get_height())
+                    {
+                        tv.scroll_to(cursorIter, CtTextView::TEXT_SCROLL_MARGIN);
+                    }
+                }
+            }
             pMainWin->get_text_view().mm().queue_draw();
-        });
+        }, Glib::PRIORITY_LOW);
     }
 }
 
@@ -376,6 +415,19 @@ void CtCommandBridge::redo()
 
     gint64 affectedNodeId = cmd->getNodeId();
     _pendingCursorPos = cmd->getNewCursorPos();
+    int const scrollTargetOffset = _pendingCursorPos;
+    // Use the command's stored scroll position if available (reliable for all command types).
+    double const cmdScrollPos = cmd->getNewScrollPos();
+
+    // Save current scroll position as fallback before the buffer gets rebuilt
+    double savedScrollVal = 0;
+    if (not _pMainWin->no_gui()) {
+        savedScrollVal = _pMainWin->getScrolledwindowText().get_vadjustment()->get_value();
+    }
+    // Prefer command's stored scroll position over current vadjustment
+    if (cmdScrollPos >= 0) {
+        savedScrollVal = cmdScrollPos;
+    }
 
     // Switch to the affected node if it's different from current
     auto curr_iter = _pMainWin->curr_tree_iter();
@@ -426,17 +478,35 @@ void CtCommandBridge::redo()
         }
     }
 
-    // Scroll to cursor — see undo() for rationale.
-    if (auto buf = _pMainWin->curr_buffer()) {
-        _pMainWin->get_text_view().mm().scroll_to(
-            buf->get_insert(), CtTextView::TEXT_SCROLL_MARGIN);
-    }
-
-    // Redraw after scroll — see undo() for rationale.
+    // Restore cursor and scroll — see undo() for rationale.
     if (not _pMainWin->no_gui()) {
-        Glib::signal_idle().connect_once([pMainWin = _pMainWin](){
+        Glib::signal_idle().connect_once([pMainWin = _pMainWin, scrollTargetOffset, savedScrollVal, cmdScrollPos](){
+            if (auto buf = pMainWin->curr_buffer()) {
+                Gtk::TextView& tv = pMainWin->get_text_view().mm();
+                auto adj = pMainWin->getScrolledwindowText().get_vadjustment();
+                // Place cursor in main buffer (only meaningful for non-widget commands)
+                if (cmdScrollPos < 0 && scrollTargetOffset >= 0) {
+                    int maxOff = buf->get_char_count();
+                    auto targetIter = buf->get_iter_at_offset(std::min(scrollTargetOffset, maxOff));
+                    buf->place_cursor(targetIter);
+                }
+                // Restore scroll position
+                adj->set_value(savedScrollVal);
+                // If no stored scroll position was available, verify cursor is visible
+                if (cmdScrollPos < 0 && scrollTargetOffset >= 0) {
+                    Gdk::Rectangle iterRect, visibleRect;
+                    auto cursorIter = buf->get_iter_at_mark(buf->get_insert());
+                    tv.get_iter_location(cursorIter, iterRect);
+                    tv.get_visible_rect(visibleRect);
+                    if (iterRect.get_y() < visibleRect.get_y() ||
+                        iterRect.get_y() + iterRect.get_height() > visibleRect.get_y() + visibleRect.get_height())
+                    {
+                        tv.scroll_to(cursorIter, CtTextView::TEXT_SCROLL_MARGIN);
+                    }
+                }
+            }
             pMainWin->get_text_view().mm().queue_draw();
-        });
+        }, Glib::PRIORITY_LOW);
     }
 }
 
@@ -752,17 +822,46 @@ void CtCommandBridge::beginWidgetEdit(gint64 nodeId, CtAnchoredWidget* widget, i
         _widgetEditCharOffset = widget->getOffset();
         _widgetEditRow = -1;
         _widgetEditCol = -1;
+        _widgetEditIsRichCell = false;
         _widgetEditOldContent = codebox->get_text_content().raw();
         // Capture initial XML as a fallback in case setWidgetContentData fails later.
         _widgetEditInitialXml = getBufferContentAsXml(buffer, &treeIter);
         spdlog::debug("CtCommandBridge: beginWidgetEdit (delta path) codebox at offset {}",
                       _widgetEditCharOffset);
     } else if (widget && row >= 0 && col >= 0 &&
+               widget->get_type() == CtAnchWidgType::TableRich) {
+        _widgetEditCharOffset = widget->getOffset();
+        _widgetEditRow = row;
+        _widgetEditCol = col;
+        _widgetEditIsRichCell = true;
+        if (_docModel) {
+            auto node = _docModel->getNodeById(nodeId);
+            if (node) {
+                auto desc = node->getContent().getWidgetDescAt(widget->getOffset());
+                if (desc.hasRichTableData() &&
+                    (size_t)row < desc.richTableData.size() &&
+                    (size_t)col < desc.richTableData[row].size()) {
+                    _widgetEditOldCellContent = desc.richTableData[row][col];
+                }
+            }
+        }
+        _widgetEditInitialXml = getBufferContentAsXml(buffer, &treeIter);
+        // Start a cell-level edit session for per-word undo granularity
+        auto* richTable = static_cast<CtTableRich*>(widget);
+        auto cellBuf = richTable->get_buffer(row, col);
+        if (cellBuf && _richCellSession) {
+            if (_richCellSession->isActive()) _richCellSession->cancel();
+            _richCellSession->begin(nodeId, cellBuf);
+        }
+        spdlog::debug("CtCommandBridge: beginWidgetEdit (delta) rich cell ({},{}) at offset {}",
+                      row, col, _widgetEditCharOffset);
+    } else if (widget && row >= 0 && col >= 0 &&
                (widget->get_type() == CtAnchWidgType::TableLight ||
                 widget->get_type() == CtAnchWidgType::TableHeavy)) {
         _widgetEditCharOffset = widget->getOffset();
         _widgetEditRow = row;
         _widgetEditCol = col;
+        _widgetEditIsRichCell = false;
         if (widget->get_type() == CtAnchWidgType::TableLight) {
             _widgetEditOldContent = static_cast<CtTableLight*>(widget)->get_cell_text(row, col).raw();
         } else {
@@ -777,6 +876,7 @@ void CtCommandBridge::beginWidgetEdit(gint64 nodeId, CtAnchoredWidget* widget, i
         _widgetEditCharOffset = -1;
         _widgetEditRow = -1;
         _widgetEditCol = -1;
+        _widgetEditIsRichCell = false;
         _widgetEditOldContent.clear();
         _widgetEditInitialXml = getBufferContentAsXml(buffer, &treeIter);
     }
@@ -799,7 +899,10 @@ void CtCommandBridge::endWidgetEdit()
         _widgetEditCharOffset = -1;
         _widgetEditRow = -1;
         _widgetEditCol = -1;
+        _widgetEditIsRichCell = false;
         _widgetEditOldContent.clear();
+        _widgetEditOldCellContent = CtCellContent{};
+        if (_richCellSession && _richCellSession->isActive()) _richCellSession->cancel();
     };
 
     if (!treeIter) {
@@ -828,12 +931,18 @@ void CtCommandBridge::endWidgetEdit()
         auto widgetList = treeIter.get_anchored_widgets();
 
         if (savedRow >= 0) {
-            // Table delta path: compare single cell text.
+            // Table delta path: compare single cell content.
+            CtCellContent newRichContent;
             Glib::ustring newCellText;
+            bool foundRich = false;
             bool foundWidget = false;
             for (auto* w : widgetList) {
                 if (w->getOffset() == savedCharOffset) {
-                    if (w->get_type() == CtAnchWidgType::TableLight) {
+                    if (w->get_type() == CtAnchWidgType::TableRich) {
+                        auto* rt = static_cast<CtTableRich*>(w);
+                        newRichContent = rt->getRichCell(savedRow, savedCol)->extractContent();
+                        foundRich = true;
+                    } else if (w->get_type() == CtAnchWidgType::TableLight) {
                         newCellText = static_cast<CtTableLight*>(w)->get_cell_text(savedRow, savedCol);
                         foundWidget = true;
                     } else if (w->get_type() == CtAnchWidgType::TableHeavy) {
@@ -843,6 +952,17 @@ void CtCommandBridge::endWidgetEdit()
                     }
                     break;
                 }
+            }
+
+            if (foundRich) {
+                // Flush the cell session (creates an EditRichCellCommand if there are pending changes)
+                flushRichCellSession();
+                clearState();
+                if (!isInUndoRedo()) {
+                    _currentOp = BridgeOp::None;
+                    beginTextEditSession(savedNodeId);
+                }
+                return;
             }
 
             Glib::ustring oldCellText(_widgetEditOldContent);
@@ -941,41 +1061,18 @@ void CtCommandBridge::endWidgetEdit()
         }
     }
 
-    // XML snapshot path (used for tables, unknown widgets, and codebox fallback)
+    // Fallback for unknown/unsupported widget types — no delta command available.
+    // Sync model XML so display stays coherent, but undo is not recorded.
     Glib::ustring finalXml = getBufferContentAsXml(buffer, &treeIter);
 
     if (_widgetEditInitialXml == finalXml) {
         spdlog::debug("CtCommandBridge: endWidgetEdit - no changes detected");
-        clearState();
     } else {
-        // Update model with the new content
+        spdlog::warn("CtCommandBridge: endWidgetEdit - unknown widget type modified; model synced but undo not available");
         auto node = _docModel->getNodeById(_widgetEditNodeId);
-        if (node) {
-            node->setContentXml(finalXml);
-        }
-
-        auto cmd = std::make_unique<WidgetCommand>(
-            _docModel,
-            _widgetEditNodeId,
-            _widgetEditInitialXml,
-            finalXml,
-            "widget-edit",
-            _widgetEditOldCursorPos,
-            newCursorPos
-        );
-
-        // Stamp scroll positions so undo/redo scrolls to the widget location.
-        double scrollPosNew = -1.0;
-        auto adj = _pMainWin->getScrolledwindowText().get_vadjustment();
-        if (adj) scrollPosNew = adj->get_value();
-        cmd->setOldScrollPos(_widgetEditOldScrollPos);
-        cmd->setNewScrollPos(scrollPosNew);
-
-        spdlog::info("CtCommandBridge: endWidgetEdit created command, adding to undo stack");
-        _commandManager.addCommandToStack(std::move(cmd));
-
-        clearState();
+        if (node) node->setContentXml(finalXml);
     }
+    clearState();
 
     // Restart the outer-buffer edit session so edits after the widget are captured.
     // Skip during undo/redo — those operations restart the session themselves.
@@ -983,6 +1080,261 @@ void CtCommandBridge::endWidgetEdit()
         _currentOp = BridgeOp::None;
         beginTextEditSession(savedNodeId);
     }
+}
+
+bool CtCommandBridge::isTrackingRichCell() const
+{
+    return _currentOp == BridgeOp::TrackingWidget && _widgetEditIsRichCell;
+}
+
+Glib::RefPtr<Gtk::TextBuffer> CtCommandBridge::getActiveRichCellBuffer()
+{
+    if (!isTrackingRichCell() || !_pMainWin) return {};
+    auto& treeStore = _pMainWin->get_tree_store();
+    CtTreeIter treeIter = treeStore.get_node_from_node_id(_widgetEditNodeId);
+    if (!treeIter) return {};
+    for (auto* w : treeIter.get_anchored_widgets()) {
+        if (w->getOffset() == _widgetEditCharOffset && w->get_type() == CtAnchWidgType::TableRich) {
+            return static_cast<CtTableRich*>(w)->getRichCell(_widgetEditRow, _widgetEditCol)->get_buffer();
+        }
+    }
+    return {};
+}
+
+CtRichCell* CtCommandBridge::getActiveRichCellPtr() const
+{
+    if (!isTrackingRichCell() || !_pMainWin) return nullptr;
+    auto& treeStore = _pMainWin->get_tree_store();
+    CtTreeIter treeIter = treeStore.get_node_from_node_id(_widgetEditNodeId);
+    if (!treeIter) return nullptr;
+    for (auto* w : treeIter.get_anchored_widgets()) {
+        if (w->getOffset() == _widgetEditCharOffset && w->get_type() == CtAnchWidgType::TableRich) {
+            return static_cast<CtTableRich*>(w)->getRichCell(_widgetEditRow, _widgetEditCol);
+        }
+    }
+    return nullptr;
+}
+
+void CtCommandBridge::flushRichCellSession()
+{
+    if (!_richCellSession || !_richCellSession->isActive()) return;
+    if (!isTrackingRichCell() || !_pMainWin) {
+        _richCellSession->cancel();
+        return;
+    }
+
+    // Find the rich table and cell
+    auto& treeStore = _pMainWin->get_tree_store();
+    CtTreeIter treeIter = treeStore.get_node_from_node_id(_widgetEditNodeId);
+    if (!treeIter) { _richCellSession->cancel(); return; }
+
+    CtTableRich* richTable = nullptr;
+    for (auto* w : treeIter.get_anchored_widgets()) {
+        if (w->getOffset() == _widgetEditCharOffset && w->get_type() == CtAnchWidgType::TableRich) {
+            richTable = static_cast<CtTableRich*>(w);
+            break;
+        }
+    }
+    if (!richTable) { _richCellSession->cancel(); return; }
+
+    auto* cell = richTable->getRichCell(_widgetEditRow, _widgetEditCol);
+    if (!cell) { _richCellSession->cancel(); return; }
+
+    auto cellBuf = cell->get_buffer();
+
+    // Check if the session captured any buffer insert/erase events before ending it.
+    // (Format tag changes don't fire these signals, so the session would be empty.)
+    bool hadCaptures = _richCellSession->hasCapturedCommands();
+
+    // End the session to get a compound command (used for its description only)
+    std::list<CtAnchoredWidget*> emptyWidgets;
+    int cursorPos = cellBuf ? cellBuf->get_insert()->get_iter().get_offset() : -1;
+    auto compound = _richCellSession->end(cellBuf, emptyWidgets, cursorPos);
+
+    // Extract current cell content
+    CtCellContent newContent = cell->extractContent();
+
+    if (newContent == _widgetEditOldCellContent) {
+        // No net change — restart session without pushing a command
+        if (cellBuf) {
+            _richCellSession->begin(_widgetEditNodeId, cellBuf);
+        }
+        return;
+    }
+
+    // No compound command: either all captured commands had empty descriptions
+    // (e.g. spaces only) or content changed outside signal capture (e.g. format
+    // tag applied before commitRichCellFormatChange).  Don't create an undo
+    // entry here — format changes are handled by commitRichCellFormatChange,
+    // and space-only edits match main-page behaviour.  Only update the baseline
+    // when text signals were actually captured (space-only case); for format-tag
+    // changes (no captures) leave the baseline for commitRichCellFormatChange.
+    if (!compound) {
+        if (hadCaptures) {
+            if (_docModel) {
+                auto node = _docModel->getNodeById(_widgetEditNodeId);
+                if (node) {
+                    node->getContent().setWidgetRichTableCell(
+                        _widgetEditCharOffset, _widgetEditRow, _widgetEditCol, newContent);
+                }
+            }
+            _widgetEditOldCellContent = newContent;
+        }
+        if (cellBuf) {
+            _richCellSession->begin(_widgetEditNodeId, cellBuf);
+        }
+        return;
+    }
+
+    // Build description from the compound command
+    std::string desc;
+    if (compound) {
+        desc = compound->getDescription();
+        // Strip "Node N: " prefix — EditRichCellCommand adds its own
+        std::string prefix = "Node " + std::to_string(_widgetEditNodeId) + ": ";
+        if (desc.find(prefix) == 0) {
+            desc = desc.substr(prefix.length());
+        }
+    }
+
+    // Sync model
+    if (_docModel) {
+        auto node = _docModel->getNodeById(_widgetEditNodeId);
+        if (node) {
+            node->getContent().setWidgetRichTableCell(
+                _widgetEditCharOffset, _widgetEditRow, _widgetEditCol, newContent);
+        }
+    }
+
+    auto cmd = std::make_unique<EditRichCellCommand>(
+        _docModel,
+        _widgetEditNodeId,
+        _widgetEditCharOffset,
+        (size_t)_widgetEditRow,
+        (size_t)_widgetEditCol,
+        _widgetEditOldCellContent,
+        newContent,
+        _widgetEditOldCursorPos,
+        cursorPos,
+        std::move(desc));
+
+    double scrollPosNew = -1.0;
+    auto adj = _pMainWin->getScrolledwindowText().get_vadjustment();
+    if (adj) scrollPosNew = adj->get_value();
+    cmd->setOldScrollPos(_widgetEditOldScrollPos);
+    cmd->setNewScrollPos(scrollPosNew);
+
+    spdlog::info("CtCommandBridge: flushRichCellSession — EditRichCellCommand added");
+    _commandManager.addCommandToStack(std::move(cmd));
+
+    // Update baseline for next flush
+    _widgetEditOldCellContent = newContent;
+    _widgetEditOldCursorPos = cursorPos;
+
+    // Begin a new cell session for the next word
+    if (cellBuf) {
+        _richCellSession->begin(_widgetEditNodeId, cellBuf);
+    }
+}
+
+void CtCommandBridge::cancelRichCellSession()
+{
+    if (_richCellSession && _richCellSession->isActive()) {
+        _richCellSession->cancel();
+    }
+}
+
+void CtCommandBridge::commitRichCellFormatChange(std::string description)
+{
+    if (!isTrackingRichCell() || !_pMainWin) return;
+
+    // Flush any pending text edits so they get their own undo entry before the format change
+    flushRichCellSession();
+
+    auto& treeStore = _pMainWin->get_tree_store();
+    CtTreeIter treeIter = treeStore.get_node_from_node_id(_widgetEditNodeId);
+    if (!treeIter) return;
+
+    CtTableRich* richTable = nullptr;
+    for (auto* w : treeIter.get_anchored_widgets()) {
+        if (w->getOffset() == _widgetEditCharOffset && w->get_type() == CtAnchWidgType::TableRich) {
+            richTable = static_cast<CtTableRich*>(w);
+            break;
+        }
+    }
+    if (!richTable) return;
+
+    auto* cell = richTable->getRichCell(_widgetEditRow, _widgetEditCol);
+    CtCellContent newContent = cell->extractContent();
+
+    if (newContent == _widgetEditOldCellContent) {
+        // No change — but ensure the session is restarted if it was cancelled
+        auto cellBuffer = cell->get_buffer();
+        if (_richCellSession && !_richCellSession->isActive() && cellBuffer) {
+            _richCellSession->begin(_widgetEditNodeId, cellBuffer);
+        }
+        return;
+    }
+
+    // Sync model
+    if (_docModel) {
+        auto node = _docModel->getNodeById(_widgetEditNodeId);
+        if (node) {
+            node->getContent().setWidgetRichTableCell(
+                _widgetEditCharOffset, _widgetEditRow, _widgetEditCol, newContent);
+        }
+    }
+
+    auto cellBuffer = cell->get_buffer();
+    int cursorPos = cellBuffer ? cellBuffer->get_insert()->get_iter().get_offset() : -1;
+
+    auto cmd = std::make_unique<EditRichCellCommand>(
+        _docModel,
+        _widgetEditNodeId,
+        _widgetEditCharOffset,
+        _widgetEditRow,
+        _widgetEditCol,
+        _widgetEditOldCellContent,
+        newContent,
+        cursorPos,
+        cursorPos,
+        std::move(description));
+
+    double scrollPosNew = -1.0;
+    auto adj = _pMainWin->getScrolledwindowText().get_vadjustment();
+    if (adj) scrollPosNew = adj->get_value();
+    cmd->setOldScrollPos(_widgetEditOldScrollPos);
+    cmd->setNewScrollPos(scrollPosNew);
+
+    _commandManager.addCommandToStack(std::move(cmd));
+
+    // Update baseline so subsequent edits in the same cell track from the new state.
+    _widgetEditOldCellContent = newContent;
+
+    // Ensure the session is active for subsequent edits (it may have been
+    // cancelled before a bulk operation like paste).
+    if (_richCellSession && !_richCellSession->isActive() && cellBuffer) {
+        _richCellSession->begin(_widgetEditNodeId, cellBuffer);
+    }
+
+    spdlog::info("CtCommandBridge: commitRichCellFormatChange — EditRichCellCommand added");
+}
+
+// Decompose a GTK tag name like "weight_heavy" into (attribute, value) pair.
+// Returns ("", "") for unknown / non-formatting tags.
+static std::pair<std::string, std::string> decomposeTagName(const std::string& tagName)
+{
+    if (str::startswith(tagName, CtConst::TAG_WEIGHT_PREFIX))        return {CtConst::TAG_WEIGHT,        tagName.substr(7)};
+    if (str::startswith(tagName, CtConst::TAG_FOREGROUND_PREFIX))    return {CtConst::TAG_FOREGROUND,    tagName.substr(11)};
+    if (str::startswith(tagName, CtConst::TAG_BACKGROUND_PREFIX))    return {CtConst::TAG_BACKGROUND,    tagName.substr(11)};
+    if (str::startswith(tagName, CtConst::TAG_SCALE_PREFIX))         return {CtConst::TAG_SCALE,         tagName.substr(6)};
+    if (str::startswith(tagName, CtConst::TAG_JUSTIFICATION_PREFIX)) return {CtConst::TAG_JUSTIFICATION, tagName.substr(14)};
+    if (str::startswith(tagName, CtConst::TAG_STYLE_PREFIX))         return {CtConst::TAG_STYLE,         tagName.substr(6)};
+    if (str::startswith(tagName, CtConst::TAG_UNDERLINE_PREFIX))     return {CtConst::TAG_UNDERLINE,     tagName.substr(10)};
+    if (str::startswith(tagName, CtConst::TAG_STRIKETHROUGH_PREFIX)) return {CtConst::TAG_STRIKETHROUGH, tagName.substr(14)};
+    if (str::startswith(tagName, CtConst::TAG_INDENT_PREFIX))        return {CtConst::TAG_INDENT,        tagName.substr(7)};
+    if (str::startswith(tagName, CtConst::TAG_FAMILY_PREFIX))        return {CtConst::TAG_FAMILY,        tagName.substr(7)};
+    return {"", ""};
 }
 
 void CtCommandBridge::beginFormatChange(gint64 nodeId, const std::string& formatType)
@@ -1002,29 +1354,19 @@ void CtCommandBridge::beginFormatChange(gint64 nodeId, const std::string& format
         endFormatChange();
     }
 
-    // Capture buffer state before format is applied
     auto buffer = _pMainWin->curr_buffer();
     if (!buffer) {
         spdlog::error("CtCommandBridge: no current buffer for format change");
         return;
     }
 
-    // Capture cursor position before formatting
-    int cursorPos = buffer->get_insert()->get_iter().get_offset();
-
-    // Get the tree iter for the node we're formatting
-    auto& treeStore = _pMainWin->get_tree_store();
-    CtTreeIter treeIter = treeStore.get_node_from_node_id(nodeId);
-    if (!treeIter) {
-        spdlog::error("CtCommandBridge: could not find tree iter for node {}", nodeId);
-        return;
-    }
-
     _currentOp = BridgeOp::CapturingFormat;
     _formatChangeNodeId = nodeId;
     _captureFormatType = formatType;
-    _formatChangeInitialXml = getBufferContentAsXml(buffer, &treeIter);
-    _formatChangeOldCursorPos = cursorPos;
+    _formatChangeOldCursorPos = buffer->get_insert()->get_iter().get_offset();
+
+    // Start tag-signal capture — no XML snapshot needed
+    _editSession->startTagCapture(buffer);
 }
 
 void CtCommandBridge::endFormatChange()
@@ -1033,7 +1375,10 @@ void CtCommandBridge::endFormatChange()
         return;
     }
 
-    // Get the tree iter for the node we're formatting
+    // Stop tag capture and drain changes before anything else
+    auto tagChanges = _editSession->drainAndCoalesceTagChanges();
+    _editSession->stopTagCapture();
+
     auto& treeStore = _pMainWin->get_tree_store();
     CtTreeIter treeIter = treeStore.get_node_from_node_id(_formatChangeNodeId);
     if (!treeIter) {
@@ -1049,31 +1394,52 @@ void CtCommandBridge::endFormatChange()
         return;
     }
 
-    Glib::ustring finalXml = getBufferContentAsXml(buffer, &treeIter);
     _formatChangeNewCursorPos = buffer->get_insert()->get_iter().get_offset();
+    // Clear op BEFORE executeCommand so observer notifications flow through normally
+    _currentOp = BridgeOp::None;
 
-    if (_formatChangeInitialXml == finalXml) {
-        _currentOp = BridgeOp::None;
+    if (tagChanges.empty()) {
+        // No-op (e.g. toggling off a format that wasn't applied, or applying same justify)
+        spdlog::debug("CtCommandBridge: endFormatChange — no tag changes, skipping command");
         return;
     }
 
-    auto cmd = std::make_unique<ApplyFormatCommand>(
-        _docModel,
-        _formatChangeNodeId,
-        _formatChangeInitialXml,
-        finalXml,
-        _captureFormatType,
-        _formatChangeOldCursorPos,
-        _formatChangeNewCursorPos
-    );
+    // Build a CompoundCommand wrapping one sub-command per coalesced tag change.
+    // The compound description uses the human-friendly formatType (e.g. "bold").
+    std::string desc = "Node " + std::to_string(_formatChangeNodeId)
+                       + ": Format (" + _captureFormatType + ")";
+    auto compound = std::make_unique<CompoundCommand>(desc);
+    compound->setNodeId(_formatChangeNodeId);
+    compound->setDocumentModel(_docModel);
+    compound->setOldCursorPos(_formatChangeOldCursorPos);
+    compound->setNewCursorPos(_formatChangeNewCursorPos);
 
-    spdlog::info("CtCommandBridge: format change created command, adding to undo stack");
-    _commandManager.addCommandToStack(std::move(cmd));
+    for (const auto& tc : tagChanges) {
+        auto [attr, val] = decomposeTagName(tc.tagName);
+        if (attr.empty()) {
+            spdlog::warn("CtCommandBridge: endFormatChange — unknown tag '{}', skipping", tc.tagName);
+            continue;
+        }
+        int len = tc.end - tc.start;
+        if (tc.isApply) {
+            compound->addCommand(std::make_unique<ApplyFormatCommand>(
+                _docModel, _formatChangeNodeId, tc.start, len, attr, val, -1, -1));
+        } else {
+            compound->addCommand(std::make_unique<RemoveFormatCommand>(
+                _docModel, _formatChangeNodeId, tc.start, len, attr, -1, -1));
+        }
+    }
 
-    _currentOp = BridgeOp::None;
+    if (compound->isEmpty()) {
+        return;
+    }
+
+    spdlog::info("CtCommandBridge: endFormatChange — {} tag change(s), executing command",
+                 tagChanges.size());
+    executeCommand(std::move(compound));
 }
 
-// Phase 4: New model-first format operation
+// Apply formatting via model-first path
 void CtCommandBridge::applyFormatV2(
     gint64 nodeId,
     int selStart,
@@ -1092,7 +1458,7 @@ void CtCommandBridge::applyFormatV2(
 
     // Create the format command
     // The command will capture old values during execute() and handle undo/redo
-    auto cmd = std::make_unique<ApplyFormatCommandV2>(
+    auto cmd = std::make_unique<ApplyFormatCommand>(
         _docModel,
         nodeId,
         selStart,
@@ -1533,10 +1899,7 @@ Glib::ustring CtCommandBridge::getBufferContentAsXml(Glib::RefPtr<Gtk::TextBuffe
 
 void CtCommandBridge::updateBufferFromXml(Glib::RefPtr<Gtk::TextBuffer> buffer, const Glib::ustring& xml, const std::string& syntax, const CtTreeIter* treeIter)
 {
-    // Note: buildBufferFromContent() is incomplete (Phase 2 TODO - doesn't handle widgets)
-    // Until ct_buffer_converter.cc is implemented, we need XML-based buffer updates
-    // to properly restore widgets during undo/redo operations
-
+    // XML-based buffer updates are needed to properly restore widgets during undo/redo
     if (!buffer || !_pMainWin || xml.empty()) {
         return;
     }
@@ -1770,6 +2133,14 @@ void CtCommandBridge::BridgeObserver::buildBufferForNode(
     CtTreeIter& iter,
     bool attachToView)
 {
+    // Grab focus back to the main text view before deleting widgets — if a
+    // rich cell's text view still has focus, destroying it triggers GTK to
+    // access the cell buffer's insert mark whose internal line pointer is
+    // already NULL, causing an assertion crash.
+    if (attachToView) {
+        _bridge->_pMainWin->get_text_view().mm().grab_focus();
+    }
+
     // Delete old widgets before clearing buffer (they're unanchored by the clear)
     Gtk::TreeRow row = *static_cast<Gtk::TreeModel::iterator>(iter);
     auto old_widgets = row.get_value(_bridge->_pMainWin->get_tree_store().get_columns().colAnchoredWidgets);

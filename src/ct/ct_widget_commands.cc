@@ -24,72 +24,6 @@
 #include "ct_widget_commands.h"
 #include "ct_logging.h"
 
-// WidgetCommand base implementation
-
-WidgetCommand::WidgetCommand(
-    std::shared_ptr<CtDocumentModel> docModel,
-    gint64 nodeId,
-    const Glib::ustring& oldContentXml,
-    const Glib::ustring& newContentXml,
-    const std::string& widgetType,
-    int oldCursorPos,
-    int newCursorPos)
-    : _docModel(docModel)
-    , _nodeId(nodeId)
-    , _oldContentXml(oldContentXml)
-    , _newContentXml(newContentXml)
-    , _widgetType(widgetType)
-    , _oldCursorPos(oldCursorPos)
-    , _newCursorPos(newCursorPos)
-{
-}
-
-void WidgetCommand::execute()
-{
-    if (!_docModel) {
-        spdlog::error("WidgetCommand: null document model");
-        return;
-    }
-
-    auto node = _docModel->getNodeById(_nodeId);
-    if (!node) {
-        spdlog::error("WidgetCommand: node {} not found", _nodeId);
-        return;
-    }
-
-    spdlog::debug("WidgetCommand: executing {} for node {}", _widgetType, _nodeId);
-    node->setContentXml(_newContentXml);
-    _docModel->notifyNodeChanged(_nodeId);
-}
-
-void WidgetCommand::undo()
-{
-    if (!_docModel) {
-        spdlog::error("WidgetCommand: null document model");
-        return;
-    }
-
-    auto node = _docModel->getNodeById(_nodeId);
-    if (!node) {
-        spdlog::error("WidgetCommand: node {} not found", _nodeId);
-        return;
-    }
-
-    spdlog::debug("WidgetCommand: undoing {} for node {}", _widgetType, _nodeId);
-    node->setContentXml(_oldContentXml);
-    _docModel->notifyNodeChanged(_nodeId);
-}
-
-void WidgetCommand::redo()
-{
-    execute();
-}
-
-std::string WidgetCommand::getDescription() const
-{
-    return "Node " + std::to_string(_nodeId) + ": " + _widgetType;
-}
-
 // InsertWidgetDeltaCommand implementation
 
 InsertWidgetDeltaCommand::InsertWidgetDeltaCommand(
@@ -234,6 +168,90 @@ void EditTableCellCommand::redo()
 std::string EditTableCellCommand::getDescription() const
 {
     return "Node " + std::to_string(_nodeId) + ": Edit table cell";
+}
+
+// EditRichCellCommand implementation
+
+EditRichCellCommand::EditRichCellCommand(
+    std::shared_ptr<CtDocumentModel> docModel,
+    gint64 nodeId,
+    int widgetCharOffset,
+    size_t row,
+    size_t col,
+    const CtCellContent& oldContent,
+    const CtCellContent& newContent,
+    int oldCursorPos,
+    int newCursorPos,
+    std::string description)
+    : _docModel(std::move(docModel))
+    , _nodeId(nodeId)
+    , _widgetCharOffset(widgetCharOffset)
+    , _row(row)
+    , _col(col)
+    , _oldContent(oldContent)
+    , _newContent(newContent)
+    , _oldCursorPos(oldCursorPos)
+    , _newCursorPos(newCursorPos)
+    , _description(std::move(description))
+{
+}
+
+void EditRichCellCommand::_applyContent(const CtCellContent& content)
+{
+    auto node = _docModel->getNodeById(_nodeId);
+    if (!node) return;
+    node->getContent().setWidgetRichTableCell(_widgetCharOffset, _row, _col, content);
+    _docModel->notifyNodeChanged(_nodeId);
+}
+
+void EditRichCellCommand::execute() { _applyContent(_newContent); }
+void EditRichCellCommand::undo()    { _applyContent(_oldContent); }
+void EditRichCellCommand::redo()    { _applyContent(_newContent); }
+
+std::string EditRichCellCommand::getDescription() const
+{
+    if (!_description.empty()) {
+        return "Node " + std::to_string(_nodeId) + ": " + _description;
+    }
+
+    // Match the descriptions produced by TextEditCommand
+    std::string description = "Node " + std::to_string(_nodeId) + ": ";
+    Glib::ustring oldText = _oldContent.getPlainText();
+    Glib::ustring newText = _newContent.getPlainText();
+
+    if (newText.length() > oldText.length()) {
+        size_t addedLen = newText.length() - oldText.length();
+        size_t diffPos = 0;
+        while (diffPos < oldText.length() && diffPos < newText.length() &&
+               oldText[diffPos] == newText[diffPos]) {
+            diffPos++;
+        }
+        Glib::ustring addedText = newText.substr(diffPos, addedLen);
+        if (addedText == "\n") {
+            description += "Type newline";
+        } else if (addedText.find('\n') != Glib::ustring::npos) {
+            description += "Type text with newlines";
+        } else {
+            Glib::ustring displayText = addedText;
+            if (displayText.length() > 1 && displayText[displayText.length() - 1] == ' ') {
+                if (displayText.length() < 2 || displayText[displayText.length() - 2] != ' ') {
+                    displayText = displayText.substr(0, displayText.length() - 1);
+                }
+            }
+            if (displayText.length() > 30) {
+                description += "Type \"" + displayText.substr(0, 30).raw() + "...\"";
+            } else {
+                description += "Type \"" + displayText.raw() + "\"";
+            }
+        }
+    } else if (oldText.length() > newText.length()) {
+        size_t deletedLen = oldText.length() - newText.length();
+        description += "Delete " + std::to_string(deletedLen) + " chars";
+    } else {
+        description += "Edit text";
+    }
+
+    return description;
 }
 
 // EditCodeboxContentCommand implementation

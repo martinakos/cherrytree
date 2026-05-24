@@ -1,10 +1,7 @@
 /*
  * tests_command_undo_redo.cpp
  *
- * Phase 6.2 Testing - Command Pattern Undo/Redo
- *
- * This test verifies that the command pattern properly implements undo/redo
- * functionality as specified in COMMAND_OBSERVER_MIGRATION_PLAN.md Phase 6.2
+ * Verifies that the command pattern properly implements undo/redo.
  */
 
 #include "tests_common.h"
@@ -45,7 +42,7 @@ void TestUndoRedoApp::_run_tests(CtMainWin* pWin)
     ASSERT_TRUE(pBridge);
     ASSERT_TRUE(pBridge->isActive());
 
-    spdlog::info("=== Phase 6.2: Command Pattern Undo/Redo Testing ===");
+    spdlog::info("=== Command Pattern Undo/Redo Testing ===");
 
     // TEST 1: Text editing undo/redo (model level)
     {
@@ -147,25 +144,7 @@ void TestUndoRedoApp::_run_tests(CtMainWin* pWin)
         spdlog::info("✓ Test 2 passed: Undo/redo stack management works");
     }
 
-    // NOTE: Additional manual testing required for real GUI usage
-    //
-    // An important bug was found and fixed during Phase 6.2 testing:
-    // - Bug: beginTextEditSession() in ct_command_bridge.cc was capturing initialXml from the MODEL
-    //   instead of from the BUFFER
-    // - Impact: In real GUI usage, typing wouldn't create undo commands because both initialXml
-    //   and finalXml would be identical (model hadn't been updated yet)
-    // - Fix: Line 255 in ct_command_bridge.cc now captures initialXml from buffer
-    // - Tests 1-4 above didn't catch this because syncModelFromTree() was called first
-    //
-    // Manual GUI test to verify the fix:
-    // 1. Open CherryTree GUI
-    // 2. Select a node and type some text
-    // 3. Press Ctrl+Z
-    // 4. Verify the text is undone
-    // 5. Press Ctrl+Shift+Z
-    // 6. Verify the text is redone
-
-    spdlog::info("=== All Phase 6.2 tests passed! ===");
+    spdlog::info("=== All command undo/redo tests passed! ===");
 }
 
 TEST(CommandUndoRedoTests, Phase6_2_UndoRedoFunctionality)

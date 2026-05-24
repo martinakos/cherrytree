@@ -246,6 +246,7 @@ enum class TableHandleResp { Cancel, Ok, OkFromFile };
 TableHandleResp table_handle_dialog(CtMainWin* pCtMainWin,
                                     const Glib::ustring& title,
                                     const bool is_insert,
-                                    bool& is_light);
+                                    bool& is_light,
+                                    bool& is_rich);
 
 } // namespace CtDialogs

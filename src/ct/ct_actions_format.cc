@@ -68,6 +68,14 @@ void CtActions::_save_tags_at_cursor_as_latest(Glib::RefPtr<Gtk::TextBuffer> pTe
 
 void CtActions::save_tags_at_cursor_as_latest()
 {
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+        auto cellBuffer = pBridge->getActiveRichCellBuffer();
+        if (cellBuffer) {
+            _save_tags_at_cursor_as_latest(cellBuffer, -1);
+            return;
+        }
+    }
     _save_tags_at_cursor_as_latest(_curr_buffer(), -1);
 }
 
@@ -79,14 +87,68 @@ void CtActions::apply_tags_latest()
     if (not _is_curr_node_not_read_only_or_error()) return;
     if (_pCtConfig->latestTagProp.empty()) {
         CtDialogs::warning_dialog(_("No Previous Text Format Was Performed During This Session."), *_pCtMainWin);
+        return;
     }
-    else {
-        remove_text_formatting();
-        std::vector<std::string> tagProperties = str::split(_pCtConfig->latestTagProp, ",");
-        std::vector<std::string> tagValues = str::split(_pCtConfig->latestTagVal, ",");
-        for (size_t i = 0; i < tagProperties.size(); ++i) {
-            apply_tag(tagProperties.at(i), tagValues.at(i));
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+        auto cellBuffer = pBridge->getActiveRichCellBuffer();
+        if (!cellBuffer) return;
+        if (!cellBuffer->get_has_selection() &&
+                !_pCtMainWin->apply_tag_try_automatic_bounds(cellBuffer, cellBuffer->get_insert()->get_iter())) {
+            CtDialogs::warning_dialog(_("No Text is Selected."), *_pCtMainWin);
+            return;
         }
+        pBridge->flushRichCellSession();
+        // Remove existing format tags from the cell selection
+        Gtk::TextIter selStart, selEnd;
+        cellBuffer->get_selection_bounds(selStart, selEnd);
+        const int startOff = selStart.get_offset();
+        const int endOff = selEnd.get_offset();
+        for (int off = startOff; off < endOff; ++off) {
+            Gtk::TextIter it = cellBuffer->get_iter_at_offset(off);
+            for (auto& tag : it.get_tags()) {
+                const Glib::ustring tag_name = tag->property_name();
+                if (str::startswith(tag_name, CtConst::TAG_WEIGHT_PREFIX) or
+                    str::startswith(tag_name, CtConst::TAG_FOREGROUND_PREFIX) or
+                    str::startswith(tag_name, CtConst::TAG_BACKGROUND_PREFIX) or
+                    str::startswith(tag_name, CtConst::TAG_STYLE_PREFIX) or
+                    str::startswith(tag_name, CtConst::TAG_UNDERLINE_PREFIX) or
+                    str::startswith(tag_name, CtConst::TAG_STRIKETHROUGH_PREFIX) or
+                    str::startswith(tag_name, CtConst::TAG_INDENT_PREFIX) or
+                    str::startswith(tag_name, CtConst::TAG_SCALE_PREFIX) or
+                    str::startswith(tag_name, CtConst::TAG_INVISIBLE_PREFIX) or
+                    str::startswith(tag_name, CtConst::TAG_JUSTIFICATION_PREFIX) or
+                    str::startswith(tag_name, CtConst::TAG_FAMILY_PREFIX))
+                {
+                    cellBuffer->remove_tag(tag, it, cellBuffer->get_iter_at_offset(off + 1));
+                }
+            }
+        }
+        // Apply each saved tag, then commit the whole change as one undo step
+        cellBuffer->get_selection_bounds(selStart, selEnd);
+        const std::vector<std::string> tagProperties = str::split(_pCtConfig->latestTagProp, ",");
+        const std::vector<std::string> tagValues = str::split(_pCtConfig->latestTagVal, ",");
+        for (size_t i = 0; i < tagProperties.size(); ++i) {
+            apply_tag(tagProperties.at(i), tagValues.at(i), selStart, selEnd, cellBuffer);
+        }
+        pBridge->commitRichCellFormatChange("Format (apply latest)");
+        return;
+    }
+    // Wrap the entire operation (remove-all + re-apply) in a single format-change capture
+    // so the user gets one undo step for "apply latest format".
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        pBridge->beginFormatChange(_pCtMainWin->curr_tree_iter().get_node_id(), "apply_latest");
+    }
+    remove_text_formatting();
+    const std::vector<std::string> tagProperties = str::split(_pCtConfig->latestTagProp, ",");
+    const std::vector<std::string> tagValues = str::split(_pCtConfig->latestTagVal, ",");
+    for (size_t i = 0; i < tagProperties.size(); ++i) {
+        apply_tag(tagProperties.at(i), tagValues.at(i));
+    }
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endFormatChange();
+        pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
     }
 }
 
@@ -96,6 +158,46 @@ void CtActions::_remove_text_formatting(const bool dismiss_link)
     if (not _is_there_selected_node_or_error()) return;
     if (not _is_curr_node_not_syntax_highlighting_or_error()) return;
     if (not _is_curr_node_not_read_only_or_error()) return;
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+        auto cellBuffer = pBridge->getActiveRichCellBuffer();
+        if (!cellBuffer) return;
+        if (!cellBuffer->get_has_selection() &&
+                !_pCtMainWin->apply_tag_try_automatic_bounds(cellBuffer, cellBuffer->get_insert()->get_iter())) {
+            CtDialogs::warning_dialog(_("No Text is Selected."), *_pCtMainWin);
+            return;
+        }
+        pBridge->flushRichCellSession();
+        Gtk::TextIter selStart, selEnd;
+        cellBuffer->get_selection_bounds(selStart, selEnd);
+        const int startOff = selStart.get_offset();
+        const int endOff = selEnd.get_offset();
+        for (int off = startOff; off < endOff; ++off) {
+            Gtk::TextIter it = cellBuffer->get_iter_at_offset(off);
+            for (auto& tag : it.get_tags()) {
+                const Glib::ustring tag_name = tag->property_name();
+                if ( (not dismiss_link and
+                       (str::startswith(tag_name, CtConst::TAG_WEIGHT_PREFIX) or
+                        str::startswith(tag_name, CtConst::TAG_FOREGROUND_PREFIX) or
+                        str::startswith(tag_name, CtConst::TAG_BACKGROUND_PREFIX) or
+                        str::startswith(tag_name, CtConst::TAG_STYLE_PREFIX) or
+                        str::startswith(tag_name, CtConst::TAG_UNDERLINE_PREFIX) or
+                        str::startswith(tag_name, CtConst::TAG_STRIKETHROUGH_PREFIX) or
+                        str::startswith(tag_name, CtConst::TAG_INDENT_PREFIX) or
+                        str::startswith(tag_name, CtConst::TAG_SCALE_PREFIX) or
+                        str::startswith(tag_name, CtConst::TAG_INVISIBLE_PREFIX) or
+                        str::startswith(tag_name, CtConst::TAG_JUSTIFICATION_PREFIX) or
+                        str::startswith(tag_name, CtConst::TAG_FAMILY_PREFIX)))
+                    or
+                     (dismiss_link and str::startswith(tag_name, CtConst::TAG_LINK_PREFIX)) )
+                {
+                    cellBuffer->remove_tag(tag, it, cellBuffer->get_iter_at_offset(off + 1));
+                }
+            }
+        }
+        pBridge->commitRichCellFormatChange("Format (remove formatting)");
+        return;
+    }
     Glib::RefPtr<Gtk::TextBuffer> pTextBuffer = _pCtMainWin->get_text_view().get_buffer();
     if (not pTextBuffer->get_has_selection() and not _pCtMainWin->apply_tag_try_automatic_bounds(pTextBuffer, pTextBuffer->get_insert()->get_iter())) {
         CtDialogs::warning_dialog(_("No Text is Selected."), *_pCtMainWin);
@@ -108,6 +210,14 @@ void CtActions::_remove_text_formatting(const bool dismiss_link)
 
     const int sel_start_offset = iter_sel_start.get_offset();
     const int sel_end_offset = iter_sel_end.get_offset();
+
+    // Wrap in format-change capture unless an outer format operation already owns the capture
+    // (e.g. apply_tags_latest wraps the whole operation including this call).
+    const bool weOwnCapture = pBridge && pBridge->isActive() && !pBridge->isSuppressingTextEdits();
+    if (weOwnCapture) {
+        pBridge->endTextEditSession();
+        pBridge->beginFormatChange(ctTreeIter.get_node_id(), "remove_formatting");
+    }
 
     for (int offset = sel_start_offset; offset < sel_end_offset; ++offset) {
         Gtk::TextIter it_sel_start = pTextBuffer->get_iter_at_offset(offset);
@@ -146,6 +256,12 @@ void CtActions::_remove_text_formatting(const bool dismiss_link)
             }
         }
     }
+
+    if (weOwnCapture) {
+        pBridge->endFormatChange();
+        pBridge->beginTextEditSession(ctTreeIter.get_node_id());
+    }
+
     _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
 }
 
@@ -153,6 +269,7 @@ void CtActions::_remove_text_formatting(const bool dismiss_link)
 void CtActions::apply_tag_foreground()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+    if (_apply_format_to_active_rich_cell(CtConst::TAG_FOREGROUND, "", "Format (foreground)")) return;
 
     // End current text edit session and create format command
     auto pBridge = _pCtMainWin->get_command_bridge();
@@ -175,6 +292,7 @@ void CtActions::apply_tag_foreground()
 void CtActions::apply_tag_background()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+    if (_apply_format_to_active_rich_cell(CtConst::TAG_BACKGROUND, "", "Format (background)")) return;
 
     // End current text edit session and create format command
     auto pBridge = _pCtMainWin->get_command_bridge();
@@ -197,6 +315,7 @@ void CtActions::apply_tag_background()
 void CtActions::apply_tag_bold()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+    if (_apply_format_to_active_rich_cell(CtConst::TAG_WEIGHT, CtConst::TAG_PROP_VAL_HEAVY, "Format (bold)")) return;
 
     // End current text edit session and create format command
     auto pBridge = _pCtMainWin->get_command_bridge();
@@ -219,6 +338,7 @@ void CtActions::apply_tag_bold()
 void CtActions::apply_tag_italic()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+    if (_apply_format_to_active_rich_cell(CtConst::TAG_STYLE, CtConst::TAG_PROP_VAL_ITALIC, "Format (italic)")) return;
 
     auto pBridge = _pCtMainWin->get_command_bridge();
     if (pBridge && pBridge->isActive()) {
@@ -239,6 +359,7 @@ void CtActions::apply_tag_italic()
 void CtActions::apply_tag_underline()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+    if (_apply_format_to_active_rich_cell(CtConst::TAG_UNDERLINE, CtConst::TAG_PROP_VAL_SINGLE, "Format (underline)")) return;
 
     auto pBridge = _pCtMainWin->get_command_bridge();
     if (pBridge && pBridge->isActive()) {
@@ -259,6 +380,7 @@ void CtActions::apply_tag_underline()
 void CtActions::apply_tag_strikethrough()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+    if (_apply_format_to_active_rich_cell(CtConst::TAG_STRIKETHROUGH, CtConst::TAG_PROP_VAL_TRUE, "Format (strikethrough)")) return;
 
     auto pBridge = _pCtMainWin->get_command_bridge();
     if (pBridge && pBridge->isActive()) {
@@ -279,10 +401,14 @@ void CtActions::apply_tag_strikethrough()
 void CtActions::apply_tag_indent()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+
+    // Not supported in rich cells — return early to preserve widget tracking state
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) return;
+
     CtTextRange range = CtList{_pCtConfig, _curr_buffer()}.get_paragraph_iters();
     if (not range.iter_start) return;
 
-    auto pBridge = _pCtMainWin->get_command_bridge();
     if (pBridge && pBridge->isActive()) {
         pBridge->endTextEditSession();
         pBridge->beginFormatChange(_pCtMainWin->curr_tree_iter().get_node_id(), "indent");
@@ -302,10 +428,14 @@ void CtActions::apply_tag_indent()
 void CtActions::reduce_tag_indent()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+
+    // Not supported in rich cells — return early to preserve widget tracking state
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) return;
+
     CtTextRange range = CtList{_pCtConfig, _curr_buffer()}.get_paragraph_iters();
     if (not range.iter_start) return;
 
-    auto pBridge = _pCtMainWin->get_command_bridge();
     if (pBridge && pBridge->isActive()) {
         pBridge->endTextEditSession();
         pBridge->beginFormatChange(_pCtMainWin->curr_tree_iter().get_node_id(), "unindent");
@@ -344,10 +474,25 @@ int CtActions::_find_previous_indent_margin()
 void CtActions::_apply_tag_hN(const char* tagPropScaleVal)
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+
+    // Route to rich cell when active
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+        auto cellBuffer = pBridge->getActiveRichCellBuffer();
+        if (cellBuffer) {
+            CtTextRange range = CtList{_pCtConfig, cellBuffer}.get_paragraph_iters();
+            if (range.iter_start) {
+                pBridge->flushRichCellSession();
+                apply_tag(CtConst::TAG_SCALE, tagPropScaleVal, range.iter_start, range.iter_end, cellBuffer);
+                pBridge->commitRichCellFormatChange(std::string("Format (") + tagPropScaleVal + ")");
+            }
+            return;
+        }
+    }
+
     CtTextRange range = CtList{_pCtConfig, _curr_buffer()}.get_paragraph_iters();
     if (not range.iter_start) return;
 
-    auto pBridge = _pCtMainWin->get_command_bridge();
     if (pBridge && pBridge->isActive()) {
         spdlog::debug("Format change ({}): ending text edit session and capturing format change", tagPropScaleVal);
         pBridge->endTextEditSession();
@@ -366,6 +511,7 @@ void CtActions::_apply_tag_hN(const char* tagPropScaleVal)
 void CtActions::apply_tag_small()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+    if (_apply_format_to_active_rich_cell(CtConst::TAG_SCALE, CtConst::TAG_PROP_VAL_SMALL, "Format (small)")) return;
 
     auto pBridge = _pCtMainWin->get_command_bridge();
     if (pBridge && pBridge->isActive()) {
@@ -386,6 +532,7 @@ void CtActions::apply_tag_small()
 void CtActions::apply_tag_superscript()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+    if (_apply_format_to_active_rich_cell(CtConst::TAG_SCALE, CtConst::TAG_PROP_VAL_SUP, "Format (superscript)")) return;
 
     auto pBridge = _pCtMainWin->get_command_bridge();
     if (pBridge && pBridge->isActive()) {
@@ -406,6 +553,7 @@ void CtActions::apply_tag_superscript()
 void CtActions::apply_tag_subscript()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+    if (_apply_format_to_active_rich_cell(CtConst::TAG_SCALE, CtConst::TAG_PROP_VAL_SUB, "Format (subscript)")) return;
 
     auto pBridge = _pCtMainWin->get_command_bridge();
     if (pBridge && pBridge->isActive()) {
@@ -426,6 +574,7 @@ void CtActions::apply_tag_subscript()
 void CtActions::apply_tag_monospace()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+    if (_apply_format_to_active_rich_cell(CtConst::TAG_FAMILY, CtConst::TAG_PROP_VAL_MONOSPACE, "Format (monospace)")) return;
 
     auto pBridge = _pCtMainWin->get_command_bridge();
     if (pBridge && pBridge->isActive()) {
@@ -473,6 +622,8 @@ void CtActions::list_todo_handler()
 void CtActions::apply_tag_justify_left()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+    if (_apply_paragraph_format_to_rich_cell(CtConst::TAG_JUSTIFICATION, CtConst::TAG_PROP_VAL_LEFT, "Format (justify_left)")) return;
+
     CtTextRange range = CtList{_pCtConfig, _curr_buffer()}.get_paragraph_iters();
     if (not range.iter_start) return;
 
@@ -494,6 +645,8 @@ void CtActions::apply_tag_justify_left()
 void CtActions::apply_tag_justify_center()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+    if (_apply_paragraph_format_to_rich_cell(CtConst::TAG_JUSTIFICATION, CtConst::TAG_PROP_VAL_CENTER, "Format (justify_center)")) return;
+
     CtTextRange range = CtList{_pCtConfig, _curr_buffer()}.get_paragraph_iters();
     if (not range.iter_start) return;
 
@@ -515,6 +668,8 @@ void CtActions::apply_tag_justify_center()
 void CtActions::apply_tag_justify_right()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+    if (_apply_paragraph_format_to_rich_cell(CtConst::TAG_JUSTIFICATION, CtConst::TAG_PROP_VAL_RIGHT, "Format (justify_right)")) return;
+
     CtTextRange range = CtList{_pCtConfig, _curr_buffer()}.get_paragraph_iters();
     if (not range.iter_start) return;
 
@@ -536,6 +691,8 @@ void CtActions::apply_tag_justify_right()
 void CtActions::apply_tag_justify_fill()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+    if (_apply_paragraph_format_to_rich_cell(CtConst::TAG_JUSTIFICATION, CtConst::TAG_PROP_VAL_FILL, "Format (justify_fill)")) return;
+
     CtTextRange range = CtList{_pCtConfig, _curr_buffer()}.get_paragraph_iters();
     if (not range.iter_start) return;
 
@@ -551,6 +708,60 @@ void CtActions::apply_tag_justify_fill()
         pBridge->endFormatChange();
         pBridge->beginTextEditSession(_pCtMainWin->curr_tree_iter().get_node_id());
     }
+}
+
+// Apply a paragraph-level format (justify, hN) to the active rich cell.
+// Uses paragraph iters from the cell buffer. Returns true when handled.
+bool CtActions::_apply_paragraph_format_to_rich_cell(const Glib::ustring& tagProperty,
+                                                      const Glib::ustring& value,
+                                                      const std::string& description)
+{
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (!pBridge || !pBridge->isActive()) return false;
+    if (!pBridge->isTrackingRichCell()) return false;
+
+    auto cellBuffer = pBridge->getActiveRichCellBuffer();
+    if (!cellBuffer) return false;
+
+    CtTextRange range = CtList{_pCtConfig, cellBuffer}.get_paragraph_iters();
+    if (!range.iter_start) return true; // handled — empty paragraph
+
+    pBridge->flushRichCellSession();
+    apply_tag(tagProperty, value, range.iter_start, range.iter_end, cellBuffer);
+    pBridge->commitRichCellFormatChange(description);
+    return true;
+}
+
+// RT-4: If a CtRichCell is currently focused, apply the format tag to its buffer
+// and record an EditRichCellCommand. Returns true when handled.
+bool CtActions::_apply_format_to_active_rich_cell(const Glib::ustring& tagProperty,
+                                                   const Glib::ustring& value,
+                                                   const std::string& description)
+{
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (!pBridge || !pBridge->isActive()) return false;
+    if (!pBridge->isTrackingRichCell()) return false;
+
+    auto cellBuffer = pBridge->getActiveRichCellBuffer();
+    if (!cellBuffer) return false;
+
+    // Get or extend selection — same logic as the node-level format path.
+    Gtk::TextIter selStart, selEnd;
+    if (!cellBuffer->get_selection_bounds(selStart, selEnd)) {
+        if (!_pCtMainWin->apply_tag_try_automatic_bounds(cellBuffer,
+                                                          cellBuffer->get_insert()->get_iter())) {
+            return true; // handled — no selection and no auto-bound word
+        }
+        cellBuffer->get_selection_bounds(selStart, selEnd);
+    }
+
+    // Flush pending text edits first so they get their own undo entry
+    pBridge->flushRichCellSession();
+
+    // Apply the tag, then record it as a separate format undo entry
+    apply_tag(tagProperty, value, selStart, selEnd, cellBuffer);
+    pBridge->commitRichCellFormatChange(description);
+    return true;
 }
 
 void CtActions::apply_tag(const Glib::ustring& tag_property,
