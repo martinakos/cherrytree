@@ -56,7 +56,8 @@ struct CtStatusBar
     Gtk::Label       sizeField;
     Gtk::Label       dateCreatedField;
     Gtk::Label       dateModifiedField;
-    Gtk::Separator   fieldSeparators[8];
+    Gtk::Label       subnodesField;
+    Gtk::Separator   fieldSeparators[9];
     Gtk::Label       messageLabel;
     Gtk::Label       zoomLabel;
     Gtk::ProgressBar progressBar;
@@ -76,7 +77,8 @@ struct CtStatusBar
                             const Glib::ustring& wordCount,
                             const Glib::ustring& size,
                             const Glib::ustring& dateCreated,
-                            const Glib::ustring& dateModified);
+                            const Glib::ustring& dateModified,
+                            const Glib::ustring& subnodes);
     void clear_node_fields();
     void set_restore_callback(std::function<void()> cb) { _restoreFieldsCb = std::move(cb); }
     void new_cursor_pos(const int r, const int c);

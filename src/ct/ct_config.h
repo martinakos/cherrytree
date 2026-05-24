@@ -291,6 +291,7 @@ public:
     bool                                        checkVersion{false};
     bool                                        wordCountOn{true};
     bool                                        nodeSizeOn{false};
+    bool                                        subnodesOn{false};
     bool                                        reloadDocLast{true};
     bool                                        rememberRecentDocs{true};
     bool                                        showStartDialog{true};
