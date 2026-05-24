@@ -33,8 +33,9 @@
  </screenshots>
  <launchable type="desktop-id">cherrytree-docmodel.desktop</launchable>
  <url type="homepage">https://www.giuspen.net/cherrytree</url>
+ <url type="vcs-browser">https://github.com/giuspen/cherrytree</url>
  <update_contact>giuspen@gmail.com</update_contact>
  <content_rating type="oars-1.1" />
  <releases>
-  <release version="b'1.6.3'" date="2026-05-23" /></releases>
+  <release version="b'1.6.3'" date="2026-05-24" /></releases>
 </component>

@@ -1255,7 +1255,11 @@ void CtMainWin::menu_update_bookmark_menu_item(bool is_bookmarked)
 
 void CtMainWin::menu_update_doc_path_menu_item()
 {
-    _uCtMenu->find_action("doc_path_clip")->signal_set_visible.emit(not _uCtStorage->get_file_path().empty());
+#if GTKMM_MAJOR_VERSION >= 4
+    if (auto a = _uCtMenu->find_action("doc_path_clip")) { if (a->signal_set_visible) a->signal_set_visible(not _uCtStorage->get_file_path().empty()); }
+#else
+    _uCtMenu->find_action("doc_path_clip")->signal_set_visible->emit(not _uCtStorage->get_file_path().empty());
+#endif
 }
 
 void CtMainWin::maybe_show_start_dialog()

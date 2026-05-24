@@ -364,6 +364,8 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     checkbutton_tooltips_enable_menus->set_active(_pConfig->menusTooltips);
     checkbutton_tooltips_enable_toolbar->set_active(_pConfig->toolbarTooltips);
 
+    auto checkbutton_store_latest_searches = Gtk::manage(new Gtk::CheckButton{_("Save Search/Replace History Between Sessions")});
+    checkbutton_store_latest_searches->set_active(_pConfig->storeLatestSearches);
     auto hbox_find_all_max_in_page = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 4/*spacing*/});
     auto label_find_all_max_in_page = Gtk::manage(new Gtk::Label{_("Max Search Results per Page")});
     label_find_all_max_in_page->set_margin_start(2);
@@ -394,6 +396,7 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     vbox_misc->append(*hbox_scrollbar_overlay);
     vbox_misc->append(*hbox_tooltips_enable);
     vbox_misc->append(*hbox_find_all_max_in_page);
+    vbox_misc->append(*checkbutton_store_latest_searches);
 #else
     vbox_misc->pack_start(*checkbutton_word_count, false, false);
     vbox_misc->pack_start(*checkbutton_node_size, false, false);
@@ -411,6 +414,7 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     vbox_misc->pack_start(*hbox_scrollbar_overlay, false, false);
     vbox_misc->pack_start(*hbox_tooltips_enable, false, false);
     vbox_misc->pack_start(*hbox_find_all_max_in_page, false, false);
+    vbox_misc->pack_start(*checkbutton_store_latest_searches, false, false);
 #endif
 
     Gtk::Frame* frame_misc = new_managed_frame_with_align(_("Miscellaneous"), vbox_misc);
