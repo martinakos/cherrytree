@@ -221,15 +221,22 @@ void CtActions::object_set_selection(CtAnchoredWidget* widget)
         }
     }
 
-    Gtk::TextIter iter_object = _curr_buffer()->get_iter_at_child_anchor(widget->getTextChildAnchor());
-    Gtk::TextIter iter_bound = iter_object;
-    iter_bound.forward_char();
-    if (dynamic_cast<CtImage*>(widget)) {
-        _pCtMainWin->get_text_view().mm().grab_focus();
+    const bool isImage = dynamic_cast<CtImage*>(widget) != nullptr;
+    Glib::RefPtr<Gtk::TextChildAnchor> anchor = widget->getTextChildAnchor();
+    if (_pCtConfig->objectNoSelOnClick) {
+        Glib::signal_idle().connect_once([this, anchor, isImage](){
+            Gtk::TextIter iter_object = _curr_buffer()->get_iter_at_child_anchor(anchor);
+            _curr_buffer()->place_cursor(iter_object);
+            if (isImage) {
+                auto& textView = _pCtMainWin->get_text_view().mm();
+                if (not textView.has_focus()) {
+                    textView.grab_focus();
+                }
+            }
+        });
     }
     else {
         Glib::signal_idle().connect_once([this, anchor, isImage](){
-            spdlog::debug("select_range_idle");
             Gtk::TextIter iter_object = _curr_buffer()->get_iter_at_child_anchor(anchor);
             Gtk::TextIter iter_bound = iter_object;
             iter_bound.forward_char();
@@ -242,7 +249,6 @@ void CtActions::object_set_selection(CtAnchoredWidget* widget)
             }
         });
     }
-    spdlog::debug("object_set_selection return");
 }
 
 // Returns True if there's not a node selected or is not rich text
