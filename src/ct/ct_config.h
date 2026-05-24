@@ -283,6 +283,7 @@ public:
     bool                                        checkVersion{false};
     bool                                        wordCountOn{false};
     bool                                        nodeSizeOn{false};
+    bool                                        subnodesOn{false};
     bool                                        reloadDocLast{true};
     bool                                        rememberRecentDocs{true};
     bool                                        showStartDialog{true};

@@ -487,6 +487,7 @@ void CtConfig::_populate_keyfile_from_data()
     _uKeyFile->set_boolean(_currentGroup, "check_version", checkVersion);
     _uKeyFile->set_boolean(_currentGroup, "word_count", wordCountOn);
     _uKeyFile->set_boolean(_currentGroup, "node_size", nodeSizeOn);
+    _uKeyFile->set_boolean(_currentGroup, "subnodes", subnodesOn);
     _uKeyFile->set_boolean(_currentGroup, "reload_doc_last", reloadDocLast);
     _uKeyFile->set_boolean(_currentGroup, "recent_docs", rememberRecentDocs);
     _uKeyFile->set_boolean(_currentGroup, "show_start_dialog", showStartDialog);
@@ -889,6 +890,7 @@ void CtConfig::_populate_data_from_keyfile()
     _populate_bool_from_keyfile("check_version", &checkVersion);
     _populate_bool_from_keyfile("word_count", &wordCountOn);
     _populate_bool_from_keyfile("node_size", &nodeSizeOn);
+    _populate_bool_from_keyfile("subnodes", &subnodesOn);
     _populate_bool_from_keyfile("reload_doc_last", &reloadDocLast);
     _populate_bool_from_keyfile("recent_docs", &rememberRecentDocs);
     _populate_bool_from_keyfile("show_start_dialog", &showStartDialog);
