@@ -69,10 +69,14 @@ public:
                                                            Gtk::TextIter iter_sel_start,
                                                            Gtk::TextIter iter_sel_end,
                                                            gchar change_case = 'n',
-                                                           bool exclude_iter_sel_end = false);
+                                                           bool exclude_iter_sel_end = false,
+                                                           const std::list<CtAnchoredWidget*>* pCellWidgets = nullptr);
+    // When pOutWidgets is non-null, collected widgets are returned to the caller
+    // and NOT added to the main tree store (used when pasting into a rich cell).
     void from_xml_string_to_buffer(Glib::RefPtr<Gtk::TextBuffer> text_buffer,
                                    const Glib::ustring& xml_string,
-                                   bool* const pPasteHadWidgets = nullptr);
+                                   bool* const pPasteHadWidgets = nullptr,
+                                   std::list<CtAnchoredWidget*>* pOutWidgets = nullptr);
 
 private:
     void _rich_text_process_slot(xmlpp::Element* root,

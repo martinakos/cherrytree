@@ -143,7 +143,7 @@ private:
 
     Gtk::Menu*                 get_popup_menu(POPUP_MENU_TYPE popupMenuType);
     void                       build_popup_menu(Gtk::Menu* pMenu, POPUP_MENU_TYPE popupMenuType);
-    void                       build_popup_menu_table_cell(Gtk::Menu* pMenu, const bool first_row, const bool first_col, const bool last_row, const bool last_col);
+    void                       build_popup_menu_table_cell(Gtk::Menu* pMenu, const bool first_row, const bool first_col, const bool last_row, const bool last_col, const bool is_rich = false);
 
 private:
 #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)

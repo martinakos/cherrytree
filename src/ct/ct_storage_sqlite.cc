@@ -631,13 +631,29 @@ void CtStorageSqlite::_table_from_db(const gint64& nodeId, std::list<CtAnchoredW
         const char* textContent = safe_sqlite3_column_text(stmt, 3);
         const int colWidthDefault = sqlite3_column_int64(stmt, 5);
 
+        CtStorageXmlHelper xmlHelper{_pCtMainWin};
+
+        // Try rich table first — needs full XML parsing to get formatting + embedded widgets
+        xmlpp::DomParser richParser;
+        if (CtXmlHelper::safe_parse_memory(richParser, textContent)) {
+            auto* rootElem = richParser.get_document()->get_root_node();
+            if (CtStrUtil::is_str_true(rootElem->get_attribute_value("is_rich"))) {
+                CtTableColWidths tableColWidths;
+                const Glib::ustring colWidthsStr = rootElem->get_attribute_value("col_widths");
+                if (not colWidthsStr.empty()) {
+                    tableColWidths = CtStrUtil::gstring_split_to_int(colWidthsStr.c_str(), ",");
+                }
+                anchoredWidgets.push_back(
+                    xmlHelper._create_rich_table_from_xml(rootElem, charOffset, justification,
+                                                          colWidthDefault, tableColWidths));
+                continue;
+            }
+        }
+
         CtTableMatrix tableMatrix;
         CtTableColWidths tableColWidths;
         bool is_light{false};
-        if (CtStorageXmlHelper{_pCtMainWin}.populate_table_matrix(tableMatrix,
-                                                                  textContent,
-                                                                  tableColWidths,
-                                                                  is_light))
+        if (xmlHelper.populate_table_matrix(tableMatrix, textContent, tableColWidths, is_light))
         {
             if (is_light) {
                 anchoredWidgets.push_back(new CtTableLight{_pCtMainWin, tableMatrix, colWidthDefault, charOffset, justification, tableColWidths});
@@ -774,7 +790,8 @@ void CtStorageSqlite::_write_node_to_db(const CtTreeIter* ct_tree_iter,
                 switch (pAnchoredWidget->get_type()) {
                     case CtAnchWidgType::CodeBox: has_codebox = true; break;
                     case CtAnchWidgType::TableLight: [[fallthrough]];
-                    case CtAnchWidgType::TableHeavy: has_table = true; break;
+                    case CtAnchWidgType::TableHeavy: [[fallthrough]];
+                    case CtAnchWidgType::TableRich: has_table = true; break;
                     default: has_image = true;
                 }
             }

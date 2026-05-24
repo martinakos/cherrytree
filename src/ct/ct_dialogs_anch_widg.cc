@@ -584,7 +584,8 @@ bool CtDialogs::codeboxhandle_dialog(CtMainWin* pCtMainWin,
 CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
                                                           const Glib::ustring& title,
                                                           const bool is_insert,
-                                                          bool& is_light)
+                                                          bool& is_light,
+                                                          bool& is_rich)
 {
     Gtk::Dialog dialog{title,
                        *pCtMainWin,
@@ -642,22 +643,49 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
 
     auto checkbutton_is_light = Gtk::CheckButton(_("Lightweight Interface (much faster for large tables)"));
     checkbutton_is_light.set_active(is_light);
+    auto checkbutton_is_rich = Gtk::CheckButton(_("Rich Table (supports bold, italic, images, etc.)"));
+    checkbutton_is_rich.set_active(is_rich);
+    if (is_rich) checkbutton_is_light.set_sensitive(false);
     auto checkbutton_table_ins_from_file = Gtk::CheckButton(_("Import from CSV File"));
 
     auto content_area = dialog.get_content_area();
     content_area->set_spacing(5);
     content_area->pack_start(grid);
     content_area->pack_start(checkbutton_is_light);
+    content_area->pack_start(checkbutton_is_rich);
     if (is_insert) content_area->pack_start(checkbutton_table_ins_from_file);
     content_area->show_all();
 
+    // Rich and lightweight are mutually exclusive
+    checkbutton_is_rich.signal_toggled().connect([&](){
+        if (checkbutton_is_rich.get_active()) {
+            checkbutton_is_light.set_active(false);
+            checkbutton_is_light.set_sensitive(false);
+        } else {
+            checkbutton_is_light.set_sensitive(true);
+        }
+    });
+    checkbutton_is_light.signal_toggled().connect([&](){
+        if (checkbutton_is_light.get_active()) {
+            checkbutton_is_rich.set_active(false);
+            checkbutton_is_rich.set_sensitive(false);
+        } else {
+            checkbutton_is_rich.set_sensitive(true);
+        }
+    });
+
     checkbutton_table_ins_from_file.signal_toggled().connect([&](){
-        grid.set_sensitive(not checkbutton_table_ins_from_file.get_active());
+        const bool from_file = checkbutton_table_ins_from_file.get_active();
+        grid.set_sensitive(not from_file);
+        checkbutton_is_rich.set_sensitive(not from_file and not checkbutton_is_light.get_active());
     });
 
     if (is_insert) {
         auto f_reeval_is_light = [&](){
-            checkbutton_is_light.set_active(spinbutton_rows.get_value_as_int()*spinbutton_columns.get_value_as_int() > pCtConfig->tableCellsGoLight);
+            // Only auto-set lightweight if rich is not chosen
+            if (not checkbutton_is_rich.get_active()) {
+                checkbutton_is_light.set_active(spinbutton_rows.get_value_as_int()*spinbutton_columns.get_value_as_int() > pCtConfig->tableCellsGoLight);
+            }
         };
         spinbutton_rows.signal_value_changed().connect([f_reeval_is_light](){ f_reeval_is_light(); });
         spinbutton_columns.signal_value_changed().connect([f_reeval_is_light](){ f_reeval_is_light(); });
@@ -682,7 +710,8 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
 
     const auto resp = dialog.run();
     if (Gtk::RESPONSE_ACCEPT == resp) {
-        is_light = checkbutton_is_light.get_active();
+        is_rich = checkbutton_is_rich.get_active();
+        is_light = not is_rich and checkbutton_is_light.get_active();
         pCtConfig->tableRows = spinbutton_rows.get_value_as_int();
         pCtConfig->tableColumns = spinbutton_columns.get_value_as_int();
         pCtConfig->tableColWidthDefault = spinbutton_col_width.get_value_as_int();
@@ -719,9 +748,10 @@ bool CtDialogs::codeboxhandle_dialog(CtMainWin* pCtMainWin,
 CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
                                                           const Glib::ustring& title,
                                                           const bool is_insert,
-                                                          bool& is_light)
+                                                          bool& is_light,
+                                                          bool& is_rich)
 {
-    (void)pCtMainWin; (void)title; (void)is_insert; (void)is_light;
+    (void)pCtMainWin; (void)title; (void)is_insert; (void)is_light; (void)is_rich;
     return TableHandleResp::Cancel;
 }
 #endif

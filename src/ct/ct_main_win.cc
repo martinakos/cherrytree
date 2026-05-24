@@ -129,10 +129,8 @@ CtMainWin::CtMainWin(bool                            no_gui,
     _uCtPrint.reset(new CtPrint{this});
     _uCtStorage.reset(CtStorageControl::create_dummy_storage(this));
 
-    // Initialize command bridge - now ACTIVE BY DEFAULT per Phase 5 of migration plan
     _pCtCommandBridge.reset(new CtCommandBridge{this});
     _pCtCommandBridge->setActive(true);
-    spdlog::info("Command pattern active (Phase 5: migration complete)");
 
     _scrolledwindowTree.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
     _scrolledwindowTree.get_style_context()->add_class("ct-tree-scroll-panel");
@@ -1494,8 +1492,6 @@ void CtMainWin::reset()
 {
     auto on_scope_exit = scope_guard([&](void*) { user_active() = true; });
     user_active() = false;
-
-    // State machine removed (Phase 5)
 
     _uCtStorage.reset(CtStorageControl::create_dummy_storage(this));
     _pCtCommandBridge->resetForNewDocument();

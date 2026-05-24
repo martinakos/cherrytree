@@ -25,6 +25,7 @@
 #include "ct_command_bridge.h"
 #include "ct_node_content.h"
 #include "ct_logging.h"
+#include "ct_const.h"
 
 // TextEditCommand implementation
 
@@ -171,72 +172,6 @@ std::string TextEditCommand::getDescription() const
     return description;
 }
 
-// ApplyFormatCommand implementation
-
-ApplyFormatCommand::ApplyFormatCommand(
-    std::shared_ptr<CtDocumentModel> docModel,
-    gint64 nodeId,
-    const Glib::ustring& oldContentXml,
-    const Glib::ustring& newContentXml,
-    const std::string& formatType,
-    int oldCursorPos,
-    int newCursorPos)
-    : _docModel(docModel)
-    , _nodeId(nodeId)
-    , _oldContentXml(oldContentXml)
-    , _newContentXml(newContentXml)
-    , _formatType(formatType)
-    , _oldCursorPos(oldCursorPos)
-    , _newCursorPos(newCursorPos)
-{
-}
-
-void ApplyFormatCommand::execute()
-{
-    if (!_docModel) {
-        spdlog::error("ApplyFormatCommand: null document model");
-        return;
-    }
-
-    auto node = _docModel->getNodeById(_nodeId);
-    if (!node) {
-        spdlog::error("ApplyFormatCommand: node {} not found", _nodeId);
-        return;
-    }
-
-    spdlog::debug("ApplyFormatCommand: executing {} for node {}", _formatType, _nodeId);
-    node->setContentXml(_newContentXml);
-    _docModel->notifyNodeChanged(_nodeId);
-}
-
-void ApplyFormatCommand::undo()
-{
-    if (!_docModel) {
-        spdlog::error("ApplyFormatCommand: null document model");
-        return;
-    }
-
-    auto node = _docModel->getNodeById(_nodeId);
-    if (!node) {
-        spdlog::error("ApplyFormatCommand: node {} not found", _nodeId);
-        return;
-    }
-
-    spdlog::debug("ApplyFormatCommand: undoing {} for node {}", _formatType, _nodeId);
-    node->setContentXml(_oldContentXml);
-    _docModel->notifyNodeChanged(_nodeId);
-}
-
-void ApplyFormatCommand::redo()
-{
-    execute();
-}
-
-std::string ApplyFormatCommand::getDescription() const
-{
-    return "Node " + std::to_string(_nodeId) + ": Format (" + _formatType + ")";
-}
-
 // CtTextEditSession implementation
 
 CtTextEditSession::CtTextEditSession(std::shared_ptr<CtDocumentModel> docModel)
@@ -249,7 +184,7 @@ CtTextEditSession::~CtTextEditSession()
     cancel();
 }
 
-void CtTextEditSession::begin(gint64 nodeId, const Glib::RefPtr<Gtk::TextBuffer>& buffer, bool hasWidgets, CtTreeIter* treeIter)
+void CtTextEditSession::begin(gint64 nodeId, const Glib::RefPtr<Gtk::TextBuffer>& buffer, bool hasWidgets, CtTreeIter* /*treeIter*/)
 {
     // End any existing session first
     if (_active) {
@@ -271,8 +206,8 @@ void CtTextEditSession::begin(gint64 nodeId, const Glib::RefPtr<Gtk::TextBuffer>
     startSignalCapture(buffer);
 }
 
-std::unique_ptr<CtCommand> CtTextEditSession::end(const Glib::RefPtr<Gtk::TextBuffer>& buffer,
-                                                   const std::list<CtAnchoredWidget*>& widgets,
+std::unique_ptr<CtCommand> CtTextEditSession::end(const Glib::RefPtr<Gtk::TextBuffer>& /*buffer*/,
+                                                   const std::list<CtAnchoredWidget*>& /*widgets*/,
                                                    int cursorPos)
 {
     if (!_active) {
@@ -288,8 +223,10 @@ std::unique_ptr<CtCommand> CtTextEditSession::end(const Glib::RefPtr<Gtk::TextBu
     }
 
     // Deduplication: if all edits cancel out (e.g. type 'a' then backspace),
-    // the model is unchanged — discard the session rather than pushing a no-op
-    {
+    // the model is unchanged — discard the session rather than pushing a no-op.
+    // Skip this check when model sync is disabled (rich cell sessions) because
+    // the model wasn't updated, so it would always appear unchanged.
+    if (!_skipModelSync) {
         auto node = _docModel->getNodeById(_nodeId);
         const Glib::ustring currentXml = node ? node->getContent().toXml() : Glib::ustring{};
         if (currentXml == _initialXml) {
@@ -406,6 +343,82 @@ void CtTextEditSession::stopSignalCapture()
     }
 }
 
+// Returns true if tagName starts with prefix (replacement for str::startswith without ct_misc_utils.h).
+static bool startsWith(const std::string& s, const Glib::ustring& prefix)
+{
+    return s.rfind(std::string(prefix), 0) == 0;
+}
+
+// Returns true if tagName is a user-applied CherryTree format tag (not syntax/internal).
+static bool isUserFormattingTag(const std::string& tagName)
+{
+    return startsWith(tagName, CtConst::TAG_WEIGHT_PREFIX)
+        || startsWith(tagName, CtConst::TAG_FOREGROUND_PREFIX)
+        || startsWith(tagName, CtConst::TAG_BACKGROUND_PREFIX)
+        || startsWith(tagName, CtConst::TAG_SCALE_PREFIX)
+        || startsWith(tagName, CtConst::TAG_JUSTIFICATION_PREFIX)
+        || startsWith(tagName, CtConst::TAG_STYLE_PREFIX)
+        || startsWith(tagName, CtConst::TAG_UNDERLINE_PREFIX)
+        || startsWith(tagName, CtConst::TAG_STRIKETHROUGH_PREFIX)
+        || startsWith(tagName, CtConst::TAG_INDENT_PREFIX)
+        || startsWith(tagName, CtConst::TAG_FAMILY_PREFIX);
+}
+
+void CtTextEditSession::startTagCapture(const Glib::RefPtr<Gtk::TextBuffer>& buffer)
+{
+    if (!buffer) return;
+    stopTagCapture();
+    _pendingTagChanges.clear();
+    _applyTagConnection = buffer->signal_apply_tag().connect(
+        sigc::mem_fun(*this, &CtTextEditSession::onTagApplied));
+    _removeTagConnection = buffer->signal_remove_tag().connect(
+        sigc::mem_fun(*this, &CtTextEditSession::onTagRemoved));
+}
+
+void CtTextEditSession::stopTagCapture()
+{
+    if (_applyTagConnection.connected()) _applyTagConnection.disconnect();
+    if (_removeTagConnection.connected()) _removeTagConnection.disconnect();
+}
+
+void CtTextEditSession::onTagApplied(const Glib::RefPtr<Gtk::TextTag>& tag,
+                                      const Gtk::TextIter& start,
+                                      const Gtk::TextIter& end)
+{
+    const Glib::ustring tagNameU = tag->property_name();
+    const std::string tagName = std::string(tagNameU);
+    if (tagName.empty() || !isUserFormattingTag(tagName)) return;
+    _pendingTagChanges.push_back({tagName, start.get_offset(), end.get_offset(), true});
+}
+
+void CtTextEditSession::onTagRemoved(const Glib::RefPtr<Gtk::TextTag>& tag,
+                                      const Gtk::TextIter& start,
+                                      const Gtk::TextIter& end)
+{
+    const Glib::ustring tagNameU = tag->property_name();
+    const std::string tagName = std::string(tagNameU);
+    if (tagName.empty() || !isUserFormattingTag(tagName)) return;
+    _pendingTagChanges.push_back({tagName, start.get_offset(), end.get_offset(), false});
+}
+
+std::vector<CtTextEditSession::TagChange> CtTextEditSession::drainAndCoalesceTagChanges()
+{
+    std::vector<TagChange> result;
+    for (const auto& ch : _pendingTagChanges) {
+        if (!result.empty()
+                && result.back().tagName == ch.tagName
+                && result.back().isApply == ch.isApply
+                && result.back().end == ch.start) {
+            // Adjacent range for same tag+direction — extend.
+            result.back().end = ch.end;
+        } else {
+            result.push_back(ch);
+        }
+    }
+    _pendingTagChanges.clear();
+    return result;
+}
+
 void CtTextEditSession::onBufferInsert(const Gtk::TextBuffer::iterator& pos,
                                         const Glib::ustring& text, int /*bytes*/)
 {
@@ -416,8 +429,6 @@ void CtTextEditSession::onBufferInsert(const Gtk::TextBuffer::iterator& pos,
     // Note: The insert signal passes 'pos' pointing to the START of the newly inserted text
     // This is the offset we need for undo
     int offset = pos.get_offset();
-    int textLen = static_cast<int>(text.length());
-
     auto attrs = extractAttributesFromIter(pos);
 
     // Helper to check if text is a special character that should be a separate command
@@ -425,17 +436,20 @@ void CtTextEditSession::onBufferInsert(const Gtk::TextBuffer::iterator& pos,
         return txt == " " || txt == "\n" || txt == "\t";
     };
 
-    // Keep model in sync with buffer during session (needed for delta-based undo/redo)
-    auto node = _docModel->getNodeById(_nodeId);
-    if (node) {
-        try {
-            node->getContent().insertText(offset, text, attrs);
-        } catch (const std::out_of_range& e) {
-            // Model is out of sync with buffer - this can happen after widget
-            // insertions or other buffer modifications outside a session.
-            // Log and skip; the next beginTextEditSession will re-sync.
-            spdlog::warn("onBufferInsert: model out of sync at offset {} (model length={}): {}",
-                         offset, node->getContent().length(), e.what());
+    // Keep model in sync with buffer during session (needed for delta-based undo/redo).
+    // Skip when this session tracks a rich cell buffer (independent of node model).
+    if (!_skipModelSync) {
+        auto node = _docModel->getNodeById(_nodeId);
+        if (node) {
+            try {
+                node->getContent().insertText(offset, text, attrs);
+            } catch (const std::out_of_range& e) {
+                // Model is out of sync with buffer - this can happen after widget
+                // insertions or other buffer modifications outside a session.
+                // Log and skip; the next beginTextEditSession will re-sync.
+                spdlog::warn("onBufferInsert: model out of sync at offset {} (model length={}): {}",
+                             offset, node->getContent().length(), e.what());
+            }
         }
     }
 
@@ -474,18 +488,17 @@ void CtTextEditSession::onBufferErase(const Gtk::TextBuffer::iterator& start,
     // Create DeleteRangeCommand (constructor captures deleted content from model via extractRange)
     auto deleteCmd = std::make_unique<DeleteRangeCommand>(_docModel, _nodeId, startOffset, length);
 
-    // Keep model in sync with buffer during session (needed for delta-based undo/redo)
-    auto node = _docModel->getNodeById(_nodeId);
-    if (node) {
-        node->getContent().deleteRange(startOffset, length);
+    // Keep model in sync with buffer during session (needed for delta-based undo/redo).
+    // Skip when this session tracks a rich cell buffer (independent of node model).
+    if (!_skipModelSync) {
+        auto node = _docModel->getNodeById(_nodeId);
+        if (node) {
+            node->getContent().deleteRange(startOffset, length);
+        }
     }
 
     _capturedCommands.push_back(std::move(deleteCmd));
 }
-
-// ============================================================================
-// Phase 5: Lightweight Delta-Based Commands Implementation
-// ============================================================================
 
 // InsertTextCommand implementation
 
@@ -704,9 +717,9 @@ std::string DeleteRangeCommand::getDescription() const
     return "Node " + std::to_string(_nodeId) + ": Delete " + std::to_string(_length) + " chars";
 }
 
-// ApplyFormatCommandV2 implementation
+// ApplyFormatCommand implementation
 
-ApplyFormatCommandV2::ApplyFormatCommandV2(
+ApplyFormatCommand::ApplyFormatCommand(
     std::shared_ptr<CtDocumentModel> docModel,
     gint64 nodeId,
     int start,
@@ -726,11 +739,11 @@ ApplyFormatCommandV2::ApplyFormatCommandV2(
 {
 }
 
-void ApplyFormatCommandV2::execute()
+void ApplyFormatCommand::execute()
 {
     auto node = _docModel->getNodeById(_nodeId);
     if (!node) {
-        spdlog::error("ApplyFormatCommandV2: node {} not found", _nodeId);
+        spdlog::error("ApplyFormatCommand: node {} not found", _nodeId);
         return;
     }
 
@@ -740,15 +753,15 @@ void ApplyFormatCommandV2::execute()
     // Notify observers
     _docModel->notifyNodeChanged(_nodeId);
 
-    spdlog::debug("ApplyFormatCommandV2: applied {}={} to {} chars at offset {} in node {}",
+    spdlog::debug("ApplyFormatCommand: applied {}={} to {} chars at offset {} in node {}",
                   _attribute, _value, _length, _start, _nodeId);
 }
 
-void ApplyFormatCommandV2::undo()
+void ApplyFormatCommand::undo()
 {
     auto node = _docModel->getNodeById(_nodeId);
     if (!node) {
-        spdlog::error("ApplyFormatCommandV2: node {} not found for undo", _nodeId);
+        spdlog::error("ApplyFormatCommand: node {} not found for undo", _nodeId);
         return;
     }
 
@@ -758,14 +771,14 @@ void ApplyFormatCommandV2::undo()
     // Notify observers
     _docModel->notifyNodeChanged(_nodeId);
 
-    spdlog::debug("ApplyFormatCommandV2: undone format {}={} in node {}", _attribute, _value, _nodeId);
+    spdlog::debug("ApplyFormatCommand: undone format {}={} in node {}", _attribute, _value, _nodeId);
 }
 
-void ApplyFormatCommandV2::redo()
+void ApplyFormatCommand::redo()
 {
     auto node = _docModel->getNodeById(_nodeId);
     if (!node) {
-        spdlog::error("ApplyFormatCommandV2: node {} not found for redo", _nodeId);
+        spdlog::error("ApplyFormatCommand: node {} not found for redo", _nodeId);
         return;
     }
 
@@ -776,7 +789,7 @@ void ApplyFormatCommandV2::redo()
     _docModel->notifyNodeChanged(_nodeId);
 }
 
-std::string ApplyFormatCommandV2::getDescription() const
+std::string ApplyFormatCommand::getDescription() const
 {
     return "Node " + std::to_string(_nodeId) + ": Format " + _attribute + "=" + _value;
 }

@@ -35,6 +35,7 @@
 class CtMainWin;
 class CtTreeIter;
 class CtAnchoredWidget;
+class CtRichCell;
 
 // High-level operation currently in progress.
 // Replaces five individual boolean flags and makes illegal state combinations
@@ -96,7 +97,7 @@ public:
     void beginFormatChange(gint64 nodeId, const std::string& formatType);
     void endFormatChange();
 
-    // New model-first format operation (Phase 4)
+    // Apply formatting via model-first path
     void applyFormatV2(
         gint64 nodeId,
         int selStart,
@@ -137,6 +138,27 @@ public:
     void beginWidgetEdit(gint64 nodeId, CtAnchoredWidget* widget = nullptr, int row = -1, int col = -1);
     void endWidgetEdit();
 
+    // RT-4: Rich cell format support.
+    // Returns true when the tracked widget is a CtTableRich cell.
+    bool isTrackingRichCell() const;
+    // Returns the GTK buffer of the active rich cell (empty RefPtr if none).
+    Glib::RefPtr<Gtk::TextBuffer> getActiveRichCellBuffer();
+    // Returns the active CtRichCell pointer, or nullptr if not in a rich cell.
+    CtRichCell* getActiveRichCellPtr() const;
+    // Call after applying a format tag to the active rich cell's GTK buffer.
+    // Captures old→new cell content delta and pushes an EditRichCellCommand.
+    void commitRichCellFormatChange(std::string description = "Format text");
+
+    // Flush the rich cell edit session: end the current session, create an
+    // EditRichCellCommand with a description built from captured sub-commands
+    // (matching main-page undo granularity), and start a new session.
+    void flushRichCellSession();
+
+    // Cancel the active rich cell session without creating a command.
+    // Use before bulk buffer modifications (e.g. paste) so individual insert
+    // signals aren't captured as separate undo entries.
+    void cancelRichCellSession();
+
     // Widget operation helpers
     Glib::ustring getCurrentBufferXml();
 
@@ -159,7 +181,7 @@ public:
     // Check if bridge is active (model is initialized)
     bool isActive() const { return _active; }
 
-    // Enable/disable the bridge (for gradual migration)
+    // Enable/disable the bridge
     void setActive(bool active) { _active = active; }
 
     // Access to document model (for testing)
@@ -206,21 +228,20 @@ private:
     std::shared_ptr<CtDocumentModel> _docModel;
     CtCommandManager _commandManager;
     std::unique_ptr<CtTextEditSession> _editSession;
+    std::unique_ptr<CtTextEditSession> _richCellSession;  // per-word signal capture on rich cell buffer
     std::unique_ptr<BridgeObserver> _observer;
     bool _active;
 
     // Current high-level operation (replaces five individual booleans)
     BridgeOp _currentOp{BridgeOp::None};
 
-    // Narrow sub-phase flag: true only while a command's execute/undo/redo runs
-    // Distinct from _currentOp so the observer can distinguish "during the actual replay"
-    // from "between replay and session restart".
+    // True only while a command's execute/undo/redo runs (so the observer
+    // can distinguish replay from the gap before session restart).
     bool _inCommandExecution{false};
 
-    // Format change tracking (operation-specific data beyond _captureInitialXml)
+    // Format change tracking
     gint64 _formatChangeNodeId{0};
     std::string _captureFormatType;
-    Glib::ustring _formatChangeInitialXml;
     int _formatChangeOldCursorPos{-1};
     int _formatChangeNewCursorPos{-1};
 
@@ -235,7 +256,9 @@ private:
     int _widgetEditCharOffset{-1};
     int _widgetEditRow{-1};
     int _widgetEditCol{-1};
-    std::string _widgetEditOldContent;  // codebox: UTF-8 text; table cell: UTF-8 raw bytes
+    std::string _widgetEditOldContent;       // codebox: UTF-8 text; plain table cell: UTF-8 raw bytes
+    CtCellContent _widgetEditOldCellContent; // rich table cell: structured content snapshot
+    bool _widgetEditIsRichCell{false};       // true when the tracked widget is a CtTableRich cell
 
     // Unified paste/cut capture fields (shared between CapturingPaste and CapturingCut)
     gint64 _captureNodeId{0};

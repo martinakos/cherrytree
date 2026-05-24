@@ -365,7 +365,8 @@ private:
     // helper for edit actions
     void _image_edit_dialog(Glib::RefPtr<Gdk::Pixbuf> rPixbuf,
                             Gtk::TextIter insertIter,
-                            Gtk::TextIter* pIterBound);
+                            Gtk::TextIter* pIterBound,
+                            CtRichCell* pRichCell = nullptr);
     void _latex_edit_dialog(const Glib::ustring& latex_text,
                             Gtk::TextIter insertIter,
                             Gtk::TextIter* pIterBound);
@@ -373,6 +374,10 @@ private:
     int  _find_previous_indent_margin();
     void _apply_tag_hN(const char* tagPropScaleVal);
     void _remove_text_formatting(const bool dismiss_link);
+    // RT-4: routes a format operation into the active rich table cell.
+    // Returns true (and handles everything) when a CtRichCell has focus.
+    bool _apply_format_to_active_rich_cell(const Glib::ustring& tagProperty, const Glib::ustring& value = "", const std::string& description = "Format text");
+    bool _apply_paragraph_format_to_rich_cell(const Glib::ustring& tagProperty, const Glib::ustring& value, const std::string& description = "Format text");
 
 public:
     void image_insert_png(Gtk::TextIter iter_insert,

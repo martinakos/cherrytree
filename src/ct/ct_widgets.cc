@@ -79,7 +79,11 @@ CtAnchoredWidget::CtAnchoredWidget(CtMainWin* pCtMainWin, const int charOffset, 
 {
     _frame.set_shadow_type(Gtk::ShadowType::SHADOW_NONE);
     signal_button_press_event().connect([this](GdkEventButton* /*pEvent*/){
-        _pCtMainWin->curr_buffer()->place_cursor(_pCtMainWin->curr_buffer()->get_iter_at_child_anchor(_rTextChildAnchor));
+        // Use the buffer that owns this anchor — for widgets embedded in rich-cell
+        // buffers, curr_buffer() is the wrong buffer and would trigger a GTK assertion.
+        if (_rParentBuffer) {
+            _rParentBuffer->place_cursor(_rParentBuffer->get_iter_at_child_anchor(_rTextChildAnchor));
+        }
         return true; // we need to block this or the focus will go to the text buffer below
     });
     add(_frame);
@@ -98,6 +102,7 @@ void CtAnchoredWidget::set_hidden(const bool hidden)
 
 void CtAnchoredWidget::insertInTextBuffer(Glib::RefPtr<Gtk::TextBuffer> pTextBuffer)
 {
+    _rParentBuffer = pTextBuffer;
     _rTextChildAnchor = pTextBuffer->create_child_anchor(pTextBuffer->get_iter_at_offset(_charOffset));
     if (not _justification.empty()) {
         Gtk::TextIter textIterStart = pTextBuffer->get_iter_at_child_anchor(_rTextChildAnchor);
@@ -150,8 +155,6 @@ void CtTreeView::set_tooltips_enable(const bool on)
 
 bool CtTreeView::_on_query_tooltip(int x, int y, bool keyboard_tooltip, const Glib::RefPtr<Gtk::Tooltip>& tooltip)
 {
-    // gtk_tree_view_set_tooltip_context converts widget coords to bin-window coords,
-    // retrieves the path/iter under the pointer and returns FALSE when there is none.
     GtkTreeModel* pModel = nullptr;
     GtkTreePath* pPath = nullptr;
     GtkTreeIter treeIter;
@@ -169,7 +172,6 @@ bool CtTreeView::_on_query_tooltip(int x, int y, bool keyboard_tooltip, const Gl
 
     tooltip->set_text(pNodeName);
     g_free(pNodeName);
-    // Anchor the tooltip to the specific row so GTK re-triggers it when the row changes.
     gtk_tree_view_set_tooltip_row(gobj(), tooltip->gobj(), pPath);
     gtk_tree_path_free(pPath);
     return true;

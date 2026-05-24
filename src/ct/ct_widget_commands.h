@@ -28,47 +28,6 @@
 #include <glibmm/ustring.h>
 #include <memory>
 
-// Base command for widget operations
-// Widgets (images, tables, codeboxes) are embedded in node content XML
-// These commands use XML snapshot approach like text commands
-class WidgetCommand : public CtCommand {
-public:
-    WidgetCommand(
-        std::shared_ptr<CtDocumentModel> docModel,
-        gint64 nodeId,
-        const Glib::ustring& oldContentXml,
-        const Glib::ustring& newContentXml,
-        const std::string& widgetType,
-        int oldCursorPos = -1,
-        int newCursorPos = -1
-    );
-
-    void execute() override;
-    void undo() override;
-    void redo() override;
-    std::string getDescription() const override;
-
-    gint64 getNodeId() const override { return _nodeId; }
-    int getOldCursorPos() const override { return _oldCursorPos; }
-    int getNewCursorPos() const override { return _newCursorPos; }
-    double getOldScrollPos() const override { return _oldScrollPos; }
-    double getNewScrollPos() const override { return _newScrollPos; }
-
-    void setOldScrollPos(double pos) { _oldScrollPos = pos; }
-    void setNewScrollPos(double pos) { _newScrollPos = pos; }
-
-protected:
-    std::shared_ptr<CtDocumentModel> _docModel;
-    gint64 _nodeId;
-    Glib::ustring _oldContentXml;
-    Glib::ustring _newContentXml;
-    std::string _widgetType;
-    int _oldCursorPos;
-    int _newCursorPos;
-    double _oldScrollPos{-1.0};
-    double _newScrollPos{-1.0};
-};
-
 // Lightweight delta command for inserting a widget.
 // Stores only the CtWidgetDesc (~1-50KB) instead of two full node XML snapshots (~200KB).
 class InsertWidgetDeltaCommand : public CtCommand {
@@ -195,6 +154,54 @@ private:
     int _newCursorPos;
     double _oldScrollPos{-1.0};
     double _newScrollPos{-1.0};
+};
+
+// Lightweight delta command for editing a single rich table cell's content.
+// Stores only old/new CtCellContent instead of full node XML snapshots.
+class EditRichCellCommand : public CtCommand {
+public:
+    EditRichCellCommand(
+        std::shared_ptr<CtDocumentModel> docModel,
+        gint64 nodeId,
+        int widgetCharOffset,
+        size_t row,
+        size_t col,
+        const CtCellContent& oldContent,
+        const CtCellContent& newContent,
+        int oldCursorPos = -1,
+        int newCursorPos = -1,
+        std::string description = ""
+    );
+
+    void execute() override;
+    void undo() override;
+    void redo() override;
+    std::string getDescription() const override;
+
+    gint64 getNodeId() const override { return _nodeId; }
+    int getOldCursorPos() const override { return _oldCursorPos; }
+    int getNewCursorPos() const override { return _newCursorPos; }
+    double getOldScrollPos() const override { return _oldScrollPos; }
+    double getNewScrollPos() const override { return _newScrollPos; }
+
+    void setOldScrollPos(double pos) { _oldScrollPos = pos; }
+    void setNewScrollPos(double pos) { _newScrollPos = pos; }
+
+private:
+    void _applyContent(const CtCellContent& content);
+
+    std::shared_ptr<CtDocumentModel> _docModel;
+    gint64 _nodeId;
+    int _widgetCharOffset;
+    size_t _row;
+    size_t _col;
+    CtCellContent _oldContent;
+    CtCellContent _newContent;
+    int _oldCursorPos;
+    int _newCursorPos;
+    double _oldScrollPos{-1.0};
+    double _newScrollPos{-1.0};
+    std::string _description;
 };
 
 // Lightweight delta command for editing codebox text content.

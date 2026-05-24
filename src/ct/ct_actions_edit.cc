@@ -44,7 +44,6 @@ void CtActions::requested_step_back()
         return;
     }
 
-    // Command pattern handles all undo/redo (Phase 5: state machine removed)
     auto pBridge = _pCtMainWin->get_command_bridge();
     if (pBridge && pBridge->canUndo()) {
         pBridge->undo();
@@ -62,7 +61,6 @@ void CtActions::requested_step_ahead()
     if (not currTreeIter) return;
     if (not _is_curr_node_not_read_only_or_error()) return;
 
-    // Command pattern handles all undo/redo (Phase 5: state machine removed)
     auto pBridge = _pCtMainWin->get_command_bridge();
     if (pBridge && pBridge->canRedo()) {
         pBridge->redo();
@@ -110,12 +108,43 @@ void CtActions::table_insert()
     if (not _node_sel_and_rich_text()) return;
     if (not _is_curr_node_not_read_only_or_error()) return;
     bool is_light{_pCtConfig->tableColumns*_pCtConfig->tableRows > _pCtConfig->tableCellsGoLight};
+    bool is_rich{false};
     CtDialogs::TableHandleResp res = CtDialogs::table_handle_dialog(
         _pCtMainWin,
         _("Insert Table"),
         true/*is_insert*/,
-        is_light);
+        is_light,
+        is_rich);
     if (res == CtDialogs::TableHandleResp::Cancel) return;
+
+    const auto charOffset = _curr_buffer()->get_insert()->get_iter().get_offset();
+    int col_width = _pCtConfig->tableColWidthDefault;
+    auto pBridge = _pCtMainWin->get_command_bridge();
+
+    if (is_rich) {
+        // Build rich table: rows×columns of empty CtCellContent
+        std::vector<std::vector<CtCellContent>> richData;
+        for (int r = 0; r < _pCtConfig->tableRows; ++r) {
+            richData.push_back(std::vector<CtCellContent>(_pCtConfig->tableColumns, CtCellContent{}));
+        }
+        if (pBridge && pBridge->isActive()) {
+            pBridge->endTextEditSession();
+        }
+        auto pCtTable = new CtTableRich{_pCtMainWin, richData, col_width, charOffset, "", CtTableColWidths{}};
+        pCtTable->insertInTextBuffer(_curr_buffer());
+        _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
+            {pCtTable}, &_pCtMainWin->get_text_view().mm());
+        if (pBridge && pBridge->isActive()) {
+            gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+            auto desc = extractWidgetDesc(pCtTable, charOffset);
+            auto cmd = std::make_unique<InsertWidgetDeltaCommand>(
+                pBridge->getDocumentModel(), nodeId, charOffset, desc, "Insert table");
+            pBridge->addCommandToStack(std::move(cmd));
+            auto node = pBridge->getDocumentModel()->getNodeById(nodeId);
+            if (node) node->getContent().insertWidget(charOffset, desc);
+        }
+        return;
+    }
 
     std::list<std::vector<std::string>> rows;
     if (res == CtDialogs::TableHandleResp::Ok) {
@@ -125,8 +154,6 @@ void CtActions::table_insert()
         }
     }
     CtTableMatrix tbl_matrix;
-    const auto charOffset = _curr_buffer()->get_insert()->get_iter().get_offset();
-    int col_width = _pCtConfig->tableColWidthDefault;
     if (res == CtDialogs::TableHandleResp::OkFromFile) {
         CtDialogs::CtFileSelectArgs args{};
         args.curr_folder = _pCtConfig->pickDirCsv;
@@ -147,12 +174,11 @@ void CtActions::table_insert()
                 if (is_light) {
                     tbl_matrix.back().push_back(new Glib::ustring{});
                 } else {
-                    tbl_matrix.back().push_back(new CtTextCell{_pCtMainWin, cell, CtConst::TABLE_CELL_TEXT_ID});    
+                    tbl_matrix.back().push_back(new CtTextCell{_pCtMainWin, cell, CtConst::TABLE_CELL_TEXT_ID});
                 }
             }
         }
     }
-    auto pBridge = _pCtMainWin->get_command_bridge();
     if (pBridge && pBridge->isActive()) {
         pBridge->endTextEditSession();
 
@@ -1091,6 +1117,26 @@ void CtActions::image_insert_latex(Gtk::TextIter iter_insert,
                                    const Glib::ustring& justification)
 {
     if (latex_text.empty()) return;
+
+    // RT-5: Route to cell buffer when a rich table cell is focused.
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+        if (auto* pTable = dynamic_cast<CtTableRich*>(_table_in_use())) {
+            const size_t row = pTable->current_row();
+            const size_t col = pTable->current_column();
+            CtRichCell* pCell = pTable->getRichCell(row, col);
+            auto cellBuffer = pCell->get_buffer();
+            const int cellCharOffset = cellBuffer->get_insert()->get_iter().get_offset();
+            pBridge->cancelRichCellSession();
+            auto* pWidget = new CtImageLatex{_pCtMainWin, latex_text, cellCharOffset,
+                                             justification, CtImageEmbFile::get_next_unique_id()};
+            pWidget->insertInTextBuffer(cellBuffer);
+            pCell->addEmbeddedWidget(pWidget);
+            pBridge->commitRichCellFormatChange("Insert LaTeX");
+            return;
+        }
+    }
+
     const int charOffset = iter_insert.get_offset();
     CtAnchoredWidget* pAnchoredWidget = new CtImageLatex{_pCtMainWin, latex_text, charOffset, justification, CtImageEmbFile::get_next_unique_id()};
     pAnchoredWidget->insertInTextBuffer(_curr_buffer());
@@ -1098,7 +1144,6 @@ void CtActions::image_insert_latex(Gtk::TextIter iter_insert,
                                                      {pAnchoredWidget},
                                                      &_pCtMainWin->get_text_view().mm());
 
-    auto pBridge = _pCtMainWin->get_command_bridge();
     if (pBridge && pBridge->isActive() && !pBridge->isSuppressingTextEdits()) {
         gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
         auto desc = extractWidgetDesc(pAnchoredWidget, charOffset);
@@ -1113,7 +1158,8 @@ void CtActions::image_insert_latex(Gtk::TextIter iter_insert,
 // Insert/Edit Image Dialog
 void CtActions::_image_edit_dialog(Glib::RefPtr<Gdk::Pixbuf> rPixbuf,
                                    Gtk::TextIter insert_iter,
-                                   Gtk::TextIter* pIterBound)
+                                   Gtk::TextIter* pIterBound,
+                                   CtRichCell* pRichCell)
 {
     Glib::RefPtr<Gdk::Pixbuf> ret_pixbuf = CtDialogs::image_handle_dialog(*_pCtMainWin, rPixbuf);
     if (not ret_pixbuf) return;
@@ -1121,6 +1167,34 @@ void CtActions::_image_edit_dialog(Glib::RefPtr<Gdk::Pixbuf> rPixbuf,
 
     // For image edits, use ModifyWidgetDeltaCommand (old desc → new desc)
     if (pIterBound) { // only in case of modify
+
+        // Rich table cell: the image lives in the cell buffer, not the main buffer.
+        // pRichCell is passed from image_edit() which detects the cell structurally
+        // (via widget hierarchy), independent of bridge tracking state.
+        if (pRichCell) {
+            auto cellBuffer = pRichCell->get_buffer();
+            const int image_offset = insert_iter.get_offset();
+
+            // Cancel signal capture so the erase/insert aren't recorded separately.
+            auto pBridge = _pCtMainWin->get_command_bridge();
+            if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+                pBridge->cancelRichCellSession();
+            }
+
+            // Replace the image in the cell buffer.
+            cellBuffer->erase(insert_iter, *pIterBound);
+            insert_iter = cellBuffer->get_iter_at_offset(image_offset);
+            auto* pWidget = new CtImagePng{_pCtMainWin, ret_pixbuf, ""/*link*/, image_offset, ""};
+            pWidget->insertInTextBuffer(cellBuffer);
+            pRichCell->addEmbeddedWidget(pWidget);
+
+            // Record as a single undo step.
+            if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+                pBridge->commitRichCellFormatChange("Edit image");
+            }
+            return;
+        }
+
         auto pBridge = _pCtMainWin->get_command_bridge();
         if (pBridge && pBridge->isActive()) {
             pBridge->endTextEditSession();
@@ -1166,6 +1240,27 @@ void CtActions::image_insert_png(Gtk::TextIter iter_insert,
     if (not rPixbuf) return;
 
     auto pBridge = _pCtMainWin->get_command_bridge();
+
+    // RT-5: Route to cell buffer when a rich table cell is focused.
+    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+        if (auto* pTable = dynamic_cast<CtTableRich*>(_table_in_use())) {
+            const size_t row = pTable->current_row();
+            const size_t col = pTable->current_column();
+            CtRichCell* pCell = pTable->getRichCell(row, col);
+            auto cellBuffer = pCell->get_buffer();
+            const int cellCharOffset = cellBuffer->get_insert()->get_iter().get_offset();
+            // Cancel signal capture so the anchor char insert isn't recorded separately.
+            pBridge->cancelRichCellSession();
+            // Insert widget into the cell's buffer.
+            auto* pWidget = new CtImagePng{_pCtMainWin, rPixbuf, link, cellCharOffset, ""};
+            pWidget->insertInTextBuffer(cellBuffer);
+            pCell->addEmbeddedWidget(pWidget);
+            // Record widget insertion as a single undo step.
+            pBridge->commitRichCellFormatChange("Insert image");
+            return;
+        }
+    }
+
     if (pBridge && pBridge->isActive()) {
         pBridge->endTextEditSession();
 
@@ -1205,6 +1300,25 @@ void CtActions::image_insert_anchor(Gtk::TextIter iter_insert,
                                     const CtAnchorExpCollState expCollState,
                                     const Glib::ustring& image_justification)
 {
+    // RT-5: Route to cell buffer when a rich table cell is focused.
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+        if (auto* pTable = dynamic_cast<CtTableRich*>(_table_in_use())) {
+            const size_t row = pTable->current_row();
+            const size_t col = pTable->current_column();
+            CtRichCell* pCell = pTable->getRichCell(row, col);
+            auto cellBuffer = pCell->get_buffer();
+            const int cellCharOffset = cellBuffer->get_insert()->get_iter().get_offset();
+            pBridge->cancelRichCellSession();
+            auto* pWidget = new CtImageAnchor{_pCtMainWin, name, expCollState, cellCharOffset,
+                                              image_justification};
+            pWidget->insertInTextBuffer(cellBuffer);
+            pCell->addEmbeddedWidget(pWidget);
+            pBridge->commitRichCellFormatChange("Insert anchor");
+            return;
+        }
+    }
+
     const int charOffset = iter_insert.get_offset();
     CtAnchoredWidget* pAnchoredWidget = new CtImageAnchor{_pCtMainWin, name, expCollState, charOffset, image_justification};
     pAnchoredWidget->insertInTextBuffer(_curr_buffer());
@@ -1212,7 +1326,6 @@ void CtActions::image_insert_anchor(Gtk::TextIter iter_insert,
                                                      {pAnchoredWidget},
                                                      &_pCtMainWin->get_text_view().mm());
 
-    auto pBridge = _pCtMainWin->get_command_bridge();
     if (pBridge && pBridge->isActive() && !pBridge->isSuppressingTextEdits()) {
         gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
         auto desc = extractWidgetDesc(pAnchoredWidget, charOffset);

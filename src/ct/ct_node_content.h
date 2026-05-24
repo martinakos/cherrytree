@@ -66,8 +66,22 @@ class CtMainWin;
 // This enum must be kept in sync with the one in ct_types.h
 #ifndef CTANCH_WIDG_TYPE_DEFINED
 #define CTANCH_WIDG_TYPE_DEFINED
-enum class CtAnchWidgType { None, CodeBox, TableHeavy, TableLight, ImagePng, ImageAnchor, ImageLatex, ImageEmbFile, Link };
+enum class CtAnchWidgType { None, CodeBox, TableHeavy, TableLight, TableRich, ImagePng, ImageAnchor, ImageLatex, ImageEmbFile, Link };
 #endif
+
+// Rich content for a single table cell: formatted text runs + embedded widgets.
+// Used in CtWidgetDesc::richTableData for rich tables.
+struct CtCellContent {
+    std::vector<struct CtTextSpan> textSpans;
+    // Embedded widgets inside the cell (images, codeboxes) — populated in RT-5.
+    std::vector<struct CtWidgetDesc> embeddedWidgets;
+
+    Glib::ustring getPlainText() const;
+    // True when there is no formatting and no embedded widgets.
+    bool isPlainText() const;
+
+    bool operator==(const CtCellContent& other) const;
+};
 
 // Represents a run of text with uniform formatting attributes
 struct CtTextSpan {
@@ -102,8 +116,11 @@ struct CtWidgetDesc {
     // Structured content (replaces properties["_content"] for non-table widgets)
     std::string contentData;  // codebox text, image base64, latex source, embfile blob
 
-    // Table cell data (rows × cols) — only populated for table types
+    // Table cell data (rows × cols) — only populated for plain table types (TableHeavy / TableLight)
     std::vector<std::vector<Glib::ustring>> tableData;
+
+    // Rich table cell data (rows × cols) — only populated for TableRich
+    std::vector<std::vector<CtCellContent>> richTableData;
 
     CtWidgetDesc() = default;
     CtWidgetDesc(CtAnchWidgType t) : type(t) {}
@@ -117,6 +134,7 @@ struct CtWidgetDesc {
     void setProperty(const std::string& key, const std::string& value) { properties[key] = value; }
 
     bool hasTableData() const { return !tableData.empty(); }
+    bool hasRichTableData() const { return !richTableData.empty(); }
 
     // Typed accessors — avoid stoi/bool-string conversions at every callsite
     int         getCharOffset()         const { return std::stoi(getProperty("char_offset", "0")); }
@@ -145,7 +163,8 @@ struct CtWidgetDesc {
         return type == other.type &&
                properties == other.properties &&
                contentData == other.contentData &&
-               tableData == other.tableData;
+               tableData == other.tableData &&
+               richTableData == other.richTableData;
     }
 };
 
@@ -183,12 +202,13 @@ struct CtDeletedContent {
 // Result of an applyFormat operation - contains old attribute values for undo
 struct CtFormatChange {
     struct SpanChange {
-        int spanIndex;
+        int spanOffset;   // Text offset of the span start
+        int spanLength;   // Character length of the span
         std::string oldValue;  // Empty string means attribute didn't exist
         bool hadAttribute;
 
-        SpanChange(int idx, const std::string& old, bool had)
-            : spanIndex(idx), oldValue(old), hadAttribute(had) {}
+        SpanChange(int offset, int length, const std::string& old, bool had)
+            : spanOffset(offset), spanLength(length), oldValue(old), hadAttribute(had) {}
     };
 
     std::vector<SpanChange> changes;
@@ -268,6 +288,10 @@ public:
     // Returns false if no table widget at that offset or indices out of range.
     bool setWidgetTableCell(int charOffset, size_t row, size_t col, const Glib::ustring& newText);
 
+    // Update a single rich table cell by widget char offset + row/col.
+    // Returns false if no rich table widget at that offset or indices out of range.
+    bool setWidgetRichTableCell(int charOffset, size_t row, size_t col, const CtCellContent& newContent);
+
     // Replace widget descriptor at given char_offset. Returns old descriptor (type==None if not found).
     CtWidgetDesc replaceWidget(int charOffset, const CtWidgetDesc& newWidget);
 
@@ -300,7 +324,7 @@ namespace Glib {
 }
 class CtAnchoredWidget;
 
-// Buffer conversion functions for Phase 3 of structured model migration
+// Buffer conversion functions for structured model
 
 // Extract formatting attributes from a GTK TextIter
 // Used during signal capture to determine formatting at insertion point

@@ -47,7 +47,6 @@ void CtMainWin::_on_treeview_cursor_changed()
             _fileSaveNeeded = true;
             pTextBuffer->set_modified(false);
 
-            // Command pattern is now always active (Phase 5: state machine removed)
             _pCtCommandBridge->endTextEditSession();
         }
         const int scr = round(_scrolledwindowText.get_vadjustment()->get_value());
@@ -821,7 +820,7 @@ void CtMainWin::_on_treeview_drag_data_get(const Glib::RefPtr<Gdk::DragContext>&
     }
 }
 #else
-// GTK4 stubs for future TreeView Drag & Drop migration
+// GTK4 TreeView Drag & Drop
 void CtMainWin::_setup_treeview_drag_and_drop_gtk4()
 {
     // DragSource for moving nodes within tree
