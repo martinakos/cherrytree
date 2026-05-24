@@ -1,4 +1,4 @@
-cherrytree-docmodel (1.6.3+docmodel10-1) plucky; urgency=low
+cherrytree-docmodel (1.7.0+docmodel10-1) plucky; urgency=low
 
   * UI: redesign status bar with clearer layout for faster readability
   * UI: fully customizable menu bar and context menus from Preferences
