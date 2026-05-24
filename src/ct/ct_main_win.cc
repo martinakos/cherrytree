@@ -88,7 +88,8 @@ void CtStatusBar::update_node_fields(const Glib::ustring& nodeId,
                                      const Glib::ustring& wordCount,
                                      const Glib::ustring& size,
                                      const Glib::ustring& dateCreated,
-                                     const Glib::ustring& dateModified)
+                                     const Glib::ustring& dateModified,
+                                     const Glib::ustring& subnodes)
 {
     messageLabel.hide();
     _set_field(nodeField,         fieldSeparators[0], Glib::ustring{_("Node")} + _(": "), nodeId);
@@ -99,6 +100,7 @@ void CtStatusBar::update_node_fields(const Glib::ustring& nodeId,
     _set_field(sizeField,         fieldSeparators[5], Glib::ustring{_("Size")} + _(": "), size);
     _set_field(dateCreatedField,  fieldSeparators[6], Glib::ustring{_("Date Created")} + _(": "), dateCreated);
     _set_field(dateModifiedField, fieldSeparators[7], Glib::ustring{_("Date Modified")} + _(": "), dateModified);
+    _set_field(subnodesField,     fieldSeparators[8], Glib::ustring{_("Subnodes")} + _(": "), subnodes);
 }
 
 void CtStatusBar::clear_node_fields()
@@ -111,6 +113,7 @@ void CtStatusBar::clear_node_fields()
     sizeField.hide();
     dateCreatedField.hide();
     dateModifiedField.hide();
+    subnodesField.hide();
     for (auto& sep : fieldSeparators) sep.hide();
 }
 
@@ -904,6 +907,7 @@ Gtk::Box& CtMainWin::_init_status_bar()
         { &_ctStatusBar.sizeField,         110, 6 },
         { &_ctStatusBar.dateCreatedField,  230, 6 },
         { &_ctStatusBar.dateModifiedField, 200, 6 },
+        { &_ctStatusBar.subnodesField,     130, 6 },
     };
     for (auto& f : fields) {
         f.label->set_size_request(f.minWidth, -1);
@@ -935,6 +939,7 @@ Gtk::Box& CtMainWin::_init_status_bar()
         sep.set_no_show_all(true);
         sep.hide();
     }
+    _ctStatusBar.fieldSeparators[8].set_margin_start(14);
 
     #if GTKMM_MAJOR_VERSION >= 4
     _ctStatusBar.frame.set_child(_ctStatusBar.progressBar);
@@ -1864,6 +1869,24 @@ void CtMainWin::update_selected_node_statusbar_info()
         dateModifiedStr = str::time_format(_pCtConfig->timestampFormat, treeIter.get_node_modification_time());
     }
 
+    Glib::ustring subnodesStr;
+    if (_pCtConfig->subnodesOn) {
+        size_t direct_children_count{0};
+        for (auto child_iter = treeIter->children().begin(); child_iter != treeIter->children().end(); ++child_iter) {
+            ++direct_children_count;
+        }
+        if (direct_children_count > 0) {
+            const size_t total_children_count = treeIter.get_children_node_ids().size();
+            subnodesStr = std::to_string(direct_children_count);
+            if (direct_children_count != total_children_count) {
+                subnodesStr += CtConst::CHAR_SLASH + std::to_string(total_children_count);
+            }
+        }
+        else {
+            subnodesStr = "0";
+        }
+    }
+
     _ctStatusBar.update_node_fields(
         std::to_string(treeIter.get_node_id()),
         typeStr,
@@ -1872,7 +1895,8 @@ void CtMainWin::update_selected_node_statusbar_info()
         wordCountStr,
         sizeStr,
         dateCreatedStr,
-        dateModifiedStr);
+        dateModifiedStr,
+        subnodesStr);
 }
 
 void CtMainWin::update_node_zoom_label()

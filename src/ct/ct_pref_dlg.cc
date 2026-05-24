@@ -259,6 +259,7 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     auto vbox_misc = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_VERTICAL});
     auto checkbutton_word_count = Gtk::manage(new Gtk::CheckButton{_("Enable Word Count in Statusbar")});
     auto checkbutton_node_size = Gtk::manage(new Gtk::CheckButton{_("Enable Node Size in Statusbar")});
+    auto checkbutton_subnodes = Gtk::manage(new Gtk::CheckButton{_("Enable Subnodes Count in Statusbar")});
     auto checkbutton_win_title_doc_dir = Gtk::manage(new Gtk::CheckButton{_("Show the Document Directory in the Window Title")});
     auto checkbutton_show_node_name_header = Gtk::manage(new Gtk::CheckButton{_("Show Node Name Header")});
     auto checkbutton_show_node_name_label = Gtk::manage(new Gtk::CheckButton{_("Show Node Name in Header")});
@@ -268,6 +269,7 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
 
     checkbutton_word_count->set_active(_pConfig->wordCountOn);
     checkbutton_node_size->set_active(_pConfig->nodeSizeOn);
+    checkbutton_subnodes->set_active(_pConfig->subnodesOn);
     checkbutton_win_title_doc_dir->set_active(_pConfig->winTitleShowDocDir);
     checkbutton_show_node_name_header->set_active(_pConfig->showNodeNameHeader);
     checkbutton_show_node_name_label->set_active(_pConfig->showNodeNameLabel);
@@ -382,6 +384,7 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
 #if GTKMM_MAJOR_VERSION >= 4
     vbox_misc->append(*checkbutton_word_count);
     vbox_misc->append(*checkbutton_node_size);
+    vbox_misc->append(*checkbutton_subnodes);
     vbox_misc->append(*checkbutton_win_title_doc_dir);
     vbox_misc->append(*checkbutton_show_node_name_header);
     vbox_misc->append(*checkbutton_show_node_name_label);
@@ -400,6 +403,7 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
 #else
     vbox_misc->pack_start(*checkbutton_word_count, false, false);
     vbox_misc->pack_start(*checkbutton_node_size, false, false);
+    vbox_misc->pack_start(*checkbutton_subnodes, false, false);
     vbox_misc->pack_start(*checkbutton_win_title_doc_dir, false, false);
     vbox_misc->pack_start(*checkbutton_show_node_name_header, false, false);
     vbox_misc->pack_start(*checkbutton_show_node_name_label, false, false);
@@ -588,6 +592,10 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     });
     checkbutton_node_size->signal_toggled().connect([this, checkbutton_node_size](){
         _pConfig->nodeSizeOn = checkbutton_node_size->get_active();
+        apply_for_each_window([](CtMainWin* win) { win->update_selected_node_statusbar_info(); });
+    });
+    checkbutton_subnodes->signal_toggled().connect([this, checkbutton_subnodes](){
+        _pConfig->subnodesOn = checkbutton_subnodes->get_active();
         apply_for_each_window([](CtMainWin* win) { win->update_selected_node_statusbar_info(); });
     });
     spinbutton_toolbar_icons_size->signal_value_changed().connect([this, spinbutton_toolbar_icons_size](){
