@@ -83,7 +83,6 @@ public:
     void setSequence(gint64 seq) { _sequence = seq; }
 
     // Node content (stored as structured model)
-    // Phase 4: Migrated from XML string to CtNodeContent
     const CtNodeContent& getContent() const { return _content; }
     CtNodeContent& getContent() { return _content; }
     void setContent(const CtNodeContent& content) { _content = content; }
@@ -129,8 +128,7 @@ private:
     gint64 _tsCreation{0};
     gint64 _tsLastSave{0};
 
-    // Content stored as structured model (migrated from XML string)
-    // Provides efficient access for structured operations and future enhancements
+    // Structured content model
     CtNodeContent _content;
 
     // Tree structure

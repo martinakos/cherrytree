@@ -125,12 +125,16 @@ bool CtActions::_is_there_anch_widg_selection_or_error(const char anch_widg_id)
 // Put Selection Upon the anchored widget
 void CtActions::object_set_selection(CtAnchoredWidget* widget)
 {
+    // When the widget lives in a rich table cell its anchor is in the cell buffer,
+    // not the main node buffer.  Operating on _curr_buffer() with that anchor is UB
+    // and corrupts the main buffer's modified flag, causing a stale re-sync later.
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+        return;
+    }
     const bool isImage = dynamic_cast<CtImage*>(widget) != nullptr;
     Glib::RefPtr<Gtk::TextChildAnchor> anchor = widget->getTextChildAnchor();
     if (_pCtConfig->objectNoSelOnClick) {
-        // place_cursor avoids claiming X11 PRIMARY selection via XSetSelectionOwner.
-        // On KDE 6 with Klipper, claiming PRIMARY immediately triggers a synchronous
-        // SelectionRequest that deadlocks GTK3's event loop for ~7-19 seconds.
         Glib::signal_idle().connect_once([this, anchor, isImage](){
             Gtk::TextIter iter_object = _curr_buffer()->get_iter_at_child_anchor(anchor);
             _curr_buffer()->place_cursor(iter_object);
@@ -292,7 +296,6 @@ Gtk::TreeModel::iterator CtActions::_node_add_with_data(Gtk::TreeModel::iterator
 
     Gtk::TreeModel::iterator nodeIter;
 
-    // Command pattern is now always active (Phase 5: state machine removed)
     auto pBridge = _pCtMainWin->get_command_bridge();
     if (add_as_child) {
         nodeIter = ct_treestore.append_node(&nodeData, &curr_iter/*as parent*/);
@@ -356,40 +359,6 @@ void CtActions::node_move_after(Gtk::TreeModel::iterator iter_to_move,
                                 bool keep_focus/*= false*/)
 {
     CtTreeStore& ctTreeStore = _pCtMainWin->get_tree_store();
-
-    // Use command bridge if active
-    auto pBridge = _pCtMainWin->get_command_bridge();
-    if (pBridge && pBridge->isActive()) {
-        // For command pattern, we just need nodeId, newParentId, and position
-        // The observer will handle the actual tree manipulation
-        CtTreeIter moveIter = ctTreeStore.to_ct_tree_iter(iter_to_move);
-        gint64 nodeId = moveIter.get_node_id();
-
-        gint64 newParentId = father_iter ? ctTreeStore.to_ct_tree_iter(father_iter).get_node_id() : -1;
-
-        // Calculate position
-        int newPosition = -1;  // -1 means append
-        if (brother_iter) {
-            // Insert after brother - need to calculate position
-            auto parent = brother_iter->parent();
-            if (parent) {
-                int idx = 0;
-                for (auto child : parent->children()) {
-                    if (child == brother_iter) {
-                        newPosition = idx + 1;
-                        break;
-                    }
-                    idx++;
-                }
-            }
-        } else if (set_first) {
-            newPosition = 0;
-        }
-
-        // Note: For now, still do the tree manipulation directly
-        // The command will sync the model, observer doesn't recreate tree for move
-        // TODO: Make observer handle full tree recreation on move
-    }
 
     Glib::RefPtr<Gtk::TreeStore> pTreeStore = ctTreeStore.get_store();
     Gtk::TreeModel::iterator new_node_iter;
@@ -797,7 +766,6 @@ void CtActions::_node_date(const bool from_sel_not_root, const int days_offset)
     const Glib::ustring month = str::time_format("%B", time);
     const Glib::ustring day = str::time_format("%d %a", time);
 
-    // Navigation history removed with state machine (Phase 5)
     Gtk::TreeModel::iterator nodeParent;
     if (from_sel_not_root) {
         if (not _is_there_selected_node_or_error()) return;
