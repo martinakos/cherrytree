@@ -1,3 +1,13 @@
+cherrytree-docmodel (1.6.3+docmodel10-1) plucky; urgency=low
+
+  * UI: redesign status bar with clearer layout for faster readability
+  * UI: fully customizable menu bar and context menus from Preferences
+  * image resize dialog: percentage mode, aspect ratio lock, and persistent unit selection
+  * fix pending typing commands not being committed when cursor moves away
+  * node properties dialog opens instantly by deferring subtree size calculation
+
+ -- Martin Tosas <martin.tosas@gmail.com>  Sat, 24 May 2026 12:00:00 +0000
+
 cherrytree-docmodel (1.6.3+docmodel9-1) plucky; urgency=low
 
   * HTML paste: preserve rich formatting, cell backgrounds, and colspan in tables
