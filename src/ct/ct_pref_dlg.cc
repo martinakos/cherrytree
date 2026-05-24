@@ -365,13 +365,13 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     checkbutton_tooltips_enable_menus->set_active(_pConfig->menusTooltips);
     checkbutton_tooltips_enable_toolbar->set_active(_pConfig->toolbarTooltips);
 
+    auto checkbutton_store_latest_searches = Gtk::manage(new Gtk::CheckButton{_("Save Search/Replace History Between Sessions")});
+    checkbutton_store_latest_searches->set_active(_pConfig->storeLatestSearches);
     auto hbox_find_all_max_in_page = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 4/*spacing*/});
     auto label_find_all_max_in_page = Gtk::manage(new Gtk::Label{_("Max Search Results per Page")});
     label_find_all_max_in_page->set_margin_start(2);
     Glib::RefPtr<Gtk::Adjustment> adjustment_find_all_max_in_page = Gtk::Adjustment::create(_pConfig->maxMatchesInPage, 0, 100000, 1);
     auto spinbutton_find_all_max_in_page = Gtk::manage(new Gtk::SpinButton{adjustment_find_all_max_in_page});
-    auto checkbutton_store_latest_searches = Gtk::manage(new Gtk::CheckButton{_("Save Search/Replace History Between Sessions")});
-    checkbutton_store_latest_searches->set_active(_pConfig->storeLatestSearches);
 #if GTKMM_MAJOR_VERSION >= 4
     hbox_find_all_max_in_page->append(*label_find_all_max_in_page);
     hbox_find_all_max_in_page->append(*spinbutton_find_all_max_in_page);
