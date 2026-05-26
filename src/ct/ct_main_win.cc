@@ -907,30 +907,25 @@ void CtMainWin::update_theme()
 
 Gtk::Box& CtMainWin::_init_status_bar()
 {
-    struct FieldSpec {
-        Gtk::Label* label;
-        int minWidth;
-        int marginStart;
+    std::vector<Gtk::Label*> fields = {
+        &_ctStatusBar.nodeField,
+        &_ctStatusBar.typeField,
+        &_ctStatusBar.tagsField,
+        &_ctStatusBar.spellField,
+        &_ctStatusBar.wordCountField,
+        &_ctStatusBar.sizeField,
+        &_ctStatusBar.dateCreatedField,
+        &_ctStatusBar.dateModifiedField,
+        &_ctStatusBar.subnodesField,
     };
-    std::vector<FieldSpec> fields = {
-        { &_ctStatusBar.nodeField,         100, 6 },
-        { &_ctStatusBar.typeField,         120, 6 },
-        { &_ctStatusBar.tagsField,         120, 6 },
-        { &_ctStatusBar.spellField,        140, 6 },
-        { &_ctStatusBar.wordCountField,    130, 6 },
-        { &_ctStatusBar.sizeField,         110, 6 },
-        { &_ctStatusBar.dateCreatedField,  230, 6 },
-        { &_ctStatusBar.dateModifiedField, 200, 6 },
-        { &_ctStatusBar.subnodesField,     130, 6 },
-    };
-    for (auto& f : fields) {
-        f.label->set_size_request(f.minWidth, -1);
-        f.label->set_xalign(0.0f);
-        f.label->set_margin_top(4);
-        f.label->set_margin_bottom(4);
-        f.label->set_margin_start(f.marginStart);
-        f.label->set_no_show_all(true);
-        f.label->hide();
+    for (auto* label : fields) {
+        label->set_xalign(0.0f);
+        label->set_margin_top(4);
+        label->set_margin_bottom(4);
+        label->set_margin_start(6);
+        label->set_margin_end(6);
+        label->set_no_show_all(true);
+        label->hide();
     }
 
     _ctStatusBar.cursorPos.set_size_request(80, -1);
@@ -953,7 +948,6 @@ Gtk::Box& CtMainWin::_init_status_bar()
         sep.set_no_show_all(true);
         sep.hide();
     }
-    _ctStatusBar.fieldSeparators[8].set_margin_start(14);
 
     #if GTKMM_MAJOR_VERSION >= 4
     _ctStatusBar.frame.set_child(_ctStatusBar.progressBar);
@@ -961,7 +955,7 @@ Gtk::Box& CtMainWin::_init_status_bar()
     _ctStatusBar.hbox.append(_ctStatusBar.cursorPos);
     for (size_t i = 0; i < fields.size(); ++i) {
         _ctStatusBar.hbox.append(_ctStatusBar.fieldSeparators[i]);
-        _ctStatusBar.hbox.append(*fields[i].label);
+        _ctStatusBar.hbox.append(*fields[i]);
     }
     _ctStatusBar.hbox.append(_ctStatusBar.messageLabel);
     _ctStatusBar.hbox.append(_ctStatusBar.zoomLabel);
@@ -974,7 +968,7 @@ Gtk::Box& CtMainWin::_init_status_bar()
     _ctStatusBar.hbox.pack_start(_ctStatusBar.cursorPos, false, false);
     for (size_t i = 0; i < fields.size(); ++i) {
         _ctStatusBar.hbox.pack_start(_ctStatusBar.fieldSeparators[i], false, false);
-        _ctStatusBar.hbox.pack_start(*fields[i].label, false, false);
+        _ctStatusBar.hbox.pack_start(*fields[i], false, false);
     }
     _ctStatusBar.hbox.pack_start(_ctStatusBar.messageLabel, true, true);
     _ctStatusBar.hbox.pack_end(_ctStatusBar.stopButton, false, true);
