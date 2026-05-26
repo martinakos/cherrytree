@@ -369,6 +369,7 @@ public:
     void set_local_dir(const std::string& dir)    { _local_dir = dir; }
     void set_outter_xml_doc(xmlpp::Document* doc) { _outter_doc = doc; }
     void set_status_bar(CtStatusBar* status_bar);
+    void set_fallback_pixbuf(Glib::RefPtr<Gdk::Pixbuf> pixbuf) { _fallbackPixbuf = std::move(pixbuf); }
 
     Glib::ustring to_string() { return _xml_doc->write_to_string(); }
     const xmlpp::Document& doc() const { return *_xml_doc; }
@@ -394,6 +395,7 @@ private:
     CtConfig* const       _pCtConfig;
     CtStatusBar*          _status_bar{nullptr};
     std::string           _local_dir;
+    Glib::RefPtr<Gdk::Pixbuf> _fallbackPixbuf;
 
     // releated to parsing html
     ParserState           _state;
