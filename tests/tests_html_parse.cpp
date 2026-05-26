@@ -25,6 +25,8 @@
 #include "ct_config.h"
 #include "ct_const.h"
 #include "tests_common.h"
+#include <gdkmm/wrap_init.h>
+#include <gdkmm/pixbuf.h>
 
 namespace {
 
@@ -67,7 +69,81 @@ std::string get_text_content(xmlpp::Element* el) {
     return text ? text->get_content() : "";
 }
 
+std::vector<xmlpp::Element*> find_encoded_png_elements(const xmlpp::Document& doc) {
+    auto* slot = find_slot_element(doc);
+    if (!slot) return {};
+    return get_child_elements(slot, "encoded_png");
+}
+
 } // namespace
+
+TEST(HtmlParseGroup, FallbackPixbufUsedWhenDownloadFails)
+{
+    Glib::init();
+    Gdk::wrap_init();
+    CtConfig* pCtConfig = CtConfig::GetCtConfig();
+    CtHtml2Xml parser{pCtConfig};
+
+    auto fallback = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB, false, 8, 4, 4);
+    fallback->fill(0xff0000ff);
+    parser.set_fallback_pixbuf(fallback);
+
+    // img src points to an unreachable URL — download will fail, fallback should be used
+    parser.feed("<html><body><img src=\"https://127.0.0.1:1/no-such-image.png\"/></body></html>");
+
+    auto images = find_encoded_png_elements(parser.doc());
+    ASSERT_EQ(1u, images.size());
+    std::string link = images[0]->get_attribute_value("link");
+    ASSERT_NE(std::string::npos, link.find("127.0.0.1"));
+    ASSERT_FALSE(get_text_content(images[0]).empty());
+}
+
+TEST(HtmlParseGroup, FallbackPixbufNotUsedWhenBase64Succeeds)
+{
+    Glib::init();
+    Gdk::wrap_init();
+    CtConfig* pCtConfig = CtConfig::GetCtConfig();
+    CtHtml2Xml parser{pCtConfig};
+
+    auto fallback = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB, false, 8, 4, 4);
+    fallback->fill(0x00ff00ff);
+    parser.set_fallback_pixbuf(fallback);
+
+    // 1x1 red PNG as base64
+    const char* b64_png =
+        "data:image/png;base64,"
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4"
+        "2mP8z8BQDwADhQGAWjR9awAAAABJRU5ErkJggg==";
+    std::string html = std::string("<html><body><img src=\"") + b64_png + "\"/></body></html>";
+    parser.feed(html);
+
+    auto images = find_encoded_png_elements(parser.doc());
+    ASSERT_EQ(1u, images.size());
+    // The link should contain the base64 data URI, not a web URL
+    std::string link = images[0]->get_attribute_value("link");
+    ASSERT_NE(std::string::npos, link.find("data:image"));
+}
+
+TEST(HtmlParseGroup, FallbackPixbufConsumedAfterFirstUse)
+{
+    Glib::init();
+    Gdk::wrap_init();
+    CtConfig* pCtConfig = CtConfig::GetCtConfig();
+    CtHtml2Xml parser{pCtConfig};
+
+    auto fallback = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB, false, 8, 4, 4);
+    fallback->fill(0x0000ffff);
+    parser.set_fallback_pixbuf(fallback);
+
+    // Two unreachable images — only the first should get the fallback
+    parser.feed("<html><body>"
+                "<img src=\"https://127.0.0.1:1/img1.png\"/>"
+                "<img src=\"https://127.0.0.1:1/img2.png\"/>"
+                "</body></html>");
+
+    auto images = find_encoded_png_elements(parser.doc());
+    ASSERT_EQ(1u, images.size());
+}
 
 TEST(HtmlParseGroup, PlainTableNoRichFormatting)
 {
