@@ -1493,6 +1493,10 @@ void CtClipboard::on_received_to_html(const Gtk::SelectionData& selection_data, 
         // Convert HTML to CherryTree XML first so we can inspect it for widgets
         // before deciding which paste path to use.
         CtHtml2Xml htmlParser{_pCtMainWin->get_ct_config()};
+        auto fallbackPixbuf = Gtk::Clipboard::get()->wait_for_image();
+        if (fallbackPixbuf) {
+            htmlParser.set_fallback_pixbuf(fallbackPixbuf);
+        }
         htmlParser.feed(html_content);
         const Glib::ustring xmlStr = htmlParser.to_string();
 
