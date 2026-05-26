@@ -726,6 +726,15 @@ void CtHtml2Xml::_insert_image(std::string img_path, std::string trailing_chars)
         spdlog::warn("failed to load image from disk '{}': {}", img_path, ex.what());
     }
 
+    // 4. fallback to clipboard pixbuf (e.g. image from auth-protected URL)
+    if (!image_good && _fallbackPixbuf) {
+        try {
+            insert_image(_fallbackPixbuf);
+            image_good = true;
+            _fallbackPixbuf.reset();
+        } catch (...) { }
+    }
+
     if (image_good) {
         _char_offset += 1;
         if (!trailing_chars.empty())
