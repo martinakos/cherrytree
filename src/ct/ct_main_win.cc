@@ -922,8 +922,8 @@ Gtk::Box& CtMainWin::_init_status_bar()
         label->set_xalign(0.0f);
         label->set_margin_top(4);
         label->set_margin_bottom(4);
-        label->set_margin_start(6);
-        label->set_margin_end(6);
+        label->set_margin_start(8);
+        label->set_margin_end(16);
         label->set_no_show_all(true);
         label->hide();
     }
