@@ -54,6 +54,18 @@ static bool xmlContainsWidgets(const Glib::ustring& xml) {
            xml.find("<latex")       != Glib::ustring::npos;
 }
 
+// Decide whether a paste must use the XML snapshot path instead of the
+// lightweight delta path. The delta path captures run attributes from the
+// buffer during the insert-text signal, before insert_with_tags_by_name()
+// applies the tags, so formatted runs end up with no attributes and lose all
+// formatting on undo/redo. Formatted runs serialize as "<rich_text ATTR=...>"
+// (note the space) whereas plain runs are "<rich_text>"; only genuinely plain,
+// widget-free pastes are safe for the delta path.
+static bool xmlNeedsSnapshotPaste(const Glib::ustring& xml) {
+    return xmlContainsWidgets(xml) ||
+           xml.find("<rich_text ") != Glib::ustring::npos;
+}
+
 CtClipboard::CtClipboard(CtMainWin* pCtMainWin)
  : _pCtMainWin{pCtMainWin}
 {
@@ -1134,13 +1146,13 @@ void CtClipboard::on_received_to_rich_text(const Gtk::SelectionData& selection_d
     }
 
     // Begin paste operation for command tracking.
-    // If the clipboard XML has no widget anchors, use the lightweight session
-    // (delta) path.  Widget-containing pastes must keep the XML snapshot path
-    // because InsertTextCommand only captures text, not widget anchors.
+    // Plain, widget-free text uses the lightweight session (delta) path; pastes
+    // with widgets or formatting need the XML snapshot path (see
+    // xmlNeedsSnapshotPaste).
     if (pBridge && pBridge->isActive()) {
         pBridge->endTextEditSession();  // Save any pending text as its own undo command
-        const bool hasWidgets = xmlContainsWidgets(rich_text);
-        pBridge->beginPaste(_pCtMainWin->curr_tree_iter().get_node_id(), hasWidgets);
+        const bool needsSnapshot = xmlNeedsSnapshotPaste(rich_text);
+        pBridge->beginPaste(_pCtMainWin->curr_tree_iter().get_node_id(), needsSnapshot);
     }
 
     bool pasteHadWidgets{false};
@@ -1545,12 +1557,13 @@ void CtClipboard::on_received_to_html(const Gtk::SelectionData& selection_data, 
     }
 
     // Begin paste operation for command tracking.
-    // Use the lightweight session (delta) path when the resulting XML has no
-    // widget anchors; fall back to XML snapshot for widget-containing content.
+    // Plain, widget-free text uses the lightweight session (delta) path; pastes
+    // with widgets or formatting need the XML snapshot path (see
+    // xmlNeedsSnapshotPaste).
     if (pBridge && pBridge->isActive()) {
         pBridge->endTextEditSession();  // Save any pending text as its own undo command
-        const bool hasWidgets = xmlContainsWidgets(xmlStr);
-        pBridge->beginPaste(_pCtMainWin->curr_tree_iter().get_node_id(), hasWidgets);
+        const bool needsSnapshot = xmlNeedsSnapshotPaste(xmlStr);
+        pBridge->beginPaste(_pCtMainWin->curr_tree_iter().get_node_id(), needsSnapshot);
     }
 
     bool pasteHadWidgets{false};
