@@ -1779,9 +1779,9 @@ void CtCommandBridge::applyFormatV2(
     spdlog::info("CtCommandBridge::applyFormatV2: format command created and executed");
 }
 
-void CtCommandBridge::beginPaste(gint64 nodeId, bool pasteContainsWidgets)
+void CtCommandBridge::beginPaste(gint64 nodeId, bool useSnapshotPath)
 {
-    if (!pasteContainsWidgets) {
+    if (!useSnapshotPath) {
         // Delta path: same pattern as cut — open a session to capture buffer signals.
         if (!_active || !_pMainWin) return;
 
@@ -1828,7 +1828,7 @@ void CtCommandBridge::endPaste()
 
     gint64 pasteNodeId = _captureNodeId;
 
-    // Session (delta) path — session is active when pasteContainsWidgets was false
+    // Session (delta) path — session is active when useSnapshotPath was false
     if (_editSession && _editSession->isActive()) {
         auto& treeStore = _pMainWin->get_tree_store();
         CtTreeIter treeIter = treeStore.get_node_from_node_id(_captureNodeId);
