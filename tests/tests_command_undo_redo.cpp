@@ -8,6 +8,7 @@
 #include "ct_app.h"
 #include "ct_clipboard.h"
 #include "ct_command_bridge.h"
+#include "ct_const.h"
 #include "ct_text_commands.h"
 #include "ct_node_commands.h"
 #include <gtest/gtest.h>
@@ -399,6 +400,127 @@ TEST(CommandUndoRedoTests, PushNodeCommand_RestartsEditSession)
     g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
 
     TestNodeCommandSessionApp app;
+    const std::vector<std::string> vecArgs{"cherrytree"};
+    gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
+    const int ret_val = app.run(vecArgs.size(), pp_args);
+    g_strfreev(pp_args);
+    ASSERT_EQ(0, ret_val);
+}
+
+// ─── Paste of formatted text survives undo/redo ─────────────────────────────
+// Regression: pasting rich text with formatting but no widgets used the
+// lightweight delta path, which captured run attributes during the insert-text
+// signal (before insert_with_tags_by_name applied the tags). The paste looked
+// right but its undo command stored unformatted text, so redo rebuilt the
+// buffer with all formatting lost. Formatted pastes now use the XML snapshot
+// path. This drives the real copy→paste code path end to end.
+
+class TestPasteRichFormatApp : public CtApp
+{
+public:
+    TestPasteRichFormatApp() : CtApp{"_test_paste_rich_format", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
+
+private:
+    void on_activate() final;
+};
+
+void TestPasteRichFormatApp::on_activate()
+{
+    _on_startup();
+
+    CtMainWin* pWin = _create_window(true/*start_hidden*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, "", "", UT::testPassword));
+
+    pWin->show_all();
+    pWin->hide();
+    auto drainEvents = [](){ while (gtk_events_pending()) gtk_main_iteration_do(false); };
+    drainEvents();
+
+    auto pBridge = pWin->get_command_bridge();
+    ASSERT_TRUE(pBridge && pBridge->isActive());
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    ASSERT_TRUE(ctIter.get_node_is_rich_text());
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    drainEvents();
+
+    auto buffer = pWin->curr_buffer();
+    ASSERT_TRUE(buffer);
+
+    CtPairCodeboxMainWin pair{nullptr, pWin};
+    GtkTextView* pGtkTextView = GTK_TEXT_VIEW(pWin->get_text_view().mm().gobj());
+
+    const std::string boldTagName =
+        pWin->get_text_tag_name_exist_or_create(CtConst::TAG_WEIGHT, CtConst::TAG_PROP_VAL_HEAVY);
+    auto boldTag = buffer->get_tag_table()->lookup(boldTagName);
+    ASSERT_TRUE(boldTag);
+
+    auto isBoldAtOffset = [&](int offset) {
+        return buffer->get_iter_at_offset(offset).has_tag(boldTag);
+    };
+    const Glib::ustring boldWord = "BOLDWORD";
+    auto countBoldWord = [&]() {
+        const Glib::ustring text = buffer->get_text();
+        size_t count = 0, pos = 0;
+        while ((pos = text.find(boldWord, pos)) != Glib::ustring::npos) { ++count; pos += boldWord.size(); }
+        return count;
+    };
+
+    // Create a bold run at the end of the buffer to act as the copy source.
+    {
+        Gtk::TextIter endIter = buffer->end();
+        const int boldStart = endIter.get_offset();
+        buffer->insert_with_tags_by_name(endIter, boldWord, std::vector<Glib::ustring>{boldTagName});
+        drainEvents();
+        ASSERT_TRUE(isBoldAtOffset(boldStart));
+        buffer->select_range(buffer->get_iter_at_offset(boldStart),
+                             buffer->get_iter_at_offset(boldStart + (int)boldWord.size()));
+        drainEvents();
+    }
+
+    // Copy the bold selection (sets the CherryTree rich-text clipboard target).
+    CtClipboard::on_copy_clipboard(pGtkTextView, &pair);
+    drainEvents();
+
+    // Paste at the very start of the buffer, where there is no pre-existing
+    // formatting, so the bold tag at offset 0 is an unambiguous signal.
+    buffer->place_cursor(buffer->begin());
+    pBridge->endTextEditSession();
+    drainEvents();
+
+    const size_t boldWordsBefore = countBoldWord();
+    const size_t baselineUndo = pBridge->getUndoStackDescriptions().size();
+
+    CtClipboard::on_paste_clipboard(pGtkTextView, &pair);
+    drainEvents();
+
+    // Paste inserted a bold copy at offset 0 and pushed an undo command.
+    ASSERT_EQ(boldWordsBefore + 1, countBoldWord());
+    ASSERT_TRUE(isBoldAtOffset(0));
+    ASSERT_GT(pBridge->getUndoStackDescriptions().size(), baselineUndo);
+
+    // Undo removes the pasted copy.
+    pBridge->undo();
+    drainEvents();
+    ASSERT_EQ(boldWordsBefore, countBoldWord());
+
+    // Redo restores the paste — and the formatting must come back with it.
+    pBridge->redo();
+    drainEvents();
+    ASSERT_EQ(boldWordsBefore + 1, countBoldWord());
+    ASSERT_TRUE(isBoldAtOffset(0)) << "Pasted text lost its bold formatting after undo+redo";
+
+    pWin->force_exit() = true;
+    remove_window(*pWin);
+}
+
+TEST(CommandUndoRedoTests, PasteRichTextPreservesFormattingAfterRedo)
+{
+    g_log_set_handler("Gtk", G_LOG_LEVEL_WARNING, +[](const gchar*, GLogLevelFlags, const gchar*, gpointer){}, nullptr);
+
+    TestPasteRichFormatApp app;
     const std::vector<std::string> vecArgs{"cherrytree"};
     gchar** pp_args = CtStrUtil::vector_to_array(vecArgs);
     const int ret_val = app.run(vecArgs.size(), pp_args);

@@ -110,9 +110,11 @@ public:
         int newCursorPos);
 
     // Paste helpers (captures before/after for undo).
-    // pasteContainsWidgets=false: use session-based delta path (same as cut).
-    // pasteContainsWidgets=true (default): use structured snapshot path.
-    void beginPaste(gint64 nodeId, bool pasteContainsWidgets = true);
+    // useSnapshotPath=false: use session-based delta path (same as cut). Only
+    //   safe for plain, widget-free text — the delta path captures run
+    //   attributes before tags are applied, so formatted runs lose formatting.
+    // useSnapshotPath=true (default): use structured snapshot path.
+    void beginPaste(gint64 nodeId, bool useSnapshotPath = true);
     void endPaste();
 
     // Cut helpers (captures before/after for undo)
