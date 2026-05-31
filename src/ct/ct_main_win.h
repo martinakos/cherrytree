@@ -438,6 +438,7 @@ public:
     // Navigation history (back/forward buttons) - public for friend class CtCommandBridge
     std::deque<gint64>  _visitedNodes;
     size_t              _visitedNodesIdx{0};
+    bool                _navigatingHistory{false};
 
 private:
 
