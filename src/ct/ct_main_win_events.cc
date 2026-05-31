@@ -87,33 +87,36 @@ void CtMainWin::_on_treeview_cursor_changed()
         update_node_zoom_label();
 
         // Track visited nodes for navigation history
-        if (not _visitedNodes.empty() && _visitedNodesIdx < _visitedNodes.size()) {
-            // If we're not at the end of history, truncate forward history
-            size_t last_index = _visitedNodes.size() - 1;
-            if (_visitedNodesIdx != last_index) {
-                _visitedNodes.erase(_visitedNodes.begin() + _visitedNodesIdx + 1, _visitedNodes.end());
-            }
-        }
-
-        // Remove this node if it's already in history (avoid duplicates)
-        if (!_pCtConfig->nodesOnNodeNameHeaderFIFO) {
-            for (auto it = _visitedNodes.begin(); it != _visitedNodes.end(); ) {
-                if (*it == nodeId) {
-                    it = _visitedNodes.erase(it);
-                } else {
-                    ++it;
+        // Skip when navigating via back/forward to preserve forward history
+        if (not _navigatingHistory) {
+            if (not _visitedNodes.empty() && _visitedNodesIdx < _visitedNodes.size()) {
+                // If we're not at the end of history, truncate forward history
+                size_t last_index = _visitedNodes.size() - 1;
+                if (_visitedNodesIdx != last_index) {
+                    _visitedNodes.erase(_visitedNodes.begin() + _visitedNodesIdx + 1, _visitedNodes.end());
                 }
             }
-        }
 
-        // Add current node to history
-        _visitedNodes.push_back(nodeId);
-        _visitedNodesIdx = _visitedNodes.size() - 1;
+            // Remove this node if it's already in history (avoid duplicates)
+            if (!_pCtConfig->nodesOnNodeNameHeaderFIFO) {
+                for (auto it = _visitedNodes.begin(); it != _visitedNodes.end(); ) {
+                    if (*it == nodeId) {
+                        it = _visitedNodes.erase(it);
+                    } else {
+                        ++it;
+                    }
+                }
+            }
 
-        // Limit history size to 50 nodes
-        while (_visitedNodes.size() > 50) {
-            _visitedNodes.pop_front();
-            if (_visitedNodesIdx > 0) _visitedNodesIdx--;
+            // Add current node to history
+            _visitedNodes.push_back(nodeId);
+            _visitedNodesIdx = _visitedNodes.size() - 1;
+
+            // Limit history size to 50 nodes
+            while (_visitedNodes.size() > 50) {
+                _visitedNodes.pop_front();
+                if (_visitedNodesIdx > 0) _visitedNodesIdx--;
+            }
         }
 
         window_header_update();

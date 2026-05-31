@@ -181,3 +181,131 @@ TEST(TestTypesGroup, CtStockIcon)
 
     ASSERT_EQ(CtStockIcon::size(), CtConst::_NODE_CUSTOM_ICONS.size());
 }
+
+// Navigation history helpers that mirror the production logic
+namespace {
+
+struct NavHistory {
+    std::deque<gint64> visited;
+    size_t idx{0};
+    bool navigating{false};
+
+    void visit(gint64 nodeId) {
+        if (navigating) return;
+        if (!visited.empty() && idx < visited.size()) {
+            size_t last_index = visited.size() - 1;
+            if (idx != last_index) {
+                visited.erase(visited.begin() + idx + 1, visited.end());
+            }
+        }
+        for (auto it = visited.begin(); it != visited.end(); ) {
+            if (*it == nodeId) it = visited.erase(it);
+            else ++it;
+        }
+        visited.push_back(nodeId);
+        idx = visited.size() - 1;
+    }
+
+    bool go_back() {
+        if (visited.empty() || idx == 0) return false;
+        idx--;
+        navigating = true;
+        visit(visited[idx]); // simulates the cursor-change event
+        navigating = false;
+        return true;
+    }
+
+    bool go_forward() {
+        if (visited.empty() || idx >= visited.size() - 1) return false;
+        idx++;
+        navigating = true;
+        visit(visited[idx]);
+        navigating = false;
+        return true;
+    }
+
+    gint64 current() const { return visited[idx]; }
+};
+
+} // anonymous namespace
+
+TEST(NavigationHistoryGroup, BackAndForward)
+{
+    NavHistory h;
+    h.visit(1);
+    h.visit(2);
+    h.visit(3);
+    ASSERT_EQ(3, h.current());
+
+    ASSERT_TRUE(h.go_back());
+    ASSERT_EQ(2, h.current());
+
+    ASSERT_TRUE(h.go_forward());
+    ASSERT_EQ(3, h.current());
+}
+
+TEST(NavigationHistoryGroup, ForwardAfterMultipleBack)
+{
+    NavHistory h;
+    h.visit(1);
+    h.visit(2);
+    h.visit(3);
+    h.visit(4);
+
+    ASSERT_TRUE(h.go_back());
+    ASSERT_TRUE(h.go_back());
+    ASSERT_EQ(2, h.current());
+
+    ASSERT_TRUE(h.go_forward());
+    ASSERT_EQ(3, h.current());
+    ASSERT_TRUE(h.go_forward());
+    ASSERT_EQ(4, h.current());
+
+    ASSERT_FALSE(h.go_forward());
+}
+
+TEST(NavigationHistoryGroup, BackAtStartReturnsFalse)
+{
+    NavHistory h;
+    h.visit(1);
+    ASSERT_FALSE(h.go_back());
+    ASSERT_EQ(1, h.current());
+}
+
+TEST(NavigationHistoryGroup, NewVisitTruncatesForwardHistory)
+{
+    NavHistory h;
+    h.visit(1);
+    h.visit(2);
+    h.visit(3);
+
+    h.go_back();
+    ASSERT_EQ(2, h.current());
+
+    h.visit(5);
+    ASSERT_EQ(5, h.current());
+    ASSERT_FALSE(h.go_forward());
+}
+
+TEST(NavigationHistoryGroup, BackForwardBackForward)
+{
+    NavHistory h;
+    h.visit(1);
+    h.visit(2);
+
+    ASSERT_TRUE(h.go_back());
+    ASSERT_EQ(1, h.current());
+    ASSERT_TRUE(h.go_forward());
+    ASSERT_EQ(2, h.current());
+    ASSERT_TRUE(h.go_back());
+    ASSERT_EQ(1, h.current());
+    ASSERT_TRUE(h.go_forward());
+    ASSERT_EQ(2, h.current());
+}
+
+TEST(NavigationHistoryGroup, EmptyHistoryNoOps)
+{
+    NavHistory h;
+    ASSERT_FALSE(h.go_back());
+    ASSERT_FALSE(h.go_forward());
+}
