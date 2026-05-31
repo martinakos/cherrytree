@@ -351,6 +351,18 @@ const inline static gchar* MENUBAR_VIEW_DEFAULT {
 const inline static gchar* MENUBAR_HELP_DEFAULT {
     "ct_check_newer,separator,ct_homepage,ct_github,ct_issues,ct_help,separator,ct_about"
 };
+const inline static gchar* POPUP_NODE_DEFAULT {
+    "go_node_next,go_node_prev,separator,"
+    "tree_add_node,tree_add_subnode,tree_dup_node,tree_dup_node_subnodes,"
+    "tree_shared_node,tree_copy_node_subnodes,tree_paste_node_subnodes,"
+    "tree_node_date_root,tree_node_date_sel,separator,"
+    "tree_node_prop,tree_node_toggle_ro,tree_node_link,child_nodes_inherit_syntax,separator,"
+    "{BookmarksSubMenu,},node_bookmark,node_unbookmark,separator,"
+    "nodes_all_expand,nodes_all_collapse,separator,"
+    "{TreeMoveSubMenu,tree_node_up,tree_node_down,tree_node_left,tree_node_right,tree_node_new_father,},"
+    "{TreeSortSubMenu,tree_sibl_sort_asc,tree_sibl_sort_desc,separator,tree_all_sort_asc,tree_all_sort_desc,},"
+    "separator,tree_node_del"
+};
 const inline static gchar* POPUP_TEXT_DEFAULT {
     "separator,cut_rich,copy_rich,paste_rich,separator,cut_plain,copy_plain,paste_plain"
 };
