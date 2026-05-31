@@ -1376,6 +1376,10 @@ void CtActions::node_go_back()
 
     spdlog::debug("node_go_back: navigating to node {}", target_node_id);
 
+    // Suppress history tracking while navigating
+    _pCtMainWin->_navigatingHistory = true;
+    auto on_scope_exit = scope_guard([this](void*) { _pCtMainWin->_navigatingHistory = false; });
+
     // Find and select the node
     auto tree_store = _pCtMainWin->get_tree_store().get_store();
     _pCtMainWin->get_tree_store().get_store()->foreach_iter([&](const Gtk::TreeModel::iterator& iter) {
@@ -1405,6 +1409,10 @@ void CtActions::node_go_forward()
     gint64 target_node_id = _pCtMainWin->_visitedNodes[_pCtMainWin->_visitedNodesIdx];
 
     spdlog::debug("node_go_forward: navigating to node {}", target_node_id);
+
+    // Suppress history tracking while navigating
+    _pCtMainWin->_navigatingHistory = true;
+    auto on_scope_exit = scope_guard([this](void*) { _pCtMainWin->_navigatingHistory = false; });
 
     // Find and select the node
     auto tree_store = _pCtMainWin->get_tree_store().get_store();
