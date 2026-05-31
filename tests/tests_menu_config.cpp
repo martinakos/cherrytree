@@ -47,6 +47,7 @@ TEST(MenuConfigGroup, DefaultMenubarConstantsHaveBalancedBraces)
 
 TEST(MenuConfigGroup, DefaultPopupConstantsHaveBalancedBraces)
 {
+    EXPECT_TRUE(has_balanced_braces(CtConst::POPUP_NODE_DEFAULT));
     EXPECT_TRUE(has_balanced_braces(CtConst::POPUP_TEXT_DEFAULT));
     EXPECT_TRUE(has_balanced_braces(CtConst::POPUP_CODE_DEFAULT));
     EXPECT_TRUE(has_balanced_braces(CtConst::POPUP_IMAGE_DEFAULT));
@@ -70,6 +71,7 @@ TEST(MenuConfigGroup, DefaultConstantsAreNonEmpty)
     EXPECT_GT(count_tokens(CtConst::MENUBAR_SEARCH_DEFAULT), 0);
     EXPECT_GT(count_tokens(CtConst::MENUBAR_VIEW_DEFAULT), 0);
     EXPECT_GT(count_tokens(CtConst::MENUBAR_HELP_DEFAULT), 0);
+    EXPECT_GT(count_tokens(CtConst::POPUP_NODE_DEFAULT), 0);
     EXPECT_GT(count_tokens(CtConst::POPUP_TEXT_DEFAULT), 0);
     EXPECT_GT(count_tokens(CtConst::POPUP_CODE_DEFAULT), 0);
     EXPECT_GT(count_tokens(CtConst::POPUP_TABLE_CELL_DEFAULT), 0);
@@ -168,6 +170,7 @@ TEST(MenuConfigGroup, AllDefaultConfigsProduceValidXml)
         EXPECT_TRUE(CtXmlHelper::safe_parse_memory(parser, xml.c_str()))
             << "Failed to parse XML from config: " << configStr;
     };
+    testConfig(CtConst::POPUP_NODE_DEFAULT);
     testConfig(CtConst::POPUP_TEXT_DEFAULT);
     testConfig(CtConst::POPUP_CODE_DEFAULT);
     testConfig(CtConst::POPUP_IMAGE_DEFAULT);
