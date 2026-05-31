@@ -269,3 +269,41 @@ TEST(MenuConfigGroup, NestedSubmenuRemovalFromInner)
     EXPECT_EQ("}", items[3]);
     EXPECT_EQ("b", items[4]);
 }
+
+TEST(MenuConfigGroup, MoveToParentGeneratesValidXml)
+{
+    std::string xml = "<popup>" + CtMenu::generate_menu_xml("act_undo,move_to_parent:Archive,act_redo") + "</popup>";
+    xmlpp::DomParser parser;
+    EXPECT_TRUE(CtXmlHelper::safe_parse_memory(parser, xml.c_str()));
+    EXPECT_NE(std::string::npos, xml.find("<menuitem action='move_to_parent:Archive'/>"));
+}
+
+TEST(MenuConfigGroup, MoveToParentConfigRoundTrip)
+{
+    std::string input = "act_undo,move_to_parent:Archive,separator,move_to_parent:TODO";
+    std::vector<std::string> tokens;
+    for (const std::string& t : str::split(input, ",")) {
+        if (!t.empty()) tokens.push_back(t);
+    }
+    std::string output = str::join(tokens, ",");
+    EXPECT_EQ(input, output);
+}
+
+TEST(MenuConfigGroup, MoveToParentInsideSubmenu)
+{
+    std::string config = "{QuickMove,move_to_parent:Archive,move_to_parent:Done,}";
+    EXPECT_TRUE(has_balanced_braces(config));
+    std::string xml = CtMenu::generate_menu_xml(config);
+    EXPECT_NE(std::string::npos, xml.find("<menu action='QuickMove'>"));
+    EXPECT_NE(std::string::npos, xml.find("<menuitem action='move_to_parent:Archive'/>"));
+    EXPECT_NE(std::string::npos, xml.find("<menuitem action='move_to_parent:Done'/>"));
+    EXPECT_NE(std::string::npos, xml.find("</menu>"));
+}
+
+TEST(MenuConfigGroup, MoveToParentPrefixParsing)
+{
+    std::string token = "move_to_parent:My Node Name";
+    EXPECT_TRUE(str::startswith(token, "move_to_parent:"));
+    std::string nodeName = token.substr(15);
+    EXPECT_EQ("My Node Name", nodeName);
+}
