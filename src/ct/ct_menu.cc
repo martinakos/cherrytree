@@ -550,7 +550,7 @@ void CtMenu::build_popup_menu(Gtk::Menu* pMenu, POPUP_MENU_TYPE popupMenuType)
         _walk_menu_xml(pMenu, xml.c_str(), xpath);
     };
     switch (popupMenuType) {
-        case CtMenu::POPUP_MENU_TYPE::Node: walkXml(_get_ui_str_menu(), "/menubar/menu[@action='TreeMenu']/*"); break;
+        case CtMenu::POPUP_MENU_TYPE::Node: walkXml(_get_popup_menu_ui_str_node(), nullptr); break;
         case CtMenu::POPUP_MENU_TYPE::Text: walkXml(_get_popup_menu_ui_str_text(), nullptr); break;
         case CtMenu::POPUP_MENU_TYPE::Code: walkXml(_get_popup_menu_ui_str_code(), nullptr); break;
         case CtMenu::POPUP_MENU_TYPE::Image: walkXml(_get_popup_menu_ui_str_image(), nullptr); break;

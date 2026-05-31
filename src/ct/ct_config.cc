@@ -476,6 +476,7 @@ void CtConfig::_populate_keyfile_from_data()
     _uKeyFile->set_string(_currentGroup, "popup_link_ui_list", popupLinkUiList);
     _uKeyFile->set_string(_currentGroup, "popup_codebox_ui_list", popupCodeboxUiList);
     _uKeyFile->set_string(_currentGroup, "popup_table_cell_ui_list", popupTableCellUiList);
+    _uKeyFile->set_string(_currentGroup, "popup_node_ui_list", popupNodeUiList);
     _uKeyFile->set_boolean(_currentGroup, "systray", systrayOn);
     _uKeyFile->set_boolean(_currentGroup, "start_on_systray", startOnSystray);
     _uKeyFile->set_boolean(_currentGroup, "autosave_on", autosaveOn);
@@ -874,6 +875,7 @@ void CtConfig::_populate_data_from_keyfile()
     _populate_string_from_keyfile("popup_link_ui_list", &popupLinkUiList);
     _populate_string_from_keyfile("popup_codebox_ui_list", &popupCodeboxUiList);
     _populate_string_from_keyfile("popup_table_cell_ui_list", &popupTableCellUiList);
+    _populate_string_from_keyfile("popup_node_ui_list", &popupNodeUiList);
     _populate_bool_from_keyfile("systray", &systrayOn);
     _populate_bool_from_keyfile("start_on_systray", &startOnSystray);
     if (savedFromPyGtk) {

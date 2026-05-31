@@ -272,6 +272,7 @@ public:
     std::string                                 popupLinkUiList{CtConst::POPUP_LINK_DEFAULT};
     std::string                                 popupCodeboxUiList{CtConst::POPUP_CODEBOX_DEFAULT};
     std::string                                 popupTableCellUiList{CtConst::POPUP_TABLE_CELL_DEFAULT};
+    std::string                                 popupNodeUiList{CtConst::POPUP_NODE_DEFAULT};
     bool                                        bookmarksInTopMenu{true};
     bool                                        treeTooltips{true};
     bool                                        menusTooltips{true};

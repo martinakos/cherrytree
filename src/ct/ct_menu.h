@@ -175,6 +175,7 @@ private:
 
     std::vector<std::string> _get_ui_str_toolbars();
     std::string              _get_ui_str_menu();
+    std::string              _get_popup_menu_ui_str_node();
     std::string              _get_popup_menu_ui_str_text();
     std::string              _get_popup_menu_ui_str_code();
     std::string              _get_popup_menu_ui_str_image();

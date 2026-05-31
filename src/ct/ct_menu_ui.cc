@@ -184,6 +184,11 @@ std::string& CtMenu::getMenubarSubmenuConfig(const std::string& menuId)
     return empty;
 }
 
+std::string CtMenu::_get_popup_menu_ui_str_node()
+{
+    return "<popup>" + generate_menu_xml(_pCtConfig->popupNodeUiList) + "</popup>";
+}
+
 std::string CtMenu::_get_popup_menu_ui_str_text()
 {
     return "<popup>" + generate_menu_xml(_pCtConfig->popupTextUiList) + "</popup>";
