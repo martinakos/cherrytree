@@ -33,6 +33,7 @@ Gtk::Widget* CtPrefDlg::build_tab_context_menus()
         const gchar* defaultValue;
     };
     static const std::vector<PopupIdLabel> popupMenus = {
+        {"Node",     _("Node"),          &CtConfig::popupNodeUiList,     CtConst::POPUP_NODE_DEFAULT},
         {"Text",     _("Text"),          &CtConfig::popupTextUiList,     CtConst::POPUP_TEXT_DEFAULT},
         {"Code",     _("Code"),          &CtConfig::popupCodeUiList,     CtConst::POPUP_CODE_DEFAULT},
         {"Image",    _("Image"),         &CtConfig::popupImageUiList,    CtConst::POPUP_IMAGE_DEFAULT},
