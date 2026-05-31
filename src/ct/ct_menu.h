@@ -189,6 +189,7 @@ private:
 public:
     static std::string       generate_menu_xml(const std::string& configStr);
 private:
+    void                     _add_move_to_parent_menu_item(Gtk::MenuShell* pMenuShell, const std::string& nodeName);
 
 private:
     CtMainWin*                    const _pCtMainWin;
