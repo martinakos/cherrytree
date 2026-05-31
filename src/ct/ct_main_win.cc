@@ -674,6 +674,7 @@ void CtMainWin::_reset_CtTreestore_CtTreeview()
 
     _uCtTreestore.reset(new CtTreeStore{this});
     _uCtTreestore->tree_view_connect(_uCtTreeview.get());
+    _uCtMenu->invalidate_popup_menus();
     _uCtTreeview->set_tree_node_name_wrap_width(_pCtConfig->cherryWrapEnabled, _pCtConfig->cherryWrapWidth);
     _uCtTreeview->get_column(CtTreeView::AUX_ICON_COL_NUM)->set_visible(!_pCtConfig->auxIconHide);
     show_hide_tree_lines(_pCtConfig->treeLinesVisible);

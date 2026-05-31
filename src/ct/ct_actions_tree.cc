@@ -1252,6 +1252,43 @@ void CtActions::node_change_father()
     _pCtMainWin->get_tree_store().update_nodes_icon(_pCtMainWin->curr_tree_iter(), true);
 }
 
+void CtActions::move_to_parent(const Glib::ustring& targetNodeName)
+{
+    if (_in_action) { spdlog::debug("?? 2*{}", __FUNCTION__); return; }
+    _in_action = true;
+    auto on_scope_exit = scope_guard([this](void*) { _in_action = false; });
+
+    if (not _is_there_selected_node_or_error()) return;
+
+    CtTreeIter target_iter = _pCtMainWin->get_tree_store().get_node_from_node_name(targetNodeName);
+    if (not target_iter) {
+        CtDialogs::error_dialog(str::format(_("Node '%s' not found"), targetNodeName.c_str()), *_pCtMainWin);
+        return;
+    }
+
+    gint64 curr_node_id = _pCtMainWin->curr_tree_iter().get_node_id();
+    gint64 target_node_id = target_iter.get_node_id();
+    if (curr_node_id == target_node_id) {
+        CtDialogs::error_dialog(_("The new parent can't be the very node to move!"), *_pCtMainWin);
+        return;
+    }
+    CtTreeIter old_father_iter = _pCtMainWin->curr_tree_iter().parent();
+    gint64 old_father_node_id = old_father_iter.get_node_id();
+    if (old_father_node_id != -1 && target_node_id == old_father_node_id) {
+        CtDialogs::info_dialog(_("The new chosen parent is still the old parent!"), *_pCtMainWin);
+        return;
+    }
+    for (CtTreeIter move_towards_top_iter = target_iter.parent(); move_towards_top_iter; move_towards_top_iter = move_towards_top_iter.parent()) {
+        if (move_towards_top_iter.get_node_id() == curr_node_id) {
+            CtDialogs::error_dialog(_("The new parent can't be one of his children!"), *_pCtMainWin);
+            return;
+        }
+    }
+
+    node_move_after(_pCtMainWin->curr_tree_iter(), target_iter);
+    _pCtMainWin->get_tree_store().update_nodes_icon(_pCtMainWin->curr_tree_iter(), true);
+}
+
 bool CtActions::node_move(Gtk::TreeModel::Path src_path, Gtk::TreeModel::Path dest_path, bool only_test_dest)
 {
     if (src_path == dest_path) {

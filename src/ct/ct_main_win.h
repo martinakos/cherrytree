@@ -167,6 +167,7 @@ public:
         return _uCtTreestore->to_ct_tree_iter(_uCtTreeview->get_selection()->get_selected());
     }
     CtTreeStore&                      get_tree_store()  { return *_uCtTreestore; }
+    bool                              has_tree_store() const { return _uCtTreestore != nullptr; }
     CtTreeView&                       get_tree_view()   { return *_uCtTreeview; }
     CtTextView&                       get_text_view()   { return _ctTextview; }
     CtStatusBar&                      get_status_bar()  { return _ctStatusBar; }

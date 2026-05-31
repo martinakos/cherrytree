@@ -229,6 +229,10 @@ void CtPrefDlg::populate_row_in_menu_editor(Gtk::TreeModel::iterator row, const 
     else if (key == "}") {
         desc = "< " + Glib::ustring{_("end submenu")};
     }
+    else if (str::startswith(key, "move_to_parent:")) {
+        icon = "ct_go-jump";
+        desc = _("Move to ") + key.substr(15);
+    }
     else if (CtMenuAction const* action = _pCtMenu->find_action(key)) {
         icon = action->image;
         desc = action->desc;
@@ -252,8 +256,10 @@ void CtPrefDlg::populate_row_in_menu_editor(Gtk::TreeModel::iterator row, const 
 bool CtPrefDlg::add_new_item_in_menu_editor(Gtk::TreeView* treeview, Glib::RefPtr<Gtk::ListStore> model)
 {
     const Glib::ustring newSubmenuKey = "__new_submenu__";
+    const Glib::ustring moveToParentKey = "__move_to_parent__";
     auto itemStore = CtChooseDialogListStore::create();
     itemStore->add_row("ct_add", newSubmenuKey, _("New Submenu..."));
+    itemStore->add_row("ct_go-jump", moveToParentKey, _("Move to Parent..."));
     itemStore->add_row("", CtConst::TAG_SEPARATOR, CtConst::TAG_SEPARATOR_ANSI_REPR);
     for (const CtMenuAction& action : _pCtMenu->get_actions()) {
         if (action.desc.empty()) continue;
@@ -283,6 +289,17 @@ bool CtPrefDlg::add_new_item_in_menu_editor(Gtk::TreeView* treeview, Glib::RefPt
             auto close_row = model->insert_after(open_row);
             populate_row_in_menu_editor(close_row, "}", depth);
             return true;
+        }
+
+        if (chosenKey == moveToParentKey) {
+            CtTreeIter chosen = _pCtMainWin->get_tree_store().to_ct_tree_iter(
+                CtDialogs::choose_node_dialog(_pCtMainWin,
+                    _pCtMainWin->get_tree_view(),
+                    _("Select the Target Parent Node"),
+                    &_pCtMainWin->get_tree_store(),
+                    _pCtMainWin->curr_tree_iter()));
+            if (not chosen) return false;
+            chosenKey = "move_to_parent:" + std::string{chosen.get_node_name()};
         }
 
         auto new_row = selected_row ? model->insert_after(*selected_row) : model->append();
