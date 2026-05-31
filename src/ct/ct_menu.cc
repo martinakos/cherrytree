@@ -622,8 +622,14 @@ void CtMenu::_walk_menu_xml(Gtk::MenuShell* pMenuShell, xmlpp::Node* pNode)
             }
         }
         else if (pNodeIter->get_name() == "menuitem") {
-            CtMenuAction* pAction = find_action(get_attribute(pNodeIter, "action")->get_value());
-            if (pAction) _add_menu_item(pMenuShell, pAction);
+            std::string actionId = get_attribute(pNodeIter, "action")->get_value();
+            if (str::startswith(actionId, "move_to_parent:")) {
+                _add_move_to_parent_menu_item(pMenuShell, actionId.substr(15));
+            }
+            else {
+                CtMenuAction* pAction = find_action(actionId);
+                if (pAction) _add_menu_item(pMenuShell, pAction);
+            }
         }
         else if (pNodeIter->get_name() == "separator") {
             _add_menu_separator(pMenuShell);
@@ -724,6 +730,35 @@ Gtk::MenuItem* CtMenu::_add_menu_item(Gtk::MenuShell* pMenuShell,
     pMenuShell->append(*pMenuItem);
 
     return pMenuItem;
+}
+
+void CtMenu::_add_move_to_parent_menu_item(Gtk::MenuShell* pMenuShell, const std::string& nodeName)
+{
+    Glib::ustring label = _("Move to ") + Glib::ustring{nodeName};
+    bool sensitive = false;
+    if (_pCtMainWin->has_tree_store()) {
+        CtTreeIter target_iter = _pCtMainWin->get_tree_store().get_node_from_node_name(nodeName);
+        if (target_iter) {
+            sensitive = true;
+        }
+    }
+
+    Gtk::MenuItem* pMenuItem = _add_menu_item_full(pMenuShell,
+                                                    label.c_str(),
+                                                    "ct_go-jump",
+                                                    nullptr,
+                                                    _pAccelGroup,
+                                                    sensitive ? nullptr : str::format(_("Node '%s' not found"), nodeName.c_str()).c_str(),
+                                                    nullptr,
+                                                    nullptr,
+                                                    nullptr);
+    pMenuItem->set_sensitive(sensitive);
+    if (sensitive) {
+        Glib::ustring targetName = nodeName;
+        pMenuItem->signal_activate().connect([this, targetName](){
+            _pCtMainWin->get_ct_actions()->move_to_parent(targetName);
+        });
+    }
 }
 
 /*static*/ void CtMenu::_add_menu_item_image_or_label(Gtk::MenuItem* pMenuItem, const char* image, Gtk::AccelLabel* pLabel)
