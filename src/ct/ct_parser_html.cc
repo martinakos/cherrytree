@@ -414,6 +414,11 @@ void CtHtml2Xml::handle_starttag(std::string_view tag, const char** atts)
                         if (!color.empty()) _add_tag_style(CtConst::TAG_FOREGROUND, color);
                     }
             }
+            else if (tag == "a") {
+                for (auto& tag_attr: char2list_attrs(atts))
+                    if (tag_attr.name == "href" && tag_attr.value.size() > 7)
+                        _add_tag_style(CtConst::TAG_LINK, CtStrUtil::get_internal_link_from_http_url(tag_attr.value.begin()));
+            }
         }
     }
     _end_adding_tag_styles();
