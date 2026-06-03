@@ -306,6 +306,8 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     checkbutton_nodes_on_header_auto_size->set_active(_pConfig->nodesOnNodeNameHeaderAutoSize);
     auto checkbutton_nodes_on_header_fifo = Gtk::manage(new Gtk::CheckButton{_("Last Visited Nodes as History (Allow Duplicates)")});
     checkbutton_nodes_on_header_fifo->set_active(_pConfig->nodesOnNodeNameHeaderFIFO);
+    auto checkbutton_header_full_width = Gtk::manage(new Gtk::CheckButton{_("Header Bar Full Window Width")});
+    checkbutton_header_full_width->set_active(_pConfig->nodeNameHeaderFullWidth);
 
     auto hbox_scrollbar_min_size = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 4/*spacing*/});
     auto label_scrollbar_min_size = Gtk::manage(new Gtk::Label{_("Scrollbar Slider Minimum Size (0 = System Default)")});
@@ -395,6 +397,7 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     vbox_misc->append(*hbox_nodes_on_node_name_header);
     vbox_misc->append(*checkbutton_nodes_on_header_auto_size);
     vbox_misc->append(*checkbutton_nodes_on_header_fifo);
+    vbox_misc->append(*checkbutton_header_full_width);
     vbox_misc->append(*hbox_scrollbar_min_size);
     vbox_misc->append(*hbox_scrollbar_overlay);
     vbox_misc->append(*hbox_tooltips_enable);
@@ -414,6 +417,7 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     vbox_misc->pack_start(*hbox_nodes_on_node_name_header, false, false);
     vbox_misc->pack_start(*checkbutton_nodes_on_header_auto_size, false, false);
     vbox_misc->pack_start(*checkbutton_nodes_on_header_fifo, false, false);
+    vbox_misc->pack_start(*checkbutton_header_full_width, false, false);
     vbox_misc->pack_start(*hbox_scrollbar_min_size, false, false);
     vbox_misc->pack_start(*hbox_scrollbar_overlay, false, false);
     vbox_misc->pack_start(*hbox_tooltips_enable, false, false);
@@ -609,6 +613,10 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     checkbutton_nodes_on_header_fifo->signal_toggled().connect([this, checkbutton_nodes_on_header_fifo](){
         _pConfig->nodesOnNodeNameHeaderFIFO = checkbutton_nodes_on_header_fifo->get_active();
         apply_for_each_window([](CtMainWin* win) { win->window_header_update(); });
+    });
+    checkbutton_header_full_width->signal_toggled().connect([this, checkbutton_header_full_width](){
+        _pConfig->nodeNameHeaderFullWidth = checkbutton_header_full_width->get_active();
+        need_restart(RESTART_REASON::HEADER_FULL_WIDTH);
     });
     spinbutton_scrollbar_min_size->signal_value_changed().connect([this, spinbutton_scrollbar_min_size](){
         _pConfig->scrollSliderMin = spinbutton_scrollbar_min_size->get_value_as_int();

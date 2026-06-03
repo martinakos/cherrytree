@@ -87,6 +87,7 @@ public:
     int                                         nodesOnNodeNameHeader{3};
     bool                                        nodesOnNodeNameHeaderAutoSize{false};
     bool                                        nodesOnNodeNameHeaderFIFO{false};
+    bool                                        nodeNameHeaderFullWidth{true};
     int                                         maxMatchesInPage{500};
     int                                         toolbarIconSize{1};
     int                                         multipleWordsSearchType{0}; // 0: exact match, 1: disregard order (AND), 2: match any (OR)

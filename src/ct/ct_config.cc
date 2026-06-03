@@ -286,6 +286,7 @@ void CtConfig::_populate_keyfile_from_data()
     _uKeyFile->set_integer(_currentGroup, "nodes_on_node_name_header", nodesOnNodeNameHeader);
     _uKeyFile->set_boolean(_currentGroup, "nodes_on_node_name_header_auto_size", nodesOnNodeNameHeaderAutoSize);
     _uKeyFile->set_boolean(_currentGroup, "nodes_on_node_name_header_fifo", nodesOnNodeNameHeaderFIFO);
+    _uKeyFile->set_boolean(_currentGroup, "node_name_header_full_width", nodeNameHeaderFullWidth);
     _uKeyFile->set_integer(_currentGroup, "max_matches_in_page", maxMatchesInPage);
     _uKeyFile->set_integer(_currentGroup, "toolbar_icon_size", toolbarIconSize);
     _uKeyFile->set_integer(_currentGroup, "search_multi_words", multipleWordsSearchType);
@@ -623,6 +624,7 @@ void CtConfig::_populate_data_from_keyfile()
     _populate_int_from_keyfile("nodes_on_node_name_header", &nodesOnNodeNameHeader);
     _populate_bool_from_keyfile("nodes_on_node_name_header_auto_size", &nodesOnNodeNameHeaderAutoSize);
     _populate_bool_from_keyfile("nodes_on_node_name_header_fifo", &nodesOnNodeNameHeaderFIFO);
+    _populate_bool_from_keyfile("node_name_header_full_width", &nodeNameHeaderFullWidth);
     _populate_int_from_keyfile("max_matches_in_page", &maxMatchesInPage);
     _populate_int_from_keyfile("toolbar_icon_size", &toolbarIconSize);
     _populate_int_from_keyfile("search_multi_words", &multipleWordsSearchType);
