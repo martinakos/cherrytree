@@ -219,7 +219,9 @@ CtMainWin::CtMainWin(bool                            no_gui,
     _scrolledwindowText.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
 #if GTKMM_MAJOR_VERSION >= 4
     _scrolledwindowText.set_child(_ctTextview.mm());
-    _vboxText.append(_init_window_header());
+    if (!_pCtConfig->nodeNameHeaderFullWidth) {
+        _vboxText.append(_init_window_header());
+    }
     _vboxText.append(_scrolledwindowText);
     if (_pCtConfig->treeRightSide) {
         _hPaned.set_start_child(_vboxText);
@@ -232,7 +234,9 @@ CtMainWin::CtMainWin(bool                            no_gui,
     _vPaned.set_start_child(_hPaned);
 #else
     _scrolledwindowText.add(_ctTextview.mm());
-    _vboxText.pack_start(_init_window_header(), false, false);
+    if (!_pCtConfig->nodeNameHeaderFullWidth) {
+        _vboxText.pack_start(_init_window_header(), false, false);
+    }
     _vboxText.pack_start(_scrolledwindowText);
     if (_pCtConfig->treeRightSide) {
         _hPaned.pack1(_vboxText, Gtk::EXPAND);
@@ -333,11 +337,17 @@ CtMainWin::CtMainWin(bool                            no_gui,
 #endif
     // Main layout assembly
 #if GTKMM_MAJOR_VERSION >= 4
+    if (_pCtConfig->nodeNameHeaderFullWidth) {
+        _vboxMain.append(_init_window_header());
+    }
     _vboxMain.append(_vPaned);
     _vboxMain.append(_init_status_bar());
     _vboxMain.show();
     set_child(_vboxMain);
 #else
+    if (_pCtConfig->nodeNameHeaderFullWidth) {
+        _vboxMain.pack_start(_init_window_header(), false, false);
+    }
     _vboxMain.pack_start(_vPaned);
     _vboxMain.pack_start(_init_status_bar(), false, false);
     _vboxMain.show_all();
@@ -852,9 +862,9 @@ void CtMainWin::update_theme()
     css_str += " ";
     css_str += ".ct-tree-panel { color: " + _pCtConfig->ttDefFg + "; background-color: " + _pCtConfig->ttDefBg + "; } ";
     css_str += ".ct-tree-panel:selected { color: " + _pCtConfig->ttSelFg + "; background: " + _pCtConfig->ttSelBg + "; } ";
-    css_str += ".ct-tree-scroll-panel { background-color: " + _pCtConfig->ttDefBg + "; } ";
-    css_str += ".ct-header-panel { background-color: " + _pCtConfig->ttDefBg + "; } ";
-    css_str += ".ct-header-panel button { margin: 2px; padding: 0 4px 0 4px; } ";
+    css_str += ".ct-tree-scroll-panel { background-color: " + _pCtConfig->ttDefBg + "; border: 1px solid black; } ";
+    css_str += ".ct-header-panel { background-color: " + _pCtConfig->ttDefBg + "; border-bottom: 2px solid @borders; } ";
+    css_str += ".ct-header-panel button { margin: 0; padding: 0 4px 0 4px; } ";
     css_str += ".ct-status-bar bar { margin: 0px; } ";
 #if defined(_WIN32)
     // without this the progress bar height is 1 or 2 px, hardly visible (#2373)
