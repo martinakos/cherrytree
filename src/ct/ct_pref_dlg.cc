@@ -620,7 +620,7 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     });
     checkbutton_header_full_width->signal_toggled().connect([this, checkbutton_header_full_width](){
         _pConfig->nodeNameHeaderFullWidth = checkbutton_header_full_width->get_active();
-        need_restart(RESTART_REASON::HEADER_FULL_WIDTH);
+        apply_for_each_window([](CtMainWin* win) { win->config_switch_header_full_width(); });
     });
     spinbutton_scrollbar_min_size->signal_value_changed().connect([this, spinbutton_scrollbar_min_size](){
         _pConfig->scrollSliderMin = spinbutton_scrollbar_min_size->get_value_as_int();

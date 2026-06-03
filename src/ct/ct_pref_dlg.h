@@ -63,7 +63,7 @@ private:
                         TREE_NODE_WRAP    = 1 << 10, DEBUG_LOG           = 1 << 11,
                         CURSOR_BLINK      = 1 << 12, MENUBAR_IN_TITLEBAR = 1 << 13,
                         OVERLAY_SCROLL    = 1 << 14, MENUS_TOOLTIPS      = 1 << 15,
-                        TEXT_MARGIN       = 1 << 16, HEADER_FULL_WIDTH = 1 << 17};
+                        TEXT_MARGIN       = 1 << 16};
 
     const Glib::ustring reset_warning = Glib::ustring{"<b>"}+_("Are you sure to Reset to Default?")+"</b>";
 
