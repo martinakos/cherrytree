@@ -1703,6 +1703,40 @@ void CtMainWin::config_switch_tree_side()
     _pCtConfig->hpanedPos = tree_width;
 }
 
+void CtMainWin::config_switch_header_full_width()
+{
+    auto& header = _ctWinHeader.eventBox;
+#if GTKMM_MAJOR_VERSION >= 4
+    if (_pCtConfig->nodeNameHeaderFullWidth) {
+        _vboxText.remove(header);
+        _vboxMain.insert_child_before(header, _vPaned);
+    }
+    else {
+        _vboxMain.remove(header);
+        _vboxText.prepend(header);
+    }
+#else
+    auto* parent = header.get_parent();
+    if (parent) {
+        static_cast<Gtk::Box*>(parent)->remove(header);
+    }
+    if (_pCtConfig->nodeNameHeaderFullWidth) {
+        _vboxMain.pack_start(header, false, false);
+        int pos = 0;
+        for (auto* child : _vboxMain.get_children()) {
+            if (child == &_vPaned) break;
+            pos++;
+        }
+        _vboxMain.reorder_child(header, pos);
+    }
+    else {
+        _vboxText.pack_start(header, false, false);
+        _vboxText.reorder_child(header, 0);
+    }
+#endif
+    header.show();
+}
+
 void CtMainWin::_zoom_tree(const std::optional<bool> is_increase)
 {
 #if GTKMM_MAJOR_VERSION >= 4
