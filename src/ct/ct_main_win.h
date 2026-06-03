@@ -238,6 +238,7 @@ public:
 #endif /* GTKMM_MAJOR_VERSION >= 4 */
 
     void config_switch_tree_side();
+    void config_switch_header_full_width();
 
     #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     void show_hide_toolbars(bool visible)   { for (auto pToolbar : _pToolbars) pToolbar->property_visible() = visible; }
