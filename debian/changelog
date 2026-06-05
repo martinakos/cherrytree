@@ -1,3 +1,17 @@
+cherrytree-docmodel (1.7.0+docmodel11-1) plucky; urgency=low
+
+  * configurable tree node context menu in preferences
+  * optional full-width header bar layout spanning tree and editor
+  * "Move to Parent" context menu action
+  * fix go-forward node navigation by guarding history during back/forward
+  * preserve hyperlinks when pasting HTML table cells
+  * fall back to clipboard pixbuf when HTML image download fails
+  * use XML snapshot path for formatted pastes so undo/redo keeps formatting
+  * apply header full-width toggle at runtime without restart
+  * UI: auto-sized labels with uniform margins in status bar
+
+ -- Martin Tosas <martin.tosas@gmail.com>  Thu, 05 Jun 2026 12:00:00 +0000
+
 cherrytree-docmodel (1.7.0+docmodel10-1) plucky; urgency=low
 
   * UI: redesign status bar with clearer layout for faster readability
