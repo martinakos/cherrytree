@@ -16,6 +16,8 @@ jobs:
             label: ubuntu24.04
           - distro: ubuntu:25.04
             label: ubuntu25.04
+          - distro: ubuntu:26.04
+            label: ubuntu26.04
           - distro: debian:12
             label: debian12
     runs-on: ubuntu-latest
