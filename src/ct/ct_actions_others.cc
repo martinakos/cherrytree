@@ -549,8 +549,16 @@ void CtActions::image_delete()
             }
         }
     }
-    object_set_selection(curr_image_anchor);
-    _curr_buffer()->erase_selection(true, _pCtMainWin->get_text_view().mm().get_editable());
+    // Erase the anchor's range synchronously here. We must NOT route this
+    // through object_set_selection(): that defers the selection to an idle
+    // callback which captures the anchor and calls get_iter_at_child_anchor()
+    // on it — by the time the idle fires the anchor is already erased, which
+    // trips gtk's '!gtk_text_child_anchor_get_deleted' assertion and crashes.
+    Gtk::TextIter iter_obj = _curr_buffer()->get_iter_at_child_anchor(
+        curr_image_anchor->getTextChildAnchor());
+    Gtk::TextIter iter_bound = iter_obj;
+    iter_bound.forward_char();
+    _curr_buffer()->erase(iter_obj, iter_bound);
     curr_image_anchor = nullptr;
     _pCtMainWin->get_text_view().mm().grab_focus();
 }
