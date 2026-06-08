@@ -230,6 +230,10 @@ void CtActions::object_set_selection(CtAnchoredWidget* widget)
         // For non-image widgets with internal text editing (Codebox, Table), place_cursor
         // avoids stealing the PRIMARY selection from the embedded text view.
         Glib::signal_idle().connect_once([this, anchor, isImage](){
+            // The anchor may have been erased (e.g. image deleted) before this
+            // deferred idle runs; touching it would trip gtk's deleted-anchor
+            // assertion and crash.
+            if (anchor->get_deleted()) return;
             Gtk::TextIter iter_object = _curr_buffer()->get_iter_at_child_anchor(anchor);
             _curr_buffer()->place_cursor(iter_object);
             _pCtMainWin->update_selected_node_statusbar_info();
@@ -243,6 +247,7 @@ void CtActions::object_set_selection(CtAnchoredWidget* widget)
     }
     else {
         Glib::signal_idle().connect_once([this, anchor, isImage](){
+            if (anchor->get_deleted()) return;
             Gtk::TextIter iter_object = _curr_buffer()->get_iter_at_child_anchor(anchor);
             Gtk::TextIter iter_bound = iter_object;
             iter_bound.forward_char();
