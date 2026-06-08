@@ -225,6 +225,10 @@ void CtActions::object_set_selection(CtAnchoredWidget* widget)
     Glib::RefPtr<Gtk::TextChildAnchor> anchor = widget->getTextChildAnchor();
     if (_pCtConfig->objectNoSelOnClick) {
         Glib::signal_idle().connect_once([this, anchor, isImage](){
+            // The anchor may have been erased (e.g. image deleted) before this
+            // deferred idle runs; touching it would trip gtk's deleted-anchor
+            // assertion and crash.
+            if (anchor->get_deleted()) return;
             Gtk::TextIter iter_object = _curr_buffer()->get_iter_at_child_anchor(anchor);
             _curr_buffer()->place_cursor(iter_object);
             if (isImage) {
@@ -237,6 +241,7 @@ void CtActions::object_set_selection(CtAnchoredWidget* widget)
     }
     else {
         Glib::signal_idle().connect_once([this, anchor, isImage](){
+            if (anchor->get_deleted()) return;
             Gtk::TextIter iter_object = _curr_buffer()->get_iter_at_child_anchor(anchor);
             Gtk::TextIter iter_bound = iter_object;
             iter_bound.forward_char();
