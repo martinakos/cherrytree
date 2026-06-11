@@ -78,7 +78,7 @@ void CtStatusBar::_set_field(Gtk::Label& label, Gtk::Separator& sep, const Glib:
     }
     else {
         label.set_markup("<b>" + Glib::Markup::escape_text(boldKey) +
-                         "</b><span foreground=\"black\" font_weight=\"thin\">" +
+                         "</b> <span foreground=\"black\" font_weight=\"thin\">" +
                          Glib::Markup::escape_text(val) + "</span>");
         label.show();
         sep.show();
