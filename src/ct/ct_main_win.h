@@ -60,6 +60,7 @@ struct CtStatusBar
     Gtk::Label       subnodesField;
     Gtk::Separator   fieldSeparators[9];
     Gtk::Label       messageLabel;
+    Gtk::Label       canvasEditLabel;
     Gtk::Label       zoomLabel;
     Gtk::ProgressBar progressBar;
     Gtk::Button      stopButton;
@@ -190,6 +191,7 @@ public:
 
     Gtk::ScrolledWindow&              getScrolledwindowText() { return _scrolledwindowText; }
     CtDrawingOverlay*                 get_drawing_overlay() { return _pDrawingOverlay.get(); }
+    void                              update_drawing_mode_toggle(bool active);
 
     bool&         user_active()      { return _userActive; } // use as a function, because it's easier to put breakpoint
     bool&         force_exit()       { return _forceExit; }
@@ -397,8 +399,11 @@ private:
     Gtk::ToolButton*             _pSaveToolButton{nullptr};
     Gtk::MenuToolButton*         _pUndoMenuToolButton{nullptr};
     Gtk::MenuToolButton*         _pRedoMenuToolButton{nullptr};
+    Gtk::ToggleToolButton*       _pToggleDrawingModeButton{nullptr};
+    bool                         _updatingDrawingModeToggle{false};
     bool                         _updatingUndoRedoMenus{false};
     void _setup_undo_redo_popovers();
+    void _setup_drawing_mode_toggle();
     #endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
     #if GTKMM_MAJOR_VERSION >= 4
     Gtk::MenuButton*             _pMenuButton4{nullptr};
