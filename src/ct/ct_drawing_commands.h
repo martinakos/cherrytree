@@ -291,3 +291,64 @@ private:
     double _oldX, _oldY, _oldW, _oldH;
     double _newX, _newY, _newW, _newH;
 };
+
+class CanvasPropertiesCommand : public CtCommand {
+public:
+    CanvasPropertiesCommand(std::shared_ptr<CtDocumentModel> docModel,
+                            gint64 nodeId, size_t canvasIdx,
+                            std::string oldName, std::string newName,
+                            std::string oldBgColor, std::string newBgColor,
+                            double oldBgOpacity, double newBgOpacity,
+                            double oldCornerRadius, double newCornerRadius,
+                            bool oldShowBorder, bool newShowBorder)
+        : _docModel(std::move(docModel))
+        , _nodeId(nodeId)
+        , _canvasIdx(canvasIdx)
+        , _oldName(std::move(oldName)), _newName(std::move(newName))
+        , _oldBgColor(std::move(oldBgColor)), _newBgColor(std::move(newBgColor))
+        , _oldBgOpacity(oldBgOpacity), _newBgOpacity(newBgOpacity)
+        , _oldCornerRadius(oldCornerRadius), _newCornerRadius(newCornerRadius)
+        , _oldShowBorder(oldShowBorder), _newShowBorder(newShowBorder)
+    {}
+
+    void execute() override {
+        auto node = _docModel->getNodeById(_nodeId);
+        if (!node) return;
+        auto& canvases = node->getDrawingCanvasesMut();
+        if (_canvasIdx < canvases.size()) {
+            canvases[_canvasIdx].name = _newName;
+            canvases[_canvasIdx].bgColor = _newBgColor;
+            canvases[_canvasIdx].bgOpacity = _newBgOpacity;
+            canvases[_canvasIdx].cornerRadius = _newCornerRadius;
+            canvases[_canvasIdx].showBorderWhenInactive = _newShowBorder;
+            _docModel->notifyNodeDrawingChanged(_nodeId);
+        }
+    }
+
+    void undo() override {
+        auto node = _docModel->getNodeById(_nodeId);
+        if (!node) return;
+        auto& canvases = node->getDrawingCanvasesMut();
+        if (_canvasIdx < canvases.size()) {
+            canvases[_canvasIdx].name = _oldName;
+            canvases[_canvasIdx].bgColor = _oldBgColor;
+            canvases[_canvasIdx].bgOpacity = _oldBgOpacity;
+            canvases[_canvasIdx].cornerRadius = _oldCornerRadius;
+            canvases[_canvasIdx].showBorderWhenInactive = _oldShowBorder;
+            _docModel->notifyNodeDrawingChanged(_nodeId);
+        }
+    }
+
+    std::string getDescription() const override { return "Canvas properties"; }
+    gint64 getNodeId() const override { return _nodeId; }
+
+private:
+    std::shared_ptr<CtDocumentModel> _docModel;
+    gint64 _nodeId;
+    size_t _canvasIdx;
+    std::string _oldName, _newName;
+    std::string _oldBgColor, _newBgColor;
+    double _oldBgOpacity, _newBgOpacity;
+    double _oldCornerRadius, _newCornerRadius;
+    bool _oldShowBorder, _newShowBorder;
+};
