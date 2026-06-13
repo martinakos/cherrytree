@@ -44,6 +44,7 @@
 #include "ct_table.h"
 #include "ct_image.h"
 #include "ct_export2pdf.h"
+#include "ct_drawing.h"
 
 struct CtStatusBar
 {
@@ -189,6 +190,7 @@ public:
 #endif /* GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED) */
 
     Gtk::ScrolledWindow&              getScrolledwindowText() { return _scrolledwindowText; }
+    CtDrawingOverlay*                 get_drawing_overlay() { return _pDrawingOverlay.get(); }
 
     bool&         user_active()      { return _userActive; } // use as a function, because it's easier to put breakpoint
     bool&         force_exit()       { return _forceExit; }
@@ -415,6 +417,7 @@ private:
     CtTextView                   _ctTextview;
     std::unique_ptr<class CtCommandBridge> _pCtCommandBridge;
     std::unique_ptr<CtPairCodeboxMainWin> _uCtPairCodeboxMainWin;
+    std::unique_ptr<CtDrawingOverlay> _pDrawingOverlay;
 
     Glib::RefPtr<Gtk::CssProvider> _css_provider_theme;
 

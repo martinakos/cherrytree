@@ -31,6 +31,7 @@
 #include "ct_codebox.h"
 #include "ct_table.h"
 #include "ct_main_win.h"
+#include "ct_command_bridge.h"
 #include "ct_storage_control.h"
 #include "ct_storage_multifile.h"
 #include "ct_logging.h"
@@ -386,6 +387,26 @@ xmlpp::Element* CtStorageXmlHelper::node_to_xml(const CtTreeIter* ct_tree_iter,
         for (CtAnchoredWidget* pAnchoredWidget : ct_tree_iter->get_anchored_widgets(start_offset, end_offset)) {
             pAnchoredWidget->to_xml(p_node_node, start_offset > 0 ? -start_offset : 0, storage_cache, multifile_dir);
         }
+
+        // serialize drawing canvases from the document model
+        auto* bridge = _pCtMainWin->get_command_bridge();
+        if (bridge && bridge->isActive()) {
+            auto nodeModel = bridge->getDocumentModel()->getNodeById(my_node_id);
+            if (nodeModel) {
+                const auto& canvases = nodeModel->getDrawingCanvases();
+                if (!canvases.empty()) {
+                    spdlog::info("Drawing XML write: node {} writing {} canvases",
+                                 my_node_id, canvases.size());
+                }
+                CtXmlHelper::drawing_canvases_to_xml(p_node_node, canvases);
+            }
+            else {
+                spdlog::info("Drawing XML write: node {} NOT in doc model", my_node_id);
+            }
+        }
+        else {
+            spdlog::info("Drawing XML write: bridge null or inactive for node {}", my_node_id);
+        }
     }
     return p_node_node;
 }
@@ -429,6 +450,13 @@ Gtk::TreeModel::iterator CtStorageXmlHelper::node_from_xml(const xmlpp::Element*
     }
     else if (pIsSharedNonMaster) {
         *pIsSharedNonMaster = true;
+    }
+
+    // parse drawing canvases (always, even for shared nodes — they're per-node)
+    node_data.drawingCanvases = CtXmlHelper::drawing_canvases_from_xml(xml_element);
+    if (!node_data.drawingCanvases.empty()) {
+        spdlog::info("Drawing XML read: node {} loaded {} canvases",
+                     node_data.nodeId, node_data.drawingCanvases.size());
     }
 
     if (isDryRun) {
@@ -991,4 +1019,81 @@ bool CtXmlHelper::safe_parse_memory(xmlpp::DomParser& parser, const Glib::ustrin
         }
     }
     return parser.get_document() and parser.get_document()->get_root_node();
+}
+
+void CtXmlHelper::drawing_canvases_to_xml(xmlpp::Element* p_node_node,
+                                           const std::vector<CtDrawingCanvas>& canvases)
+{
+    if (canvases.empty()) return;
+    auto* p_dc = p_node_node->add_child("drawing_canvases");
+    for (const auto& canvas : canvases) {
+        auto* p_canvas = p_dc->add_child("canvas");
+        p_canvas->set_attribute("x", std::to_string(canvas.x));
+        p_canvas->set_attribute("y", std::to_string(canvas.y));
+        p_canvas->set_attribute("width", std::to_string(canvas.width));
+        p_canvas->set_attribute("height", std::to_string(canvas.height));
+        p_canvas->set_attribute("corner_radius", std::to_string(canvas.cornerRadius));
+        for (const auto& stroke : canvas.strokes) {
+            auto* p_stroke = p_canvas->add_child("stroke");
+            p_stroke->set_attribute("color", stroke.color);
+            p_stroke->set_attribute("width", std::to_string(stroke.lineWidth));
+            p_stroke->set_attribute("opacity", std::to_string(stroke.opacity));
+            std::string pointsStr;
+            for (size_t i = 0; i < stroke.points.size(); ++i) {
+                if (i > 0) pointsStr += ";";
+                pointsStr += std::to_string(stroke.points[i].x) + "," +
+                             std::to_string(stroke.points[i].y);
+            }
+            p_stroke->add_child_text(pointsStr);
+        }
+    }
+}
+
+std::vector<CtDrawingCanvas> CtXmlHelper::drawing_canvases_from_xml(const xmlpp::Element* p_node_node)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    for (auto* child : p_node_node->get_children("drawing_canvases")) {
+        auto* dcElem = dynamic_cast<const xmlpp::Element*>(child);
+        if (!dcElem) continue;
+        for (auto* canvasChild : dcElem->get_children("canvas")) {
+            auto* canvasElem = dynamic_cast<const xmlpp::Element*>(canvasChild);
+            if (!canvasElem) continue;
+            CtDrawingCanvas canvas;
+            canvas.x = std::stod(canvasElem->get_attribute_value("x"));
+            canvas.y = std::stod(canvasElem->get_attribute_value("y"));
+            canvas.width = std::stod(canvasElem->get_attribute_value("width"));
+            canvas.height = std::stod(canvasElem->get_attribute_value("height"));
+            auto crStr = canvasElem->get_attribute_value("corner_radius");
+            if (!crStr.empty()) canvas.cornerRadius = std::stod(crStr);
+            for (auto* strokeChild : canvasElem->get_children("stroke")) {
+                auto* strokeElem = dynamic_cast<const xmlpp::Element*>(strokeChild);
+                if (!strokeElem) continue;
+                CtDrawingStroke stroke;
+                stroke.color = strokeElem->get_attribute_value("color");
+                auto wStr = strokeElem->get_attribute_value("width");
+                if (!wStr.empty()) stroke.lineWidth = std::stod(wStr);
+                auto oStr = strokeElem->get_attribute_value("opacity");
+                if (!oStr.empty()) stroke.opacity = std::stod(oStr);
+                // parse points from text content
+                auto* textNode = strokeElem->get_child_text();
+                if (textNode) {
+                    std::string content = textNode->get_content();
+                    size_t pos = 0;
+                    while (pos < content.size()) {
+                        size_t commaPos = content.find(',', pos);
+                        if (commaPos == std::string::npos) break;
+                        size_t semiPos = content.find(';', commaPos);
+                        if (semiPos == std::string::npos) semiPos = content.size();
+                        double px = std::stod(content.substr(pos, commaPos - pos));
+                        double py = std::stod(content.substr(commaPos + 1, semiPos - commaPos - 1));
+                        stroke.points.push_back({px, py});
+                        pos = semiPos + 1;
+                    }
+                }
+                canvas.strokes.push_back(std::move(stroke));
+            }
+            canvases.push_back(std::move(canvas));
+        }
+    }
+    return canvases;
 }
