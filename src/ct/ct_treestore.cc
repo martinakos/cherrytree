@@ -453,6 +453,18 @@ void CtTreeIter::set_node_sequence(gint64 num)
     }
 }
 
+std::vector<CtDrawingCanvas> CtTreeIter::get_drawing_canvases() const
+{
+    return (*this)->get_value(_pColumns->colDrawingCanvases);
+}
+
+void CtTreeIter::set_drawing_canvases(const std::vector<CtDrawingCanvas>& canvases)
+{
+    if (*this) {
+        (*this)->set_value(_pColumns->colDrawingCanvases, canvases);
+    }
+}
+
 void CtTreeIter::set_node_text_buffer(Glib::RefPtr<Gtk::TextBuffer> new_buffer, const std::string& new_syntax_highlighting)
 {
     if (*this) {
@@ -1092,6 +1104,7 @@ void CtTreeStore::get_node_data(const Gtk::TreeModel::iterator& treeIter, CtNode
     nodeData.foregroundRgb24 = row[_columns.colForeground];
     nodeData.tsCreation = row[_columns.colTsCreation];
     nodeData.tsLastSave = row[_columns.colTsLastSave];
+    nodeData.drawingCanvases = row[_columns.colDrawingCanvases];
 }
 
 void CtTreeStore::update_node_data(const Gtk::TreeModel::iterator& treeIter, const CtNodeData& nodeData)
@@ -1116,6 +1129,7 @@ void CtTreeStore::update_node_data(const Gtk::TreeModel::iterator& treeIter, con
     row[_columns.colTsCreation] = nodeData.tsCreation;
     row[_columns.colTsLastSave] = nodeData.tsLastSave;
     row[_columns.colAnchoredWidgets] = nodeData.anchoredWidgets;
+    row[_columns.colDrawingCanvases] = nodeData.drawingCanvases;
 
     update_node_aux_icon(treeIter);
     add_used_tags(nodeData.tags);

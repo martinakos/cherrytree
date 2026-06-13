@@ -110,6 +110,12 @@ void CtCommandBridge::initializeFromExistingDocument()
             nodeModel->setSequence(ti.get_node_sequence());
             // Content is NOT loaded here — it is captured lazily when a snapshot
             // is needed (e.g. before node_delete) or via beginTextEditSession.
+            auto tiCanvases = ti.get_drawing_canvases();
+            if (!tiCanvases.empty()) {
+                spdlog::info("Drawing model init: node {} copying {} canvases from tree store",
+                             nid, tiCanvases.size());
+            }
+            nodeModel->getDrawingCanvasesMut() = std::move(tiCanvases);
             _docModel->addNode(nodeModel, parentId, -1);
         }
 
@@ -765,6 +771,7 @@ void CtCommandBridge::beginTextEditSession(gint64 nodeId)
             newNode->setName(treeIter.get_node_name());
             newNode->setSyntax(treeIter.get_node_syntax_highlighting());
             newNode->setContent(buildContentFromBuffer(buffer, treeIter.get_anchored_widgets()));
+            newNode->getDrawingCanvasesMut() = treeIter.get_drawing_canvases();
             _docModel->addNode(newNode, 0 /* flat model — no hierarchy needed for undo */);
             spdlog::info("CtCommandBridge: lazy-added node {} to model on first edit visit", nodeId);
         } else if (nodeId == _lastSyncedNodeId) {
@@ -3034,4 +3041,25 @@ void CtCommandBridge::BridgeObserver::onNodePropertiesChanged(
 
     treeIter.pending_edit_db_node_prop();
     win.update_window_save_needed(CtSaveNeededUpdType::npro);
+}
+
+void CtCommandBridge::BridgeObserver::onNodeDrawingChanged(gint64 nodeId)
+{
+    if (!_bridge || !_bridge->_pMainWin) return;
+    auto* overlay = _bridge->_pMainWin->get_drawing_overlay();
+    if (overlay) {
+        overlay->refresh();
+    }
+    auto& treeStore = _bridge->_pMainWin->get_tree_store();
+    CtTreeIter treeIter = treeStore.get_node_from_node_id(nodeId);
+    if (treeIter) {
+        auto nodeModel = _bridge->_docModel->getNodeById(nodeId);
+        if (nodeModel) {
+            treeIter.set_drawing_canvases(nodeModel->getDrawingCanvases());
+        }
+        treeIter.pending_edit_db_node_buff();
+        _bridge->_pMainWin->update_window_save_needed(CtSaveNeededUpdType::None,
+                                                       false/*new_machine_state*/,
+                                                       &treeIter);
+    }
 }
