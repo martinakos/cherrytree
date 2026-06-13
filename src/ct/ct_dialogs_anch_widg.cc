@@ -682,6 +682,152 @@ bool CtDialogs::codeboxhandle_dialog(CtMainWin* pCtMainWin,
     return false;
 }
 
+bool CtDialogs::canvas_properties_dialog(CtMainWin* pCtMainWin,
+                                         CtCanvasPropsDialogData& data)
+{
+    Gtk::Dialog dialog{_("Canvas Properties"),
+                       *pCtMainWin,
+                       Gtk::DialogFlags::DIALOG_MODAL | Gtk::DialogFlags::DIALOG_DESTROY_WITH_PARENT};
+
+    (void)CtMiscUtil::dialog_add_button(&dialog, _("Cancel"), Gtk::RESPONSE_REJECT, "ct_cancel");
+    (void)CtMiscUtil::dialog_add_button(&dialog, _("OK"), Gtk::RESPONSE_ACCEPT, "ct_done", true);
+
+    dialog.set_default_size(300, -1);
+    dialog.set_position(Gtk::WIN_POS_CENTER_ON_PARENT);
+
+    // Name frame
+    Gtk::Entry name_entry;
+    name_entry.set_text(data.name);
+    Gtk::Box name_vbox{Gtk::ORIENTATION_VERTICAL};
+    name_vbox.pack_start(name_entry);
+    CtMiscUtil::set_widget_margins(name_vbox, 0, 6, 6, 6);
+    Gtk::Frame name_frame{Glib::ustring{"<b>"} + _("Name") + "</b>"};
+    dynamic_cast<Gtk::Label*>(name_frame.get_label_widget())->set_use_markup(true);
+    name_frame.set_shadow_type(Gtk::SHADOW_NONE);
+    name_frame.add(name_vbox);
+
+    // Background frame
+    Gdk::RGBA bg_rgba;
+    {
+        auto parse_hex = [](const std::string& hex, double& r, double& g, double& b) {
+            if (hex.size() >= 7) {
+                r = std::stoi(hex.substr(1, 2), nullptr, 16) / 255.0;
+                g = std::stoi(hex.substr(3, 2), nullptr, 16) / 255.0;
+                b = std::stoi(hex.substr(5, 2), nullptr, 16) / 255.0;
+            }
+        };
+        double r{1.0}, g{1.0}, b{1.0};
+        parse_hex(data.bgColor, r, g, b);
+        bg_rgba.set_red(r); bg_rgba.set_green(g); bg_rgba.set_blue(b); bg_rgba.set_alpha(1.0);
+    }
+
+    auto* bg_color_area = Gtk::manage(new Gtk::DrawingArea);
+    bg_color_area->set_size_request(24, 16);
+    bg_color_area->signal_draw().connect([&bg_rgba](const Cairo::RefPtr<Cairo::Context>& cr) -> bool {
+        Gdk::Cairo::set_source_rgba(cr, bg_rgba);
+        cr->paint();
+        return true;
+    });
+    Gtk::Button bg_colorbutton;
+    bg_colorbutton.add(*bg_color_area);
+
+    bg_colorbutton.signal_clicked().connect([pCtMainWin, &bg_rgba, bg_color_area]() {
+        Glib::ustring ret_colour = bg_rgba.to_string();
+        CtDialogs::CtPickDlgState res{CtDialogs::CtPickDlgState::CALL_AGAIN};
+        while (CtDialogs::CtPickDlgState::CALL_AGAIN == res) {
+            res = CtDialogs::colour_pick_dialog(pCtMainWin, _("Pick a Color"), ret_colour, false);
+        }
+        if (CtPickDlgState::SELECTED == res) {
+            bg_rgba = Gdk::RGBA{ret_colour};
+            bg_color_area->queue_draw();
+        }
+    });
+
+    Gtk::Label label_color{_("Color")};
+    Gtk::Box hbox_color{Gtk::ORIENTATION_HORIZONTAL, 5};
+    hbox_color.pack_start(label_color, false, false);
+    hbox_color.pack_start(bg_colorbutton, false, false);
+
+    Gtk::Label label_opacity{_("Opacity")};
+    Glib::RefPtr<Gtk::Adjustment> rAdj_opacity = Gtk::Adjustment::create(data.bgOpacity * 100.0, 0, 100, 5);
+    Gtk::SpinButton spinbutton_opacity{rAdj_opacity};
+    spinbutton_opacity.set_value(data.bgOpacity * 100.0);
+    Gtk::Label label_percent{"%"};
+    Gtk::Box hbox_opacity{Gtk::ORIENTATION_HORIZONTAL, 5};
+    hbox_opacity.pack_start(label_opacity, false, false);
+    hbox_opacity.pack_start(spinbutton_opacity, false, false);
+    hbox_opacity.pack_start(label_percent, false, false);
+
+    Gtk::Box bg_vbox{Gtk::ORIENTATION_VERTICAL};
+    bg_vbox.pack_start(hbox_color);
+    bg_vbox.pack_start(hbox_opacity);
+    CtMiscUtil::set_widget_margins(bg_vbox, 0, 6, 6, 6);
+    Gtk::Frame bg_frame{Glib::ustring{"<b>"} + _("Background") + "</b>"};
+    dynamic_cast<Gtk::Label*>(bg_frame.get_label_widget())->set_use_markup(true);
+    bg_frame.set_shadow_type(Gtk::SHADOW_NONE);
+    bg_frame.add(bg_vbox);
+
+    // Appearance frame
+    Gtk::Label label_corner{_("Corner Radius")};
+    Glib::RefPtr<Gtk::Adjustment> rAdj_corner = Gtk::Adjustment::create(data.cornerRadius, 0, 50, 1);
+    Gtk::SpinButton spinbutton_corner{rAdj_corner};
+    spinbutton_corner.set_value(data.cornerRadius);
+    Gtk::Box hbox_corner{Gtk::ORIENTATION_HORIZONTAL, 5};
+    hbox_corner.pack_start(label_corner, false, false);
+    hbox_corner.pack_start(spinbutton_corner, false, false);
+
+    Gtk::CheckButton checkbutton_show_border{_("Show Canvas Border When Inactive")};
+    checkbutton_show_border.set_active(data.showBorderWhenInactive);
+
+    Gtk::Box appear_vbox{Gtk::ORIENTATION_VERTICAL};
+    appear_vbox.pack_start(hbox_corner);
+    appear_vbox.pack_start(checkbutton_show_border);
+    CtMiscUtil::set_widget_margins(appear_vbox, 0, 6, 6, 6);
+    Gtk::Frame appear_frame{Glib::ustring{"<b>"} + _("Appearance") + "</b>"};
+    dynamic_cast<Gtk::Label*>(appear_frame.get_label_widget())->set_use_markup(true);
+    appear_frame.set_shadow_type(Gtk::SHADOW_NONE);
+    appear_frame.add(appear_vbox);
+
+    Gtk::Box* pContentArea = dialog.get_content_area();
+    pContentArea->set_spacing(5);
+    pContentArea->pack_start(name_frame);
+    pContentArea->pack_start(bg_frame);
+    pContentArea->pack_start(appear_frame);
+    pContentArea->show_all();
+
+    dialog.signal_key_press_event().connect([&](GdkEventKey* pEventKey) -> bool {
+        if (GDK_KEY_Return == pEventKey->keyval or GDK_KEY_KP_Enter == pEventKey->keyval) {
+            spinbutton_opacity.update();
+            spinbutton_corner.update();
+            dialog.response(Gtk::RESPONSE_ACCEPT);
+            return true;
+        }
+        if (GDK_KEY_Escape == pEventKey->keyval) {
+            dialog.response(Gtk::RESPONSE_REJECT);
+            return true;
+        }
+        return false;
+    }, false);
+
+    const int response = dialog.run();
+    dialog.hide();
+
+    if (response == Gtk::RESPONSE_ACCEPT) {
+        data.name = name_entry.get_text();
+        char buf[8];
+        snprintf(buf, sizeof(buf), "#%02x%02x%02x",
+                 static_cast<int>(bg_rgba.get_red() * 255),
+                 static_cast<int>(bg_rgba.get_green() * 255),
+                 static_cast<int>(bg_rgba.get_blue() * 255));
+        data.bgColor = buf;
+        data.bgOpacity = spinbutton_opacity.get_value() / 100.0;
+        data.cornerRadius = spinbutton_corner.get_value();
+        data.showBorderWhenInactive = checkbutton_show_border.get_active();
+        return true;
+    }
+    return false;
+}
+
 CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
                                                           const Glib::ustring& title,
                                                           const bool is_insert,

@@ -118,6 +118,10 @@ const char CtStorageSqlite::TABLE_DRAWING_CANVAS_CREATE[]{"CREATE TABLE IF NOT E
 "canvas_index INTEGER,"
 "x REAL, y REAL, width REAL, height REAL,"
 "corner_radius REAL DEFAULT 8.0,"
+"name TEXT DEFAULT '',"
+"bg_color TEXT DEFAULT '#ffffff',"
+"bg_opacity REAL DEFAULT 0.15,"
+"show_border_inactive INTEGER DEFAULT 0,"
 "PRIMARY KEY (node_id, canvas_index)"
 ")"
 };
@@ -1094,7 +1098,13 @@ std::vector<CtDrawingCanvas> CtStorageSqlite::_drawing_canvases_from_db(gint64 n
         return canvases;
     }
 
-    Sqlite3StmtAuto cStmt{_pDb, "SELECT canvas_index, x, y, width, height, corner_radius FROM drawing_canvas WHERE node_id=? ORDER BY canvas_index"};
+    // migrate older schemas that lack the new columns
+    sqlite3_exec(_pDb, "ALTER TABLE drawing_canvas ADD COLUMN name TEXT DEFAULT ''", nullptr, nullptr, nullptr);
+    sqlite3_exec(_pDb, "ALTER TABLE drawing_canvas ADD COLUMN bg_color TEXT DEFAULT '#ffffff'", nullptr, nullptr, nullptr);
+    sqlite3_exec(_pDb, "ALTER TABLE drawing_canvas ADD COLUMN bg_opacity REAL DEFAULT 0.15", nullptr, nullptr, nullptr);
+    sqlite3_exec(_pDb, "ALTER TABLE drawing_canvas ADD COLUMN show_border_inactive INTEGER DEFAULT 0", nullptr, nullptr, nullptr);
+
+    Sqlite3StmtAuto cStmt{_pDb, "SELECT canvas_index, x, y, width, height, corner_radius, name, bg_color, bg_opacity, show_border_inactive FROM drawing_canvas WHERE node_id=? ORDER BY canvas_index"};
     if (cStmt.is_bad()) return canvases;
     sqlite3_bind_int64(cStmt, 1, nodeId);
 
@@ -1106,6 +1116,12 @@ std::vector<CtDrawingCanvas> CtStorageSqlite::_drawing_canvases_from_db(gint64 n
         canvas.width = sqlite3_column_double(cStmt, 3);
         canvas.height = sqlite3_column_double(cStmt, 4);
         canvas.cornerRadius = sqlite3_column_double(cStmt, 5);
+        canvas.name = safe_sqlite3_column_text(cStmt, 6);
+        std::string bgCol = safe_sqlite3_column_text(cStmt, 7);
+        if (!bgCol.empty()) canvas.bgColor = bgCol;
+        double bgOp = sqlite3_column_double(cStmt, 8);
+        if (sqlite3_column_type(cStmt, 8) != SQLITE_NULL) canvas.bgOpacity = bgOp;
+        canvas.showBorderWhenInactive = sqlite3_column_int(cStmt, 9) != 0;
 
         // load strokes for this canvas
         Sqlite3StmtAuto sStmt{_pDb, "SELECT color, width, opacity, points FROM drawing_stroke WHERE node_id=? AND canvas_index=? ORDER BY stroke_index"};
@@ -1149,7 +1165,7 @@ void CtStorageSqlite::_write_drawing_canvases_to_db(gint64 nodeId, const std::ve
 
     for (size_t ci = 0; ci < canvases.size(); ++ci) {
         const auto& canvas = canvases[ci];
-        Sqlite3StmtAuto cIns{_pDb, "INSERT INTO drawing_canvas VALUES(?,?,?,?,?,?,?)"};
+        Sqlite3StmtAuto cIns{_pDb, "INSERT INTO drawing_canvas VALUES(?,?,?,?,?,?,?,?,?,?,?)"};
         if (cIns.is_bad()) continue;
         sqlite3_bind_int64(cIns, 1, nodeId);
         sqlite3_bind_int(cIns, 2, static_cast<int>(ci));
@@ -1158,6 +1174,10 @@ void CtStorageSqlite::_write_drawing_canvases_to_db(gint64 nodeId, const std::ve
         sqlite3_bind_double(cIns, 5, canvas.width);
         sqlite3_bind_double(cIns, 6, canvas.height);
         sqlite3_bind_double(cIns, 7, canvas.cornerRadius);
+        sqlite3_bind_text(cIns, 8, canvas.name.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(cIns, 9, canvas.bgColor.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_double(cIns, 10, canvas.bgOpacity);
+        sqlite3_bind_int(cIns, 11, canvas.showBorderWhenInactive ? 1 : 0);
         sqlite3_step(cIns);
 
         for (size_t si = 0; si < canvas.strokes.size(); ++si) {

@@ -1018,6 +1018,14 @@ void CtXmlHelper::drawing_canvases_to_xml(xmlpp::Element* p_node_node,
         p_canvas->set_attribute("width", std::to_string(canvas.width));
         p_canvas->set_attribute("height", std::to_string(canvas.height));
         p_canvas->set_attribute("corner_radius", std::to_string(canvas.cornerRadius));
+        if (!canvas.name.empty()) {
+            p_canvas->set_attribute("name", canvas.name);
+        }
+        p_canvas->set_attribute("bg_color", canvas.bgColor);
+        p_canvas->set_attribute("bg_opacity", std::to_string(canvas.bgOpacity));
+        if (canvas.showBorderWhenInactive) {
+            p_canvas->set_attribute("show_border_inactive", "1");
+        }
         for (const auto& stroke : canvas.strokes) {
             auto* p_stroke = p_canvas->add_child("stroke");
             p_stroke->set_attribute("color", stroke.color);
@@ -1050,6 +1058,14 @@ std::vector<CtDrawingCanvas> CtXmlHelper::drawing_canvases_from_xml(const xmlpp:
             canvas.height = std::stod(canvasElem->get_attribute_value("height"));
             auto crStr = canvasElem->get_attribute_value("corner_radius");
             if (!crStr.empty()) canvas.cornerRadius = std::stod(crStr);
+            auto nameStr = canvasElem->get_attribute_value("name");
+            if (!nameStr.empty()) canvas.name = nameStr;
+            auto bgColorStr = canvasElem->get_attribute_value("bg_color");
+            if (!bgColorStr.empty()) canvas.bgColor = bgColorStr;
+            auto bgOpStr = canvasElem->get_attribute_value("bg_opacity");
+            if (!bgOpStr.empty()) canvas.bgOpacity = std::stod(bgOpStr);
+            auto showBorderStr = canvasElem->get_attribute_value("show_border_inactive");
+            if (!showBorderStr.empty()) canvas.showBorderWhenInactive = (showBorderStr == "1");
             for (auto* strokeChild : canvasElem->get_children("stroke")) {
                 auto* strokeElem = dynamic_cast<const xmlpp::Element*>(strokeChild);
                 if (!strokeElem) continue;
