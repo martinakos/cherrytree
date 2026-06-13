@@ -23,7 +23,6 @@
 
 #include "ct_actions.h"
 #include "ct_drawing.h"
-#include "ct_drawing_commands.h"
 #include "ct_command_bridge.h"
 
 void CtActions::new_drawing_canvas()
@@ -36,42 +35,7 @@ void CtActions::new_drawing_canvas()
     auto* bridge = _pCtMainWin->get_command_bridge();
     if (!bridge || !bridge->isActive()) return;
 
-    auto treeIter = _pCtMainWin->curr_tree_iter();
-    if (!treeIter) return;
-
-    auto hAdj = _pCtMainWin->getScrolledwindowText().get_hadjustment();
-    auto vAdj = _pCtMainWin->getScrolledwindowText().get_vadjustment();
-    double zoom = _pCtMainWin->get_rt_zoom_scale_factor();
-
-    CtDrawingCanvas canvas;
-    canvas.width = 300.0;
-    canvas.height = 250.0;
-    // center in current viewport
-    double viewW = hAdj ? hAdj->get_page_size() : 600.0;
-    double viewH = vAdj ? vAdj->get_page_size() : 400.0;
-    double scrollX = hAdj ? hAdj->get_value() : 0.0;
-    double scrollY = vAdj ? vAdj->get_value() : 0.0;
-    canvas.x = (scrollX + (viewW - canvas.width * zoom) / 2.0) / zoom;
-    canvas.y = (scrollY + (viewH - canvas.height * zoom) / 2.0) / zoom;
-    if (canvas.x < 10.0) canvas.x = 10.0;
-    if (canvas.y < 10.0) canvas.y = 10.0;
-
-    auto cmd = std::make_unique<AddCanvasCommand>(
-        bridge->getDocumentModel(), treeIter.get_node_id(), canvas);
-    bridge->executeCommand(std::move(cmd));
-
-    // activate drawing mode
-    if (!overlay->isDrawingMode()) {
-        overlay->setDrawingMode(true);
-    }
-
-    // select the new canvas
-    auto nodeModel = bridge->getDocumentModel()->getNodeById(treeIter.get_node_id());
-    if (nodeModel) {
-        overlay->resetSelection();
-    }
-
-    _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+    overlay->beginCreateCanvas();
 }
 
 void CtActions::toggle_drawing_mode()

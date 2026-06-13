@@ -110,12 +110,7 @@ void CtCommandBridge::initializeFromExistingDocument()
             nodeModel->setSequence(ti.get_node_sequence());
             // Content is NOT loaded here — it is captured lazily when a snapshot
             // is needed (e.g. before node_delete) or via beginTextEditSession.
-            auto tiCanvases = ti.get_drawing_canvases();
-            if (!tiCanvases.empty()) {
-                spdlog::info("Drawing model init: node {} copying {} canvases from tree store",
-                             nid, tiCanvases.size());
-            }
-            nodeModel->getDrawingCanvasesMut() = std::move(tiCanvases);
+            nodeModel->getDrawingCanvasesMut() = ti.get_drawing_canvases();
             _docModel->addNode(nodeModel, parentId, -1);
         }
 
