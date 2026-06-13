@@ -957,8 +957,7 @@ Gtk::Box& CtMainWin::_init_status_bar()
     _ctStatusBar.messageLabel.set_margin_bottom(4);
     _ctStatusBar.messageLabel.set_no_show_all(true);
     _ctStatusBar.messageLabel.hide();
-    _ctStatusBar.canvasEditLabel.set_xalign(1.0f);
-    _ctStatusBar.canvasEditLabel.set_margin_end(4);
+    _ctStatusBar.canvasEditLabel.set_xalign(0.5f);
     _ctStatusBar.canvasEditLabel.set_margin_top(4);
     _ctStatusBar.canvasEditLabel.set_margin_bottom(4);
     _ctStatusBar.canvasEditLabel.set_markup(" <b><span foreground='red'>Canvas Editing</span></b> ");
@@ -984,6 +983,7 @@ Gtk::Box& CtMainWin::_init_status_bar()
         _ctStatusBar.hbox.append(*fields[i]);
     }
     _ctStatusBar.hbox.append(_ctStatusBar.messageLabel);
+    _ctStatusBar.canvasEditLabel.set_hexpand(true);
     _ctStatusBar.hbox.append(_ctStatusBar.canvasEditLabel);
     _ctStatusBar.hbox.append(_ctStatusBar.zoomLabel);
     _ctStatusBar.hbox.append(_ctStatusBar.frame);
@@ -1001,7 +1001,7 @@ Gtk::Box& CtMainWin::_init_status_bar()
     _ctStatusBar.hbox.pack_end(_ctStatusBar.stopButton, false, true);
     _ctStatusBar.hbox.pack_end(_ctStatusBar.frame, false, true);
     _ctStatusBar.hbox.pack_end(_ctStatusBar.zoomLabel, false, false);
-    _ctStatusBar.hbox.pack_end(_ctStatusBar.canvasEditLabel, false, false);
+    _ctStatusBar.hbox.pack_end(_ctStatusBar.canvasEditLabel, true, true);
     #endif
 
     _ctStatusBar.hbox.get_style_context()->add_class("ct-status-bar");
