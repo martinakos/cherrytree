@@ -492,10 +492,6 @@ Gtk::TreeModel::iterator CtStorageSqlite::_node_from_db(const gint64 node_id,
     nodeData.tsLastSave = sqlite3_column_int64(*uStmt, 7);
 
     nodeData.drawingCanvases = _drawing_canvases_from_db(master_id > 0 ? master_id : node_id);
-    if (!nodeData.drawingCanvases.empty()) {
-        spdlog::info("Drawing DB read: node {} (master={}) loaded {} canvases",
-                     node_id, master_id, nodeData.drawingCanvases.size());
-    }
 
     if (_isDryRun) {
         return Gtk::TreeModel::iterator{};
@@ -935,16 +931,8 @@ void CtStorageSqlite::_write_node_to_db(const CtTreeIter* ct_tree_iter,
         if (bridge && bridge->isActive()) {
             auto nodeModel = bridge->getDocumentModel()->getNodeById(node_id);
             if (nodeModel) {
-                const auto& canvases = nodeModel->getDrawingCanvases();
-                spdlog::info("Drawing DB write: node {} writing {} canvases", node_id, canvases.size());
-                _write_drawing_canvases_to_db(node_id, canvases);
+                _write_drawing_canvases_to_db(node_id, nodeModel->getDrawingCanvases());
             }
-            else {
-                spdlog::info("Drawing DB write: node {} NOT in doc model", node_id);
-            }
-        }
-        else {
-            spdlog::info("Drawing DB write: bridge null or inactive for node {}", node_id);
         }
     }
 }
@@ -1103,7 +1091,6 @@ std::vector<CtDrawingCanvas> CtStorageSqlite::_drawing_canvases_from_db(gint64 n
     // ensure tables exist (older DBs won't have them)
     Sqlite3StmtAuto checkStmt{_pDb, "SELECT name FROM sqlite_master WHERE type='table' AND name='drawing_canvas'"};
     if (checkStmt.is_bad() || sqlite3_step(checkStmt) != SQLITE_ROW) {
-        spdlog::info("Drawing DB read: no drawing_canvas table for node {}", nodeId);
         return canvases;
     }
 

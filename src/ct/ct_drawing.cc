@@ -64,11 +64,24 @@ CtDrawingOverlay::CtDrawingOverlay(CtMainWin* pMainWin)
 #endif
 }
 
+void CtDrawingOverlay::beginCreateCanvas()
+{
+    _createCanvasMode = true;
+    if (!_drawingMode) {
+        setDrawingMode(true);
+    }
+    auto gdkWin = _drawingArea.get_window();
+    if (gdkWin) {
+        gdkWin->set_cursor(Gdk::Cursor::create(gdkWin->get_display(), Gdk::CROSSHAIR));
+    }
+}
+
 void CtDrawingOverlay::setDrawingMode(bool on)
 {
     _drawingMode = on;
     if (!on) {
         _deleteStrokeMode = false;
+        _createCanvasMode = false;
         _dragType = CtDrawingDragType::None;
     }
 #if GTKMM_MAJOR_VERSION < 4
@@ -86,6 +99,7 @@ void CtDrawingOverlay::resetSelection()
 {
     _selectedCanvasIdx = -1;
     _deleteStrokeMode = false;
+    _createCanvasMode = false;
     _dragType = CtDrawingDragType::None;
     _drawingArea.queue_draw();
 }
@@ -98,35 +112,17 @@ void CtDrawingOverlay::refresh()
 bool CtDrawingOverlay::_onDraw(const Cairo::RefPtr<Cairo::Context>& cr)
 {
     auto treeIter = _pMainWin->curr_tree_iter();
-    if (!treeIter) {
-        spdlog::info("_onDraw: no curr_tree_iter");
-        return false;
-    }
+    if (!treeIter) return false;
 
     auto* bridge = _pMainWin->get_command_bridge();
-    if (!bridge || !bridge->isActive()) {
-        spdlog::info("_onDraw: bridge null or inactive");
-        return false;
-    }
+    if (!bridge || !bridge->isActive()) return false;
 
     auto docModel = bridge->getDocumentModel();
     auto nodeModel = docModel->getNodeById(treeIter.get_node_id());
-    if (!nodeModel) {
-        spdlog::info("_onDraw: node {} not in doc model", treeIter.get_node_id());
-        return false;
-    }
+    if (!nodeModel) return false;
 
     const auto& canvases = nodeModel->getDrawingCanvases();
     if (canvases.empty() && !_drawingMode) return false;
-
-    spdlog::info("_onDraw: node {} has {} canvases, drawingMode={}",
-                 treeIter.get_node_id(), canvases.size(), _drawingMode);
-    for (size_t i = 0; i < canvases.size(); ++i) {
-        spdlog::info("  canvas[{}]: pos=({},{}) size={}x{} strokes={}",
-                     i, canvases[i].x, canvases[i].y,
-                     canvases[i].width, canvases[i].height,
-                     canvases[i].strokes.size());
-    }
 
     auto hAdj = _pMainWin->getScrolledwindowText().get_hadjustment();
     auto vAdj = _pMainWin->getScrolledwindowText().get_vadjustment();
@@ -136,6 +132,22 @@ bool CtDrawingOverlay::_onDraw(const Cairo::RefPtr<Cairo::Context>& cr)
 
     for (size_t i = 0; i < canvases.size(); ++i) {
         _drawCanvas(cr, canvases[i], static_cast<int>(i), hScroll, vScroll, zoom);
+    }
+
+    if (_dragType == CtDrawingDragType::CreateCanvas) {
+        double sx = std::min(_dragStartX, _dragStartX + _dragCanvasOrigW);
+        double sy = std::min(_dragStartY, _dragStartY + _dragCanvasOrigH);
+        double pw = std::abs(_dragCanvasOrigW);
+        double ph = std::abs(_dragCanvasOrigH);
+        cr->rectangle(sx, sy, pw, ph);
+        cr->set_source_rgba(0.2, 0.5, 1.0, 0.3);
+        cr->fill_preserve();
+        cr->set_source_rgba(0.2, 0.5, 1.0, 0.8);
+        cr->set_line_width(1.0);
+        std::vector<double> dashes{6.0, 3.0};
+        cr->set_dash(dashes, 0.0);
+        cr->stroke();
+        cr->unset_dash();
     }
 
     return false;
@@ -170,9 +182,15 @@ void CtDrawingOverlay::_drawCanvas(const Cairo::RefPtr<Cairo::Context>& cr,
         cr->stroke();
         cr->unset_dash();
 
-        // header bar
-        double headerH = HEADER_HEIGHT * zoom;
-        _drawRoundedRect(cr, cx, cy, cw, std::min(headerH, ch), cr_radius);
+        // header bar — rounded top corners, flat bottom
+        double headerH = std::min(HEADER_HEIGHT * zoom, ch);
+        double r = std::min(cr_radius, std::min(cw / 2.0, headerH));
+        cr->begin_new_sub_path();
+        cr->arc(cx + cw - r, cy + r, r, -M_PI / 2.0, 0.0);
+        cr->line_to(cx + cw, cy + headerH);
+        cr->line_to(cx, cy + headerH);
+        cr->arc(cx + r, cy + r, r, M_PI, 3.0 * M_PI / 2.0);
+        cr->close_path();
         cr->set_source_rgba(0.6, 0.6, 0.6, 0.3);
         cr->fill();
     }
@@ -339,6 +357,15 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
 
     if (event->button != 1) return false;
 
+    if (_createCanvasMode) {
+        _dragStartX = event->x;
+        _dragStartY = event->y;
+        _dragType = CtDrawingDragType::CreateCanvas;
+        _dragCanvasOrigW = 0.0;
+        _dragCanvasOrigH = 0.0;
+        return true;
+    }
+
     int ci = _hitTestCanvas(event->x, event->y, hScroll, vScroll, zoom);
     if (ci < 0) {
         _selectedCanvasIdx = -1;
@@ -406,7 +433,16 @@ bool CtDrawingOverlay::_onMotionNotify(GdkEventMotion* event)
 {
     if (!_drawingMode) return false;
 
+    if (_dragType == CtDrawingDragType::CreateCanvas) {
+        _dragCanvasOrigW = event->x - _dragStartX;
+        _dragCanvasOrigH = event->y - _dragStartY;
+        _drawingArea.queue_draw();
+        return true;
+    }
+
     if (_dragType == CtDrawingDragType::None) {
+        if (_createCanvasMode) return false;
+
         auto hAdj = _pMainWin->getScrolledwindowText().get_hadjustment();
         auto vAdj = _pMainWin->getScrolledwindowText().get_vadjustment();
         double hScroll = hAdj ? hAdj->get_value() : 0.0;
@@ -530,6 +566,53 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
 {
     if (!_drawingMode || event->button != 1) return false;
     if (_dragType == CtDrawingDragType::None) return false;
+
+    if (_dragType == CtDrawingDragType::CreateCanvas) {
+        _dragType = CtDrawingDragType::None;
+        _createCanvasMode = false;
+
+        auto* bridge = _pMainWin->get_command_bridge();
+        auto treeIter = _pMainWin->curr_tree_iter();
+        if (!bridge || !bridge->isActive() || !treeIter) {
+            _drawingArea.queue_draw();
+            return true;
+        }
+
+        auto hAdj = _pMainWin->getScrolledwindowText().get_hadjustment();
+        auto vAdj = _pMainWin->getScrolledwindowText().get_vadjustment();
+        double hScroll = hAdj ? hAdj->get_value() : 0.0;
+        double vScroll = vAdj ? vAdj->get_value() : 0.0;
+        double zoom = _pMainWin->get_rt_zoom_scale_factor();
+
+        double sx = std::min(_dragStartX, event->x);
+        double sy = std::min(_dragStartY, event->y);
+        double w = std::abs(event->x - _dragStartX) / zoom;
+        double h = std::abs(event->y - _dragStartY) / zoom;
+
+        if (w >= MIN_CANVAS_WIDTH && h >= MIN_CANVAS_HEIGHT) {
+            CtDrawingCanvas canvas;
+            canvas.x = (sx + hScroll) / zoom;
+            canvas.y = (sy + vScroll) / zoom;
+            canvas.width = w;
+            canvas.height = h;
+
+            auto cmd = std::make_unique<AddCanvasCommand>(
+                bridge->getDocumentModel(), treeIter.get_node_id(), canvas);
+            bridge->executeCommand(std::move(cmd));
+
+            auto nodeModel = bridge->getDocumentModel()->getNodeById(treeIter.get_node_id());
+            if (nodeModel) {
+                _selectedCanvasIdx = static_cast<int>(nodeModel->getDrawingCanvases().size()) - 1;
+            }
+            _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+        }
+
+        auto gdkWin = _drawingArea.get_window();
+        if (gdkWin) gdkWin->set_cursor();
+        _drawingArea.queue_draw();
+        return true;
+    }
+
     if (_selectedCanvasIdx < 0) return false;
 
     auto* bridge = _pMainWin->get_command_bridge();
