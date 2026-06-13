@@ -25,6 +25,7 @@
 
 #include <vector>
 #include <string>
+#include <optional>
 #include <gtkmm.h>
 
 class CtMainWin;
@@ -96,6 +97,11 @@ public:
     void beginCreateCanvas();
     bool isCreateCanvasMode() const { return _createCanvasMode; }
 
+    static void setClipboard(const CtDrawingCanvas& c) { _clipboard = c; }
+    static const CtDrawingCanvas& getClipboard() { return _clipboard.value(); }
+    static bool hasClipboard() { return _clipboard.has_value(); }
+    static void clearClipboard() { _clipboard.reset(); }
+
     double getCurrentLineWidth() const { return _currentLineWidth; }
     void setCurrentLineWidth(double w) { _currentLineWidth = w; }
 
@@ -130,6 +136,8 @@ private:
                                double ax, double ay, double bx, double by);
 
     void _showContextMenu(GdkEventButton* event);
+
+    static std::optional<CtDrawingCanvas> _clipboard;
 
     CtMainWin* _pMainWin;
     Gtk::Overlay _overlay;

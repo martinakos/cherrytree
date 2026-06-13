@@ -666,6 +666,162 @@ TEST(DrawingModelTest, NotifyDrawingChanged_FiresObserver)
 
 // ── Multiple canvases with multiple strokes ─────────────────────────────────
 
+// ── Canvas clipboard (cut/copy/paste) tests ────────────────────────────────
+
+TEST_F(DrawingCommandTest, CopyCanvas_PopulatesClipboard)
+{
+    auto node = model->getNodeById(1);
+    auto& canvases = node->getDrawingCanvasesMut();
+    auto c = makeCanvas(10, 20, 300, 250);
+    c.name = "MyCanvas";
+    c.bgColor = "#aabbcc";
+    c.strokes.push_back(makeStroke("#ff0000", 2.0, {{5,5},{10,10},{15,8}}));
+    canvases.push_back(std::move(c));
+
+    CtDrawingOverlay::clearClipboard();
+    ASSERT_FALSE(CtDrawingOverlay::hasClipboard());
+
+    CtDrawingOverlay::setClipboard(canvases[0]);
+    ASSERT_TRUE(CtDrawingOverlay::hasClipboard());
+
+    const auto& clip = CtDrawingOverlay::getClipboard();
+    EXPECT_EQ("MyCanvas", clip.name);
+    EXPECT_EQ("#aabbcc", clip.bgColor);
+    EXPECT_DOUBLE_EQ(10.0, clip.x);
+    EXPECT_DOUBLE_EQ(20.0, clip.y);
+    EXPECT_DOUBLE_EQ(300.0, clip.width);
+    EXPECT_DOUBLE_EQ(250.0, clip.height);
+    ASSERT_EQ(1u, clip.strokes.size());
+    EXPECT_EQ("#ff0000", clip.strokes[0].color);
+    EXPECT_EQ(3u, clip.strokes[0].points.size());
+}
+
+TEST_F(DrawingCommandTest, CutCanvas_RemovesAndPopulatesClipboard)
+{
+    auto node = model->getNodeById(1);
+    auto& canvases = node->getDrawingCanvasesMut();
+    auto c = makeCanvas(50, 60, 200, 150);
+    c.strokes.push_back(makeStroke("#0000ff", 3.0, {{1,1},{2,2}}));
+    canvases.push_back(std::move(c));
+
+    CtDrawingOverlay::setClipboard(canvases[0]);
+
+    DeleteCanvasCommand cmd(model, 1, canvases[0], 0);
+    cmd.execute();
+
+    EXPECT_EQ(0u, node->getDrawingCanvases().size());
+    ASSERT_TRUE(CtDrawingOverlay::hasClipboard());
+    EXPECT_DOUBLE_EQ(50.0, CtDrawingOverlay::getClipboard().x);
+
+    cmd.undo();
+    ASSERT_EQ(1u, node->getDrawingCanvases().size());
+    EXPECT_DOUBLE_EQ(50.0, node->getDrawingCanvases()[0].x);
+}
+
+TEST_F(DrawingCommandTest, PasteCanvas_AddsToTargetNode)
+{
+    auto node = model->getNodeById(1);
+    auto& canvases = node->getDrawingCanvasesMut();
+    auto c = makeCanvas(10, 20, 300, 250);
+    c.bgColor = "#112233";
+    c.strokes.push_back(makeStroke("#ff0000", 2.0, {{5,5},{10,10}}));
+    canvases.push_back(std::move(c));
+
+    CtDrawingOverlay::setClipboard(canvases[0]);
+
+    auto node2 = model->createNode(2);
+    node2->setName("TargetNode");
+    model->addNode(node2, 0, -1);
+
+    CtDrawingCanvas pasted = CtDrawingOverlay::getClipboard();
+    pasted.x = 100.0;
+    pasted.y = 200.0;
+
+    AddCanvasCommand cmd(model, 2, std::move(pasted));
+    cmd.execute();
+
+    auto targetNode = model->getNodeById(2);
+    ASSERT_EQ(1u, targetNode->getDrawingCanvases().size());
+    EXPECT_DOUBLE_EQ(100.0, targetNode->getDrawingCanvases()[0].x);
+    EXPECT_DOUBLE_EQ(200.0, targetNode->getDrawingCanvases()[0].y);
+    EXPECT_DOUBLE_EQ(300.0, targetNode->getDrawingCanvases()[0].width);
+    EXPECT_EQ("#112233", targetNode->getDrawingCanvases()[0].bgColor);
+    ASSERT_EQ(1u, targetNode->getDrawingCanvases()[0].strokes.size());
+    EXPECT_EQ("#ff0000", targetNode->getDrawingCanvases()[0].strokes[0].color);
+
+    ASSERT_EQ(1u, node->getDrawingCanvases().size());
+}
+
+TEST_F(DrawingCommandTest, PasteCanvas_UndoRemovesPasted)
+{
+    auto node = model->getNodeById(1);
+    auto c = makeCanvas(10, 20, 300, 250);
+    c.strokes.push_back(makeStroke("#ff0000", 2.0, {{5,5},{10,10}}));
+
+    AddCanvasCommand cmd(model, 1, std::move(c));
+    cmd.execute();
+    ASSERT_EQ(1u, node->getDrawingCanvases().size());
+
+    cmd.undo();
+    EXPECT_EQ(0u, node->getDrawingCanvases().size());
+
+    cmd.execute();
+    ASSERT_EQ(1u, node->getDrawingCanvases().size());
+    EXPECT_EQ(1u, node->getDrawingCanvases()[0].strokes.size());
+}
+
+TEST_F(DrawingCommandTest, PasteCanvas_PreservesAllProperties)
+{
+    CtDrawingCanvas c;
+    c.x = 10; c.y = 20; c.width = 300; c.height = 250;
+    c.cornerRadius = 12.5;
+    c.name = "TestCanvas";
+    c.bgColor = "#aabbcc";
+    c.bgOpacity = 0.75;
+    c.showBorderWhenInactive = true;
+    c.strokes.push_back(makeStroke("#ff0000", 2.0, {{5,5},{10,10}}));
+    auto s2 = makeStroke("#0000ff", 4.0, {{20,20},{30,30},{40,40}});
+    s2.opacity = 0.5;
+    c.strokes.push_back(std::move(s2));
+
+    CtDrawingOverlay::setClipboard(c);
+    CtDrawingCanvas pasted = CtDrawingOverlay::getClipboard();
+    pasted.x = 100.0;
+    pasted.y = 200.0;
+
+    AddCanvasCommand cmd(model, 1, std::move(pasted));
+    cmd.execute();
+
+    const auto& result = model->getNodeById(1)->getDrawingCanvases()[0];
+    EXPECT_DOUBLE_EQ(100.0, result.x);
+    EXPECT_DOUBLE_EQ(200.0, result.y);
+    EXPECT_DOUBLE_EQ(300.0, result.width);
+    EXPECT_DOUBLE_EQ(250.0, result.height);
+    EXPECT_DOUBLE_EQ(12.5, result.cornerRadius);
+    EXPECT_EQ("TestCanvas", result.name);
+    EXPECT_EQ("#aabbcc", result.bgColor);
+    EXPECT_DOUBLE_EQ(0.75, result.bgOpacity);
+    EXPECT_TRUE(result.showBorderWhenInactive);
+    ASSERT_EQ(2u, result.strokes.size());
+    EXPECT_EQ("#ff0000", result.strokes[0].color);
+    EXPECT_DOUBLE_EQ(2.0, result.strokes[0].lineWidth);
+    EXPECT_EQ(2u, result.strokes[0].points.size());
+    EXPECT_EQ("#0000ff", result.strokes[1].color);
+    EXPECT_DOUBLE_EQ(0.5, result.strokes[1].opacity);
+    EXPECT_EQ(3u, result.strokes[1].points.size());
+}
+
+TEST_F(DrawingCommandTest, ClearClipboard_RemovesStoredCanvas)
+{
+    CtDrawingOverlay::setClipboard(makeCanvas(10, 20, 300, 250));
+    ASSERT_TRUE(CtDrawingOverlay::hasClipboard());
+
+    CtDrawingOverlay::clearClipboard();
+    EXPECT_FALSE(CtDrawingOverlay::hasClipboard());
+}
+
+// ── Multiple canvases with multiple strokes ─────────────────────────────────
+
 TEST(DrawingXmlTest, RoundTrip_MultipleCanvasesMultipleStrokes)
 {
     std::vector<CtDrawingCanvas> canvases;
