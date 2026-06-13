@@ -125,6 +125,11 @@ void CtMainWin::_on_treeview_cursor_changed()
         window_header_update_bookmark_icon(is_bookmarked);
     }
 
+    // Reset drawing overlay selection on node switch
+    if (_pDrawingOverlay) {
+        _pDrawingOverlay->resetSelection();
+    }
+
     // Begin new edit session for command bridge AFTER cursor restoration,
     // so the session captures the correct initial cursor position.
     // Skip during undo/redo — those operations restart the session themselves.

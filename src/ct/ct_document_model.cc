@@ -548,3 +548,10 @@ void CtDocumentModel::notifyNodePropertiesChanged(gint64 nodeId, const CtNodePro
         observer->onNodePropertiesChanged(nodeId, oldP, newP);
     }
 }
+
+void CtDocumentModel::notifyNodeDrawingChanged(gint64 nodeId)
+{
+    for (auto observer : _observers) {
+        observer->onNodeDrawingChanged(nodeId);
+    }
+}

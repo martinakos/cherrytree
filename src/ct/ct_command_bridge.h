@@ -232,6 +232,7 @@ private:
         void onNodePropertiesChanged(gint64 nodeId,
                                      const CtNodeProps& oldProps,
                                      const CtNodeProps& newProps) override;
+        void onNodeDrawingChanged(gint64 nodeId) override;
 
     private:
         // Named helper replacing the inline lambda in onNodeChanged

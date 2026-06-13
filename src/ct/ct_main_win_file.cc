@@ -344,6 +344,10 @@ bool CtMainWin::file_open(const fs::path& filepath,
     // (e.g. MoveNodeCommand needs to look up parent nodes by ID).
     _pCtCommandBridge->initializeFromExistingDocument();
 
+    if (_pDrawingOverlay) {
+        _pDrawingOverlay->refresh();
+    }
+
     return true;
 }
 

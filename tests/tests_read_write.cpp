@@ -24,6 +24,8 @@
 #include "ct_app.h"
 #include "ct_misc_utils.h"
 #include "ct_storage_control.h"
+#include "ct_drawing.h"
+#include "ct_command_bridge.h"
 #include "tests_common.h"
 
 class TestCtApp : public CtApp
@@ -723,3 +725,152 @@ INSTANTIATE_TEST_CASE_P(
                 std::make_tuple(UT::testCtzDocPath, UT::testCtxDocPath, false/*test_save*/),
                 std::make_tuple(UT::testCtzDocPath, UT::testMultiFilePath, false/*test_save*/))
 );
+
+// ── Drawing canvas save/load round-trip integration test ────────────────────
+
+class DrawingRoundTripApp : public CtApp
+{
+public:
+    DrawingRoundTripApp() : CtApp{"_test_drawing_rt"} { _no_gui = true; }
+private:
+    void on_activate() override;
+};
+
+void DrawingRoundTripApp::on_activate()
+{
+    _on_startup();
+
+    // Phase 1: Open test CTB, add drawing canvases, save to temp file
+    CtMainWin* pWin1 = _create_window(true/*start_hidden*/);
+    ASSERT_TRUE(pWin1->file_open(UT::testCtbDocPath, ""/*node*/, ""/*anchor*/));
+
+    // Find a node and add drawing canvases to its doc model
+    CtTreeIter treeIter = pWin1->get_tree_store().get_node_from_node_name("e");
+    ASSERT_TRUE(treeIter);
+    const gint64 nodeId = treeIter.get_node_id();
+
+    auto* bridge = pWin1->get_command_bridge();
+    ASSERT_TRUE(bridge);
+    ASSERT_TRUE(bridge->isActive());
+
+    auto nodeModel = bridge->getDocumentModel()->getNodeById(nodeId);
+    ASSERT_TRUE(nodeModel) << "Node 'e' (id=" << nodeId << ") not found in doc model";
+
+    // Add a canvas with strokes directly to the doc model
+    {
+        auto& canvases = nodeModel->getDrawingCanvasesMut();
+        CtDrawingCanvas canvas;
+        canvas.x = 100.5;
+        canvas.y = 200.5;
+        canvas.width = 300.0;
+        canvas.height = 250.0;
+        canvas.cornerRadius = 12.0;
+        CtDrawingStroke stroke1;
+        stroke1.color = "#ff0000";
+        stroke1.lineWidth = 3.0;
+        stroke1.opacity = 1.0;
+        stroke1.points = {{10.0, 20.0}, {30.0, 40.0}, {50.0, 25.0}};
+        canvas.strokes.push_back(std::move(stroke1));
+        CtDrawingStroke stroke2;
+        stroke2.color = "#0000ff";
+        stroke2.lineWidth = 5.0;
+        stroke2.opacity = 0.75;
+        stroke2.points = {{60.0, 70.0}, {80.0, 90.0}};
+        canvas.strokes.push_back(std::move(stroke2));
+        canvases.push_back(std::move(canvas));
+    }
+
+    // Sync to tree store and mark dirty (same as onNodeDrawingChanged does)
+    treeIter.set_drawing_canvases(nodeModel->getDrawingCanvases());
+    treeIter.pending_edit_db_node_buff();
+    pWin1->update_window_save_needed(CtSaveNeededUpdType::None, false, &treeIter);
+
+    // Save to a temp CTB file
+    fs::path tmpDir = pWin1->get_ct_tmp()->getHiddenDirPath("UT_DRAW");
+    fs::path tmpCtb = tmpDir / "drawing_test.ctb";
+    pWin1->file_save_as(tmpCtb.string(), CtDocType::SQLite, "");
+
+    // Close
+    pWin1->force_exit() = true;
+    remove_window(*pWin1);
+
+    // Phase 2: Open the saved file and verify drawing canvases survived
+    CtMainWin* pWin2 = _create_window(true/*start_hidden*/);
+    ASSERT_FALSE(pWin2->get_tree_store().get_iter_first());
+    ASSERT_TRUE(pWin2->file_open(tmpCtb, ""/*node*/, ""/*anchor*/));
+
+    CtTreeIter treeIter2 = pWin2->get_tree_store().get_node_from_node_name("e");
+    ASSERT_TRUE(treeIter2);
+
+    // Check tree store column
+    auto loadedFromTreeStore = treeIter2.get_drawing_canvases();
+    ASSERT_EQ(1u, loadedFromTreeStore.size())
+        << "Drawing canvases not found in tree store after reload";
+    EXPECT_DOUBLE_EQ(100.5, loadedFromTreeStore[0].x);
+    EXPECT_DOUBLE_EQ(200.5, loadedFromTreeStore[0].y);
+    EXPECT_DOUBLE_EQ(300.0, loadedFromTreeStore[0].width);
+    EXPECT_DOUBLE_EQ(250.0, loadedFromTreeStore[0].height);
+    EXPECT_DOUBLE_EQ(12.0, loadedFromTreeStore[0].cornerRadius);
+    ASSERT_EQ(2u, loadedFromTreeStore[0].strokes.size());
+    EXPECT_EQ("#ff0000", loadedFromTreeStore[0].strokes[0].color);
+    EXPECT_DOUBLE_EQ(3.0, loadedFromTreeStore[0].strokes[0].lineWidth);
+    EXPECT_EQ(3u, loadedFromTreeStore[0].strokes[0].points.size());
+    EXPECT_EQ("#0000ff", loadedFromTreeStore[0].strokes[1].color);
+    EXPECT_DOUBLE_EQ(5.0, loadedFromTreeStore[0].strokes[1].lineWidth);
+    EXPECT_DOUBLE_EQ(0.75, loadedFromTreeStore[0].strokes[1].opacity);
+    EXPECT_EQ(2u, loadedFromTreeStore[0].strokes[1].points.size());
+
+    // Check doc model
+    auto* bridge2 = pWin2->get_command_bridge();
+    ASSERT_TRUE(bridge2 && bridge2->isActive());
+    auto nodeModel2 = bridge2->getDocumentModel()->getNodeById(treeIter2.get_node_id());
+    ASSERT_TRUE(nodeModel2) << "Node not found in doc model after reload";
+    const auto& docCanvases = nodeModel2->getDrawingCanvases();
+    ASSERT_EQ(1u, docCanvases.size())
+        << "Drawing canvases not found in doc model after reload";
+    EXPECT_DOUBLE_EQ(100.5, docCanvases[0].x);
+    EXPECT_EQ(2u, docCanvases[0].strokes.size());
+
+    // Phase 3: Add another stroke via incremental save (file_save, not file_save_as)
+    {
+        auto& canvases = nodeModel2->getDrawingCanvasesMut();
+        CtDrawingStroke stroke3;
+        stroke3.color = "#00ff00";
+        stroke3.lineWidth = 1.0;
+        stroke3.opacity = 1.0;
+        stroke3.points = {{5.0, 5.0}, {15.0, 15.0}};
+        canvases[0].strokes.push_back(std::move(stroke3));
+    }
+    treeIter2.set_drawing_canvases(nodeModel2->getDrawingCanvases());
+    treeIter2.pending_edit_db_node_buff();
+    pWin2->update_window_save_needed(CtSaveNeededUpdType::None, false, &treeIter2);
+
+    ASSERT_TRUE(pWin2->file_save(false/*need_vacuum*/));
+
+    pWin2->force_exit() = true;
+    remove_window(*pWin2);
+
+    // Phase 4: Reopen and verify all 3 strokes survived the incremental save
+    CtMainWin* pWin3 = _create_window(true/*start_hidden*/);
+    ASSERT_TRUE(pWin3->file_open(tmpCtb, ""/*node*/, ""/*anchor*/));
+
+    CtTreeIter treeIter3 = pWin3->get_tree_store().get_node_from_node_name("e");
+    ASSERT_TRUE(treeIter3);
+    auto loadedAfterIncSave = treeIter3.get_drawing_canvases();
+    ASSERT_EQ(1u, loadedAfterIncSave.size())
+        << "Drawing canvases lost after incremental save";
+    ASSERT_EQ(3u, loadedAfterIncSave[0].strokes.size())
+        << "Expected 3 strokes after incremental save, got " << loadedAfterIncSave[0].strokes.size();
+    EXPECT_EQ("#ff0000", loadedAfterIncSave[0].strokes[0].color);
+    EXPECT_EQ("#0000ff", loadedAfterIncSave[0].strokes[1].color);
+    EXPECT_EQ("#00ff00", loadedAfterIncSave[0].strokes[2].color);
+
+    pWin3->force_exit() = true;
+    remove_window(*pWin3);
+}
+
+TEST(DrawingRoundTrip, SqliteSaveAndReload)
+{
+    DrawingRoundTripApp app;
+    app.run(0, nullptr);
+}

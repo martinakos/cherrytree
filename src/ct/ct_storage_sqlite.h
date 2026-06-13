@@ -26,6 +26,7 @@
 #include "ct_types.h"
 #include "ct_widgets.h"
 #include "ct_filesystem.h"
+#include "ct_drawing.h"
 #include <sqlite3.h>
 #include <glibmm/refptr.h>
 #include <gtkmm/textbuffer.h>
@@ -114,6 +115,9 @@ private:
     void                _exec_no_callback(const char* sqlCmd);
     void                _exec_bind_int64(const char* sqlCmd, const gint64 bind_int64);
 
+    std::vector<CtDrawingCanvas> _drawing_canvases_from_db(gint64 nodeId) const;
+    void                _write_drawing_canvases_to_db(gint64 nodeId, const std::vector<CtDrawingCanvas>& canvases);
+
 public:
     static const char TABLE_NODE_CREATE[];
     static const char TABLE_NODE_INSERT[];
@@ -133,6 +137,10 @@ public:
     static const char TABLE_BOOKMARK_CREATE[];
     static const char TABLE_BOOKMARK_INSERT[];
     static const char TABLE_BOOKMARK_DELETE[];
+    static const char TABLE_DRAWING_CANVAS_CREATE[];
+    static const char TABLE_DRAWING_CANVAS_DELETE[];
+    static const char TABLE_DRAWING_STROKE_CREATE[];
+    static const char TABLE_DRAWING_STROKE_DELETE[];
     static const std::string ERR_SQLITE_PREPV2;
     static const std::string ERR_SQLITE_STEP;
     static const char* safe_sqlite3_column_text(sqlite3_stmt* stmt, int iCol);

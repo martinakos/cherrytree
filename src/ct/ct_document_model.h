@@ -29,6 +29,7 @@
 #include <unordered_map>
 #include <glibmm/ustring.h>
 #include "ct_node_content.h"
+#include "ct_drawing.h"
 
 // Forward declarations
 class CtDocumentObserver;
@@ -116,6 +117,10 @@ public:
     CtNodeContent& getContent() { return _content; }
     void setContent(const CtNodeContent& content);
 
+    // Drawing canvases
+    const std::vector<CtDrawingCanvas>& getDrawingCanvases() const { return _drawingCanvases; }
+    std::vector<CtDrawingCanvas>& getDrawingCanvasesMut() { return _drawingCanvases; }
+
     // Tree structure
     CtNodeModel* getParent() const { return _parent; }
     void setParent(CtNodeModel* parent) { _parent = parent; }
@@ -159,6 +164,9 @@ private:
     // Structured content model
     CtNodeContent _content;
 
+    // Drawing canvases (floating overlays)
+    std::vector<CtDrawingCanvas> _drawingCanvases;
+
     // Tree structure
     CtNodeModel* _parent{nullptr};
     std::vector<std::shared_ptr<CtNodeModel>> _children;
@@ -189,6 +197,9 @@ public:
     virtual void onNodePropertiesChanged(gint64 nodeId,
                                          const CtNodeProps& oldProps,
                                          const CtNodeProps& newProps) {}
+
+    // Drawing canvases changed (strokes added/removed, canvas moved/resized)
+    virtual void onNodeDrawingChanged(gint64 nodeId) {}
 };
 
 // The document model - represents the entire document tree
@@ -228,6 +239,7 @@ public:
     void notifyNodeMoved(gint64 nodeId, gint64 newParentId, int newPosition);
     void notifyTreeStructureChanged();
     void notifyNodePropertiesChanged(gint64 nodeId, const CtNodeProps& oldP, const CtNodeProps& newP);
+    void notifyNodeDrawingChanged(gint64 nodeId);
 
     // Notification suppression for batching updates
     // Used by CompoundCommand to avoid intermediate buffer rebuilds during undo/redo

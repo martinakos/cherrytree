@@ -78,6 +78,7 @@ package_add_test(run_tests_no_x
   tests_types.cpp
   tests_lists.cpp
   tests_document_model.cpp
+  tests_drawing.cpp
 )
 
 package_add_test(run_tests_with_x_1

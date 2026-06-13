@@ -27,6 +27,7 @@
 #include "ct_widgets.h"
 #include "ct_filesystem.h"
 #include "ct_node_content.h"
+#include "ct_drawing.h"
 #include <glibmm/refptr.h>
 #include <gtkmm/treeiter.h>
 #include <gtkmm/textbuffer.h>
@@ -171,5 +172,9 @@ void table_to_xml(xmlpp::Element* parent,
                   const bool is_light);
 
 bool safe_parse_memory(xmlpp::DomParser& parser, const Glib::ustring& xml_content);
+
+void drawing_canvases_to_xml(xmlpp::Element* p_node_node,
+                              const std::vector<CtDrawingCanvas>& canvases);
+std::vector<CtDrawingCanvas> drawing_canvases_from_xml(const xmlpp::Element* p_node_node);
 
 } // namespace CtXmlHelper
