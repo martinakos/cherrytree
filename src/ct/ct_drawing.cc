@@ -41,6 +41,8 @@ static void parseColor(const std::string& hex, double& r, double& g, double& b)
     }
 }
 
+std::optional<CtDrawingCanvas> CtDrawingOverlay::_clipboard;
+
 CtDrawingOverlay::CtDrawingOverlay(CtMainWin* pMainWin)
     : _pMainWin(pMainWin)
 {
@@ -379,10 +381,11 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
         if (ci >= 0) {
             _selectedCanvasIdx = ci;
             _drawingArea.queue_draw();
-            _showContextMenu(event);
-            return true;
+        } else {
+            _selectedCanvasIdx = -1;
         }
-        return false;
+        _showContextMenu(event);
+        return true;
     }
 
     if (event->button != 1) return false;
@@ -732,97 +735,151 @@ bool CtDrawingOverlay::_onScroll(GdkEventScroll* event)
 void CtDrawingOverlay::_showContextMenu(GdkEventButton* event)
 {
     auto* menu = Gtk::manage(new Gtk::Menu());
+    bool hasSelection = _selectedCanvasIdx >= 0;
 
-    // Line Width submenu
-    auto* widthItem = Gtk::manage(new Gtk::MenuItem(_("Line Width")));
-    auto* widthMenu = Gtk::manage(new Gtk::Menu());
-    struct WidthEntry { const char* label; double width; };
-    WidthEntry widths[] = {
-        {_("Thin (1px)"), 1.0},
-        {_("Normal (2px)"), 2.0},
-        {_("Thick (4px)"), 4.0},
-        {_("Very Thick (8px)"), 8.0}
-    };
-    for (auto& w : widths) {
-        auto* item = Gtk::manage(new Gtk::CheckMenuItem(w.label));
-        item->set_active(_currentLineWidth == w.width);
-        double capturedWidth = w.width;
-        item->signal_activate().connect([this, capturedWidth]() {
-            _currentLineWidth = capturedWidth;
-        });
-        widthMenu->append(*item);
-    }
-    widthItem->set_submenu(*widthMenu);
-    menu->append(*widthItem);
-
-    // Color submenu
-    auto* colorItem = Gtk::manage(new Gtk::MenuItem(_("Color")));
-    auto* colorMenu = Gtk::manage(new Gtk::Menu());
-    struct ColorEntry { const char* label; const char* hex; };
-    ColorEntry colors[] = {
-        {_("Black"), "#000000"},
-        {_("Red"), "#ff0000"},
-        {_("Blue"), "#0000ff"},
-        {_("Green"), "#008000"},
-        {_("Yellow"), "#ffff00"},
-        {_("White"), "#ffffff"}
-    };
-    for (auto& c : colors) {
-        auto* item = Gtk::manage(new Gtk::CheckMenuItem(c.label));
-        item->set_active(_currentColor == c.hex);
-        std::string capturedColor = c.hex;
-        item->signal_activate().connect([this, capturedColor]() {
-            _currentColor = capturedColor;
-        });
-        colorMenu->append(*item);
-    }
-    auto* customColorItem = Gtk::manage(new Gtk::MenuItem(_("Custom...")));
-    customColorItem->signal_activate().connect([this]() {
-        Gtk::ColorChooserDialog dlg(_("Pick a Color"));
-        Gdk::RGBA rgba;
-        double r, g, b;
-        parseColor(_currentColor, r, g, b);
-        rgba.set_red(r); rgba.set_green(g); rgba.set_blue(b); rgba.set_alpha(1.0);
-        dlg.set_rgba(rgba);
-        dlg.set_transient_for(*_pMainWin);
-        if (dlg.run() == Gtk::RESPONSE_OK) {
-            auto chosen = dlg.get_rgba();
-            char buf[8];
-            snprintf(buf, sizeof(buf), "#%02x%02x%02x",
-                     static_cast<int>(chosen.get_red() * 255),
-                     static_cast<int>(chosen.get_green() * 255),
-                     static_cast<int>(chosen.get_blue() * 255));
-            _currentColor = buf;
+    if (hasSelection) {
+        // Line Width submenu
+        auto* widthItem = Gtk::manage(new Gtk::MenuItem(_("Line Width")));
+        auto* widthMenu = Gtk::manage(new Gtk::Menu());
+        struct WidthEntry { const char* label; double width; };
+        WidthEntry widths[] = {
+            {_("Thin (1px)"), 1.0},
+            {_("Normal (2px)"), 2.0},
+            {_("Thick (4px)"), 4.0},
+            {_("Very Thick (8px)"), 8.0}
+        };
+        for (auto& w : widths) {
+            auto* item = Gtk::manage(new Gtk::CheckMenuItem(w.label));
+            item->set_active(_currentLineWidth == w.width);
+            double capturedWidth = w.width;
+            item->signal_activate().connect([this, capturedWidth]() {
+                _currentLineWidth = capturedWidth;
+            });
+            widthMenu->append(*item);
         }
-    });
-    colorMenu->append(*customColorItem);
-    colorItem->set_submenu(*colorMenu);
-    menu->append(*colorItem);
+        widthItem->set_submenu(*widthMenu);
+        menu->append(*widthItem);
 
-    // Opacity submenu
-    auto* opacityItem = Gtk::manage(new Gtk::MenuItem(_("Opacity")));
-    auto* opacityMenu = Gtk::manage(new Gtk::Menu());
-    struct OpacityEntry { const char* label; double value; };
-    OpacityEntry opacities[] = {
-        {"100%", 1.0}, {"75%", 0.75}, {"50%", 0.5}, {"25%", 0.25}
-    };
-    for (auto& o : opacities) {
-        auto* item = Gtk::manage(new Gtk::CheckMenuItem(o.label));
-        item->set_active(std::abs(_currentOpacity - o.value) < 0.01);
-        double capturedOpacity = o.value;
-        item->signal_activate().connect([this, capturedOpacity]() {
-            _currentOpacity = capturedOpacity;
+        // Color submenu
+        auto* colorItem = Gtk::manage(new Gtk::MenuItem(_("Color")));
+        auto* colorMenu = Gtk::manage(new Gtk::Menu());
+        struct ColorEntry { const char* label; const char* hex; };
+        ColorEntry colors[] = {
+            {_("Black"), "#000000"},
+            {_("Red"), "#ff0000"},
+            {_("Blue"), "#0000ff"},
+            {_("Green"), "#008000"},
+            {_("Yellow"), "#ffff00"},
+            {_("White"), "#ffffff"}
+        };
+        for (auto& c : colors) {
+            auto* item = Gtk::manage(new Gtk::CheckMenuItem(c.label));
+            item->set_active(_currentColor == c.hex);
+            std::string capturedColor = c.hex;
+            item->signal_activate().connect([this, capturedColor]() {
+                _currentColor = capturedColor;
+            });
+            colorMenu->append(*item);
+        }
+        auto* customColorItem = Gtk::manage(new Gtk::MenuItem(_("Custom...")));
+        customColorItem->signal_activate().connect([this]() {
+            Gtk::ColorChooserDialog dlg(_("Pick a Color"));
+            Gdk::RGBA rgba;
+            double r, g, b;
+            parseColor(_currentColor, r, g, b);
+            rgba.set_red(r); rgba.set_green(g); rgba.set_blue(b); rgba.set_alpha(1.0);
+            dlg.set_rgba(rgba);
+            dlg.set_transient_for(*_pMainWin);
+            if (dlg.run() == Gtk::RESPONSE_OK) {
+                auto chosen = dlg.get_rgba();
+                char buf[8];
+                snprintf(buf, sizeof(buf), "#%02x%02x%02x",
+                         static_cast<int>(chosen.get_red() * 255),
+                         static_cast<int>(chosen.get_green() * 255),
+                         static_cast<int>(chosen.get_blue() * 255));
+                _currentColor = buf;
+            }
         });
-        opacityMenu->append(*item);
+        colorMenu->append(*customColorItem);
+        colorItem->set_submenu(*colorMenu);
+        menu->append(*colorItem);
+
+        // Opacity submenu
+        auto* opacityItem = Gtk::manage(new Gtk::MenuItem(_("Opacity")));
+        auto* opacityMenu = Gtk::manage(new Gtk::Menu());
+        struct OpacityEntry { const char* label; double value; };
+        OpacityEntry opacities[] = {
+            {"100%", 1.0}, {"75%", 0.75}, {"50%", 0.5}, {"25%", 0.25}
+        };
+        for (auto& o : opacities) {
+            auto* item = Gtk::manage(new Gtk::CheckMenuItem(o.label));
+            item->set_active(std::abs(_currentOpacity - o.value) < 0.01);
+            double capturedOpacity = o.value;
+            item->signal_activate().connect([this, capturedOpacity]() {
+                _currentOpacity = capturedOpacity;
+            });
+            opacityMenu->append(*item);
+        }
+        opacityItem->set_submenu(*opacityMenu);
+        menu->append(*opacityItem);
+
+        menu->append(*Gtk::manage(new Gtk::SeparatorMenuItem()));
+
+        // Canvas Properties
+        auto* propsItem = Gtk::manage(new Gtk::MenuItem(_("Canvas Properties...")));
+        propsItem->signal_activate().connect([this]() {
+            if (_selectedCanvasIdx < 0) return;
+            auto* bridge = _pMainWin->get_command_bridge();
+            auto treeIter = _pMainWin->curr_tree_iter();
+            if (!treeIter || !bridge) return;
+            auto nodeModel = bridge->getDocumentModel()->getNodeById(treeIter.get_node_id());
+            if (!nodeModel) return;
+            const auto& canvases = nodeModel->getDrawingCanvases();
+            size_t ci = static_cast<size_t>(_selectedCanvasIdx);
+            if (ci >= canvases.size()) return;
+            const auto& canvas = canvases[ci];
+
+            CtDialogs::CtCanvasPropsDialogData data;
+            data.name = canvas.name;
+            data.bgColor = canvas.bgColor;
+            data.bgOpacity = canvas.bgOpacity;
+            data.cornerRadius = canvas.cornerRadius;
+            data.showBorderWhenInactive = canvas.showBorderWhenInactive;
+
+            if (CtDialogs::canvas_properties_dialog(_pMainWin, data)) {
+                if (data.name != canvas.name || data.bgColor != canvas.bgColor ||
+                    std::abs(data.bgOpacity - canvas.bgOpacity) > 0.001 ||
+                    std::abs(data.cornerRadius - canvas.cornerRadius) > 0.001 ||
+                    data.showBorderWhenInactive != canvas.showBorderWhenInactive) {
+                    auto cmd = std::make_unique<CanvasPropertiesCommand>(
+                        bridge->getDocumentModel(), treeIter.get_node_id(), ci,
+                        canvas.name, data.name,
+                        canvas.bgColor, data.bgColor,
+                        canvas.bgOpacity, data.bgOpacity,
+                        canvas.cornerRadius, data.cornerRadius,
+                        canvas.showBorderWhenInactive, data.showBorderWhenInactive);
+                    bridge->executeCommand(std::move(cmd));
+                    _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+                }
+            }
+        });
+        menu->append(*propsItem);
+
+        // Delete Stroke mode toggle
+        auto* deleteStrokeItem = Gtk::manage(new Gtk::CheckMenuItem(_("Delete Stroke")));
+        deleteStrokeItem->set_active(_deleteStrokeMode);
+        deleteStrokeItem->signal_activate().connect([this]() {
+            _deleteStrokeMode = !_deleteStrokeMode;
+        });
+        menu->append(*deleteStrokeItem);
+
+        menu->append(*Gtk::manage(new Gtk::SeparatorMenuItem()));
     }
-    opacityItem->set_submenu(*opacityMenu);
-    menu->append(*opacityItem);
 
-    menu->append(*Gtk::manage(new Gtk::SeparatorMenuItem()));
-
-    // Canvas Properties
-    auto* propsItem = Gtk::manage(new Gtk::MenuItem(_("Canvas Properties...")));
-    propsItem->signal_activate().connect([this]() {
+    // Cut Drawing Canvas
+    auto* cutItem = Gtk::manage(new Gtk::MenuItem(_("Cut Drawing Canvas")));
+    cutItem->set_sensitive(hasSelection);
+    cutItem->signal_activate().connect([this]() {
         if (_selectedCanvasIdx < 0) return;
         auto* bridge = _pMainWin->get_command_bridge();
         auto treeIter = _pMainWin->curr_tree_iter();
@@ -832,59 +889,8 @@ void CtDrawingOverlay::_showContextMenu(GdkEventButton* event)
         const auto& canvases = nodeModel->getDrawingCanvases();
         size_t ci = static_cast<size_t>(_selectedCanvasIdx);
         if (ci >= canvases.size()) return;
-        const auto& canvas = canvases[ci];
 
-        CtDialogs::CtCanvasPropsDialogData data;
-        data.name = canvas.name;
-        data.bgColor = canvas.bgColor;
-        data.bgOpacity = canvas.bgOpacity;
-        data.cornerRadius = canvas.cornerRadius;
-        data.showBorderWhenInactive = canvas.showBorderWhenInactive;
-
-        if (CtDialogs::canvas_properties_dialog(_pMainWin, data)) {
-            if (data.name != canvas.name || data.bgColor != canvas.bgColor ||
-                std::abs(data.bgOpacity - canvas.bgOpacity) > 0.001 ||
-                std::abs(data.cornerRadius - canvas.cornerRadius) > 0.001 ||
-                data.showBorderWhenInactive != canvas.showBorderWhenInactive) {
-                auto cmd = std::make_unique<CanvasPropertiesCommand>(
-                    bridge->getDocumentModel(), treeIter.get_node_id(), ci,
-                    canvas.name, data.name,
-                    canvas.bgColor, data.bgColor,
-                    canvas.bgOpacity, data.bgOpacity,
-                    canvas.cornerRadius, data.cornerRadius,
-                    canvas.showBorderWhenInactive, data.showBorderWhenInactive);
-                bridge->executeCommand(std::move(cmd));
-                _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
-            }
-        }
-    });
-    menu->append(*propsItem);
-
-    // Delete Stroke mode toggle
-    auto* deleteStrokeItem = Gtk::manage(new Gtk::CheckMenuItem(_("Delete Stroke")));
-    deleteStrokeItem->set_active(_deleteStrokeMode);
-    deleteStrokeItem->signal_activate().connect([this]() {
-        _deleteStrokeMode = !_deleteStrokeMode;
-    });
-    menu->append(*deleteStrokeItem);
-
-    // Delete Drawing Canvas
-    auto* deleteCanvasItem = Gtk::manage(new Gtk::MenuItem(_("Delete Drawing Canvas")));
-    deleteCanvasItem->signal_activate().connect([this]() {
-        if (_selectedCanvasIdx < 0) return;
-        Gtk::MessageDialog dlg(*_pMainWin, _("Are you sure you want to delete this drawing canvas?"),
-                               false, Gtk::MESSAGE_QUESTION, Gtk::BUTTONS_YES_NO);
-        if (dlg.run() != Gtk::RESPONSE_YES) return;
-
-        auto* bridge = _pMainWin->get_command_bridge();
-        auto treeIter = _pMainWin->curr_tree_iter();
-        if (!treeIter) return;
-        auto nodeModel = bridge->getDocumentModel()->getNodeById(treeIter.get_node_id());
-        if (!nodeModel) return;
-        const auto& canvases = nodeModel->getDrawingCanvases();
-        size_t ci = static_cast<size_t>(_selectedCanvasIdx);
-        if (ci >= canvases.size()) return;
-
+        _clipboard = canvases[ci];
         auto cmd = std::make_unique<DeleteCanvasCommand>(
             bridge->getDocumentModel(), treeIter.get_node_id(),
             canvases[ci], ci);
@@ -892,7 +898,83 @@ void CtDrawingOverlay::_showContextMenu(GdkEventButton* event)
         _selectedCanvasIdx = -1;
         _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
     });
-    menu->append(*deleteCanvasItem);
+    menu->append(*cutItem);
+
+    // Copy Drawing Canvas
+    auto* copyItem = Gtk::manage(new Gtk::MenuItem(_("Copy Drawing Canvas")));
+    copyItem->set_sensitive(hasSelection);
+    copyItem->signal_activate().connect([this]() {
+        if (_selectedCanvasIdx < 0) return;
+        auto* bridge = _pMainWin->get_command_bridge();
+        auto treeIter = _pMainWin->curr_tree_iter();
+        if (!treeIter || !bridge) return;
+        auto nodeModel = bridge->getDocumentModel()->getNodeById(treeIter.get_node_id());
+        if (!nodeModel) return;
+        const auto& canvases = nodeModel->getDrawingCanvases();
+        size_t ci = static_cast<size_t>(_selectedCanvasIdx);
+        if (ci >= canvases.size()) return;
+
+        _clipboard = canvases[ci];
+    });
+    menu->append(*copyItem);
+
+    // Paste Drawing Canvas
+    auto* pasteItem = Gtk::manage(new Gtk::MenuItem(_("Paste Drawing Canvas")));
+    pasteItem->set_sensitive(_clipboard.has_value());
+    pasteItem->signal_activate().connect([this, event]() {
+        if (!_clipboard.has_value()) return;
+        auto* bridge = _pMainWin->get_command_bridge();
+        auto treeIter = _pMainWin->curr_tree_iter();
+        if (!treeIter || !bridge) return;
+
+        CtDrawingCanvas canvas = _clipboard.value();
+
+        auto hAdj = _pMainWin->getScrolledwindowText().get_hadjustment();
+        auto vAdj = _pMainWin->getScrolledwindowText().get_vadjustment();
+        double hScroll = hAdj ? hAdj->get_value() : 0.0;
+        double vScroll = vAdj ? vAdj->get_value() : 0.0;
+        double zoom = _pMainWin->get_rt_zoom_scale_factor();
+
+        canvas.x = (event->x + hScroll) / zoom;
+        canvas.y = (event->y + vScroll) / zoom;
+
+        auto cmd = std::make_unique<AddCanvasCommand>(
+            bridge->getDocumentModel(), treeIter.get_node_id(),
+            std::move(canvas));
+        bridge->executeCommand(std::move(cmd));
+        _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+    });
+    menu->append(*pasteItem);
+
+    if (hasSelection) {
+        menu->append(*Gtk::manage(new Gtk::SeparatorMenuItem()));
+
+        // Delete Drawing Canvas
+        auto* deleteCanvasItem = Gtk::manage(new Gtk::MenuItem(_("Delete Drawing Canvas")));
+        deleteCanvasItem->signal_activate().connect([this]() {
+            if (_selectedCanvasIdx < 0) return;
+            Gtk::MessageDialog dlg(*_pMainWin, _("Are you sure you want to delete this drawing canvas?"),
+                                   false, Gtk::MESSAGE_QUESTION, Gtk::BUTTONS_YES_NO);
+            if (dlg.run() != Gtk::RESPONSE_YES) return;
+
+            auto* bridge = _pMainWin->get_command_bridge();
+            auto treeIter = _pMainWin->curr_tree_iter();
+            if (!treeIter) return;
+            auto nodeModel = bridge->getDocumentModel()->getNodeById(treeIter.get_node_id());
+            if (!nodeModel) return;
+            const auto& canvases = nodeModel->getDrawingCanvases();
+            size_t ci = static_cast<size_t>(_selectedCanvasIdx);
+            if (ci >= canvases.size()) return;
+
+            auto cmd = std::make_unique<DeleteCanvasCommand>(
+                bridge->getDocumentModel(), treeIter.get_node_id(),
+                canvases[ci], ci);
+            bridge->executeCommand(std::move(cmd));
+            _selectedCanvasIdx = -1;
+            _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+        });
+        menu->append(*deleteCanvasItem);
+    }
 
     menu->show_all();
     menu->popup_at_pointer(reinterpret_cast<GdkEvent*>(event));
