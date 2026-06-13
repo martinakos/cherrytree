@@ -203,6 +203,136 @@ TEST_F(DrawingCommandTest, ResizeCanvasCommand_ExecuteAndUndo)
     EXPECT_DOUBLE_EQ(250.0, node->getDrawingCanvases()[0].height);
 }
 
+TEST_F(DrawingCommandTest, AddCanvasCommand_Redo)
+{
+    auto canvas = makeCanvas(10, 20, 300, 250);
+    AddCanvasCommand cmd(model, 1, canvas);
+
+    cmd.execute();
+    ASSERT_EQ(1u, model->getNodeById(1)->getDrawingCanvases().size());
+    cmd.undo();
+    EXPECT_EQ(0u, model->getNodeById(1)->getDrawingCanvases().size());
+    cmd.execute();
+    ASSERT_EQ(1u, model->getNodeById(1)->getDrawingCanvases().size());
+    EXPECT_DOUBLE_EQ(10.0, model->getNodeById(1)->getDrawingCanvases()[0].x);
+}
+
+TEST_F(DrawingCommandTest, DeleteCanvasCommand_Redo)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(10, 20, 300, 250));
+    CtDrawingCanvas snapshot = node->getDrawingCanvases()[0];
+    DeleteCanvasCommand cmd(model, 1, snapshot, 0);
+
+    cmd.execute();
+    EXPECT_EQ(0u, node->getDrawingCanvases().size());
+    cmd.undo();
+    ASSERT_EQ(1u, node->getDrawingCanvases().size());
+    cmd.execute();
+    EXPECT_EQ(0u, node->getDrawingCanvases().size());
+}
+
+TEST_F(DrawingCommandTest, DrawStrokeCommand_Redo)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    auto stroke = makeStroke("#0000ff", 3.0, {{10,10},{20,30}});
+    DrawStrokeCommand cmd(model, 1, 0, stroke);
+
+    cmd.execute();
+    ASSERT_EQ(1u, node->getDrawingCanvases()[0].strokes.size());
+    cmd.undo();
+    EXPECT_EQ(0u, node->getDrawingCanvases()[0].strokes.size());
+    cmd.execute();
+    ASSERT_EQ(1u, node->getDrawingCanvases()[0].strokes.size());
+    EXPECT_EQ("#0000ff", node->getDrawingCanvases()[0].strokes[0].color);
+}
+
+TEST_F(DrawingCommandTest, MoveCanvasCommand_Redo)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(10, 20, 300, 250));
+    MoveCanvasCommand cmd(model, 1, 0, 10, 20, 100, 200);
+
+    cmd.execute();
+    cmd.undo();
+    cmd.execute();
+    EXPECT_DOUBLE_EQ(100.0, node->getDrawingCanvases()[0].x);
+    EXPECT_DOUBLE_EQ(200.0, node->getDrawingCanvases()[0].y);
+}
+
+TEST_F(DrawingCommandTest, ResizeCanvasCommand_Redo)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(10, 20, 300, 250));
+    ResizeCanvasCommand cmd(model, 1, 0, 10, 20, 300, 250, 15, 25, 400, 350);
+
+    cmd.execute();
+    cmd.undo();
+    cmd.execute();
+    EXPECT_DOUBLE_EQ(400.0, node->getDrawingCanvases()[0].width);
+    EXPECT_DOUBLE_EQ(350.0, node->getDrawingCanvases()[0].height);
+}
+
+TEST_F(DrawingCommandTest, EraseStrokeCommand_MiddleIndex)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    auto& strokes = node->getDrawingCanvasesMut()[0].strokes;
+    strokes.push_back(makeStroke("#ff0000", 1.0, {{1,1},{2,2}}));
+    strokes.push_back(makeStroke("#00ff00", 2.0, {{3,3},{4,4}}));
+    strokes.push_back(makeStroke("#0000ff", 3.0, {{5,5},{6,6}}));
+
+    CtDrawingStroke erased = strokes[1];
+    EraseStrokeCommand cmd(model, 1, 0, erased, 1);
+
+    cmd.execute();
+    ASSERT_EQ(2u, node->getDrawingCanvases()[0].strokes.size());
+    EXPECT_EQ("#ff0000", node->getDrawingCanvases()[0].strokes[0].color);
+    EXPECT_EQ("#0000ff", node->getDrawingCanvases()[0].strokes[1].color);
+
+    cmd.undo();
+    ASSERT_EQ(3u, node->getDrawingCanvases()[0].strokes.size());
+    EXPECT_EQ("#ff0000", node->getDrawingCanvases()[0].strokes[0].color);
+    EXPECT_EQ("#00ff00", node->getDrawingCanvases()[0].strokes[1].color);
+    EXPECT_EQ("#0000ff", node->getDrawingCanvases()[0].strokes[2].color);
+}
+
+TEST_F(DrawingCommandTest, AddMultipleCanvases_DeleteMiddle)
+{
+    auto node = model->getNodeById(1);
+
+    AddCanvasCommand cmd1(model, 1, makeCanvas(10, 10, 100, 100));
+    AddCanvasCommand cmd2(model, 1, makeCanvas(20, 20, 200, 200));
+    AddCanvasCommand cmd3(model, 1, makeCanvas(30, 30, 300, 300));
+    cmd1.execute();
+    cmd2.execute();
+    cmd3.execute();
+    ASSERT_EQ(3u, node->getDrawingCanvases().size());
+
+    CtDrawingCanvas snapshot = node->getDrawingCanvases()[1];
+    DeleteCanvasCommand delCmd(model, 1, snapshot, 1);
+    delCmd.execute();
+
+    ASSERT_EQ(2u, node->getDrawingCanvases().size());
+    EXPECT_DOUBLE_EQ(10.0, node->getDrawingCanvases()[0].x);
+    EXPECT_DOUBLE_EQ(30.0, node->getDrawingCanvases()[1].x);
+
+    delCmd.undo();
+    ASSERT_EQ(3u, node->getDrawingCanvases().size());
+    EXPECT_DOUBLE_EQ(20.0, node->getDrawingCanvases()[1].x);
+}
+
+TEST_F(DrawingCommandTest, AddCanvasCommand_TracksIndex)
+{
+    AddCanvasCommand cmd1(model, 1, makeCanvas(10, 10, 100, 100));
+    AddCanvasCommand cmd2(model, 1, makeCanvas(20, 20, 200, 200));
+    cmd1.execute();
+    cmd2.execute();
+    EXPECT_EQ(0u, cmd1.getCanvasIdx());
+    EXPECT_EQ(1u, cmd2.getCanvasIdx());
+}
+
 // ── XML serialization round-trip ────────────────────────────────────────────
 
 TEST(DrawingXmlTest, RoundTrip_EmptyCanvases)
