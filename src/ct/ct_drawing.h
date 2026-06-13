@@ -68,7 +68,8 @@ enum class CtDrawingDragType {
     None,
     Move,
     Draw,
-    Resize
+    Resize,
+    CreateCanvas
 };
 
 class CtDrawingOverlay {
@@ -87,6 +88,9 @@ public:
 
     void resetSelection();
     void refresh();
+
+    void beginCreateCanvas();
+    bool isCreateCanvasMode() const { return _createCanvasMode; }
 
     double getCurrentLineWidth() const { return _currentLineWidth; }
     void setCurrentLineWidth(double w) { _currentLineWidth = w; }
@@ -130,6 +134,7 @@ private:
     bool _drawingMode{false};
     int _selectedCanvasIdx{-1};
     bool _deleteStrokeMode{false};
+    bool _createCanvasMode{false};
 
     double _currentLineWidth{2.0};
     std::string _currentColor{"#000000"};
@@ -145,7 +150,7 @@ private:
     double _dragCanvasOrigH{0.0};
 
     static constexpr double EDGE_HIT_THRESHOLD = 8.0;
-    static constexpr double HEADER_HEIGHT = 20.0;
+    static constexpr double HEADER_HEIGHT = 28.0;
     static constexpr double MIN_CANVAS_WIDTH = 80.0;
     static constexpr double MIN_CANVAS_HEIGHT = 60.0;
     static constexpr double STROKE_HIT_THRESHOLD = 5.0;

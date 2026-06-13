@@ -393,19 +393,8 @@ xmlpp::Element* CtStorageXmlHelper::node_to_xml(const CtTreeIter* ct_tree_iter,
         if (bridge && bridge->isActive()) {
             auto nodeModel = bridge->getDocumentModel()->getNodeById(my_node_id);
             if (nodeModel) {
-                const auto& canvases = nodeModel->getDrawingCanvases();
-                if (!canvases.empty()) {
-                    spdlog::info("Drawing XML write: node {} writing {} canvases",
-                                 my_node_id, canvases.size());
-                }
-                CtXmlHelper::drawing_canvases_to_xml(p_node_node, canvases);
+                CtXmlHelper::drawing_canvases_to_xml(p_node_node, nodeModel->getDrawingCanvases());
             }
-            else {
-                spdlog::info("Drawing XML write: node {} NOT in doc model", my_node_id);
-            }
-        }
-        else {
-            spdlog::info("Drawing XML write: bridge null or inactive for node {}", my_node_id);
         }
     }
     return p_node_node;
@@ -454,10 +443,6 @@ Gtk::TreeModel::iterator CtStorageXmlHelper::node_from_xml(const xmlpp::Element*
 
     // parse drawing canvases (always, even for shared nodes — they're per-node)
     node_data.drawingCanvases = CtXmlHelper::drawing_canvases_from_xml(xml_element);
-    if (!node_data.drawingCanvases.empty()) {
-        spdlog::info("Drawing XML read: node {} loaded {} canvases",
-                     node_data.nodeId, node_data.drawingCanvases.size());
-    }
 
     if (isDryRun) {
         return Gtk::TreeModel::iterator{};
