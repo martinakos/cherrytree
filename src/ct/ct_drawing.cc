@@ -25,6 +25,7 @@
 #include "ct_drawing_commands.h"
 #include "ct_main_win.h"
 #include "ct_command_bridge.h"
+#include "ct_dialogs.h"
 #include <glibmm/i18n.h>
 #include <cmath>
 #include <algorithm>
@@ -163,14 +164,26 @@ void CtDrawingOverlay::_drawCanvas(const Cairo::RefPtr<Cairo::Context>& cr,
     double ch = canvas.height * zoom;
     double cr_radius = canvas.cornerRadius * zoom;
 
-    if (_drawingMode) {
-        // draw rounded rect background
-        _drawRoundedRect(cr, cx, cy, cw, ch, cr_radius);
-        cr->set_source_rgba(1.0, 1.0, 1.0, 0.15);
-        cr->fill_preserve();
+    bool showChrome = _drawingMode || canvas.showBorderWhenInactive;
 
+    // background fill — skip header area so header opacity stays independent
+    {
+        double bgR, bgG, bgB;
+        parseColor(canvas.bgColor, bgR, bgG, bgB);
+        cr->save();
+        _drawRoundedRect(cr, cx, cy, cw, ch, cr_radius);
+        cr->clip();
+        double headerH = showChrome ? std::min(HEADER_HEIGHT * zoom, ch) : 0.0;
+        cr->rectangle(cx, cy + headerH, cw, ch - headerH);
+        cr->set_source_rgba(bgR, bgG, bgB, canvas.bgOpacity);
+        cr->fill();
+        cr->restore();
+    }
+
+    if (showChrome) {
         // border
-        if (idx == _selectedCanvasIdx) {
+        _drawRoundedRect(cr, cx, cy, cw, ch, cr_radius);
+        if (_drawingMode && idx == _selectedCanvasIdx) {
             cr->set_source_rgba(0.2, 0.5, 1.0, 0.8);
             cr->set_line_width(2.0);
         } else {
@@ -182,17 +195,32 @@ void CtDrawingOverlay::_drawCanvas(const Cairo::RefPtr<Cairo::Context>& cr,
         cr->stroke();
         cr->unset_dash();
 
-        // header bar — rounded top corners, flat bottom
+        // header bar — clip to canvas shape so large corner radii don't overflow
         double headerH = std::min(HEADER_HEIGHT * zoom, ch);
-        double r = std::min(cr_radius, std::min(cw / 2.0, headerH));
-        cr->begin_new_sub_path();
-        cr->arc(cx + cw - r, cy + r, r, -M_PI / 2.0, 0.0);
-        cr->line_to(cx + cw, cy + headerH);
-        cr->line_to(cx, cy + headerH);
-        cr->arc(cx + r, cy + r, r, M_PI, 3.0 * M_PI / 2.0);
-        cr->close_path();
-        cr->set_source_rgba(0.6, 0.6, 0.6, 0.3);
+        cr->save();
+        _drawRoundedRect(cr, cx, cy, cw, ch, cr_radius);
+        cr->clip();
+        cr->rectangle(cx, cy, cw, headerH);
+        cr->set_source_rgba(0.6, 0.6, 0.6, 1.0);
         cr->fill();
+        cr->restore();
+
+        if (!canvas.name.empty()) {
+            auto layout = Pango::Layout::create(cr);
+            layout->set_text(canvas.name);
+            Pango::FontDescription fontDesc;
+            fontDesc.set_family("Sans");
+            fontDesc.set_size(static_cast<int>(10 * zoom * Pango::SCALE));
+            layout->set_font_description(fontDesc);
+            layout->set_ellipsize(Pango::ELLIPSIZE_END);
+            layout->set_width(static_cast<int>((cw - 12 * zoom) * Pango::SCALE));
+            layout->set_alignment(Pango::ALIGN_CENTER);
+            int textW, textH;
+            layout->get_pixel_size(textW, textH);
+            cr->set_source_rgba(0.1, 0.1, 0.1, 0.9);
+            cr->move_to(cx + 6 * zoom, cy + (headerH - textH) / 2.0);
+            layout->show_in_cairo_context(cr);
+        }
     }
 
     // clip strokes to canvas bounds
@@ -789,6 +817,46 @@ void CtDrawingOverlay::_showContextMenu(GdkEventButton* event)
     menu->append(*opacityItem);
 
     menu->append(*Gtk::manage(new Gtk::SeparatorMenuItem()));
+
+    // Canvas Properties
+    auto* propsItem = Gtk::manage(new Gtk::MenuItem(_("Canvas Properties...")));
+    propsItem->signal_activate().connect([this]() {
+        if (_selectedCanvasIdx < 0) return;
+        auto* bridge = _pMainWin->get_command_bridge();
+        auto treeIter = _pMainWin->curr_tree_iter();
+        if (!treeIter || !bridge) return;
+        auto nodeModel = bridge->getDocumentModel()->getNodeById(treeIter.get_node_id());
+        if (!nodeModel) return;
+        const auto& canvases = nodeModel->getDrawingCanvases();
+        size_t ci = static_cast<size_t>(_selectedCanvasIdx);
+        if (ci >= canvases.size()) return;
+        const auto& canvas = canvases[ci];
+
+        CtDialogs::CtCanvasPropsDialogData data;
+        data.name = canvas.name;
+        data.bgColor = canvas.bgColor;
+        data.bgOpacity = canvas.bgOpacity;
+        data.cornerRadius = canvas.cornerRadius;
+        data.showBorderWhenInactive = canvas.showBorderWhenInactive;
+
+        if (CtDialogs::canvas_properties_dialog(_pMainWin, data)) {
+            if (data.name != canvas.name || data.bgColor != canvas.bgColor ||
+                std::abs(data.bgOpacity - canvas.bgOpacity) > 0.001 ||
+                std::abs(data.cornerRadius - canvas.cornerRadius) > 0.001 ||
+                data.showBorderWhenInactive != canvas.showBorderWhenInactive) {
+                auto cmd = std::make_unique<CanvasPropertiesCommand>(
+                    bridge->getDocumentModel(), treeIter.get_node_id(), ci,
+                    canvas.name, data.name,
+                    canvas.bgColor, data.bgColor,
+                    canvas.bgOpacity, data.bgOpacity,
+                    canvas.cornerRadius, data.cornerRadius,
+                    canvas.showBorderWhenInactive, data.showBorderWhenInactive);
+                bridge->executeCommand(std::move(cmd));
+                _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+            }
+        }
+    });
+    menu->append(*propsItem);
 
     // Delete Stroke mode toggle
     auto* deleteStrokeItem = Gtk::manage(new Gtk::CheckMenuItem(_("Delete Stroke")));

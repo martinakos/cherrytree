@@ -213,6 +213,17 @@ Glib::ustring latex_handle_dialog(CtMainWin* pCtMainWin,
 bool codeboxhandle_dialog(CtMainWin* pCtMainWin,
                           const Glib::ustring& title);
 
+struct CtCanvasPropsDialogData {
+    std::string name;
+    std::string bgColor;
+    double bgOpacity;
+    double cornerRadius;
+    bool showBorderWhenInactive;
+};
+
+bool canvas_properties_dialog(CtMainWin* pCtMainWin,
+                              CtCanvasPropsDialogData& data);
+
 struct CtStorageSelectArgs
 {
     CtDocType     ctDocType{CtDocType::None};
