@@ -47,6 +47,10 @@ struct CtDrawingCanvas {
     double width{300.0};
     double height{250.0};
     double cornerRadius{8.0};
+    std::string name;
+    std::string bgColor{"#ffffff"};
+    double bgOpacity{0.15};
+    bool showBorderWhenInactive{false};
     std::vector<CtDrawingStroke> strokes;
 };
 
