@@ -276,7 +276,8 @@ CtMainWin::CtMainWin(bool                            no_gui,
     _pRecentDocsSubmenu = CtMenu::find_menu_item(_pMenuBar, "RecentDocsSubMenu");
     _pMenuBar->show_all();
     add_accel_group(_uCtMenu->get_accel_group());
-    _pToolbars = _uCtMenu->build_toolbars(_pRecentDocsMenuToolButton, _pSaveToolButton, _pUndoMenuToolButton, _pRedoMenuToolButton);
+    _pToolbars = _uCtMenu->build_toolbars(_pRecentDocsMenuToolButton, _pSaveToolButton, _pUndoMenuToolButton, _pRedoMenuToolButton, _pToggleDrawingModeButton);
+    _setup_drawing_mode_toggle();
 #else
     // GTK4: use hierarchical Gio::MenuModel menubutton
     _pMenuButton4 = _uCtMenu->build_menubutton_model4();
@@ -942,6 +943,13 @@ Gtk::Box& CtMainWin::_init_status_bar()
     _ctStatusBar.messageLabel.set_margin_bottom(4);
     _ctStatusBar.messageLabel.set_no_show_all(true);
     _ctStatusBar.messageLabel.hide();
+    _ctStatusBar.canvasEditLabel.set_xalign(1.0f);
+    _ctStatusBar.canvasEditLabel.set_margin_end(4);
+    _ctStatusBar.canvasEditLabel.set_margin_top(4);
+    _ctStatusBar.canvasEditLabel.set_margin_bottom(4);
+    _ctStatusBar.canvasEditLabel.set_markup(" <b><span foreground='red'>Canvas Editing</span></b> ");
+    _ctStatusBar.canvasEditLabel.set_no_show_all(true);
+    _ctStatusBar.canvasEditLabel.hide();
     _ctStatusBar.zoomLabel.set_size_request(100, -1);
     _ctStatusBar.zoomLabel.set_xalign(1.0f);
     _ctStatusBar.zoomLabel.set_margin_end(4);
@@ -962,6 +970,7 @@ Gtk::Box& CtMainWin::_init_status_bar()
         _ctStatusBar.hbox.append(*fields[i]);
     }
     _ctStatusBar.hbox.append(_ctStatusBar.messageLabel);
+    _ctStatusBar.hbox.append(_ctStatusBar.canvasEditLabel);
     _ctStatusBar.hbox.append(_ctStatusBar.zoomLabel);
     _ctStatusBar.hbox.append(_ctStatusBar.frame);
     _ctStatusBar.hbox.append(_ctStatusBar.stopButton);
@@ -978,6 +987,7 @@ Gtk::Box& CtMainWin::_init_status_bar()
     _ctStatusBar.hbox.pack_end(_ctStatusBar.stopButton, false, true);
     _ctStatusBar.hbox.pack_end(_ctStatusBar.frame, false, true);
     _ctStatusBar.hbox.pack_end(_ctStatusBar.zoomLabel, false, false);
+    _ctStatusBar.hbox.pack_end(_ctStatusBar.canvasEditLabel, false, false);
     #endif
 
     _ctStatusBar.hbox.get_style_context()->add_class("ct-status-bar");
@@ -1445,6 +1455,26 @@ struct UndoRedoCols : public Gtk::TreeModel::ColumnRecord {
 UndoRedoCols g_undoRedoCols;
 } // namespace
 
+void CtMainWin::_setup_drawing_mode_toggle()
+{
+    if (!_pToggleDrawingModeButton) return;
+    _pToggleDrawingModeButton->signal_toggled().connect([this](){
+        if (_updatingDrawingModeToggle) return;
+        auto* overlay = get_drawing_overlay();
+        if (!overlay) return;
+        overlay->setDrawingMode(_pToggleDrawingModeButton->get_active());
+    });
+}
+
+void CtMainWin::update_drawing_mode_toggle(bool active)
+{
+    if (_pToggleDrawingModeButton) {
+        _updatingDrawingModeToggle = true;
+        _pToggleDrawingModeButton->set_active(active);
+        _updatingDrawingModeToggle = false;
+    }
+}
+
 void CtMainWin::_setup_undo_redo_popovers()
 {
     auto setup_one = [this](Gtk::MenuToolButton* pButton, bool isUndo) {
@@ -1606,7 +1636,8 @@ void CtMainWin::menu_rebuild_toolbars(bool new_toolbar)
         for (auto pToolbar : _pToolbars) {
             _vboxMain.remove(*pToolbar);
         }
-        _pToolbars = _uCtMenu->build_toolbars(_pRecentDocsMenuToolButton, _pSaveToolButton, _pUndoMenuToolButton, _pRedoMenuToolButton);
+        _pToolbars = _uCtMenu->build_toolbars(_pRecentDocsMenuToolButton, _pSaveToolButton, _pUndoMenuToolButton, _pRedoMenuToolButton, _pToggleDrawingModeButton);
+    _setup_drawing_mode_toggle();
         for (auto toolbar = _pToolbars.rbegin(); toolbar != _pToolbars.rend(); ++toolbar) {
             _vboxMain.pack_start(*(*toolbar), false, false);
             if (not _pCtConfig->menubarInTitlebar) {

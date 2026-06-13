@@ -130,8 +130,8 @@ void CtMenu::init_actions(CtActions* pActions)
             _("Insert an Anchor"), sigc::mem_fun(*pActions, &CtActions::anchor_handle)});
         _actions.push_back(CtMenuAction{editor_cat, "new_drawing_canvas", "ct_image_insert", _("New _Drawing Canvas"), KB_SHIFT+KB_ALT+"y",
             _("Create a New Drawing Canvas"), sigc::mem_fun(*pActions, &CtActions::new_drawing_canvas)});
-        _actions.push_back(CtMenuAction{editor_cat, "toggle_drawing_mode", "ct_image_insert", _("Toggle Dra_wing Mode"), KB_SHIFT+KB_ALT+"w",
-            _("Toggle Drawing Mode On/Off"), sigc::mem_fun(*pActions, &CtActions::toggle_drawing_mode)});
+        _actions.push_back(CtMenuAction{editor_cat, "toggle_drawing_mode", "ct_image_edit", _("Canvas _Editing Mode"), KB_SHIFT+KB_ALT+"w",
+            _("Toggle Canvas Editing Mode On/Off"), sigc::mem_fun(*pActions, &CtActions::toggle_drawing_mode)});
         _actions.push_back(CtMenuAction{editor_cat, "insert_toc", "ct_index", _("Insert T_OC and Headers Collapsors..."), None,
             _("Insert Table of Contents and Headers Collapsors/Expanders"), sigc::mem_fun(*pActions, &CtActions::toc_insert)});
         _actions.push_back(CtMenuAction{editor_cat, "insert_timestamp", "ct_timestamp", _("Insert Timestam_p"), KB_SHIFT+KB_ALT+"m",

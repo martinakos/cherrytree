@@ -404,11 +404,13 @@ CtMenu::CtMenu(CtMainWin* pCtMainWin)
 
 #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
 std::vector<Gtk::Toolbar*> CtMenu::build_toolbars(Gtk::MenuToolButton*& pRecentDocsMenuToolButton, Gtk::ToolButton*& pToolButtonSave,
-                                                   Gtk::MenuToolButton*& pUndoMenuToolButton, Gtk::MenuToolButton*& pRedoMenuToolButton)
+                                                   Gtk::MenuToolButton*& pUndoMenuToolButton, Gtk::MenuToolButton*& pRedoMenuToolButton,
+                                                   Gtk::ToggleToolButton*& pToggleDrawingModeButton)
 {
     pRecentDocsMenuToolButton = nullptr;
     pUndoMenuToolButton = nullptr;
     pRedoMenuToolButton = nullptr;
+    pToggleDrawingModeButton = nullptr;
     std::vector<Gtk::Toolbar*> toolbars;
     for (const auto& toolbar_str : _get_ui_str_toolbars()) {
         Gtk::Toolbar* pToolbar = nullptr;
@@ -426,6 +428,9 @@ std::vector<Gtk::Toolbar*> CtMenu::build_toolbars(Gtk::MenuToolButton*& pRecentD
         }
         if (not pRedoMenuToolButton) {
             _rGtkBuilder->get_widget("act_redo", pRedoMenuToolButton);
+        }
+        if (not pToggleDrawingModeButton) {
+            _rGtkBuilder->get_widget("toggle_drawing_mode", pToggleDrawingModeButton);
         }
     }
     return toolbars;

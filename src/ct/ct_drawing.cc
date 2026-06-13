@@ -94,6 +94,8 @@ void CtDrawingOverlay::setDrawingMode(bool on)
     }
 #endif
     _drawingArea.queue_draw();
+    _pMainWin->get_status_bar().canvasEditLabel.set_visible(on);
+    _pMainWin->update_drawing_mode_toggle(on);
 }
 
 void CtDrawingOverlay::resetSelection()
@@ -396,9 +398,9 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
 
     int ci = _hitTestCanvas(event->x, event->y, hScroll, vScroll, zoom);
     if (ci < 0) {
+        setDrawingMode(false);
         _selectedCanvasIdx = -1;
-        _drawingArea.queue_draw();
-        return false;
+        return true;
     }
 
     _selectedCanvasIdx = ci;
