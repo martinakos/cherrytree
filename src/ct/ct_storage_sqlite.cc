@@ -25,6 +25,7 @@
 #include "ct_storage_xml.h"
 #include "ct_storage_control.h"
 #include "ct_main_win.h"
+#include "ct_command_bridge.h"
 #include "ct_image.h"
 #include "ct_logging.h"
 #include "ct_gtk_compat.h"
@@ -111,6 +112,27 @@ const char CtStorageSqlite::TABLE_BOOKMARK_CREATE[]{"CREATE TABLE bookmark ("
 };
 const char CtStorageSqlite::TABLE_BOOKMARK_INSERT[]{"INSERT INTO bookmark VALUES(?,?)"};
 const char CtStorageSqlite::TABLE_BOOKMARK_DELETE[]{"DELETE FROM bookmark"};
+
+const char CtStorageSqlite::TABLE_DRAWING_CANVAS_CREATE[]{"CREATE TABLE IF NOT EXISTS drawing_canvas ("
+"node_id INTEGER,"
+"canvas_index INTEGER,"
+"x REAL, y REAL, width REAL, height REAL,"
+"corner_radius REAL DEFAULT 8.0,"
+"PRIMARY KEY (node_id, canvas_index)"
+")"
+};
+const char CtStorageSqlite::TABLE_DRAWING_CANVAS_DELETE[]{"DELETE FROM drawing_canvas WHERE node_id=?"};
+
+const char CtStorageSqlite::TABLE_DRAWING_STROKE_CREATE[]{"CREATE TABLE IF NOT EXISTS drawing_stroke ("
+"node_id INTEGER,"
+"canvas_index INTEGER,"
+"stroke_index INTEGER,"
+"color TEXT, width REAL, opacity REAL DEFAULT 1.0,"
+"points TEXT,"
+"PRIMARY KEY (node_id, canvas_index, stroke_index)"
+")"
+};
+const char CtStorageSqlite::TABLE_DRAWING_STROKE_DELETE[]{"DELETE FROM drawing_stroke WHERE node_id=?"};
 
 /*static*/const std::string CtStorageSqlite::ERR_SQLITE_PREPV2{"!! sqlite3_prepare_v2: "};
 /*static*/const std::string CtStorageSqlite::ERR_SQLITE_STEP{"!! sqlite3_step: "};
@@ -469,6 +491,12 @@ Gtk::TreeModel::iterator CtStorageSqlite::_node_from_db(const gint64 node_id,
     nodeData.tsCreation = sqlite3_column_int64(*uStmt, 6);
     nodeData.tsLastSave = sqlite3_column_int64(*uStmt, 7);
 
+    nodeData.drawingCanvases = _drawing_canvases_from_db(master_id > 0 ? master_id : node_id);
+    if (!nodeData.drawingCanvases.empty()) {
+        spdlog::info("Drawing DB read: node {} (master={}) loaded {} canvases",
+                     node_id, master_id, nodeData.drawingCanvases.size());
+    }
+
     if (_isDryRun) {
         return Gtk::TreeModel::iterator{};
     }
@@ -688,6 +716,8 @@ void CtStorageSqlite::_create_all_tables_in_db()
     _exec_no_callback(TABLE_IMAGE_CREATE);
     _exec_no_callback(TABLE_CHILDREN_CREATE);
     _exec_no_callback(TABLE_BOOKMARK_CREATE);
+    _exec_no_callback(TABLE_DRAWING_CANVAS_CREATE);
+    _exec_no_callback(TABLE_DRAWING_STROKE_CREATE);
 }
 
 void CtStorageSqlite::_write_bookmarks_to_db(const std::list<gint64>& bookmarks)
@@ -898,6 +928,25 @@ void CtStorageSqlite::_write_node_to_db(const CtTreeIter* ct_tree_iter,
             }
         }
     }
+
+    // write drawing canvases from the document model
+    if (node_state.buff) {
+        auto* bridge = _pCtMainWin->get_command_bridge();
+        if (bridge && bridge->isActive()) {
+            auto nodeModel = bridge->getDocumentModel()->getNodeById(node_id);
+            if (nodeModel) {
+                const auto& canvases = nodeModel->getDrawingCanvases();
+                spdlog::info("Drawing DB write: node {} writing {} canvases", node_id, canvases.size());
+                _write_drawing_canvases_to_db(node_id, canvases);
+            }
+            else {
+                spdlog::info("Drawing DB write: node {} NOT in doc model", node_id);
+            }
+        }
+        else {
+            spdlog::info("Drawing DB write: bridge null or inactive for node {}", node_id);
+        }
+    }
 }
 
 std::list<std::pair<gint64,gint64>> CtStorageSqlite::_get_children_node_ids_from_db(const gint64 father_id)
@@ -923,6 +972,8 @@ void CtStorageSqlite::_remove_db_node_with_children(const gint64 node_id)
     _exec_bind_int64(TABLE_CODEBOX_DELETE, node_id);
     _exec_bind_int64(TABLE_TABLE_DELETE, node_id);
     _exec_bind_int64(TABLE_IMAGE_DELETE, node_id);
+    _exec_bind_int64(TABLE_DRAWING_CANVAS_DELETE, node_id);
+    _exec_bind_int64(TABLE_DRAWING_STROKE_DELETE, node_id);
     _exec_bind_int64(TABLE_NODE_DELETE, node_id);
     _exec_bind_int64(TABLE_CHILDREN_DELETE, node_id);
 
@@ -1043,4 +1094,104 @@ const char* CtStorageSqlite::safe_sqlite3_column_text(sqlite3_stmt* stmt, int iC
 {
     const char* pStr = reinterpret_cast<const char*>(sqlite3_column_text(stmt, iCol));
     return pStr ? pStr : "";
+}
+
+std::vector<CtDrawingCanvas> CtStorageSqlite::_drawing_canvases_from_db(gint64 nodeId) const
+{
+    std::vector<CtDrawingCanvas> canvases;
+
+    // ensure tables exist (older DBs won't have them)
+    Sqlite3StmtAuto checkStmt{_pDb, "SELECT name FROM sqlite_master WHERE type='table' AND name='drawing_canvas'"};
+    if (checkStmt.is_bad() || sqlite3_step(checkStmt) != SQLITE_ROW) {
+        spdlog::info("Drawing DB read: no drawing_canvas table for node {}", nodeId);
+        return canvases;
+    }
+
+    Sqlite3StmtAuto cStmt{_pDb, "SELECT canvas_index, x, y, width, height, corner_radius FROM drawing_canvas WHERE node_id=? ORDER BY canvas_index"};
+    if (cStmt.is_bad()) return canvases;
+    sqlite3_bind_int64(cStmt, 1, nodeId);
+
+    while (sqlite3_step(cStmt) == SQLITE_ROW) {
+        CtDrawingCanvas canvas;
+        int canvasIdx = sqlite3_column_int(cStmt, 0);
+        canvas.x = sqlite3_column_double(cStmt, 1);
+        canvas.y = sqlite3_column_double(cStmt, 2);
+        canvas.width = sqlite3_column_double(cStmt, 3);
+        canvas.height = sqlite3_column_double(cStmt, 4);
+        canvas.cornerRadius = sqlite3_column_double(cStmt, 5);
+
+        // load strokes for this canvas
+        Sqlite3StmtAuto sStmt{_pDb, "SELECT color, width, opacity, points FROM drawing_stroke WHERE node_id=? AND canvas_index=? ORDER BY stroke_index"};
+        if (!sStmt.is_bad()) {
+            sqlite3_bind_int64(sStmt, 1, nodeId);
+            sqlite3_bind_int(sStmt, 2, canvasIdx);
+            while (sqlite3_step(sStmt) == SQLITE_ROW) {
+                CtDrawingStroke stroke;
+                stroke.color = safe_sqlite3_column_text(sStmt, 0);
+                stroke.lineWidth = sqlite3_column_double(sStmt, 1);
+                stroke.opacity = sqlite3_column_double(sStmt, 2);
+                std::string pointsStr = safe_sqlite3_column_text(sStmt, 3);
+                // parse "x,y;x,y;..." format
+                size_t pos = 0;
+                while (pos < pointsStr.size()) {
+                    size_t commaPos = pointsStr.find(',', pos);
+                    if (commaPos == std::string::npos) break;
+                    size_t semiPos = pointsStr.find(';', commaPos);
+                    if (semiPos == std::string::npos) semiPos = pointsStr.size();
+                    double px = std::stod(pointsStr.substr(pos, commaPos - pos));
+                    double py = std::stod(pointsStr.substr(commaPos + 1, semiPos - commaPos - 1));
+                    stroke.points.push_back({px, py});
+                    pos = semiPos + 1;
+                }
+                canvas.strokes.push_back(std::move(stroke));
+            }
+        }
+
+        canvases.push_back(std::move(canvas));
+    }
+
+    return canvases;
+}
+
+void CtStorageSqlite::_write_drawing_canvases_to_db(gint64 nodeId, const std::vector<CtDrawingCanvas>& canvases)
+{
+    _exec_no_callback(TABLE_DRAWING_CANVAS_CREATE);
+    _exec_no_callback(TABLE_DRAWING_STROKE_CREATE);
+    _exec_bind_int64(TABLE_DRAWING_CANVAS_DELETE, nodeId);
+    _exec_bind_int64(TABLE_DRAWING_STROKE_DELETE, nodeId);
+
+    for (size_t ci = 0; ci < canvases.size(); ++ci) {
+        const auto& canvas = canvases[ci];
+        Sqlite3StmtAuto cIns{_pDb, "INSERT INTO drawing_canvas VALUES(?,?,?,?,?,?,?)"};
+        if (cIns.is_bad()) continue;
+        sqlite3_bind_int64(cIns, 1, nodeId);
+        sqlite3_bind_int(cIns, 2, static_cast<int>(ci));
+        sqlite3_bind_double(cIns, 3, canvas.x);
+        sqlite3_bind_double(cIns, 4, canvas.y);
+        sqlite3_bind_double(cIns, 5, canvas.width);
+        sqlite3_bind_double(cIns, 6, canvas.height);
+        sqlite3_bind_double(cIns, 7, canvas.cornerRadius);
+        sqlite3_step(cIns);
+
+        for (size_t si = 0; si < canvas.strokes.size(); ++si) {
+            const auto& stroke = canvas.strokes[si];
+            Sqlite3StmtAuto sIns{_pDb, "INSERT INTO drawing_stroke VALUES(?,?,?,?,?,?,?)"};
+            if (sIns.is_bad()) continue;
+            sqlite3_bind_int64(sIns, 1, nodeId);
+            sqlite3_bind_int(sIns, 2, static_cast<int>(ci));
+            sqlite3_bind_int(sIns, 3, static_cast<int>(si));
+            sqlite3_bind_text(sIns, 4, stroke.color.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_double(sIns, 5, stroke.lineWidth);
+            sqlite3_bind_double(sIns, 6, stroke.opacity);
+
+            std::string pointsStr;
+            for (size_t pi = 0; pi < stroke.points.size(); ++pi) {
+                if (pi > 0) pointsStr += ";";
+                pointsStr += std::to_string(stroke.points[pi].x) + "," +
+                             std::to_string(stroke.points[pi].y);
+            }
+            sqlite3_bind_text(sIns, 7, pointsStr.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_step(sIns);
+        }
+    }
 }

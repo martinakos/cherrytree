@@ -587,6 +587,11 @@ public:
     void dialog_about();
 
 public:
+    // drawing actions
+    void new_drawing_canvas();
+    void toggle_drawing_mode();
+
+public:
     void terminal_copy();
     void terminal_paste();
     void terminal_reset();

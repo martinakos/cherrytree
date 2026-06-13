@@ -218,15 +218,19 @@ CtMainWin::CtMainWin(bool                            no_gui,
     _pCtCommandBridge.reset(new CtCommandBridge{this});
     _pCtCommandBridge->setActive(true);
 
+    _pDrawingOverlay.reset(new CtDrawingOverlay{this});
+
     _scrolledwindowTree.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
     _scrolledwindowTree.get_style_context()->add_class("ct-tree-scroll-panel");
     _scrolledwindowText.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
 #if GTKMM_MAJOR_VERSION >= 4
     _scrolledwindowText.set_child(_ctTextview.mm());
+    _pDrawingOverlay->getOverlay().set_child(_scrolledwindowText);
+    _pDrawingOverlay->getOverlay().add_overlay(_pDrawingOverlay->getDrawingArea());
     if (!_pCtConfig->nodeNameHeaderFullWidth) {
         _vboxText.append(_init_window_header());
     }
-    _vboxText.append(_scrolledwindowText);
+    _vboxText.append(_pDrawingOverlay->getOverlay());
     if (_pCtConfig->treeRightSide) {
         _hPaned.set_start_child(_vboxText);
         _hPaned.set_end_child(_scrolledwindowTree);
@@ -238,10 +242,13 @@ CtMainWin::CtMainWin(bool                            no_gui,
     _vPaned.set_start_child(_hPaned);
 #else
     _scrolledwindowText.add(_ctTextview.mm());
+    _pDrawingOverlay->getOverlay().add(_scrolledwindowText);
+    _pDrawingOverlay->getOverlay().add_overlay(_pDrawingOverlay->getDrawingArea());
+    _pDrawingOverlay->getOverlay().set_overlay_pass_through(_pDrawingOverlay->getDrawingArea(), true);
     if (!_pCtConfig->nodeNameHeaderFullWidth) {
         _vboxText.pack_start(_init_window_header(), false, false);
     }
-    _vboxText.pack_start(_scrolledwindowText);
+    _vboxText.pack_start(_pDrawingOverlay->getOverlay());
     if (_pCtConfig->treeRightSide) {
         _hPaned.pack1(_vboxText, Gtk::EXPAND);
         _hPaned.pack2(_scrolledwindowTree, Gtk::FILL);

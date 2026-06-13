@@ -24,6 +24,7 @@
 #pragma once
 
 #include "ct_types.h"
+#include "ct_drawing.h"
 #include <gtkmm.h>
 #include <set>
 #include <unordered_map>
@@ -51,6 +52,7 @@ struct CtNodeData
     gint64         tsLastSave{0};
     Glib::RefPtr<Gtk::TextBuffer> pTextBuffer;
     std::list<CtAnchoredWidget*> anchoredWidgets;
+    std::vector<CtDrawingCanvas> drawingCanvases;
 };
 
 struct CtTreeModelColumns : public Gtk::TreeModelColumnRecord
@@ -60,7 +62,7 @@ struct CtTreeModelColumns : public Gtk::TreeModelColumnRecord
         add(colSyntaxHighlighting); add(colNodeSequence); add(colNodeTags); add(colNodeIsReadOnly);
         add(colNodeIsExcludedFromSearch); add(colNodeChildrenAreExcludedFromSearch);
         add(rColPixbufAux); add(colCustomIconId); add(colWeight); add(colForeground);
-        add(colTsCreation); add(colTsLastSave); add(colAnchoredWidgets);
+        add(colTsCreation); add(colTsLastSave); add(colAnchoredWidgets); add(colDrawingCanvases);
     }
     Gtk::TreeModelColumn<Glib::RefPtr<Gdk::Pixbuf>>    rColPixbuf;
     Gtk::TreeModelColumn<Glib::ustring>                colNodeName;
@@ -80,6 +82,7 @@ struct CtTreeModelColumns : public Gtk::TreeModelColumnRecord
     Gtk::TreeModelColumn<gint64>                       colTsCreation;
     Gtk::TreeModelColumn<gint64>                       colTsLastSave;
     Gtk::TreeModelColumn<std::list<CtAnchoredWidget*>> colAnchoredWidgets;
+    Gtk::TreeModelColumn<std::vector<CtDrawingCanvas>> colDrawingCanvases;
 };
 
 class CtMainWin;
@@ -126,6 +129,9 @@ public:
     void                      set_node_text_buffer(Glib::RefPtr<Gtk::TextBuffer> new_buffer, const std::string& new_syntax_highlighting);
     Glib::RefPtr<Gtk::TextBuffer> get_node_text_buffer() const;
     bool                      get_node_buffer_already_loaded() const;
+
+    std::vector<CtDrawingCanvas> get_drawing_canvases() const;
+    void set_drawing_canvases(const std::vector<CtDrawingCanvas>& canvases);
 
     void                         remove_all_embedded_widgets();
     std::list<CtAnchoredWidget*> get_anchored_widgets_fast(const char doSort = 'n') const;
