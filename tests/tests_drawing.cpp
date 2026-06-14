@@ -1132,3 +1132,287 @@ TEST(DrawingXmlTest, RoundTrip_MixedElementTypes)
     EXPECT_EQ(CtDrawingElementType::Text, result[0].strokes[4].type);
     EXPECT_EQ("Label", result[0].strokes[4].textContent);
 }
+
+// ── Polyline, Triangle, Diamond element type tests ────────────────────────
+
+static CtDrawingStroke makePolylineStroke(const std::string& color, double w,
+                                          std::vector<std::pair<double,double>> pts)
+{
+    CtDrawingStroke s;
+    s.color = color;
+    s.lineWidth = w;
+    s.opacity = 1.0;
+    s.type = CtDrawingElementType::Polyline;
+    for (auto& [x, y] : pts) {
+        s.points.push_back({x, y});
+    }
+    return s;
+}
+
+TEST_F(DrawingCommandTest, DrawPolylineStroke_ExecuteAndUndo)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+
+    auto stroke = makePolylineStroke("#ff00ff", 2.0, {{10,10},{50,30},{90,10},{120,50}});
+    DrawStrokeCommand cmd(model, 1, 0, stroke);
+
+    cmd.execute();
+    ASSERT_EQ(1u, node->getDrawingCanvases()[0].strokes.size());
+    const auto& s = node->getDrawingCanvases()[0].strokes[0];
+    EXPECT_EQ(CtDrawingElementType::Polyline, s.type);
+    EXPECT_EQ(4u, s.points.size());
+    EXPECT_DOUBLE_EQ(10.0, s.points[0].x);
+    EXPECT_DOUBLE_EQ(120.0, s.points[3].x);
+
+    cmd.undo();
+    EXPECT_EQ(0u, node->getDrawingCanvases()[0].strokes.size());
+}
+
+TEST_F(DrawingCommandTest, DrawTriangleStroke_ExecuteAndUndo)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+
+    auto stroke = makeShapeStroke(CtDrawingElementType::Triangle, "#009900", 2.0, true,
+                                   20, 20, 100, 80);
+    DrawStrokeCommand cmd(model, 1, 0, stroke);
+
+    cmd.execute();
+    ASSERT_EQ(1u, node->getDrawingCanvases()[0].strokes.size());
+    const auto& s = node->getDrawingCanvases()[0].strokes[0];
+    EXPECT_EQ(CtDrawingElementType::Triangle, s.type);
+    EXPECT_TRUE(s.filled);
+    EXPECT_EQ(2u, s.points.size());
+
+    cmd.undo();
+    EXPECT_EQ(0u, node->getDrawingCanvases()[0].strokes.size());
+}
+
+TEST_F(DrawingCommandTest, DrawDiamondStroke_ExecuteAndUndo)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+
+    auto stroke = makeShapeStroke(CtDrawingElementType::Diamond, "#cc6600", 3.0, false,
+                                   30, 40, 130, 120);
+    DrawStrokeCommand cmd(model, 1, 0, stroke);
+
+    cmd.execute();
+    ASSERT_EQ(1u, node->getDrawingCanvases()[0].strokes.size());
+    const auto& s = node->getDrawingCanvases()[0].strokes[0];
+    EXPECT_EQ(CtDrawingElementType::Diamond, s.type);
+    EXPECT_FALSE(s.filled);
+    EXPECT_DOUBLE_EQ(30.0, s.points[0].x);
+    EXPECT_DOUBLE_EQ(130.0, s.points[1].x);
+
+    cmd.undo();
+    EXPECT_EQ(0u, node->getDrawingCanvases()[0].strokes.size());
+}
+
+// ── Line style tests ─────────────────────────────────────────────────────
+
+TEST_F(DrawingCommandTest, DrawStroke_LineStylePreserved)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+
+    auto stroke = makeLineStroke("#ff0000", 2.0, 10, 20, 100, 80);
+    stroke.lineStyle = CtDrawingLineStyle::Dashed;
+    DrawStrokeCommand cmd(model, 1, 0, stroke);
+
+    cmd.execute();
+    EXPECT_EQ(CtDrawingLineStyle::Dashed, node->getDrawingCanvases()[0].strokes[0].lineStyle);
+
+    cmd.undo();
+    cmd.execute();
+    EXPECT_EQ(CtDrawingLineStyle::Dashed, node->getDrawingCanvases()[0].strokes[0].lineStyle);
+}
+
+TEST(DrawingStrokeDefaults, LineStyle_DefaultIsSolid)
+{
+    CtDrawingStroke s;
+    EXPECT_EQ(CtDrawingLineStyle::Solid, s.lineStyle);
+}
+
+// ── XML round-trip for new element types ──────────────────────────────────
+
+TEST(DrawingXmlTest, RoundTrip_Polyline)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    auto c = makeCanvas(0, 0, 300, 250);
+    c.strokes.push_back(makePolylineStroke("#ff00ff", 2.0, {{10,10},{50,30},{90,10},{120,50}}));
+    canvases.push_back(std::move(c));
+
+    xmlpp::Document doc;
+    auto* root = doc.create_root_node("node");
+    CtXmlHelper::drawing_canvases_to_xml(root, canvases);
+    auto result = CtXmlHelper::drawing_canvases_from_xml(root);
+
+    ASSERT_EQ(1u, result[0].strokes.size());
+    const auto& s = result[0].strokes[0];
+    EXPECT_EQ(CtDrawingElementType::Polyline, s.type);
+    ASSERT_EQ(4u, s.points.size());
+    EXPECT_DOUBLE_EQ(10.0, s.points[0].x);
+    EXPECT_DOUBLE_EQ(50.0, s.points[1].x);
+    EXPECT_DOUBLE_EQ(90.0, s.points[2].x);
+    EXPECT_DOUBLE_EQ(120.0, s.points[3].x);
+}
+
+TEST(DrawingXmlTest, RoundTrip_Triangle)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    auto c = makeCanvas(0, 0, 300, 250);
+    c.strokes.push_back(makeShapeStroke(CtDrawingElementType::Triangle, "#009900", 2.0, true,
+                                         20, 20, 100, 80));
+    canvases.push_back(std::move(c));
+
+    xmlpp::Document doc;
+    auto* root = doc.create_root_node("node");
+    CtXmlHelper::drawing_canvases_to_xml(root, canvases);
+    auto result = CtXmlHelper::drawing_canvases_from_xml(root);
+
+    ASSERT_EQ(1u, result[0].strokes.size());
+    EXPECT_EQ(CtDrawingElementType::Triangle, result[0].strokes[0].type);
+    EXPECT_TRUE(result[0].strokes[0].filled);
+}
+
+TEST(DrawingXmlTest, RoundTrip_Diamond)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    auto c = makeCanvas(0, 0, 300, 250);
+    c.strokes.push_back(makeShapeStroke(CtDrawingElementType::Diamond, "#cc6600", 3.0, false,
+                                         30, 40, 130, 120));
+    canvases.push_back(std::move(c));
+
+    xmlpp::Document doc;
+    auto* root = doc.create_root_node("node");
+    CtXmlHelper::drawing_canvases_to_xml(root, canvases);
+    auto result = CtXmlHelper::drawing_canvases_from_xml(root);
+
+    ASSERT_EQ(1u, result[0].strokes.size());
+    EXPECT_EQ(CtDrawingElementType::Diamond, result[0].strokes[0].type);
+    EXPECT_FALSE(result[0].strokes[0].filled);
+    EXPECT_DOUBLE_EQ(30.0, result[0].strokes[0].points[0].x);
+}
+
+// ── XML round-trip for line style ────────────────────────────────────────
+
+TEST(DrawingXmlTest, RoundTrip_LineStyle_Dashed)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    auto c = makeCanvas(0, 0, 300, 250);
+    auto s = makeLineStroke("#ff0000", 2.0, 10, 20, 100, 80);
+    s.lineStyle = CtDrawingLineStyle::Dashed;
+    c.strokes.push_back(std::move(s));
+    canvases.push_back(std::move(c));
+
+    xmlpp::Document doc;
+    auto* root = doc.create_root_node("node");
+    CtXmlHelper::drawing_canvases_to_xml(root, canvases);
+    auto result = CtXmlHelper::drawing_canvases_from_xml(root);
+
+    ASSERT_EQ(1u, result[0].strokes.size());
+    EXPECT_EQ(CtDrawingLineStyle::Dashed, result[0].strokes[0].lineStyle);
+}
+
+TEST(DrawingXmlTest, RoundTrip_LineStyle_Dotted)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    auto c = makeCanvas(0, 0, 300, 250);
+    auto s = makeStroke("#000000", 1.0, {{0,0},{10,10}});
+    s.lineStyle = CtDrawingLineStyle::Dotted;
+    c.strokes.push_back(std::move(s));
+    canvases.push_back(std::move(c));
+
+    xmlpp::Document doc;
+    auto* root = doc.create_root_node("node");
+    CtXmlHelper::drawing_canvases_to_xml(root, canvases);
+    auto result = CtXmlHelper::drawing_canvases_from_xml(root);
+
+    ASSERT_EQ(1u, result[0].strokes.size());
+    EXPECT_EQ(CtDrawingLineStyle::Dotted, result[0].strokes[0].lineStyle);
+}
+
+TEST(DrawingXmlTest, RoundTrip_LineStyle_DashDot)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    auto c = makeCanvas(0, 0, 300, 250);
+    auto s = makeShapeStroke(CtDrawingElementType::Rectangle, "#00ff00", 2.0, false,
+                              10, 10, 90, 70);
+    s.lineStyle = CtDrawingLineStyle::DashDot;
+    c.strokes.push_back(std::move(s));
+    canvases.push_back(std::move(c));
+
+    xmlpp::Document doc;
+    auto* root = doc.create_root_node("node");
+    CtXmlHelper::drawing_canvases_to_xml(root, canvases);
+    auto result = CtXmlHelper::drawing_canvases_from_xml(root);
+
+    ASSERT_EQ(1u, result[0].strokes.size());
+    EXPECT_EQ(CtDrawingLineStyle::DashDot, result[0].strokes[0].lineStyle);
+}
+
+TEST(DrawingXmlTest, RoundTrip_LineStyle_SolidOmittedInXml)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    auto c = makeCanvas(0, 0, 300, 250);
+    auto s = makeLineStroke("#ff0000", 2.0, 10, 20, 100, 80);
+    s.lineStyle = CtDrawingLineStyle::Solid;
+    c.strokes.push_back(std::move(s));
+    canvases.push_back(std::move(c));
+
+    xmlpp::Document doc;
+    auto* root = doc.create_root_node("node");
+    CtXmlHelper::drawing_canvases_to_xml(root, canvases);
+    auto result = CtXmlHelper::drawing_canvases_from_xml(root);
+
+    ASSERT_EQ(1u, result[0].strokes.size());
+    EXPECT_EQ(CtDrawingLineStyle::Solid, result[0].strokes[0].lineStyle);
+}
+
+TEST(DrawingXmlTest, RoundTrip_AllNewTypesWithLineStyles)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    auto c = makeCanvas(0, 0, 500, 400);
+
+    auto s1 = makePolylineStroke("#ff00ff", 2.0, {{10,10},{50,30},{90,10}});
+    s1.lineStyle = CtDrawingLineStyle::Dashed;
+    c.strokes.push_back(std::move(s1));
+
+    auto s2 = makeShapeStroke(CtDrawingElementType::Triangle, "#009900", 3.0, true, 20, 20, 100, 80);
+    s2.lineStyle = CtDrawingLineStyle::Dotted;
+    c.strokes.push_back(std::move(s2));
+
+    auto s3 = makeShapeStroke(CtDrawingElementType::Diamond, "#cc6600", 4.0, false, 30, 40, 130, 120);
+    s3.lineStyle = CtDrawingLineStyle::DashDot;
+    c.strokes.push_back(std::move(s3));
+
+    auto s4 = makeLineStroke("#0000ff", 1.0, 0, 0, 100, 100);
+    s4.lineStyle = CtDrawingLineStyle::Solid;
+    c.strokes.push_back(std::move(s4));
+
+    canvases.push_back(std::move(c));
+
+    xmlpp::Document doc;
+    auto* root = doc.create_root_node("node");
+    CtXmlHelper::drawing_canvases_to_xml(root, canvases);
+    auto result = CtXmlHelper::drawing_canvases_from_xml(root);
+
+    ASSERT_EQ(4u, result[0].strokes.size());
+
+    EXPECT_EQ(CtDrawingElementType::Polyline, result[0].strokes[0].type);
+    EXPECT_EQ(CtDrawingLineStyle::Dashed, result[0].strokes[0].lineStyle);
+    EXPECT_EQ(3u, result[0].strokes[0].points.size());
+
+    EXPECT_EQ(CtDrawingElementType::Triangle, result[0].strokes[1].type);
+    EXPECT_EQ(CtDrawingLineStyle::Dotted, result[0].strokes[1].lineStyle);
+    EXPECT_TRUE(result[0].strokes[1].filled);
+
+    EXPECT_EQ(CtDrawingElementType::Diamond, result[0].strokes[2].type);
+    EXPECT_EQ(CtDrawingLineStyle::DashDot, result[0].strokes[2].lineStyle);
+    EXPECT_FALSE(result[0].strokes[2].filled);
+
+    EXPECT_EQ(CtDrawingElementType::Line, result[0].strokes[3].type);
+    EXPECT_EQ(CtDrawingLineStyle::Solid, result[0].strokes[3].lineStyle);
+}
