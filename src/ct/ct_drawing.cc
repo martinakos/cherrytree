@@ -65,6 +65,8 @@ CtDrawingOverlay::CtDrawingOverlay(CtMainWin* pMainWin)
         }
     });
 #endif
+
+    _buildToolbar();
 }
 
 void CtDrawingOverlay::beginCreateCanvas()
@@ -79,6 +81,29 @@ void CtDrawingOverlay::beginCreateCanvas()
     }
 }
 
+void CtDrawingOverlay::addToolbarToOverlay()
+{
+    if (!_pToolbarEventBox) return;
+    _overlay.add_overlay(*_pToolbarEventBox);
+    _overlay.set_overlay_pass_through(*_pToolbarEventBox, false);
+    g_signal_connect(_overlay.gobj(), "get-child-position",
+                     G_CALLBACK(&CtDrawingOverlay::_onGetChildPosition), this);
+}
+
+gboolean CtDrawingOverlay::_onGetChildPosition(GtkOverlay*, GtkWidget* widget,
+                                                GdkRectangle* alloc, gpointer data)
+{
+    auto* self = static_cast<CtDrawingOverlay*>(data);
+    if (widget != GTK_WIDGET(self->_pToolbarEventBox->gobj())) return FALSE;
+    GtkRequisition req;
+    gtk_widget_get_preferred_size(widget, nullptr, &req);
+    alloc->x = self->_toolbarPosX;
+    alloc->y = self->_toolbarPosY;
+    alloc->width = req.width;
+    alloc->height = req.height;
+    return TRUE;
+}
+
 void CtDrawingOverlay::setDrawingMode(bool on)
 {
     _drawingMode = on;
@@ -86,6 +111,8 @@ void CtDrawingOverlay::setDrawingMode(bool on)
         _deleteStrokeMode = false;
         _createCanvasMode = false;
         _dragType = CtDrawingDragType::None;
+        _previewActive = false;
+        _hideToolbar();
     }
 #if GTKMM_MAJOR_VERSION < 4
     _overlay.set_overlay_pass_through(_drawingArea, !_drawingMode);
@@ -98,6 +125,18 @@ void CtDrawingOverlay::setDrawingMode(bool on)
     _drawingArea.queue_draw();
     _pMainWin->get_status_bar().canvasEditLabel.set_visible(on);
     _pMainWin->update_drawing_mode_toggle(on);
+
+    if (on && _selectedCanvasIdx >= 0) {
+        _showToolbar();
+    }
+}
+
+void CtDrawingOverlay::setCurrentTool(CtDrawingTool tool)
+{
+    _currentTool = tool;
+    _deleteStrokeMode = (tool == CtDrawingTool::Rubber);
+    _previewActive = false;
+    _updateToolButtonStates();
 }
 
 void CtDrawingOverlay::resetSelection()
@@ -106,12 +145,359 @@ void CtDrawingOverlay::resetSelection()
     _deleteStrokeMode = false;
     _createCanvasMode = false;
     _dragType = CtDrawingDragType::None;
+    _previewActive = false;
+    _hideToolbar();
     _drawingArea.queue_draw();
 }
 
 void CtDrawingOverlay::refresh()
 {
     _drawingArea.queue_draw();
+}
+
+void CtDrawingOverlay::_buildToolbar()
+{
+    _pToolbarBox = Gtk::manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 2));
+    _pToolbarBox->get_style_context()->add_class("drawing-toolbar");
+
+    auto makeCss = []() {
+        auto css = Gtk::CssProvider::create();
+        css->load_from_data(
+            ".drawing-toolbar {"
+            "  background: linear-gradient(to bottom, #f6f5f4, #eeecea);"
+            "  border: 1px solid #b5b3af;"
+            "  border-radius: 9px;"
+            "  padding: 4px 6px;"
+            "  box-shadow: 0 2px 4px rgba(0,0,0,0.15);"
+            "}"
+            ".drawing-toolbar button {"
+            "  min-width: 28px; min-height: 28px;"
+            "  padding: 2px;"
+            "  border-radius: 5px;"
+            "  background: transparent;"
+            "  border: none;"
+            "  box-shadow: none;"
+            "}"
+            ".drawing-toolbar button:hover {"
+            "  background: rgba(0,0,0,0.08);"
+            "}"
+            ".drawing-toolbar button:checked {"
+            "  background: #1c71d8;"
+            "}"
+            ".drawing-toolbar button:checked image {"
+            "  color: white;"
+            "}"
+            ".drawing-toolbar .separator {"
+            "  min-width: 1px;"
+            "  background: #c0bfbc;"
+            "  margin: 4px 4px;"
+            "}"
+        );
+        return css;
+    };
+    auto css = makeCss();
+    _pToolbarBox->get_style_context()->add_provider(css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+
+    auto addToolBtn = [&](const char* iconName, CtDrawingTool tool) -> Gtk::ToggleButton* {
+        auto* btn = Gtk::manage(new Gtk::ToggleButton());
+        btn->get_style_context()->add_provider(css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+        auto* img = Gtk::manage(new Gtk::Image());
+        img->set_from_resource(std::string("/icons/") + iconName);
+        img->set_pixel_size(18);
+        btn->set_image(*img);
+        btn->set_always_show_image(true);
+        btn->set_tooltip_text(
+            tool == CtDrawingTool::Pencil ? _("Pencil") :
+            tool == CtDrawingTool::Line   ? _("Line") :
+            tool == CtDrawingTool::Shape  ? _("Shape") :
+            tool == CtDrawingTool::Text   ? _("Text") :
+                                            _("Eraser"));
+        btn->signal_clicked().connect([this, btn, tool]() {
+            if (btn->get_active()) {
+                setCurrentTool(tool);
+            } else if (_currentTool == tool) {
+                btn->set_active(true);
+            }
+        });
+        _pToolbarBox->pack_start(*btn, false, false);
+        _toolButtons.push_back(btn);
+        return btn;
+    };
+
+    addToolBtn("ct_draw_pencil.svg", CtDrawingTool::Pencil);
+    addToolBtn("ct_draw_line.svg", CtDrawingTool::Line);
+    auto* shapeBtn = addToolBtn("ct_draw_rectangle.svg", CtDrawingTool::Shape);
+    addToolBtn("ct_draw_text.svg", CtDrawingTool::Text);
+    addToolBtn("ct_draw_eraser.svg", CtDrawingTool::Rubber);
+
+    // shape button right-click to toggle Rectangle/Ellipse
+    shapeBtn->signal_button_press_event().connect([this, shapeBtn](GdkEventButton* ev) -> bool {
+        if (ev->button == 3) {
+            _currentShapeType = (_currentShapeType == CtDrawingElementType::Rectangle)
+                ? CtDrawingElementType::Ellipse : CtDrawingElementType::Rectangle;
+            shapeBtn->set_tooltip_text(_currentShapeType == CtDrawingElementType::Rectangle
+                ? _("Shape (Rectangle)") : _("Shape (Ellipse)"));
+            return true;
+        }
+        return false;
+    }, false);
+
+    // separator
+    auto* sep1 = Gtk::manage(new Gtk::Separator(Gtk::ORIENTATION_VERTICAL));
+    sep1->get_style_context()->add_class("separator");
+    sep1->get_style_context()->add_provider(css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    _pToolbarBox->pack_start(*sep1, false, false);
+
+    // thickness dropdown
+    auto* thickBtn = Gtk::manage(new Gtk::MenuButton());
+    thickBtn->get_style_context()->add_provider(css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    thickBtn->set_tooltip_text(_("Line Width"));
+    auto* thickLabel = Gtk::manage(new Gtk::Label("2px"));
+    thickBtn->add(*thickLabel);
+    auto* thickMenu = Gtk::manage(new Gtk::Menu());
+    struct ThickEntry { const char* label; double w; };
+    ThickEntry thicknesses[] = {{"1px", 1.0}, {"2px", 2.0}, {"4px", 4.0}, {"8px", 8.0}};
+    for (auto& t : thicknesses) {
+        auto* item = Gtk::manage(new Gtk::MenuItem(t.label));
+        double tw = t.w;
+        const char* tl = t.label;
+        item->signal_activate().connect([this, tw, tl, thickLabel]() {
+            _currentLineWidth = tw;
+            thickLabel->set_text(tl);
+        });
+        thickMenu->append(*item);
+    }
+    thickMenu->show_all();
+    thickBtn->set_popup(*thickMenu);
+    _pToolbarBox->pack_start(*thickBtn, false, false);
+
+    // color button
+    auto* colorBtn = Gtk::manage(new Gtk::ColorButton());
+    colorBtn->get_style_context()->add_provider(css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    colorBtn->set_tooltip_text(_("Color"));
+    {
+        Gdk::RGBA rgba;
+        rgba.set_red(0); rgba.set_green(0); rgba.set_blue(0); rgba.set_alpha(1.0);
+        colorBtn->set_rgba(rgba);
+    }
+    colorBtn->signal_color_set().connect([this, colorBtn]() {
+        auto c = colorBtn->get_rgba();
+        char buf[8];
+        snprintf(buf, sizeof(buf), "#%02x%02x%02x",
+                 static_cast<int>(c.get_red() * 255),
+                 static_cast<int>(c.get_green() * 255),
+                 static_cast<int>(c.get_blue() * 255));
+        _currentColor = buf;
+    });
+    _pToolbarBox->pack_start(*colorBtn, false, false);
+
+    // opacity dropdown
+    auto* opacBtn = Gtk::manage(new Gtk::MenuButton());
+    opacBtn->get_style_context()->add_provider(css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    opacBtn->set_tooltip_text(_("Opacity"));
+    auto* opacLabel = Gtk::manage(new Gtk::Label("100%"));
+    opacBtn->add(*opacLabel);
+    auto* opacMenu = Gtk::manage(new Gtk::Menu());
+    struct OpacEntry { const char* label; double val; };
+    OpacEntry opacs[] = {{"100%", 1.0}, {"75%", 0.75}, {"50%", 0.5}, {"25%", 0.25}};
+    for (auto& o : opacs) {
+        auto* item = Gtk::manage(new Gtk::MenuItem(o.label));
+        double ov = o.val;
+        const char* ol = o.label;
+        item->signal_activate().connect([this, ov, ol, opacLabel]() {
+            _currentOpacity = ov;
+            opacLabel->set_text(ol);
+        });
+        opacMenu->append(*item);
+    }
+    opacMenu->show_all();
+    opacBtn->set_popup(*opacMenu);
+    _pToolbarBox->pack_start(*opacBtn, false, false);
+
+    // filled toggle
+    auto* filledBtn = Gtk::manage(new Gtk::ToggleButton(_("Fill")));
+    filledBtn->get_style_context()->add_provider(css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    filledBtn->set_tooltip_text(_("Fill shapes"));
+    filledBtn->signal_toggled().connect([this, filledBtn]() {
+        _currentFilled = filledBtn->get_active();
+    });
+    _pToolbarBox->pack_start(*filledBtn, false, false);
+
+    // separator
+    auto* sep2 = Gtk::manage(new Gtk::Separator(Gtk::ORIENTATION_VERTICAL));
+    sep2->get_style_context()->add_class("separator");
+    sep2->get_style_context()->add_provider(css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    _pToolbarBox->pack_start(*sep2, false, false);
+
+    // canvas properties button
+    auto* propsBtn = Gtk::manage(new Gtk::Button());
+    propsBtn->get_style_context()->add_provider(css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    propsBtn->set_tooltip_text(_("Canvas Properties"));
+    auto* propsImg = Gtk::manage(new Gtk::Image());
+    propsImg->set_from_icon_name("preferences-system", Gtk::ICON_SIZE_SMALL_TOOLBAR);
+    propsBtn->set_image(*propsImg);
+    propsBtn->set_always_show_image(true);
+    propsBtn->signal_clicked().connect([this]() {
+        if (_selectedCanvasIdx < 0) return;
+        auto* bridge = _pMainWin->get_command_bridge();
+        auto treeIter = _pMainWin->curr_tree_iter();
+        if (!treeIter || !bridge) return;
+        auto nodeModel = bridge->getDocumentModel()->getNodeById(treeIter.get_node_id());
+        if (!nodeModel) return;
+        const auto& canvases = nodeModel->getDrawingCanvases();
+        size_t ci = static_cast<size_t>(_selectedCanvasIdx);
+        if (ci >= canvases.size()) return;
+        const auto& canvas = canvases[ci];
+        CtDialogs::CtCanvasPropsDialogData data;
+        data.name = canvas.name;
+        data.bgColor = canvas.bgColor;
+        data.bgOpacity = canvas.bgOpacity;
+        data.cornerRadius = canvas.cornerRadius;
+        data.showBorderWhenInactive = canvas.showBorderWhenInactive;
+        if (CtDialogs::canvas_properties_dialog(_pMainWin, data)) {
+            if (data.name != canvas.name || data.bgColor != canvas.bgColor ||
+                std::abs(data.bgOpacity - canvas.bgOpacity) > 0.001 ||
+                std::abs(data.cornerRadius - canvas.cornerRadius) > 0.001 ||
+                data.showBorderWhenInactive != canvas.showBorderWhenInactive) {
+                auto cmd = std::make_unique<CanvasPropertiesCommand>(
+                    bridge->getDocumentModel(), treeIter.get_node_id(), ci,
+                    canvas.name, data.name,
+                    canvas.bgColor, data.bgColor,
+                    canvas.bgOpacity, data.bgOpacity,
+                    canvas.cornerRadius, data.cornerRadius,
+                    canvas.showBorderWhenInactive, data.showBorderWhenInactive);
+                bridge->executeCommand(std::move(cmd));
+                _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+            }
+        }
+    });
+    _pToolbarBox->pack_start(*propsBtn, false, false);
+
+    // delete canvas button
+    auto* delBtn = Gtk::manage(new Gtk::Button());
+    delBtn->get_style_context()->add_provider(css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    delBtn->set_tooltip_text(_("Delete Drawing Canvas"));
+    auto* delImg = Gtk::manage(new Gtk::Image());
+    delImg->set_from_icon_name("edit-delete", Gtk::ICON_SIZE_SMALL_TOOLBAR);
+    delBtn->set_image(*delImg);
+    delBtn->set_always_show_image(true);
+    delBtn->signal_clicked().connect([this]() {
+        if (_selectedCanvasIdx < 0) return;
+        Gtk::MessageDialog dlg(*_pMainWin, _("Are you sure you want to delete this drawing canvas?"),
+                               false, Gtk::MESSAGE_QUESTION, Gtk::BUTTONS_YES_NO);
+        if (dlg.run() != Gtk::RESPONSE_YES) return;
+        auto* bridge = _pMainWin->get_command_bridge();
+        auto treeIter = _pMainWin->curr_tree_iter();
+        if (!treeIter) return;
+        auto nodeModel = bridge->getDocumentModel()->getNodeById(treeIter.get_node_id());
+        if (!nodeModel) return;
+        const auto& canvases = nodeModel->getDrawingCanvases();
+        size_t ci = static_cast<size_t>(_selectedCanvasIdx);
+        if (ci >= canvases.size()) return;
+        auto cmd = std::make_unique<DeleteCanvasCommand>(
+            bridge->getDocumentModel(), treeIter.get_node_id(),
+            canvases[ci], ci);
+        bridge->executeCommand(std::move(cmd));
+        _selectedCanvasIdx = -1;
+        _hideToolbar();
+        _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+    });
+    _pToolbarBox->pack_start(*delBtn, false, false);
+
+    _pToolbarEventBox = Gtk::manage(new Gtk::EventBox());
+    _pToolbarEventBox->add(*_pToolbarBox);
+    _pToolbarEventBox->set_above_child(false);
+
+    _pToolbarBox->show_all();
+    _pToolbarEventBox->set_no_show_all(true);
+    _pToolbarEventBox->hide();
+
+    auto connectScrollUpdate = [this]() {
+        auto hAdj = _pMainWin->getScrolledwindowText().get_hadjustment();
+        auto vAdj = _pMainWin->getScrolledwindowText().get_vadjustment();
+        if (hAdj) hAdj->signal_value_changed().connect([this]() {
+            if (_toolbarVisible) _updateToolbarPosition();
+        });
+        if (vAdj) vAdj->signal_value_changed().connect([this]() {
+            if (_toolbarVisible) _updateToolbarPosition();
+        });
+    };
+    _pMainWin->getScrolledwindowText().signal_realize().connect(connectScrollUpdate);
+
+    _updateToolButtonStates();
+}
+
+void CtDrawingOverlay::_showToolbar()
+{
+    if (!_pToolbarEventBox) return;
+    _toolbarVisible = true;
+    _pToolbarEventBox->show();
+    _updateToolbarPosition();
+}
+
+void CtDrawingOverlay::_hideToolbar()
+{
+    if (!_pToolbarEventBox) return;
+    _toolbarVisible = false;
+    _pToolbarEventBox->hide();
+}
+
+void CtDrawingOverlay::_updateToolbarPosition()
+{
+    if (!_pToolbarEventBox || _selectedCanvasIdx < 0) return;
+
+    auto* bridge = _pMainWin->get_command_bridge();
+    if (!bridge || !bridge->isActive()) return;
+    auto treeIter = _pMainWin->curr_tree_iter();
+    if (!treeIter) return;
+    auto nodeModel = bridge->getDocumentModel()->getNodeById(treeIter.get_node_id());
+    if (!nodeModel) return;
+    const auto& canvases = nodeModel->getDrawingCanvases();
+    if (static_cast<size_t>(_selectedCanvasIdx) >= canvases.size()) return;
+
+    auto hAdj = _pMainWin->getScrolledwindowText().get_hadjustment();
+    auto vAdj = _pMainWin->getScrolledwindowText().get_vadjustment();
+    double hScroll = hAdj ? hAdj->get_value() : 0.0;
+    double vScroll = vAdj ? vAdj->get_value() : 0.0;
+    double zoom = _pMainWin->get_rt_zoom_scale_factor();
+
+    const auto& canvas = canvases[_selectedCanvasIdx];
+    double cx = canvas.x * zoom - hScroll;
+    double cy = canvas.y * zoom - vScroll;
+    double cw = canvas.width * zoom;
+    double ch = canvas.height * zoom;
+
+    int tbW = 0, tbH = 0;
+    _pToolbarEventBox->get_preferred_width(tbW, tbW);
+    _pToolbarEventBox->get_preferred_height(tbH, tbH);
+
+    int areaH = _drawingArea.get_allocated_height();
+    double tbX = cx + (cw - tbW) / 2.0;
+    double tbY = cy + ch + TOOLBAR_GAP;
+
+    if (tbY + tbH > areaH) {
+        tbY = cy - tbH - TOOLBAR_GAP;
+    }
+
+    int newX = static_cast<int>(std::max(0.0, tbX));
+    int newY = static_cast<int>(std::max(0.0, tbY));
+    if (_toolbarPosX != newX || _toolbarPosY != newY) {
+        _toolbarPosX = newX;
+        _toolbarPosY = newY;
+        _pToolbarEventBox->queue_resize();
+    }
+}
+
+void CtDrawingOverlay::_updateToolButtonStates()
+{
+    if (_toolButtons.size() < 5) return;
+    CtDrawingTool tools[] = {
+        CtDrawingTool::Pencil, CtDrawingTool::Line,
+        CtDrawingTool::Shape, CtDrawingTool::Text, CtDrawingTool::Rubber
+    };
+    for (size_t i = 0; i < 5; ++i) {
+        _toolButtons[i]->set_active(_currentTool == tools[i]);
+    }
 }
 
 bool CtDrawingOverlay::_onDraw(const Cairo::RefPtr<Cairo::Context>& cr)
@@ -153,6 +539,65 @@ bool CtDrawingOverlay::_onDraw(const Cairo::RefPtr<Cairo::Context>& cr)
         cr->set_dash(dashes, 0.0);
         cr->stroke();
         cr->unset_dash();
+    }
+
+    // draw preview for line/shape tools
+    if (_previewActive && _selectedCanvasIdx >= 0) {
+        auto nodeModel = docModel->getNodeById(treeIter.get_node_id());
+        if (nodeModel) {
+            const auto& pCanvas = nodeModel->getDrawingCanvases();
+            if (static_cast<size_t>(_selectedCanvasIdx) < pCanvas.size()) {
+                const auto& canvas = pCanvas[_selectedCanvasIdx];
+                double pcx = canvas.x * zoom - hScroll;
+                double pcy = canvas.y * zoom - vScroll;
+
+                cr->save();
+                double pcw = canvas.width * zoom;
+                double pch = canvas.height * zoom;
+                _drawRoundedRect(cr, pcx, pcy, pcw, pch, canvas.cornerRadius * zoom);
+                cr->clip();
+
+                double r, g, b;
+                parseColor(_currentColor, r, g, b);
+                cr->set_source_rgba(r, g, b, _currentOpacity);
+                cr->set_line_width(_currentLineWidth * zoom);
+                cr->set_line_cap(Cairo::LINE_CAP_ROUND);
+                std::vector<double> dashes{6.0, 4.0};
+                cr->set_dash(dashes, 0.0);
+
+                double sx = pcx + _previewStart.x * zoom;
+                double sy = pcy + _previewStart.y * zoom;
+                double ex = pcx + _previewEnd.x * zoom;
+                double ey = pcy + _previewEnd.y * zoom;
+
+                if (_currentTool == CtDrawingTool::Line) {
+                    cr->move_to(sx, sy);
+                    cr->line_to(ex, ey);
+                    cr->stroke();
+                } else if (_currentTool == CtDrawingTool::Shape) {
+                    double rx = std::min(sx, ex);
+                    double ry = std::min(sy, ey);
+                    double rw = std::abs(ex - sx);
+                    double rh = std::abs(ey - sy);
+                    if (_currentShapeType == CtDrawingElementType::Ellipse) {
+                        if (rw > 0 && rh > 0) {
+                            cr->save();
+                            cr->translate(rx + rw / 2.0, ry + rh / 2.0);
+                            cr->scale(rw / 2.0, rh / 2.0);
+                            cr->arc(0, 0, 1.0, 0, 2.0 * M_PI);
+                            cr->restore();
+                            cr->stroke();
+                        }
+                    } else {
+                        cr->rectangle(rx, ry, rw, rh);
+                        cr->stroke();
+                    }
+                }
+
+                cr->unset_dash();
+                cr->restore();
+            }
+        }
     }
 
     return false;
@@ -234,24 +679,86 @@ void CtDrawingOverlay::_drawCanvas(const Cairo::RefPtr<Cairo::Context>& cr,
 
     // render strokes
     for (const auto& stroke : canvas.strokes) {
-        if (stroke.points.size() < 2) continue;
-        double r, g, b;
-        parseColor(stroke.color, r, g, b);
-        cr->set_source_rgba(r, g, b, stroke.opacity);
-        cr->set_line_width(stroke.lineWidth * zoom);
-        cr->set_line_cap(Cairo::LINE_CAP_ROUND);
-        cr->set_line_join(Cairo::LINE_JOIN_ROUND);
-
-        cr->move_to(cx + stroke.points[0].x * zoom,
-                    cy + stroke.points[0].y * zoom);
-        for (size_t j = 1; j < stroke.points.size(); ++j) {
-            cr->line_to(cx + stroke.points[j].x * zoom,
-                        cy + stroke.points[j].y * zoom);
-        }
-        cr->stroke();
+        _drawStroke(cr, stroke, cx, cy, zoom);
     }
 
     cr->restore();
+}
+
+void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
+                                    const CtDrawingStroke& stroke,
+                                    double cx, double cy, double zoom)
+{
+    double r, g, b;
+    parseColor(stroke.color, r, g, b);
+    cr->set_source_rgba(r, g, b, stroke.opacity);
+    cr->set_line_width(stroke.lineWidth * zoom);
+    cr->set_line_cap(Cairo::LINE_CAP_ROUND);
+    cr->set_line_join(Cairo::LINE_JOIN_ROUND);
+
+    switch (stroke.type) {
+    case CtDrawingElementType::Text: {
+        if (stroke.points.empty() || stroke.textContent.empty()) break;
+        auto layout = Pango::Layout::create(cr);
+        layout->set_text(stroke.textContent);
+        Pango::FontDescription fd;
+        fd.set_family(stroke.fontFamily);
+        fd.set_size(static_cast<int>(stroke.fontSize * zoom * Pango::SCALE));
+        layout->set_font_description(fd);
+        cr->move_to(cx + stroke.points[0].x * zoom, cy + stroke.points[0].y * zoom);
+        layout->show_in_cairo_context(cr);
+        break;
+    }
+    case CtDrawingElementType::Line: {
+        if (stroke.points.size() < 2) break;
+        cr->move_to(cx + stroke.points[0].x * zoom, cy + stroke.points[0].y * zoom);
+        cr->line_to(cx + stroke.points[1].x * zoom, cy + stroke.points[1].y * zoom);
+        cr->stroke();
+        break;
+    }
+    case CtDrawingElementType::Rectangle: {
+        if (stroke.points.size() < 2) break;
+        double x0 = cx + stroke.points[0].x * zoom;
+        double y0 = cy + stroke.points[0].y * zoom;
+        double x1 = cx + stroke.points[1].x * zoom;
+        double y1 = cy + stroke.points[1].y * zoom;
+        double rx = std::min(x0, x1), ry = std::min(y0, y1);
+        double rw = std::abs(x1 - x0), rh = std::abs(y1 - y0);
+        cr->rectangle(rx, ry, rw, rh);
+        if (stroke.filled) { cr->fill_preserve(); }
+        cr->stroke();
+        break;
+    }
+    case CtDrawingElementType::Ellipse: {
+        if (stroke.points.size() < 2) break;
+        double x0 = cx + stroke.points[0].x * zoom;
+        double y0 = cy + stroke.points[0].y * zoom;
+        double x1 = cx + stroke.points[1].x * zoom;
+        double y1 = cy + stroke.points[1].y * zoom;
+        double ex = std::min(x0, x1), ey = std::min(y0, y1);
+        double ew = std::abs(x1 - x0), eh = std::abs(y1 - y0);
+        if (ew > 0 && eh > 0) {
+            cr->save();
+            cr->translate(ex + ew / 2.0, ey + eh / 2.0);
+            cr->scale(ew / 2.0, eh / 2.0);
+            cr->arc(0, 0, 1.0, 0, 2.0 * M_PI);
+            cr->restore();
+            if (stroke.filled) { cr->fill_preserve(); }
+            cr->stroke();
+        }
+        break;
+    }
+    case CtDrawingElementType::Freehand:
+    default: {
+        if (stroke.points.size() < 2) break;
+        cr->move_to(cx + stroke.points[0].x * zoom, cy + stroke.points[0].y * zoom);
+        for (size_t j = 1; j < stroke.points.size(); ++j) {
+            cr->line_to(cx + stroke.points[j].x * zoom, cy + stroke.points[j].y * zoom);
+        }
+        cr->stroke();
+        break;
+    }
+    }
 }
 
 void CtDrawingOverlay::_drawRoundedRect(const Cairo::RefPtr<Cairo::Context>& cr,
@@ -351,15 +858,87 @@ int CtDrawingOverlay::_hitTestStroke(double mx, double my,
     int bestIdx = -1;
 
     for (size_t si = 0; si < canvas.strokes.size(); ++si) {
-        const auto& pts = canvas.strokes[si].points;
-        for (size_t j = 1; j < pts.size(); ++j) {
-            double dist = _distPointToSegment(mx, my,
-                cx + pts[j-1].x * zoom, cy + pts[j-1].y * zoom,
-                cx + pts[j].x * zoom, cy + pts[j].y * zoom);
-            if (dist < bestDist) {
-                bestDist = dist;
-                bestIdx = static_cast<int>(si);
+        const auto& stroke = canvas.strokes[si];
+        const auto& pts = stroke.points;
+        double dist = threshold + 1.0;
+
+        switch (stroke.type) {
+        case CtDrawingElementType::Text: {
+            if (pts.empty() || stroke.textContent.empty()) continue;
+            auto surface = Cairo::ImageSurface::create(Cairo::FORMAT_ARGB32, 1, 1);
+            auto tmpCr = Cairo::Context::create(surface);
+            auto layout = Pango::Layout::create(tmpCr);
+            layout->set_text(stroke.textContent);
+            Pango::FontDescription fd;
+            fd.set_family(stroke.fontFamily);
+            fd.set_size(static_cast<int>(stroke.fontSize * zoom * Pango::SCALE));
+            layout->set_font_description(fd);
+            int tw, th;
+            layout->get_pixel_size(tw, th);
+            double tx = cx + pts[0].x * zoom;
+            double ty = cy + pts[0].y * zoom;
+            if (mx >= tx && mx <= tx + tw && my >= ty && my <= ty + th) {
+                dist = 0.0;
             }
+            break;
+        }
+        case CtDrawingElementType::Line: {
+            if (pts.size() < 2) continue;
+            dist = _distPointToSegment(mx, my,
+                cx + pts[0].x * zoom, cy + pts[0].y * zoom,
+                cx + pts[1].x * zoom, cy + pts[1].y * zoom);
+            break;
+        }
+        case CtDrawingElementType::Rectangle: {
+            if (pts.size() < 2) continue;
+            double x0 = cx + pts[0].x * zoom, y0 = cy + pts[0].y * zoom;
+            double x1 = cx + pts[1].x * zoom, y1 = cy + pts[1].y * zoom;
+            double rx = std::min(x0, x1), ry = std::min(y0, y1);
+            double rw = std::abs(x1 - x0), rh = std::abs(y1 - y0);
+            if (stroke.filled && mx >= rx && mx <= rx + rw && my >= ry && my <= ry + rh) {
+                dist = 0.0;
+            } else {
+                double d1 = _distPointToSegment(mx, my, rx, ry, rx + rw, ry);
+                double d2 = _distPointToSegment(mx, my, rx + rw, ry, rx + rw, ry + rh);
+                double d3 = _distPointToSegment(mx, my, rx + rw, ry + rh, rx, ry + rh);
+                double d4 = _distPointToSegment(mx, my, rx, ry + rh, rx, ry);
+                dist = std::min({d1, d2, d3, d4});
+            }
+            break;
+        }
+        case CtDrawingElementType::Ellipse: {
+            if (pts.size() < 2) continue;
+            double x0 = cx + pts[0].x * zoom, y0 = cy + pts[0].y * zoom;
+            double x1 = cx + pts[1].x * zoom, y1 = cy + pts[1].y * zoom;
+            double ecx = (x0 + x1) / 2.0, ecy = (y0 + y1) / 2.0;
+            double a = std::abs(x1 - x0) / 2.0, b = std::abs(y1 - y0) / 2.0;
+            if (a > 0 && b > 0) {
+                double nx = (mx - ecx) / a, ny = (my - ecy) / b;
+                double ellipseR = nx * nx + ny * ny;
+                if (stroke.filled && ellipseR <= 1.0) {
+                    dist = 0.0;
+                } else {
+                    double boundaryDist = std::abs(std::sqrt(ellipseR) - 1.0) * std::min(a, b);
+                    dist = boundaryDist;
+                }
+            }
+            break;
+        }
+        case CtDrawingElementType::Freehand:
+        default: {
+            for (size_t j = 1; j < pts.size(); ++j) {
+                double d = _distPointToSegment(mx, my,
+                    cx + pts[j-1].x * zoom, cy + pts[j-1].y * zoom,
+                    cx + pts[j].x * zoom, cy + pts[j].y * zoom);
+                if (d < dist) dist = d;
+            }
+            break;
+        }
+        }
+
+        if (dist < bestDist) {
+            bestDist = dist;
+            bestIdx = static_cast<int>(si);
         }
     }
 
@@ -369,6 +948,14 @@ int CtDrawingOverlay::_hitTestStroke(double mx, double my,
 bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
 {
     if (!_drawingMode) return false;
+
+    if (_toolbarVisible && _pToolbarEventBox && _pToolbarEventBox->get_visible()) {
+        auto alloc = _pToolbarEventBox->get_allocation();
+        if (event->x >= alloc.get_x() && event->x <= alloc.get_x() + alloc.get_width() &&
+            event->y >= alloc.get_y() && event->y <= alloc.get_y() + alloc.get_height()) {
+            return true;
+        }
+    }
 
     auto hAdj = _pMainWin->getScrolledwindowText().get_hadjustment();
     auto vAdj = _pMainWin->getScrolledwindowText().get_vadjustment();
@@ -403,10 +990,16 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
     if (ci < 0) {
         setDrawingMode(false);
         _selectedCanvasIdx = -1;
+        _hideToolbar();
         return true;
     }
 
-    _selectedCanvasIdx = ci;
+    if (_selectedCanvasIdx != ci) {
+        _selectedCanvasIdx = ci;
+        _showToolbar();
+    } else {
+        _selectedCanvasIdx = ci;
+    }
 
     auto* bridge = _pMainWin->get_command_bridge();
     auto nodeModel = bridge->getDocumentModel()->getNodeById(_pMainWin->curr_tree_iter().get_node_id());
@@ -430,7 +1023,7 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
         _resizeZone = zone;
     }
     else if (zone == CtDrawingHitZone::Interior) {
-        if (_deleteStrokeMode) {
+        if (_currentTool == CtDrawingTool::Rubber) {
             int si = _hitTestStroke(event->x, event->y, canvas, hScroll, vScroll, zoom);
             if (si >= 0) {
                 auto treeIter = _pMainWin->curr_tree_iter();
@@ -442,21 +1035,40 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
             }
             return true;
         }
-        // start drawing a stroke
-        _dragType = CtDrawingDragType::Draw;
-        auto& canvasMut = nodeModel->getDrawingCanvasesMut()[ci];
-        CtDrawingStroke newStroke;
-        newStroke.color = _currentColor;
-        newStroke.lineWidth = _currentLineWidth;
-        newStroke.opacity = _currentOpacity;
 
-        double cx = canvas.x * zoom - hScroll;
-        double cy = canvas.y * zoom - vScroll;
-        double px = (event->x - cx) / zoom;
-        double py = (event->y - cy) / zoom;
-        newStroke.points.push_back({px, py});
-        canvasMut.strokes.push_back(std::move(newStroke));
-        _drawingArea.queue_draw();
+        double canvasScreenX = canvas.x * zoom - hScroll;
+        double canvasScreenY = canvas.y * zoom - vScroll;
+        double px = (event->x - canvasScreenX) / zoom;
+        double py = (event->y - canvasScreenY) / zoom;
+
+        if (_currentTool == CtDrawingTool::Line || _currentTool == CtDrawingTool::Shape) {
+            _previewActive = true;
+            _previewStart = {px, py};
+            _previewEnd = {px, py};
+            _dragType = CtDrawingDragType::Draw;
+        } else if (_currentTool == CtDrawingTool::Text) {
+            if (event->type == GDK_2BUTTON_PRESS) {
+                int si = _hitTestStroke(event->x, event->y, canvas, hScroll, vScroll, zoom);
+                if (si >= 0 && canvas.strokes[si].type == CtDrawingElementType::Text) {
+                    _showTextDialog(px, py, ci, &canvas.strokes[si], si);
+                }
+            } else {
+                _showTextDialog(px, py, ci);
+            }
+            return true;
+        } else {
+            // Pencil — freehand drawing
+            _dragType = CtDrawingDragType::Draw;
+            auto& canvasMut = nodeModel->getDrawingCanvasesMut()[ci];
+            CtDrawingStroke newStroke;
+            newStroke.color = _currentColor;
+            newStroke.lineWidth = _currentLineWidth;
+            newStroke.opacity = _currentOpacity;
+            newStroke.type = CtDrawingElementType::Freehand;
+            newStroke.points.push_back({px, py});
+            canvasMut.strokes.push_back(std::move(newStroke));
+            _drawingArea.queue_draw();
+        }
     }
 
     return true;
@@ -534,6 +1146,7 @@ bool CtDrawingOverlay::_onMotionNotify(GdkEventMotion* event)
     if (_dragType == CtDrawingDragType::Move) {
         canvas.x = _dragCanvasOrigX + dx;
         canvas.y = _dragCanvasOrigY + dy;
+        if (_toolbarVisible) _updateToolbarPosition();
         _drawingArea.queue_draw();
         return true;
     }
@@ -571,12 +1184,24 @@ bool CtDrawingOverlay::_onMotionNotify(GdkEventMotion* event)
         canvas.y = newY;
         canvas.width = newW;
         canvas.height = newH;
+        if (_toolbarVisible) _updateToolbarPosition();
         _drawingArea.queue_draw();
         return true;
     }
 
     if (_dragType == CtDrawingDragType::Draw) {
-        if (!canvas.strokes.empty()) {
+        if (_previewActive) {
+            auto hAdj = _pMainWin->getScrolledwindowText().get_hadjustment();
+            auto vAdj = _pMainWin->getScrolledwindowText().get_vadjustment();
+            double hScroll = hAdj ? hAdj->get_value() : 0.0;
+            double vScroll = vAdj ? vAdj->get_value() : 0.0;
+
+            double cx = canvas.x * zoom - hScroll;
+            double cy = canvas.y * zoom - vScroll;
+            _previewEnd.x = (event->x - cx) / zoom;
+            _previewEnd.y = (event->y - cy) / zoom;
+            _drawingArea.queue_draw();
+        } else if (!canvas.strokes.empty()) {
             auto hAdj = _pMainWin->getScrolledwindowText().get_hadjustment();
             auto vAdj = _pMainWin->getScrolledwindowText().get_vadjustment();
             double hScroll = hAdj ? hAdj->get_value() : 0.0;
@@ -636,6 +1261,7 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
             auto nodeModel = bridge->getDocumentModel()->getNodeById(treeIter.get_node_id());
             if (nodeModel) {
                 _selectedCanvasIdx = static_cast<int>(nodeModel->getDrawingCanvases().size()) - 1;
+                _showToolbar();
             }
             _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
         }
@@ -691,7 +1317,30 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
         }
     }
     else if (_dragType == CtDrawingDragType::Draw) {
-        if (!canvas.strokes.empty()) {
+        if (_previewActive) {
+            _previewActive = false;
+            double dx = _previewEnd.x - _previewStart.x;
+            double dy = _previewEnd.y - _previewStart.y;
+            if (std::abs(dx) > 1.0 || std::abs(dy) > 1.0) {
+                CtDrawingStroke newStroke;
+                newStroke.color = _currentColor;
+                newStroke.lineWidth = _currentLineWidth;
+                newStroke.opacity = _currentOpacity;
+                newStroke.filled = _currentFilled;
+                newStroke.points.push_back(_previewStart);
+                newStroke.points.push_back(_previewEnd);
+                if (_currentTool == CtDrawingTool::Line) {
+                    newStroke.type = CtDrawingElementType::Line;
+                } else {
+                    newStroke.type = _currentShapeType;
+                }
+                auto cmd = std::make_unique<DrawStrokeCommand>(
+                    bridge->getDocumentModel(), treeIter.get_node_id(), ci,
+                    std::move(newStroke));
+                bridge->executeCommand(std::move(cmd));
+                _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+            }
+        } else if (!canvas.strokes.empty()) {
             CtDrawingStroke finishedStroke = canvas.strokes.back();
             canvas.strokes.pop_back();
             if (finishedStroke.points.size() >= 2) {
@@ -732,99 +1381,81 @@ bool CtDrawingOverlay::_onScroll(GdkEventScroll* event)
     return true;
 }
 
+void CtDrawingOverlay::_showTextDialog(double canvasX, double canvasY, size_t canvasIdx,
+                                        const CtDrawingStroke* existingStroke, int existingIdx)
+{
+    Gtk::Dialog dlg(_("Insert Text"), *_pMainWin, true);
+    dlg.add_button(_("Cancel"), Gtk::RESPONSE_CANCEL);
+    dlg.add_button(_("OK"), Gtk::RESPONSE_OK);
+    dlg.set_default_response(Gtk::RESPONSE_OK);
+
+    auto* box = dlg.get_content_area();
+    box->set_spacing(8);
+    box->set_margin_start(12);
+    box->set_margin_end(12);
+    box->set_margin_top(8);
+
+    auto* entry = Gtk::manage(new Gtk::Entry());
+    entry->set_activates_default(true);
+    if (existingStroke) entry->set_text(existingStroke->textContent);
+    box->pack_start(*Gtk::manage(new Gtk::Label(_("Text:"))), false, false);
+    box->pack_start(*entry, false, false);
+
+    auto* fontBtn = Gtk::manage(new Gtk::FontButton());
+    std::string fontStr = existingStroke ? existingStroke->fontFamily : _currentColor.empty() ? "Sans" : "Sans";
+    double fontSize = existingStroke ? existingStroke->fontSize : 14.0;
+    fontBtn->set_font_name(fontStr + " " + std::to_string(static_cast<int>(fontSize)));
+    box->pack_start(*Gtk::manage(new Gtk::Label(_("Font:"))), false, false);
+    box->pack_start(*fontBtn, false, false);
+
+    box->show_all();
+
+    if (dlg.run() != Gtk::RESPONSE_OK) return;
+
+    std::string text = entry->get_text();
+    if (text.empty()) return;
+
+    Pango::FontDescription fd(fontBtn->get_font_name());
+    std::string family = fd.get_family();
+    double fsize = fd.get_size() / Pango::SCALE;
+
+    auto* bridge = _pMainWin->get_command_bridge();
+    auto treeIter = _pMainWin->curr_tree_iter();
+    if (!bridge || !treeIter) return;
+
+    if (existingStroke && existingIdx >= 0) {
+        auto eraseCmd = std::make_unique<EraseStrokeCommand>(
+            bridge->getDocumentModel(), treeIter.get_node_id(),
+            canvasIdx, *existingStroke, static_cast<size_t>(existingIdx));
+        bridge->executeCommand(std::move(eraseCmd));
+    }
+
+    CtDrawingStroke stroke;
+    stroke.type = CtDrawingElementType::Text;
+    stroke.color = _currentColor;
+    stroke.lineWidth = _currentLineWidth;
+    stroke.opacity = _currentOpacity;
+    stroke.textContent = text;
+    stroke.fontFamily = family;
+    stroke.fontSize = fsize;
+    stroke.points.push_back({
+        existingStroke ? existingStroke->points[0].x : canvasX,
+        existingStroke ? existingStroke->points[0].y : canvasY
+    });
+
+    auto cmd = std::make_unique<DrawStrokeCommand>(
+        bridge->getDocumentModel(), treeIter.get_node_id(),
+        canvasIdx, std::move(stroke));
+    bridge->executeCommand(std::move(cmd));
+    _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+}
+
 void CtDrawingOverlay::_showContextMenu(GdkEventButton* event)
 {
     auto* menu = Gtk::manage(new Gtk::Menu());
     bool hasSelection = _selectedCanvasIdx >= 0;
 
     if (hasSelection) {
-        // Line Width submenu
-        auto* widthItem = Gtk::manage(new Gtk::MenuItem(_("Line Width")));
-        auto* widthMenu = Gtk::manage(new Gtk::Menu());
-        struct WidthEntry { const char* label; double width; };
-        WidthEntry widths[] = {
-            {_("Thin (1px)"), 1.0},
-            {_("Normal (2px)"), 2.0},
-            {_("Thick (4px)"), 4.0},
-            {_("Very Thick (8px)"), 8.0}
-        };
-        for (auto& w : widths) {
-            auto* item = Gtk::manage(new Gtk::CheckMenuItem(w.label));
-            item->set_active(_currentLineWidth == w.width);
-            double capturedWidth = w.width;
-            item->signal_activate().connect([this, capturedWidth]() {
-                _currentLineWidth = capturedWidth;
-            });
-            widthMenu->append(*item);
-        }
-        widthItem->set_submenu(*widthMenu);
-        menu->append(*widthItem);
-
-        // Color submenu
-        auto* colorItem = Gtk::manage(new Gtk::MenuItem(_("Color")));
-        auto* colorMenu = Gtk::manage(new Gtk::Menu());
-        struct ColorEntry { const char* label; const char* hex; };
-        ColorEntry colors[] = {
-            {_("Black"), "#000000"},
-            {_("Red"), "#ff0000"},
-            {_("Blue"), "#0000ff"},
-            {_("Green"), "#008000"},
-            {_("Yellow"), "#ffff00"},
-            {_("White"), "#ffffff"}
-        };
-        for (auto& c : colors) {
-            auto* item = Gtk::manage(new Gtk::CheckMenuItem(c.label));
-            item->set_active(_currentColor == c.hex);
-            std::string capturedColor = c.hex;
-            item->signal_activate().connect([this, capturedColor]() {
-                _currentColor = capturedColor;
-            });
-            colorMenu->append(*item);
-        }
-        auto* customColorItem = Gtk::manage(new Gtk::MenuItem(_("Custom...")));
-        customColorItem->signal_activate().connect([this]() {
-            Gtk::ColorChooserDialog dlg(_("Pick a Color"));
-            Gdk::RGBA rgba;
-            double r, g, b;
-            parseColor(_currentColor, r, g, b);
-            rgba.set_red(r); rgba.set_green(g); rgba.set_blue(b); rgba.set_alpha(1.0);
-            dlg.set_rgba(rgba);
-            dlg.set_transient_for(*_pMainWin);
-            if (dlg.run() == Gtk::RESPONSE_OK) {
-                auto chosen = dlg.get_rgba();
-                char buf[8];
-                snprintf(buf, sizeof(buf), "#%02x%02x%02x",
-                         static_cast<int>(chosen.get_red() * 255),
-                         static_cast<int>(chosen.get_green() * 255),
-                         static_cast<int>(chosen.get_blue() * 255));
-                _currentColor = buf;
-            }
-        });
-        colorMenu->append(*customColorItem);
-        colorItem->set_submenu(*colorMenu);
-        menu->append(*colorItem);
-
-        // Opacity submenu
-        auto* opacityItem = Gtk::manage(new Gtk::MenuItem(_("Opacity")));
-        auto* opacityMenu = Gtk::manage(new Gtk::Menu());
-        struct OpacityEntry { const char* label; double value; };
-        OpacityEntry opacities[] = {
-            {"100%", 1.0}, {"75%", 0.75}, {"50%", 0.5}, {"25%", 0.25}
-        };
-        for (auto& o : opacities) {
-            auto* item = Gtk::manage(new Gtk::CheckMenuItem(o.label));
-            item->set_active(std::abs(_currentOpacity - o.value) < 0.01);
-            double capturedOpacity = o.value;
-            item->signal_activate().connect([this, capturedOpacity]() {
-                _currentOpacity = capturedOpacity;
-            });
-            opacityMenu->append(*item);
-        }
-        opacityItem->set_submenu(*opacityMenu);
-        menu->append(*opacityItem);
-
-        menu->append(*Gtk::manage(new Gtk::SeparatorMenuItem()));
-
         // Canvas Properties
         auto* propsItem = Gtk::manage(new Gtk::MenuItem(_("Canvas Properties...")));
         propsItem->signal_activate().connect([this]() {
@@ -864,14 +1495,6 @@ void CtDrawingOverlay::_showContextMenu(GdkEventButton* event)
             }
         });
         menu->append(*propsItem);
-
-        // Delete Stroke mode toggle
-        auto* deleteStrokeItem = Gtk::manage(new Gtk::CheckMenuItem(_("Delete Stroke")));
-        deleteStrokeItem->set_active(_deleteStrokeMode);
-        deleteStrokeItem->signal_activate().connect([this]() {
-            _deleteStrokeMode = !_deleteStrokeMode;
-        });
-        menu->append(*deleteStrokeItem);
 
         menu->append(*Gtk::manage(new Gtk::SeparatorMenuItem()));
     }
