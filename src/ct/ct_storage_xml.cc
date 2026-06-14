@@ -1031,6 +1031,19 @@ void CtXmlHelper::drawing_canvases_to_xml(xmlpp::Element* p_node_node,
             p_stroke->set_attribute("color", stroke.color);
             p_stroke->set_attribute("width", std::to_string(stroke.lineWidth));
             p_stroke->set_attribute("opacity", std::to_string(stroke.opacity));
+            if (stroke.type != CtDrawingElementType::Freehand) {
+                p_stroke->set_attribute("type", std::to_string(static_cast<int>(stroke.type)));
+            }
+            if (stroke.filled) {
+                p_stroke->set_attribute("filled", "1");
+            }
+            if (!stroke.textContent.empty()) {
+                p_stroke->set_attribute("text", stroke.textContent);
+            }
+            if (stroke.type == CtDrawingElementType::Text) {
+                p_stroke->set_attribute("font_family", stroke.fontFamily);
+                p_stroke->set_attribute("font_size", std::to_string(stroke.fontSize));
+            }
             std::string pointsStr;
             for (size_t i = 0; i < stroke.points.size(); ++i) {
                 if (i > 0) pointsStr += ";";
@@ -1075,6 +1088,16 @@ std::vector<CtDrawingCanvas> CtXmlHelper::drawing_canvases_from_xml(const xmlpp:
                 if (!wStr.empty()) stroke.lineWidth = std::stod(wStr);
                 auto oStr = strokeElem->get_attribute_value("opacity");
                 if (!oStr.empty()) stroke.opacity = std::stod(oStr);
+                auto typeStr = strokeElem->get_attribute_value("type");
+                if (!typeStr.empty()) stroke.type = static_cast<CtDrawingElementType>(std::stoi(typeStr));
+                auto filledStr = strokeElem->get_attribute_value("filled");
+                if (!filledStr.empty()) stroke.filled = (filledStr == "1");
+                auto textStr = strokeElem->get_attribute_value("text");
+                if (!textStr.empty()) stroke.textContent = textStr;
+                auto fontFamStr = strokeElem->get_attribute_value("font_family");
+                if (!fontFamStr.empty()) stroke.fontFamily = fontFamStr;
+                auto fontSzStr = strokeElem->get_attribute_value("font_size");
+                if (!fontSzStr.empty()) stroke.fontSize = std::stod(fontSzStr);
                 // parse points from text content
                 auto* textNode = strokeElem->get_child_text();
                 if (textNode) {
