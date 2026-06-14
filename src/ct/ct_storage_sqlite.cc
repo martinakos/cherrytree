@@ -133,6 +133,11 @@ const char CtStorageSqlite::TABLE_DRAWING_STROKE_CREATE[]{"CREATE TABLE IF NOT E
 "stroke_index INTEGER,"
 "color TEXT, width REAL, opacity REAL DEFAULT 1.0,"
 "points TEXT,"
+"element_type INTEGER DEFAULT 0,"
+"filled INTEGER DEFAULT 0,"
+"text_content TEXT DEFAULT '',"
+"font_family TEXT DEFAULT 'Sans',"
+"font_size REAL DEFAULT 14.0,"
 "PRIMARY KEY (node_id, canvas_index, stroke_index)"
 ")"
 };
@@ -1123,8 +1128,15 @@ std::vector<CtDrawingCanvas> CtStorageSqlite::_drawing_canvases_from_db(gint64 n
         if (sqlite3_column_type(cStmt, 8) != SQLITE_NULL) canvas.bgOpacity = bgOp;
         canvas.showBorderWhenInactive = sqlite3_column_int(cStmt, 9) != 0;
 
+        // migrate older schemas that lack new stroke columns
+        sqlite3_exec(_pDb, "ALTER TABLE drawing_stroke ADD COLUMN element_type INTEGER DEFAULT 0", nullptr, nullptr, nullptr);
+        sqlite3_exec(_pDb, "ALTER TABLE drawing_stroke ADD COLUMN filled INTEGER DEFAULT 0", nullptr, nullptr, nullptr);
+        sqlite3_exec(_pDb, "ALTER TABLE drawing_stroke ADD COLUMN text_content TEXT DEFAULT ''", nullptr, nullptr, nullptr);
+        sqlite3_exec(_pDb, "ALTER TABLE drawing_stroke ADD COLUMN font_family TEXT DEFAULT 'Sans'", nullptr, nullptr, nullptr);
+        sqlite3_exec(_pDb, "ALTER TABLE drawing_stroke ADD COLUMN font_size REAL DEFAULT 14.0", nullptr, nullptr, nullptr);
+
         // load strokes for this canvas
-        Sqlite3StmtAuto sStmt{_pDb, "SELECT color, width, opacity, points FROM drawing_stroke WHERE node_id=? AND canvas_index=? ORDER BY stroke_index"};
+        Sqlite3StmtAuto sStmt{_pDb, "SELECT color, width, opacity, points, element_type, filled, text_content, font_family, font_size FROM drawing_stroke WHERE node_id=? AND canvas_index=? ORDER BY stroke_index"};
         if (!sStmt.is_bad()) {
             sqlite3_bind_int64(sStmt, 1, nodeId);
             sqlite3_bind_int(sStmt, 2, canvasIdx);
@@ -1134,6 +1146,12 @@ std::vector<CtDrawingCanvas> CtStorageSqlite::_drawing_canvases_from_db(gint64 n
                 stroke.lineWidth = sqlite3_column_double(sStmt, 1);
                 stroke.opacity = sqlite3_column_double(sStmt, 2);
                 std::string pointsStr = safe_sqlite3_column_text(sStmt, 3);
+                stroke.type = static_cast<CtDrawingElementType>(sqlite3_column_int(sStmt, 4));
+                stroke.filled = sqlite3_column_int(sStmt, 5) != 0;
+                stroke.textContent = safe_sqlite3_column_text(sStmt, 6);
+                std::string ff = safe_sqlite3_column_text(sStmt, 7);
+                if (!ff.empty()) stroke.fontFamily = ff;
+                if (sqlite3_column_type(sStmt, 8) != SQLITE_NULL) stroke.fontSize = sqlite3_column_double(sStmt, 8);
                 // parse "x,y;x,y;..." format
                 size_t pos = 0;
                 while (pos < pointsStr.size()) {
@@ -1182,7 +1200,7 @@ void CtStorageSqlite::_write_drawing_canvases_to_db(gint64 nodeId, const std::ve
 
         for (size_t si = 0; si < canvas.strokes.size(); ++si) {
             const auto& stroke = canvas.strokes[si];
-            Sqlite3StmtAuto sIns{_pDb, "INSERT INTO drawing_stroke VALUES(?,?,?,?,?,?,?)"};
+            Sqlite3StmtAuto sIns{_pDb, "INSERT INTO drawing_stroke VALUES(?,?,?,?,?,?,?,?,?,?,?,?)"};
             if (sIns.is_bad()) continue;
             sqlite3_bind_int64(sIns, 1, nodeId);
             sqlite3_bind_int(sIns, 2, static_cast<int>(ci));
@@ -1198,6 +1216,11 @@ void CtStorageSqlite::_write_drawing_canvases_to_db(gint64 nodeId, const std::ve
                              std::to_string(stroke.points[pi].y);
             }
             sqlite3_bind_text(sIns, 7, pointsStr.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int(sIns, 8, static_cast<int>(stroke.type));
+            sqlite3_bind_int(sIns, 9, stroke.filled ? 1 : 0);
+            sqlite3_bind_text(sIns, 10, stroke.textContent.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(sIns, 11, stroke.fontFamily.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_double(sIns, 12, stroke.fontSize);
             sqlite3_step(sIns);
         }
     }
