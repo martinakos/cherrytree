@@ -35,7 +35,17 @@ enum class CtDrawingElementType {
     Line,
     Rectangle,
     Ellipse,
-    Text
+    Text,
+    Polyline,
+    Triangle,
+    Diamond
+};
+
+enum class CtDrawingLineStyle {
+    Solid,
+    Dashed,
+    Dotted,
+    DashDot
 };
 
 enum class CtDrawingTool {
@@ -57,6 +67,7 @@ struct CtDrawingStroke {
     double lineWidth{2.0};
     double opacity{1.0};
     CtDrawingElementType type{CtDrawingElementType::Freehand};
+    CtDrawingLineStyle lineStyle{CtDrawingLineStyle::Solid};
     bool filled{false};
     std::string textContent;
     std::string fontFamily{"Sans"};
@@ -190,6 +201,8 @@ private:
 
     CtDrawingTool _currentTool{CtDrawingTool::Pencil};
     CtDrawingElementType _currentShapeType{CtDrawingElementType::Rectangle};
+    CtDrawingElementType _currentLineType{CtDrawingElementType::Line};
+    CtDrawingLineStyle _currentLineStyle{CtDrawingLineStyle::Solid};
     double _currentLineWidth{2.0};
     std::string _currentColor{"#000000"};
     double _currentOpacity{1.0};
@@ -205,6 +218,12 @@ private:
     bool _previewActive{false};
     CtDrawingPoint _previewStart{0.0, 0.0};
     CtDrawingPoint _previewEnd{0.0, 0.0};
+
+    bool _polylineActive{false};
+    std::vector<CtDrawingPoint> _polylinePoints;
+
+    Gtk::Image* _pLineToolIcon{nullptr};
+    Gtk::Image* _pShapeToolIcon{nullptr};
 
     CtDrawingDragType _dragType{CtDrawingDragType::None};
     CtDrawingHitZone _resizeZone{CtDrawingHitZone::None};

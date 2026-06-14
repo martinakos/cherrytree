@@ -1034,6 +1034,9 @@ void CtXmlHelper::drawing_canvases_to_xml(xmlpp::Element* p_node_node,
             if (stroke.type != CtDrawingElementType::Freehand) {
                 p_stroke->set_attribute("type", std::to_string(static_cast<int>(stroke.type)));
             }
+            if (stroke.lineStyle != CtDrawingLineStyle::Solid) {
+                p_stroke->set_attribute("line_style", std::to_string(static_cast<int>(stroke.lineStyle)));
+            }
             if (stroke.filled) {
                 p_stroke->set_attribute("filled", "1");
             }
@@ -1090,6 +1093,8 @@ std::vector<CtDrawingCanvas> CtXmlHelper::drawing_canvases_from_xml(const xmlpp:
                 if (!oStr.empty()) stroke.opacity = std::stod(oStr);
                 auto typeStr = strokeElem->get_attribute_value("type");
                 if (!typeStr.empty()) stroke.type = static_cast<CtDrawingElementType>(std::stoi(typeStr));
+                auto lineStyleStr = strokeElem->get_attribute_value("line_style");
+                if (!lineStyleStr.empty()) stroke.lineStyle = static_cast<CtDrawingLineStyle>(std::stoi(lineStyleStr));
                 auto filledStr = strokeElem->get_attribute_value("filled");
                 if (!filledStr.empty()) stroke.filled = (filledStr == "1");
                 auto textStr = strokeElem->get_attribute_value("text");
