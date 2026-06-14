@@ -30,6 +30,22 @@
 
 class CtMainWin;
 
+enum class CtDrawingElementType {
+    Freehand,
+    Line,
+    Rectangle,
+    Ellipse,
+    Text
+};
+
+enum class CtDrawingTool {
+    Pencil,
+    Line,
+    Shape,
+    Text,
+    Rubber
+};
+
 struct CtDrawingPoint {
     double x;
     double y;
@@ -40,6 +56,11 @@ struct CtDrawingStroke {
     std::string color{"#000000"};
     double lineWidth{2.0};
     double opacity{1.0};
+    CtDrawingElementType type{CtDrawingElementType::Freehand};
+    bool filled{false};
+    std::string textContent;
+    std::string fontFamily{"Sans"};
+    double fontSize{14.0};
 };
 
 struct CtDrawingCanvas {
@@ -85,6 +106,8 @@ public:
     Gtk::Overlay& getOverlay() { return _overlay; }
     Gtk::DrawingArea& getDrawingArea() { return _drawingArea; }
 
+    void addToolbarToOverlay();
+
     void setDrawingMode(bool on);
     bool isDrawingMode() const { return _drawingMode; }
 
@@ -110,6 +133,9 @@ public:
 
     double getCurrentOpacity() const { return _currentOpacity; }
     void setCurrentOpacity(double o) { _currentOpacity = o; }
+
+    CtDrawingTool getCurrentTool() const { return _currentTool; }
+    void setCurrentTool(CtDrawingTool tool);
 
     int getSelectedCanvasIdx() const { return _selectedCanvasIdx; }
 
@@ -137,6 +163,20 @@ private:
 
     void _showContextMenu(GdkEventButton* event);
 
+    void _buildToolbar();
+    void _showToolbar();
+    void _hideToolbar();
+    void _updateToolbarPosition();
+    void _updateToolButtonStates();
+    static gboolean _onGetChildPosition(GtkOverlay* overlay, GtkWidget* widget,
+                                         GdkRectangle* alloc, gpointer data);
+    void _showTextDialog(double canvasX, double canvasY, size_t canvasIdx,
+                         const CtDrawingStroke* existingStroke = nullptr, int existingIdx = -1);
+
+    void _drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
+                     const CtDrawingStroke& stroke,
+                     double cx, double cy, double zoom);
+
     static std::optional<CtDrawingCanvas> _clipboard;
 
     CtMainWin* _pMainWin;
@@ -148,9 +188,23 @@ private:
     bool _deleteStrokeMode{false};
     bool _createCanvasMode{false};
 
+    CtDrawingTool _currentTool{CtDrawingTool::Pencil};
+    CtDrawingElementType _currentShapeType{CtDrawingElementType::Rectangle};
     double _currentLineWidth{2.0};
     std::string _currentColor{"#000000"};
     double _currentOpacity{1.0};
+    bool _currentFilled{false};
+
+    Gtk::Box* _pToolbarBox{nullptr};
+    Gtk::EventBox* _pToolbarEventBox{nullptr};
+    bool _toolbarVisible{false};
+    int _toolbarPosX{0};
+    int _toolbarPosY{0};
+    std::vector<Gtk::ToggleButton*> _toolButtons;
+
+    bool _previewActive{false};
+    CtDrawingPoint _previewStart{0.0, 0.0};
+    CtDrawingPoint _previewEnd{0.0, 0.0};
 
     CtDrawingDragType _dragType{CtDrawingDragType::None};
     CtDrawingHitZone _resizeZone{CtDrawingHitZone::None};
@@ -166,4 +220,6 @@ private:
     static constexpr double MIN_CANVAS_WIDTH = 80.0;
     static constexpr double MIN_CANVAS_HEIGHT = 60.0;
     static constexpr double STROKE_HIT_THRESHOLD = 5.0;
+    static constexpr double TOOLBAR_HEIGHT = 42.0;
+    static constexpr double TOOLBAR_GAP = 6.0;
 };

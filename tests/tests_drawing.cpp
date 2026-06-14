@@ -850,3 +850,285 @@ TEST(DrawingXmlTest, RoundTrip_MultipleCanvasesMultipleStrokes)
         }
     }
 }
+
+// ── CanvasPropertiesCommand tests ──────────────────────────────────────────
+
+TEST_F(DrawingCommandTest, CanvasPropertiesCommand_ExecuteAndUndo)
+{
+    auto node = model->getNodeById(1);
+    auto& canvases = node->getDrawingCanvasesMut();
+    auto c = makeCanvas(10, 20, 300, 250);
+    c.name = "OldName";
+    c.bgColor = "#ffffff";
+    c.bgOpacity = 0.15;
+    c.cornerRadius = 8.0;
+    c.showBorderWhenInactive = false;
+    canvases.push_back(std::move(c));
+
+    CanvasPropertiesCommand cmd(model, 1, 0,
+        "OldName", "NewName",
+        "#ffffff", "#aabbcc",
+        0.15, 0.75,
+        8.0, 12.0,
+        false, true);
+
+    cmd.execute();
+    const auto& result = node->getDrawingCanvases()[0];
+    EXPECT_EQ("NewName", result.name);
+    EXPECT_EQ("#aabbcc", result.bgColor);
+    EXPECT_DOUBLE_EQ(0.75, result.bgOpacity);
+    EXPECT_DOUBLE_EQ(12.0, result.cornerRadius);
+    EXPECT_TRUE(result.showBorderWhenInactive);
+
+    cmd.undo();
+    const auto& reverted = node->getDrawingCanvases()[0];
+    EXPECT_EQ("OldName", reverted.name);
+    EXPECT_EQ("#ffffff", reverted.bgColor);
+    EXPECT_DOUBLE_EQ(0.15, reverted.bgOpacity);
+    EXPECT_DOUBLE_EQ(8.0, reverted.cornerRadius);
+    EXPECT_FALSE(reverted.showBorderWhenInactive);
+}
+
+TEST_F(DrawingCommandTest, CanvasPropertiesCommand_Redo)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 200, 150));
+
+    CanvasPropertiesCommand cmd(model, 1, 0,
+        "", "Renamed",
+        "#ffffff", "#112233",
+        0.15, 0.5,
+        8.0, 16.0,
+        false, true);
+
+    cmd.execute();
+    cmd.undo();
+    cmd.execute();
+    EXPECT_EQ("Renamed", node->getDrawingCanvases()[0].name);
+    EXPECT_EQ("#112233", node->getDrawingCanvases()[0].bgColor);
+    EXPECT_TRUE(node->getDrawingCanvases()[0].showBorderWhenInactive);
+}
+
+// ── New element type command tests ─────────────────────────────────────────
+
+static CtDrawingStroke makeLineStroke(const std::string& color, double w,
+                                      double x0, double y0, double x1, double y1)
+{
+    CtDrawingStroke s;
+    s.color = color;
+    s.lineWidth = w;
+    s.opacity = 1.0;
+    s.type = CtDrawingElementType::Line;
+    s.points.push_back({x0, y0});
+    s.points.push_back({x1, y1});
+    return s;
+}
+
+static CtDrawingStroke makeShapeStroke(CtDrawingElementType type, const std::string& color,
+                                       double w, bool filled,
+                                       double x0, double y0, double x1, double y1)
+{
+    CtDrawingStroke s;
+    s.color = color;
+    s.lineWidth = w;
+    s.opacity = 1.0;
+    s.type = type;
+    s.filled = filled;
+    s.points.push_back({x0, y0});
+    s.points.push_back({x1, y1});
+    return s;
+}
+
+static CtDrawingStroke makeTextStroke(const std::string& text, const std::string& font,
+                                      double fontSize, double x, double y)
+{
+    CtDrawingStroke s;
+    s.color = "#000000";
+    s.lineWidth = 1.0;
+    s.opacity = 1.0;
+    s.type = CtDrawingElementType::Text;
+    s.textContent = text;
+    s.fontFamily = font;
+    s.fontSize = fontSize;
+    s.points.push_back({x, y});
+    return s;
+}
+
+TEST_F(DrawingCommandTest, DrawLineStroke_ExecuteAndUndo)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+
+    auto stroke = makeLineStroke("#ff0000", 2.0, 10, 20, 100, 80);
+    DrawStrokeCommand cmd(model, 1, 0, stroke);
+
+    cmd.execute();
+    ASSERT_EQ(1u, node->getDrawingCanvases()[0].strokes.size());
+    EXPECT_EQ(CtDrawingElementType::Line, node->getDrawingCanvases()[0].strokes[0].type);
+    EXPECT_EQ(2u, node->getDrawingCanvases()[0].strokes[0].points.size());
+
+    cmd.undo();
+    EXPECT_EQ(0u, node->getDrawingCanvases()[0].strokes.size());
+}
+
+TEST_F(DrawingCommandTest, DrawRectangleStroke_FilledExecuteAndUndo)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+
+    auto stroke = makeShapeStroke(CtDrawingElementType::Rectangle, "#00ff00", 3.0, true,
+                                   10, 10, 100, 80);
+    DrawStrokeCommand cmd(model, 1, 0, stroke);
+
+    cmd.execute();
+    const auto& s = node->getDrawingCanvases()[0].strokes[0];
+    EXPECT_EQ(CtDrawingElementType::Rectangle, s.type);
+    EXPECT_TRUE(s.filled);
+    EXPECT_DOUBLE_EQ(10.0, s.points[0].x);
+    EXPECT_DOUBLE_EQ(100.0, s.points[1].x);
+
+    cmd.undo();
+    EXPECT_EQ(0u, node->getDrawingCanvases()[0].strokes.size());
+}
+
+TEST_F(DrawingCommandTest, DrawEllipseStroke_ExecuteAndUndo)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+
+    auto stroke = makeShapeStroke(CtDrawingElementType::Ellipse, "#0000ff", 2.0, false,
+                                   20, 30, 120, 90);
+    DrawStrokeCommand cmd(model, 1, 0, stroke);
+
+    cmd.execute();
+    EXPECT_EQ(CtDrawingElementType::Ellipse, node->getDrawingCanvases()[0].strokes[0].type);
+    EXPECT_FALSE(node->getDrawingCanvases()[0].strokes[0].filled);
+
+    cmd.undo();
+    EXPECT_EQ(0u, node->getDrawingCanvases()[0].strokes.size());
+}
+
+TEST_F(DrawingCommandTest, DrawTextStroke_ExecuteAndUndo)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+
+    auto stroke = makeTextStroke("Hello World", "Monospace", 16.0, 50, 60);
+    DrawStrokeCommand cmd(model, 1, 0, stroke);
+
+    cmd.execute();
+    const auto& s = node->getDrawingCanvases()[0].strokes[0];
+    EXPECT_EQ(CtDrawingElementType::Text, s.type);
+    EXPECT_EQ("Hello World", s.textContent);
+    EXPECT_EQ("Monospace", s.fontFamily);
+    EXPECT_DOUBLE_EQ(16.0, s.fontSize);
+    EXPECT_DOUBLE_EQ(50.0, s.points[0].x);
+
+    cmd.undo();
+    EXPECT_EQ(0u, node->getDrawingCanvases()[0].strokes.size());
+}
+
+// ── XML round-trip for new element types ───────────────────────────────────
+
+TEST(DrawingXmlTest, RoundTrip_LineStroke)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    auto c = makeCanvas(0, 0, 300, 250);
+    c.strokes.push_back(makeLineStroke("#ff0000", 3.0, 10, 20, 100, 80));
+    canvases.push_back(std::move(c));
+
+    xmlpp::Document doc;
+    auto* root = doc.create_root_node("node");
+    CtXmlHelper::drawing_canvases_to_xml(root, canvases);
+    auto result = CtXmlHelper::drawing_canvases_from_xml(root);
+
+    ASSERT_EQ(1u, result[0].strokes.size());
+    EXPECT_EQ(CtDrawingElementType::Line, result[0].strokes[0].type);
+    ASSERT_EQ(2u, result[0].strokes[0].points.size());
+    EXPECT_DOUBLE_EQ(10.0, result[0].strokes[0].points[0].x);
+    EXPECT_DOUBLE_EQ(100.0, result[0].strokes[0].points[1].x);
+}
+
+TEST(DrawingXmlTest, RoundTrip_FilledRectangle)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    auto c = makeCanvas(0, 0, 300, 250);
+    c.strokes.push_back(makeShapeStroke(CtDrawingElementType::Rectangle, "#00ff00", 2.0, true,
+                                         5, 10, 95, 70));
+    canvases.push_back(std::move(c));
+
+    xmlpp::Document doc;
+    auto* root = doc.create_root_node("node");
+    CtXmlHelper::drawing_canvases_to_xml(root, canvases);
+    auto result = CtXmlHelper::drawing_canvases_from_xml(root);
+
+    ASSERT_EQ(1u, result[0].strokes.size());
+    EXPECT_EQ(CtDrawingElementType::Rectangle, result[0].strokes[0].type);
+    EXPECT_TRUE(result[0].strokes[0].filled);
+}
+
+TEST(DrawingXmlTest, RoundTrip_Ellipse)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    auto c = makeCanvas(0, 0, 300, 250);
+    c.strokes.push_back(makeShapeStroke(CtDrawingElementType::Ellipse, "#0000ff", 4.0, false,
+                                         20, 30, 120, 90));
+    canvases.push_back(std::move(c));
+
+    xmlpp::Document doc;
+    auto* root = doc.create_root_node("node");
+    CtXmlHelper::drawing_canvases_to_xml(root, canvases);
+    auto result = CtXmlHelper::drawing_canvases_from_xml(root);
+
+    ASSERT_EQ(1u, result[0].strokes.size());
+    EXPECT_EQ(CtDrawingElementType::Ellipse, result[0].strokes[0].type);
+    EXPECT_FALSE(result[0].strokes[0].filled);
+}
+
+TEST(DrawingXmlTest, RoundTrip_TextStroke)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    auto c = makeCanvas(0, 0, 300, 250);
+    c.strokes.push_back(makeTextStroke("Test Label", "Serif", 18.0, 40, 50));
+    canvases.push_back(std::move(c));
+
+    xmlpp::Document doc;
+    auto* root = doc.create_root_node("node");
+    CtXmlHelper::drawing_canvases_to_xml(root, canvases);
+    auto result = CtXmlHelper::drawing_canvases_from_xml(root);
+
+    ASSERT_EQ(1u, result[0].strokes.size());
+    const auto& s = result[0].strokes[0];
+    EXPECT_EQ(CtDrawingElementType::Text, s.type);
+    EXPECT_EQ("Test Label", s.textContent);
+    EXPECT_EQ("Serif", s.fontFamily);
+    EXPECT_DOUBLE_EQ(18.0, s.fontSize);
+    EXPECT_DOUBLE_EQ(40.0, s.points[0].x);
+    EXPECT_DOUBLE_EQ(50.0, s.points[0].y);
+}
+
+TEST(DrawingXmlTest, RoundTrip_MixedElementTypes)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    auto c = makeCanvas(0, 0, 400, 300);
+    c.strokes.push_back(makeStroke("#000000", 2.0, {{1,1},{2,2},{3,3}}));
+    c.strokes.push_back(makeLineStroke("#ff0000", 3.0, 10, 20, 100, 80));
+    c.strokes.push_back(makeShapeStroke(CtDrawingElementType::Rectangle, "#00ff00", 2.0, true, 5, 10, 95, 70));
+    c.strokes.push_back(makeShapeStroke(CtDrawingElementType::Ellipse, "#0000ff", 4.0, false, 20, 30, 120, 90));
+    c.strokes.push_back(makeTextStroke("Label", "Sans", 14.0, 50, 60));
+    canvases.push_back(std::move(c));
+
+    xmlpp::Document doc;
+    auto* root = doc.create_root_node("node");
+    CtXmlHelper::drawing_canvases_to_xml(root, canvases);
+    auto result = CtXmlHelper::drawing_canvases_from_xml(root);
+
+    ASSERT_EQ(5u, result[0].strokes.size());
+    EXPECT_EQ(CtDrawingElementType::Freehand, result[0].strokes[0].type);
+    EXPECT_EQ(CtDrawingElementType::Line, result[0].strokes[1].type);
+    EXPECT_EQ(CtDrawingElementType::Rectangle, result[0].strokes[2].type);
+    EXPECT_TRUE(result[0].strokes[2].filled);
+    EXPECT_EQ(CtDrawingElementType::Ellipse, result[0].strokes[3].type);
+    EXPECT_EQ(CtDrawingElementType::Text, result[0].strokes[4].type);
+    EXPECT_EQ("Label", result[0].strokes[4].textContent);
+}
