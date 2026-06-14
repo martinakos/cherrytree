@@ -223,6 +223,7 @@ CtMainWin::CtMainWin(bool                            no_gui,
     _scrolledwindowText.set_child(_ctTextview.mm());
     _pDrawingOverlay->getOverlay().set_child(_scrolledwindowText);
     _pDrawingOverlay->getOverlay().add_overlay(_pDrawingOverlay->getDrawingArea());
+    _pDrawingOverlay->addToolbarToOverlay();
     if (!_pCtConfig->nodeNameHeaderFullWidth) {
         _vboxText.append(_init_window_header());
     }
@@ -241,6 +242,7 @@ CtMainWin::CtMainWin(bool                            no_gui,
     _pDrawingOverlay->getOverlay().add(_scrolledwindowText);
     _pDrawingOverlay->getOverlay().add_overlay(_pDrawingOverlay->getDrawingArea());
     _pDrawingOverlay->getOverlay().set_overlay_pass_through(_pDrawingOverlay->getDrawingArea(), true);
+    _pDrawingOverlay->addToolbarToOverlay();
     if (!_pCtConfig->nodeNameHeaderFullWidth) {
         _vboxText.pack_start(_init_window_header(), false, false);
     }
