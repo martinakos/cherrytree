@@ -41,12 +41,37 @@ static void parseColor(const std::string& hex, double& r, double& g, double& b)
     }
 }
 
+static void applyLineStyle(const Cairo::RefPtr<Cairo::Context>& cr, CtDrawingLineStyle style, double lineWidth)
+{
+    switch (style) {
+    case CtDrawingLineStyle::Dashed: {
+        std::vector<double> d{lineWidth * 3.0, lineWidth * 2.0};
+        cr->set_dash(d, 0.0);
+        break;
+    }
+    case CtDrawingLineStyle::Dotted: {
+        std::vector<double> d{lineWidth, lineWidth * 2.0};
+        cr->set_dash(d, 0.0);
+        break;
+    }
+    case CtDrawingLineStyle::DashDot: {
+        std::vector<double> d{lineWidth * 3.0, lineWidth * 1.5, lineWidth, lineWidth * 1.5};
+        cr->set_dash(d, 0.0);
+        break;
+    }
+    case CtDrawingLineStyle::Solid:
+    default:
+        cr->unset_dash();
+        break;
+    }
+}
+
 std::optional<CtDrawingCanvas> CtDrawingOverlay::_clipboard;
 
 CtDrawingOverlay::CtDrawingOverlay(CtMainWin* pMainWin)
     : _pMainWin(pMainWin)
 {
-    _drawingArea.set_can_focus(false);
+    _drawingArea.set_can_focus(true);
     _drawingArea.set_hexpand(true);
     _drawingArea.set_vexpand(true);
 
@@ -54,11 +79,22 @@ CtDrawingOverlay::CtDrawingOverlay(CtMainWin* pMainWin)
     _drawingArea.signal_draw().connect(sigc::mem_fun(*this, &CtDrawingOverlay::_onDraw));
     _drawingArea.add_events(Gdk::BUTTON_PRESS_MASK | Gdk::BUTTON_RELEASE_MASK |
                             Gdk::POINTER_MOTION_MASK | Gdk::BUTTON_MOTION_MASK |
-                            Gdk::SCROLL_MASK | Gdk::SMOOTH_SCROLL_MASK);
+                            Gdk::SCROLL_MASK | Gdk::SMOOTH_SCROLL_MASK |
+                            Gdk::KEY_PRESS_MASK);
     _drawingArea.signal_button_press_event().connect(sigc::mem_fun(*this, &CtDrawingOverlay::_onButtonPress), false);
     _drawingArea.signal_button_release_event().connect(sigc::mem_fun(*this, &CtDrawingOverlay::_onButtonRelease), false);
     _drawingArea.signal_motion_notify_event().connect(sigc::mem_fun(*this, &CtDrawingOverlay::_onMotionNotify), false);
     _drawingArea.signal_scroll_event().connect(sigc::mem_fun(*this, &CtDrawingOverlay::_onScroll), false);
+    _drawingArea.signal_key_press_event().connect([this](GdkEventKey* ev) -> bool {
+        if (ev->keyval == GDK_KEY_Escape && _polylineActive) {
+            _polylineActive = false;
+            _previewActive = false;
+            _polylinePoints.clear();
+            _drawingArea.queue_draw();
+            return true;
+        }
+        return false;
+    }, false);
     _drawingArea.signal_realize().connect([this]() {
         if (auto gdkWin = _drawingArea.get_window()) {
             gdk_window_set_pass_through(gdkWin->gobj(), !_drawingMode);
@@ -129,6 +165,9 @@ void CtDrawingOverlay::setDrawingMode(bool on)
     if (on && _selectedCanvasIdx >= 0) {
         _showToolbar();
     }
+    if (on) {
+        _drawingArea.grab_focus();
+    }
 }
 
 void CtDrawingOverlay::setCurrentTool(CtDrawingTool tool)
@@ -136,6 +175,8 @@ void CtDrawingOverlay::setCurrentTool(CtDrawingTool tool)
     _currentTool = tool;
     _deleteStrokeMode = (tool == CtDrawingTool::Rubber);
     _previewActive = false;
+    _polylineActive = false;
+    _polylinePoints.clear();
     _updateToolButtonStates();
 }
 
@@ -146,6 +187,8 @@ void CtDrawingOverlay::resetSelection()
     _createCanvasMode = false;
     _dragType = CtDrawingDragType::None;
     _previewActive = false;
+    _polylineActive = false;
+    _polylinePoints.clear();
     _hideToolbar();
     _drawingArea.queue_draw();
 }
@@ -225,22 +268,86 @@ void CtDrawingOverlay::_buildToolbar()
     };
 
     addToolBtn("ct_draw_pencil.svg", CtDrawingTool::Pencil);
-    addToolBtn("ct_draw_line.svg", CtDrawingTool::Line);
-    auto* shapeBtn = addToolBtn("ct_draw_rectangle.svg", CtDrawingTool::Shape);
-    addToolBtn("ct_draw_text.svg", CtDrawingTool::Text);
-    addToolBtn("ct_draw_eraser.svg", CtDrawingTool::Rubber);
 
-    // shape button right-click to toggle Rectangle/Ellipse
-    shapeBtn->signal_button_press_event().connect([this, shapeBtn](GdkEventButton* ev) -> bool {
-        if (ev->button == 3) {
-            _currentShapeType = (_currentShapeType == CtDrawingElementType::Rectangle)
-                ? CtDrawingElementType::Ellipse : CtDrawingElementType::Rectangle;
-            shapeBtn->set_tooltip_text(_currentShapeType == CtDrawingElementType::Rectangle
-                ? _("Shape (Rectangle)") : _("Shape (Ellipse)"));
+    // Line tool — left click opens submenu (Line / Polyline)
+    auto* lineBtn = addToolBtn("ct_draw_line.svg", CtDrawingTool::Line);
+    _pLineToolIcon = dynamic_cast<Gtk::Image*>(lineBtn->get_image());
+    auto* lineMenu = Gtk::manage(new Gtk::Menu());
+    {
+        struct LineEntry { const char* label; const char* icon; CtDrawingElementType type; };
+        LineEntry lineTypes[] = {
+            {_("Line"), "ct_draw_line.svg", CtDrawingElementType::Line},
+            {_("Polyline"), "ct_draw_polyline.svg", CtDrawingElementType::Polyline}
+        };
+        for (auto& lt : lineTypes) {
+            auto* item = Gtk::manage(new Gtk::MenuItem(lt.label));
+            CtDrawingElementType ltype = lt.type;
+            const char* licon = lt.icon;
+            item->signal_activate().connect([this, ltype, licon, lineBtn]() {
+                _currentLineType = ltype;
+                if (_pLineToolIcon) {
+                    _pLineToolIcon->set_from_resource(std::string("/icons/") + licon);
+                    _pLineToolIcon->set_pixel_size(18);
+                }
+                lineBtn->set_tooltip_text(
+                    ltype == CtDrawingElementType::Line ? _("Line") : _("Polyline"));
+                setCurrentTool(CtDrawingTool::Line);
+            });
+            lineMenu->append(*item);
+        }
+        lineMenu->show_all();
+    }
+    lineBtn->signal_button_press_event().connect([this, lineMenu, lineBtn](GdkEventButton* ev) -> bool {
+        if (ev->button == 1) {
+            lineMenu->popup_at_widget(lineBtn, Gdk::GRAVITY_SOUTH, Gdk::GRAVITY_NORTH, nullptr);
             return true;
         }
         return false;
     }, false);
+
+    // Shape tool — left click opens submenu (Rectangle / Ellipse / Triangle / Diamond)
+    auto* shapeBtn = addToolBtn("ct_draw_rectangle.svg", CtDrawingTool::Shape);
+    _pShapeToolIcon = dynamic_cast<Gtk::Image*>(shapeBtn->get_image());
+    auto* shapeMenu = Gtk::manage(new Gtk::Menu());
+    {
+        struct ShapeEntry { const char* label; const char* icon; CtDrawingElementType type; };
+        ShapeEntry shapeTypes[] = {
+            {_("Rectangle"), "ct_draw_rectangle.svg", CtDrawingElementType::Rectangle},
+            {_("Ellipse"), "ct_draw_ellipse.svg", CtDrawingElementType::Ellipse},
+            {_("Triangle"), "ct_draw_triangle.svg", CtDrawingElementType::Triangle},
+            {_("Diamond"), "ct_draw_diamond.svg", CtDrawingElementType::Diamond}
+        };
+        for (auto& st : shapeTypes) {
+            auto* item = Gtk::manage(new Gtk::MenuItem(st.label));
+            CtDrawingElementType stype = st.type;
+            const char* sicon = st.icon;
+            item->signal_activate().connect([this, stype, sicon, shapeBtn]() {
+                _currentShapeType = stype;
+                if (_pShapeToolIcon) {
+                    _pShapeToolIcon->set_from_resource(std::string("/icons/") + sicon);
+                    _pShapeToolIcon->set_pixel_size(18);
+                }
+                shapeBtn->set_tooltip_text(
+                    stype == CtDrawingElementType::Rectangle ? _("Shape (Rectangle)") :
+                    stype == CtDrawingElementType::Ellipse   ? _("Shape (Ellipse)") :
+                    stype == CtDrawingElementType::Triangle   ? _("Shape (Triangle)") :
+                                                                _("Shape (Diamond)"));
+                setCurrentTool(CtDrawingTool::Shape);
+            });
+            shapeMenu->append(*item);
+        }
+        shapeMenu->show_all();
+    }
+    shapeBtn->signal_button_press_event().connect([this, shapeMenu, shapeBtn](GdkEventButton* ev) -> bool {
+        if (ev->button == 1) {
+            shapeMenu->popup_at_widget(shapeBtn, Gdk::GRAVITY_SOUTH, Gdk::GRAVITY_NORTH, nullptr);
+            return true;
+        }
+        return false;
+    }, false);
+
+    addToolBtn("ct_draw_text.svg", CtDrawingTool::Text);
+    addToolBtn("ct_draw_eraser.svg", CtDrawingTool::Rubber);
 
     // separator
     auto* sep1 = Gtk::manage(new Gtk::Separator(Gtk::ORIENTATION_VERTICAL));
@@ -255,15 +362,12 @@ void CtDrawingOverlay::_buildToolbar()
     auto* thickLabel = Gtk::manage(new Gtk::Label("2px"));
     thickBtn->add(*thickLabel);
     auto* thickMenu = Gtk::manage(new Gtk::Menu());
-    struct ThickEntry { const char* label; double w; };
-    ThickEntry thicknesses[] = {{"1px", 1.0}, {"2px", 2.0}, {"4px", 4.0}, {"8px", 8.0}};
-    for (auto& t : thicknesses) {
-        auto* item = Gtk::manage(new Gtk::MenuItem(t.label));
-        double tw = t.w;
-        const char* tl = t.label;
-        item->signal_activate().connect([this, tw, tl, thickLabel]() {
-            _currentLineWidth = tw;
-            thickLabel->set_text(tl);
+    for (int tw = 1; tw <= 10; ++tw) {
+        std::string label = std::to_string(tw) + "px";
+        auto* item = Gtk::manage(new Gtk::MenuItem(label));
+        item->signal_activate().connect([this, tw, thickLabel]() {
+            _currentLineWidth = static_cast<double>(tw);
+            thickLabel->set_text(std::to_string(tw) + "px");
         });
         thickMenu->append(*item);
     }
@@ -313,6 +417,34 @@ void CtDrawingOverlay::_buildToolbar()
     opacMenu->show_all();
     opacBtn->set_popup(*opacMenu);
     _pToolbarBox->pack_start(*opacBtn, false, false);
+
+    // line style dropdown
+    auto* styleBtn = Gtk::manage(new Gtk::MenuButton());
+    styleBtn->get_style_context()->add_provider(css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    styleBtn->set_tooltip_text(_("Line Style"));
+    auto* styleLabel = Gtk::manage(new Gtk::Label(_("Solid")));
+    styleBtn->add(*styleLabel);
+    auto* styleMenu = Gtk::manage(new Gtk::Menu());
+    struct StyleEntry { const char* label; CtDrawingLineStyle style; };
+    StyleEntry styles[] = {
+        {_("Solid"), CtDrawingLineStyle::Solid},
+        {_("Dashed"), CtDrawingLineStyle::Dashed},
+        {_("Dotted"), CtDrawingLineStyle::Dotted},
+        {_("Dash-Dot"), CtDrawingLineStyle::DashDot}
+    };
+    for (auto& s : styles) {
+        auto* item = Gtk::manage(new Gtk::MenuItem(s.label));
+        CtDrawingLineStyle sv = s.style;
+        const char* sl = s.label;
+        item->signal_activate().connect([this, sv, sl, styleLabel]() {
+            _currentLineStyle = sv;
+            styleLabel->set_text(sl);
+        });
+        styleMenu->append(*item);
+    }
+    styleMenu->show_all();
+    styleBtn->set_popup(*styleMenu);
+    _pToolbarBox->pack_start(*styleBtn, false, false);
 
     // filled toggle
     auto* filledBtn = Gtk::manage(new Gtk::ToggleButton(_("Fill")));
@@ -541,11 +673,11 @@ bool CtDrawingOverlay::_onDraw(const Cairo::RefPtr<Cairo::Context>& cr)
         cr->unset_dash();
     }
 
-    // draw preview for line/shape tools
-    if (_previewActive && _selectedCanvasIdx >= 0) {
-        auto nodeModel = docModel->getNodeById(treeIter.get_node_id());
-        if (nodeModel) {
-            const auto& pCanvas = nodeModel->getDrawingCanvases();
+    // draw preview for line/shape tools (not polyline — that has its own block)
+    if (_previewActive && !_polylineActive && _selectedCanvasIdx >= 0) {
+        auto nodeModel2 = docModel->getNodeById(treeIter.get_node_id());
+        if (nodeModel2) {
+            const auto& pCanvas = nodeModel2->getDrawingCanvases();
             if (static_cast<size_t>(_selectedCanvasIdx) < pCanvas.size()) {
                 const auto& canvas = pCanvas[_selectedCanvasIdx];
                 double pcx = canvas.x * zoom - hScroll;
@@ -588,6 +720,19 @@ bool CtDrawingOverlay::_onDraw(const Cairo::RefPtr<Cairo::Context>& cr)
                             cr->restore();
                             cr->stroke();
                         }
+                    } else if (_currentShapeType == CtDrawingElementType::Triangle) {
+                        cr->move_to(rx + rw / 2.0, ry);
+                        cr->line_to(rx, ry + rh);
+                        cr->line_to(rx + rw, ry + rh);
+                        cr->close_path();
+                        cr->stroke();
+                    } else if (_currentShapeType == CtDrawingElementType::Diamond) {
+                        cr->move_to(rx + rw / 2.0, ry);
+                        cr->line_to(rx + rw, ry + rh / 2.0);
+                        cr->line_to(rx + rw / 2.0, ry + rh);
+                        cr->line_to(rx, ry + rh / 2.0);
+                        cr->close_path();
+                        cr->stroke();
                     } else {
                         cr->rectangle(rx, ry, rw, rh);
                         cr->stroke();
@@ -595,6 +740,57 @@ bool CtDrawingOverlay::_onDraw(const Cairo::RefPtr<Cairo::Context>& cr)
                 }
 
                 cr->unset_dash();
+                cr->restore();
+            }
+        }
+    }
+
+    // draw polyline in-progress preview
+    if (_polylineActive && _selectedCanvasIdx >= 0 && !_polylinePoints.empty()) {
+        auto nodeModel3 = docModel->getNodeById(treeIter.get_node_id());
+        if (nodeModel3) {
+            const auto& pCanvas = nodeModel3->getDrawingCanvases();
+            if (static_cast<size_t>(_selectedCanvasIdx) < pCanvas.size()) {
+                const auto& canvas = pCanvas[_selectedCanvasIdx];
+                double pcx = canvas.x * zoom - hScroll;
+                double pcy = canvas.y * zoom - vScroll;
+
+                cr->save();
+                double pcw = canvas.width * zoom;
+                double pch = canvas.height * zoom;
+                _drawRoundedRect(cr, pcx, pcy, pcw, pch, canvas.cornerRadius * zoom);
+                cr->clip();
+
+                double r, g, b;
+                parseColor(_currentColor, r, g, b);
+                cr->set_source_rgba(r, g, b, _currentOpacity);
+                cr->set_line_width(_currentLineWidth * zoom);
+                cr->set_line_cap(Cairo::LINE_CAP_ROUND);
+                cr->set_line_join(Cairo::LINE_JOIN_ROUND);
+
+                // committed segments (solid)
+                if (_polylinePoints.size() >= 2) {
+                    cr->move_to(pcx + _polylinePoints[0].x * zoom,
+                                pcy + _polylinePoints[0].y * zoom);
+                    for (size_t pi = 1; pi < _polylinePoints.size(); ++pi) {
+                        cr->line_to(pcx + _polylinePoints[pi].x * zoom,
+                                    pcy + _polylinePoints[pi].y * zoom);
+                    }
+                    cr->stroke();
+                }
+
+                // dashed segment from last point to current mouse
+                if (_previewActive) {
+                    std::vector<double> dashes{6.0, 4.0};
+                    cr->set_dash(dashes, 0.0);
+                    cr->move_to(pcx + _polylinePoints.back().x * zoom,
+                                pcy + _polylinePoints.back().y * zoom);
+                    cr->line_to(pcx + _previewEnd.x * zoom,
+                                pcy + _previewEnd.y * zoom);
+                    cr->stroke();
+                    cr->unset_dash();
+                }
+
                 cr->restore();
             }
         }
@@ -696,8 +892,11 @@ void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
     cr->set_line_cap(Cairo::LINE_CAP_ROUND);
     cr->set_line_join(Cairo::LINE_JOIN_ROUND);
 
+    applyLineStyle(cr, stroke.lineStyle, stroke.lineWidth * zoom);
+
     switch (stroke.type) {
     case CtDrawingElementType::Text: {
+        cr->unset_dash();
         if (stroke.points.empty() || stroke.textContent.empty()) break;
         auto layout = Pango::Layout::create(cr);
         layout->set_text(stroke.textContent);
@@ -713,6 +912,15 @@ void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
         if (stroke.points.size() < 2) break;
         cr->move_to(cx + stroke.points[0].x * zoom, cy + stroke.points[0].y * zoom);
         cr->line_to(cx + stroke.points[1].x * zoom, cy + stroke.points[1].y * zoom);
+        cr->stroke();
+        break;
+    }
+    case CtDrawingElementType::Polyline: {
+        if (stroke.points.size() < 2) break;
+        cr->move_to(cx + stroke.points[0].x * zoom, cy + stroke.points[0].y * zoom);
+        for (size_t j = 1; j < stroke.points.size(); ++j) {
+            cr->line_to(cx + stroke.points[j].x * zoom, cy + stroke.points[j].y * zoom);
+        }
         cr->stroke();
         break;
     }
@@ -748,6 +956,39 @@ void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
         }
         break;
     }
+    case CtDrawingElementType::Triangle: {
+        if (stroke.points.size() < 2) break;
+        double x0 = cx + stroke.points[0].x * zoom;
+        double y0 = cy + stroke.points[0].y * zoom;
+        double x1 = cx + stroke.points[1].x * zoom;
+        double y1 = cy + stroke.points[1].y * zoom;
+        double rx = std::min(x0, x1), ry = std::min(y0, y1);
+        double rw = std::abs(x1 - x0), rh = std::abs(y1 - y0);
+        cr->move_to(rx + rw / 2.0, ry);
+        cr->line_to(rx, ry + rh);
+        cr->line_to(rx + rw, ry + rh);
+        cr->close_path();
+        if (stroke.filled) { cr->fill_preserve(); }
+        cr->stroke();
+        break;
+    }
+    case CtDrawingElementType::Diamond: {
+        if (stroke.points.size() < 2) break;
+        double x0 = cx + stroke.points[0].x * zoom;
+        double y0 = cy + stroke.points[0].y * zoom;
+        double x1 = cx + stroke.points[1].x * zoom;
+        double y1 = cy + stroke.points[1].y * zoom;
+        double rx = std::min(x0, x1), ry = std::min(y0, y1);
+        double rw = std::abs(x1 - x0), rh = std::abs(y1 - y0);
+        cr->move_to(rx + rw / 2.0, ry);
+        cr->line_to(rx + rw, ry + rh / 2.0);
+        cr->line_to(rx + rw / 2.0, ry + rh);
+        cr->line_to(rx, ry + rh / 2.0);
+        cr->close_path();
+        if (stroke.filled) { cr->fill_preserve(); }
+        cr->stroke();
+        break;
+    }
     case CtDrawingElementType::Freehand:
     default: {
         if (stroke.points.size() < 2) break;
@@ -759,6 +1000,7 @@ void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
         break;
     }
     }
+    cr->unset_dash();
 }
 
 void CtDrawingOverlay::_drawRoundedRect(const Cairo::RefPtr<Cairo::Context>& cr,
@@ -924,6 +1166,68 @@ int CtDrawingOverlay::_hitTestStroke(double mx, double my,
             }
             break;
         }
+        case CtDrawingElementType::Polyline: {
+            for (size_t j = 1; j < pts.size(); ++j) {
+                double d = _distPointToSegment(mx, my,
+                    cx + pts[j-1].x * zoom, cy + pts[j-1].y * zoom,
+                    cx + pts[j].x * zoom, cy + pts[j].y * zoom);
+                if (d < dist) dist = d;
+            }
+            break;
+        }
+        case CtDrawingElementType::Triangle: {
+            if (pts.size() < 2) continue;
+            double x0 = cx + pts[0].x * zoom, y0 = cy + pts[0].y * zoom;
+            double x1 = cx + pts[1].x * zoom, y1 = cy + pts[1].y * zoom;
+            double rx = std::min(x0, x1), ry = std::min(y0, y1);
+            double rw = std::abs(x1 - x0), rh = std::abs(y1 - y0);
+            double tx = rx + rw / 2.0, ty = ry;
+            double bx1 = rx, by1 = ry + rh;
+            double bx2 = rx + rw, by2 = ry + rh;
+            if (stroke.filled) {
+                double d1 = (mx - bx1) * (ty - by1) - (tx - bx1) * (my - by1);
+                double d2 = (mx - bx2) * (by1 - by2) - (bx1 - bx2) * (my - by2);
+                double d3 = (mx - tx) * (by2 - ty) - (bx2 - tx) * (my - ty);
+                bool hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0);
+                bool hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0);
+                if (!(hasNeg && hasPos)) dist = 0.0;
+            }
+            if (dist > 0.0) {
+                double da = _distPointToSegment(mx, my, tx, ty, bx1, by1);
+                double db = _distPointToSegment(mx, my, bx1, by1, bx2, by2);
+                double dc = _distPointToSegment(mx, my, bx2, by2, tx, ty);
+                dist = std::min({da, db, dc});
+            }
+            break;
+        }
+        case CtDrawingElementType::Diamond: {
+            if (pts.size() < 2) continue;
+            double x0 = cx + pts[0].x * zoom, y0 = cy + pts[0].y * zoom;
+            double x1 = cx + pts[1].x * zoom, y1 = cy + pts[1].y * zoom;
+            double rx = std::min(x0, x1), ry = std::min(y0, y1);
+            double rw = std::abs(x1 - x0), rh = std::abs(y1 - y0);
+            double dtop_x = rx + rw / 2.0, dtop_y = ry;
+            double dright_x = rx + rw, dright_y = ry + rh / 2.0;
+            double dbottom_x = rx + rw / 2.0, dbottom_y = ry + rh;
+            double dleft_x = rx, dleft_y = ry + rh / 2.0;
+            if (stroke.filled) {
+                double hw = rw / 2.0, hh = rh / 2.0;
+                double dcx = rx + hw, dcy = ry + hh;
+                if (hw > 0 && hh > 0) {
+                    double nx = std::abs(mx - dcx) / hw;
+                    double ny = std::abs(my - dcy) / hh;
+                    if (nx + ny <= 1.0) dist = 0.0;
+                }
+            }
+            if (dist > 0.0) {
+                double da = _distPointToSegment(mx, my, dtop_x, dtop_y, dright_x, dright_y);
+                double db = _distPointToSegment(mx, my, dright_x, dright_y, dbottom_x, dbottom_y);
+                double dc = _distPointToSegment(mx, my, dbottom_x, dbottom_y, dleft_x, dleft_y);
+                double dd = _distPointToSegment(mx, my, dleft_x, dleft_y, dtop_x, dtop_y);
+                dist = std::min({da, db, dc, dd});
+            }
+            break;
+        }
         case CtDrawingElementType::Freehand:
         default: {
             for (size_t j = 1; j < pts.size(); ++j) {
@@ -1000,6 +1304,7 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
     } else {
         _selectedCanvasIdx = ci;
     }
+    _drawingArea.grab_focus();
 
     auto* bridge = _pMainWin->get_command_bridge();
     auto nodeModel = bridge->getDocumentModel()->getNodeById(_pMainWin->curr_tree_iter().get_node_id());
@@ -1041,7 +1346,39 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
         double px = (event->x - canvasScreenX) / zoom;
         double py = (event->y - canvasScreenY) / zoom;
 
-        if (_currentTool == CtDrawingTool::Line || _currentTool == CtDrawingTool::Shape) {
+        if (_currentTool == CtDrawingTool::Line && _currentLineType == CtDrawingElementType::Polyline) {
+            if (!_polylineActive) {
+                _polylineActive = true;
+                _polylinePoints.clear();
+                _polylinePoints.push_back({px, py});
+                _previewActive = true;
+                _previewEnd = {px, py};
+            } else {
+                if (event->type == GDK_2BUTTON_PRESS) {
+                    _previewActive = false;
+                    _polylineActive = false;
+                    if (_polylinePoints.size() >= 2) {
+                        CtDrawingStroke newStroke;
+                        newStroke.color = _currentColor;
+                        newStroke.lineWidth = _currentLineWidth;
+                        newStroke.opacity = _currentOpacity;
+                        newStroke.lineStyle = _currentLineStyle;
+                        newStroke.type = CtDrawingElementType::Polyline;
+                        newStroke.points = _polylinePoints;
+                        auto cmd = std::make_unique<DrawStrokeCommand>(
+                            bridge->getDocumentModel(), _pMainWin->curr_tree_iter().get_node_id(), ci,
+                            std::move(newStroke));
+                        bridge->executeCommand(std::move(cmd));
+                        _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+                    }
+                    _polylinePoints.clear();
+                } else {
+                    _polylinePoints.push_back({px, py});
+                }
+            }
+            _drawingArea.queue_draw();
+            return true;
+        } else if (_currentTool == CtDrawingTool::Line || _currentTool == CtDrawingTool::Shape) {
             _previewActive = true;
             _previewStart = {px, py};
             _previewEnd = {px, py};
@@ -1064,6 +1401,7 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
             newStroke.color = _currentColor;
             newStroke.lineWidth = _currentLineWidth;
             newStroke.opacity = _currentOpacity;
+            newStroke.lineStyle = _currentLineStyle;
             newStroke.type = CtDrawingElementType::Freehand;
             newStroke.points.push_back({px, py});
             canvasMut.strokes.push_back(std::move(newStroke));
@@ -1082,6 +1420,29 @@ bool CtDrawingOverlay::_onMotionNotify(GdkEventMotion* event)
         _dragCanvasOrigW = event->x - _dragStartX;
         _dragCanvasOrigH = event->y - _dragStartY;
         _drawingArea.queue_draw();
+        return true;
+    }
+
+    if (_polylineActive && _previewActive && _selectedCanvasIdx >= 0) {
+        auto* bridge2 = _pMainWin->get_command_bridge();
+        if (bridge2 && bridge2->isActive()) {
+            auto nm = bridge2->getDocumentModel()->getNodeById(_pMainWin->curr_tree_iter().get_node_id());
+            if (nm) {
+                const auto& canvases2 = nm->getDrawingCanvases();
+                if (static_cast<size_t>(_selectedCanvasIdx) < canvases2.size()) {
+                    double zoom2 = _pMainWin->get_rt_zoom_scale_factor();
+                    auto hAdj2 = _pMainWin->getScrolledwindowText().get_hadjustment();
+                    auto vAdj2 = _pMainWin->getScrolledwindowText().get_vadjustment();
+                    double hS = hAdj2 ? hAdj2->get_value() : 0.0;
+                    double vS = vAdj2 ? vAdj2->get_value() : 0.0;
+                    double ccx = canvases2[_selectedCanvasIdx].x * zoom2 - hS;
+                    double ccy = canvases2[_selectedCanvasIdx].y * zoom2 - vS;
+                    _previewEnd.x = (event->x - ccx) / zoom2;
+                    _previewEnd.y = (event->y - ccy) / zoom2;
+                    _drawingArea.queue_draw();
+                }
+            }
+        }
         return true;
     }
 
@@ -1326,11 +1687,12 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
                 newStroke.color = _currentColor;
                 newStroke.lineWidth = _currentLineWidth;
                 newStroke.opacity = _currentOpacity;
+                newStroke.lineStyle = _currentLineStyle;
                 newStroke.filled = _currentFilled;
                 newStroke.points.push_back(_previewStart);
                 newStroke.points.push_back(_previewEnd);
                 if (_currentTool == CtDrawingTool::Line) {
-                    newStroke.type = CtDrawingElementType::Line;
+                    newStroke.type = _currentLineType;
                 } else {
                     newStroke.type = _currentShapeType;
                 }
@@ -1435,6 +1797,7 @@ void CtDrawingOverlay::_showTextDialog(double canvasX, double canvasY, size_t ca
     stroke.color = _currentColor;
     stroke.lineWidth = _currentLineWidth;
     stroke.opacity = _currentOpacity;
+    stroke.lineStyle = _currentLineStyle;
     stroke.textContent = text;
     stroke.fontFamily = family;
     stroke.fontSize = fsize;
