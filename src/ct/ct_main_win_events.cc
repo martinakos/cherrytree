@@ -125,8 +125,11 @@ void CtMainWin::_on_treeview_cursor_changed()
         window_header_update_bookmark_icon(is_bookmarked);
     }
 
-    // Reset drawing overlay selection on node switch
+    // Deactivate drawing edit mode on node switch
     if (_pDrawingOverlay) {
+        if (_pDrawingOverlay->isDrawingMode()) {
+            _pDrawingOverlay->setDrawingMode(false);
+        }
         _pDrawingOverlay->resetSelection();
     }
 

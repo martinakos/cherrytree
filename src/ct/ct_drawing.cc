@@ -254,8 +254,11 @@ void CtDrawingOverlay::_buildToolbar()
             tool == CtDrawingTool::Line   ? _("Line") :
             tool == CtDrawingTool::Shape  ? _("Shape") :
             tool == CtDrawingTool::Text   ? _("Text") :
-                                            _("Eraser"));
+            tool == CtDrawingTool::Rubber ? _("Eraser") :
+            tool == CtDrawingTool::Move   ? _("Move") :
+                                            _("Rotate"));
         btn->signal_clicked().connect([this, btn, tool]() {
+            if (_updatingToolButtons) return;
             if (btn->get_active()) {
                 setCurrentTool(tool);
             } else if (_currentTool == tool) {
@@ -348,6 +351,40 @@ void CtDrawingOverlay::_buildToolbar()
 
     addToolBtn("ct_draw_text.svg", CtDrawingTool::Text);
     addToolBtn("ct_draw_eraser.svg", CtDrawingTool::Rubber);
+    // Move/Rotate tool — left click opens submenu
+    auto* moveBtn = addToolBtn("ct_draw_move.svg", CtDrawingTool::Move);
+    _pMoveToolIcon = dynamic_cast<Gtk::Image*>(moveBtn->get_image());
+    auto* moveMenu = Gtk::manage(new Gtk::Menu());
+    {
+        struct MoveEntry { const char* label; const char* icon; CtDrawingTool tool; };
+        MoveEntry moveTypes[] = {
+            {_("Move"), "ct_draw_move.svg", CtDrawingTool::Move},
+            {_("Rotate"), "ct_draw_rotate.svg", CtDrawingTool::Rotate}
+        };
+        for (auto& mt : moveTypes) {
+            auto* item = Gtk::manage(new Gtk::MenuItem(mt.label));
+            CtDrawingTool mtool = mt.tool;
+            const char* micon = mt.icon;
+            item->signal_activate().connect([this, mtool, micon, moveBtn]() {
+                if (_pMoveToolIcon) {
+                    _pMoveToolIcon->set_from_resource(std::string("/icons/") + micon);
+                    _pMoveToolIcon->set_pixel_size(18);
+                }
+                moveBtn->set_tooltip_text(
+                    mtool == CtDrawingTool::Move ? _("Move") : _("Rotate"));
+                setCurrentTool(mtool);
+            });
+            moveMenu->append(*item);
+        }
+        moveMenu->show_all();
+    }
+    moveBtn->signal_button_press_event().connect([this, moveMenu, moveBtn](GdkEventButton* ev) -> bool {
+        if (ev->button == 1) {
+            moveMenu->popup_at_widget(moveBtn, Gdk::GRAVITY_SOUTH, Gdk::GRAVITY_NORTH, nullptr);
+            return true;
+        }
+        return false;
+    }, false);
 
     // separator
     auto* sep1 = Gtk::manage(new Gtk::Separator(Gtk::ORIENTATION_VERTICAL));
@@ -622,14 +659,22 @@ void CtDrawingOverlay::_updateToolbarPosition()
 
 void CtDrawingOverlay::_updateToolButtonStates()
 {
-    if (_toolButtons.size() < 5) return;
+    if (_toolButtons.size() < 6) return;
+    _updatingToolButtons = true;
     CtDrawingTool tools[] = {
         CtDrawingTool::Pencil, CtDrawingTool::Line,
-        CtDrawingTool::Shape, CtDrawingTool::Text, CtDrawingTool::Rubber
+        CtDrawingTool::Shape, CtDrawingTool::Text,
+        CtDrawingTool::Rubber, CtDrawingTool::Move
     };
-    for (size_t i = 0; i < 5; ++i) {
-        _toolButtons[i]->set_active(_currentTool == tools[i]);
+    for (size_t i = 0; i < 6; ++i) {
+        if (i == 5) {
+            _toolButtons[i]->set_active(_currentTool == CtDrawingTool::Move ||
+                                        _currentTool == CtDrawingTool::Rotate);
+        } else {
+            _toolButtons[i]->set_active(_currentTool == tools[i]);
+        }
     }
+    _updatingToolButtons = false;
 }
 
 bool CtDrawingOverlay::_onDraw(const Cairo::RefPtr<Cairo::Context>& cr)
@@ -881,6 +926,40 @@ void CtDrawingOverlay::_drawCanvas(const Cairo::RefPtr<Cairo::Context>& cr,
     cr->restore();
 }
 
+void CtDrawingOverlay::_strokeCenter(const CtDrawingStroke& stroke, double& centerX, double& centerY)
+{
+    if (stroke.points.empty()) { centerX = centerY = 0.0; return; }
+    if (stroke.type == CtDrawingElementType::Text && !stroke.textContent.empty()) {
+        auto layout = _drawingArea.create_pango_layout(stroke.textContent);
+        Pango::FontDescription fd;
+        fd.set_family(stroke.fontFamily);
+        fd.set_size(static_cast<int>(stroke.fontSize * Pango::SCALE));
+        layout->set_font_description(fd);
+        int pw, ph;
+        layout->get_pixel_size(pw, ph);
+        centerX = stroke.points[0].x + pw / 2.0;
+        centerY = stroke.points[0].y + ph / 2.0;
+        return;
+    }
+    if (stroke.points.size() == 1) {
+        centerX = stroke.points[0].x;
+        centerY = stroke.points[0].y;
+        return;
+    }
+    if (stroke.type == CtDrawingElementType::Freehand || stroke.type == CtDrawingElementType::Polyline) {
+        centerX = centerY = 0.0;
+        for (const auto& p : stroke.points) {
+            centerX += p.x;
+            centerY += p.y;
+        }
+        centerX /= stroke.points.size();
+        centerY /= stroke.points.size();
+    } else {
+        centerX = (stroke.points[0].x + stroke.points[1].x) / 2.0;
+        centerY = (stroke.points[0].y + stroke.points[1].y) / 2.0;
+    }
+}
+
 void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
                                     const CtDrawingStroke& stroke,
                                     double cx, double cy, double zoom)
@@ -893,6 +972,17 @@ void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
     cr->set_line_join(Cairo::LINE_JOIN_ROUND);
 
     applyLineStyle(cr, stroke.lineStyle, stroke.lineWidth * zoom);
+
+    if (std::abs(stroke.rotation) > 1e-6) {
+        double scx, scy;
+        _strokeCenter(stroke, scx, scy);
+        double pivotX = cx + scx * zoom;
+        double pivotY = cy + scy * zoom;
+        cr->save();
+        cr->translate(pivotX, pivotY);
+        cr->rotate(stroke.rotation);
+        cr->translate(-pivotX, -pivotY);
+    }
 
     switch (stroke.type) {
     case CtDrawingElementType::Text: {
@@ -1001,6 +1091,10 @@ void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
     }
     }
     cr->unset_dash();
+
+    if (std::abs(stroke.rotation) > 1e-6) {
+        cr->restore();
+    }
 }
 
 void CtDrawingOverlay::_drawRoundedRect(const Cairo::RefPtr<Cairo::Context>& cr,
@@ -1103,6 +1197,22 @@ int CtDrawingOverlay::_hitTestStroke(double mx, double my,
         const auto& stroke = canvas.strokes[si];
         const auto& pts = stroke.points;
         double dist = threshold + 1.0;
+
+        double lmx = mx, lmy = my;
+        if (std::abs(stroke.rotation) > 1e-6) {
+            double scx, scy;
+            _strokeCenter(stroke, scx, scy);
+            double pivotX = cx + scx * zoom;
+            double pivotY = cy + scy * zoom;
+            double cosA = std::cos(-stroke.rotation);
+            double sinA = std::sin(-stroke.rotation);
+            double rdx = mx - pivotX, rdy = my - pivotY;
+            lmx = pivotX + rdx * cosA - rdy * sinA;
+            lmy = pivotY + rdx * sinA + rdy * cosA;
+        }
+        // use lmx/lmy (inverse-rotated mouse) for all hit tests below
+        #define mx lmx
+        #define my lmy
 
         switch (stroke.type) {
         case CtDrawingElementType::Text: {
@@ -1240,6 +1350,9 @@ int CtDrawingOverlay::_hitTestStroke(double mx, double my,
         }
         }
 
+        #undef mx
+        #undef my
+
         if (dist < bestDist) {
             bestDist = dist;
             bestIdx = static_cast<int>(si);
@@ -1328,6 +1441,33 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
         _resizeZone = zone;
     }
     else if (zone == CtDrawingHitZone::Interior) {
+        if (_currentTool == CtDrawingTool::Move) {
+            int si = _hitTestStroke(event->x, event->y, canvas, hScroll, vScroll, zoom);
+            if (si >= 0) {
+                _moveStrokeIdx = si;
+                _moveStrokeOrigPoints = canvas.strokes[si].points;
+                _dragType = CtDrawingDragType::MoveStroke;
+            }
+            return true;
+        }
+
+        if (_currentTool == CtDrawingTool::Rotate) {
+            int si = _hitTestStroke(event->x, event->y, canvas, hScroll, vScroll, zoom);
+            if (si >= 0) {
+                _rotateStrokeIdx = si;
+                _rotateOrigRotation = canvas.strokes[si].rotation;
+                double scx, scy;
+                _strokeCenter(canvas.strokes[si], scx, scy);
+                double canvasScreenX = canvas.x * zoom - hScroll;
+                double canvasScreenY = canvas.y * zoom - vScroll;
+                double emx = (event->x - canvasScreenX) / zoom;
+                double emy = (event->y - canvasScreenY) / zoom;
+                _rotateStartAngle = std::atan2(emy - scy, emx - scx);
+                _dragType = CtDrawingDragType::RotateStroke;
+            }
+            return true;
+        }
+
         if (_currentTool == CtDrawingTool::Rubber) {
             int si = _hitTestStroke(event->x, event->y, canvas, hScroll, vScroll, zoom);
             if (si >= 0) {
@@ -1473,6 +1613,14 @@ bool CtDrawingOverlay::_onMotionNotify(GdkEventMotion* event)
                         case CtDrawingHitZone::Top:         cursorType = Gdk::TOP_SIDE; break;
                         case CtDrawingHitZone::Bottom:      cursorType = Gdk::BOTTOM_SIDE; break;
                         case CtDrawingHitZone::Header:      cursorType = Gdk::FLEUR; break;
+                        case CtDrawingHitZone::Interior:
+                            if (_currentTool == CtDrawingTool::Move ||
+                                _currentTool == CtDrawingTool::Rotate) {
+                                const auto& canvases2 = nodeModel->getDrawingCanvases();
+                                int si = _hitTestStroke(event->x, event->y, canvases2[ci], hScroll, vScroll, zoom);
+                                if (si >= 0) cursorType = _currentTool == CtDrawingTool::Move ? Gdk::FLEUR : Gdk::EXCHANGE;
+                            }
+                            break;
                         default: break;
                     }
                 }
@@ -1509,6 +1657,38 @@ bool CtDrawingOverlay::_onMotionNotify(GdkEventMotion* event)
         canvas.y = _dragCanvasOrigY + dy;
         if (_toolbarVisible) _updateToolbarPosition();
         _drawingArea.queue_draw();
+        return true;
+    }
+
+    if (_dragType == CtDrawingDragType::MoveStroke) {
+        if (_moveStrokeIdx >= 0 && static_cast<size_t>(_moveStrokeIdx) < canvas.strokes.size()) {
+            auto& pts = canvas.strokes[_moveStrokeIdx].points;
+            for (size_t i = 0; i < pts.size(); ++i) {
+                pts[i].x = _moveStrokeOrigPoints[i].x + dx;
+                pts[i].y = _moveStrokeOrigPoints[i].y + dy;
+            }
+            _drawingArea.queue_draw();
+        }
+        return true;
+    }
+
+    if (_dragType == CtDrawingDragType::RotateStroke) {
+        if (_rotateStrokeIdx >= 0 && static_cast<size_t>(_rotateStrokeIdx) < canvas.strokes.size()) {
+            auto hAdj = _pMainWin->getScrolledwindowText().get_hadjustment();
+            auto vAdj = _pMainWin->getScrolledwindowText().get_vadjustment();
+            double hScroll = hAdj ? hAdj->get_value() : 0.0;
+            double vScroll = vAdj ? vAdj->get_value() : 0.0;
+            double scx, scy;
+            _strokeCenter(canvas.strokes[_rotateStrokeIdx], scx, scy);
+            double canvasScreenX = canvas.x * zoom - hScroll;
+            double canvasScreenY = canvas.y * zoom - vScroll;
+            double emx = (event->x - canvasScreenX) / zoom;
+            double emy = (event->y - canvasScreenY) / zoom;
+            double currentAngle = std::atan2(emy - scy, emx - scx);
+            double delta = currentAngle - _rotateStartAngle;
+            canvas.strokes[_rotateStrokeIdx].rotation = _rotateOrigRotation + delta;
+            _drawingArea.queue_draw();
+        }
         return true;
     }
 
@@ -1659,6 +1839,45 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
             bridge->executeCommand(std::move(cmd));
             _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
         }
+    }
+    else if (_dragType == CtDrawingDragType::MoveStroke) {
+        if (_moveStrokeIdx >= 0 && static_cast<size_t>(_moveStrokeIdx) < canvas.strokes.size()) {
+            auto newPoints = canvas.strokes[_moveStrokeIdx].points;
+            canvas.strokes[_moveStrokeIdx].points = _moveStrokeOrigPoints;
+            bool moved = false;
+            for (size_t i = 0; i < newPoints.size(); ++i) {
+                if (newPoints[i].x != _moveStrokeOrigPoints[i].x ||
+                    newPoints[i].y != _moveStrokeOrigPoints[i].y) {
+                    moved = true;
+                    break;
+                }
+            }
+            if (moved) {
+                auto cmd = std::make_unique<MoveStrokeCommand>(
+                    bridge->getDocumentModel(), treeIter.get_node_id(), ci,
+                    static_cast<size_t>(_moveStrokeIdx),
+                    _moveStrokeOrigPoints, std::move(newPoints));
+                bridge->executeCommand(std::move(cmd));
+                _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+            }
+        }
+        _moveStrokeIdx = -1;
+        _moveStrokeOrigPoints.clear();
+    }
+    else if (_dragType == CtDrawingDragType::RotateStroke) {
+        if (_rotateStrokeIdx >= 0 && static_cast<size_t>(_rotateStrokeIdx) < canvas.strokes.size()) {
+            double newRotation = canvas.strokes[_rotateStrokeIdx].rotation;
+            canvas.strokes[_rotateStrokeIdx].rotation = _rotateOrigRotation;
+            if (std::abs(newRotation - _rotateOrigRotation) > 1e-6) {
+                auto cmd = std::make_unique<RotateStrokeCommand>(
+                    bridge->getDocumentModel(), treeIter.get_node_id(), ci,
+                    static_cast<size_t>(_rotateStrokeIdx),
+                    _rotateOrigRotation, newRotation);
+                bridge->executeCommand(std::move(cmd));
+                _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+            }
+        }
+        _rotateStrokeIdx = -1;
     }
     else if (_dragType == CtDrawingDragType::Resize) {
         double newX = canvas.x, newY = canvas.y;
