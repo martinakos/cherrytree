@@ -28,6 +28,7 @@
 #include "ct_drawing_commands.h"
 #include "ct_storage_xml.h"
 #include "gtest/gtest.h"
+#include <cmath>
 #include <memory>
 
 static CtDrawingStroke makeStroke(const std::string& color, double lineWidth,
@@ -1415,4 +1416,101 @@ TEST(DrawingXmlTest, RoundTrip_AllNewTypesWithLineStyles)
 
     EXPECT_EQ(CtDrawingElementType::Line, result[0].strokes[3].type);
     EXPECT_EQ(CtDrawingLineStyle::Solid, result[0].strokes[3].lineStyle);
+}
+
+// ── Rotation tests ──────────────────────────────────────────────────────────
+
+TEST(DrawingStrokeDefaults, Rotation_DefaultIsZero)
+{
+    CtDrawingStroke s;
+    EXPECT_DOUBLE_EQ(0.0, s.rotation);
+}
+
+TEST_F(DrawingCommandTest, RotateStrokeCommand_ExecuteAndUndo)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    auto& strokes = node->getDrawingCanvasesMut()[0].strokes;
+    strokes.push_back(makeStroke("#ff0000", 2.0, {{10,10},{50,50}}));
+
+    RotateStrokeCommand cmd(model, 1, 0, 0, 0.0, M_PI / 4.0);
+
+    cmd.execute();
+    EXPECT_DOUBLE_EQ(M_PI / 4.0, node->getDrawingCanvases()[0].strokes[0].rotation);
+
+    cmd.undo();
+    EXPECT_DOUBLE_EQ(0.0, node->getDrawingCanvases()[0].strokes[0].rotation);
+}
+
+TEST_F(DrawingCommandTest, RotateStrokeCommand_Redo)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    auto& strokes = node->getDrawingCanvasesMut()[0].strokes;
+    strokes.push_back(makeStroke("#ff0000", 2.0, {{10,10},{50,50}}));
+
+    RotateStrokeCommand cmd(model, 1, 0, 0, 0.0, 1.5);
+
+    cmd.execute();
+    cmd.undo();
+    EXPECT_DOUBLE_EQ(0.0, node->getDrawingCanvases()[0].strokes[0].rotation);
+    cmd.execute();
+    EXPECT_DOUBLE_EQ(1.5, node->getDrawingCanvases()[0].strokes[0].rotation);
+}
+
+TEST_F(DrawingCommandTest, RotateStrokeCommand_NotifiesObserver)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    node->getDrawingCanvasesMut()[0].strokes.push_back(
+        makeStroke("#ff0000", 2.0, {{10,10},{50,50}}));
+
+    DrawingObserverLog log;
+    model->addObserver(&log);
+
+    RotateStrokeCommand cmd(model, 1, 0, 0, 0.0, M_PI / 2.0);
+    cmd.execute();
+    EXPECT_EQ(1, log.drawingChangedCount);
+    EXPECT_EQ(1, log.lastDrawingNodeId);
+
+    cmd.undo();
+    EXPECT_EQ(2, log.drawingChangedCount);
+
+    model->removeObserver(&log);
+}
+
+TEST(DrawingXmlTest, RoundTrip_Rotation)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    auto c = makeCanvas(0, 0, 300, 250);
+    auto s = makeStroke("#ff0000", 2.0, {{10,10},{50,50}});
+    s.rotation = M_PI / 3.0;
+    c.strokes.push_back(std::move(s));
+    canvases.push_back(std::move(c));
+
+    xmlpp::Document doc;
+    auto* root = doc.create_root_node("node");
+    CtXmlHelper::drawing_canvases_to_xml(root, canvases);
+    auto result = CtXmlHelper::drawing_canvases_from_xml(root);
+
+    ASSERT_EQ(1u, result[0].strokes.size());
+    EXPECT_NEAR(M_PI / 3.0, result[0].strokes[0].rotation, 1e-6);
+}
+
+TEST(DrawingXmlTest, RoundTrip_ZeroRotationOmitted)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    auto c = makeCanvas(0, 0, 300, 250);
+    auto s = makeStroke("#ff0000", 2.0, {{10,10},{50,50}});
+    s.rotation = 0.0;
+    c.strokes.push_back(std::move(s));
+    canvases.push_back(std::move(c));
+
+    xmlpp::Document doc;
+    auto* root = doc.create_root_node("node");
+    CtXmlHelper::drawing_canvases_to_xml(root, canvases);
+    auto result = CtXmlHelper::drawing_canvases_from_xml(root);
+
+    ASSERT_EQ(1u, result[0].strokes.size());
+    EXPECT_DOUBLE_EQ(0.0, result[0].strokes[0].rotation);
 }

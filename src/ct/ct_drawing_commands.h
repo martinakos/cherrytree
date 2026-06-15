@@ -117,6 +117,97 @@ private:
     size_t _strokeIdx;
 };
 
+class RotateStrokeCommand : public CtCommand {
+public:
+    RotateStrokeCommand(std::shared_ptr<CtDocumentModel> docModel,
+                        gint64 nodeId, size_t canvasIdx, size_t strokeIdx,
+                        double oldRotation, double newRotation)
+        : _docModel(std::move(docModel))
+        , _nodeId(nodeId)
+        , _canvasIdx(canvasIdx)
+        , _strokeIdx(strokeIdx)
+        , _oldRotation(oldRotation)
+        , _newRotation(newRotation)
+    {}
+
+    void execute() override {
+        auto node = _docModel->getNodeById(_nodeId);
+        if (!node) return;
+        auto& canvases = node->getDrawingCanvasesMut();
+        if (_canvasIdx < canvases.size() && _strokeIdx < canvases[_canvasIdx].strokes.size()) {
+            canvases[_canvasIdx].strokes[_strokeIdx].rotation = _newRotation;
+            _docModel->notifyNodeDrawingChanged(_nodeId);
+        }
+    }
+
+    void undo() override {
+        auto node = _docModel->getNodeById(_nodeId);
+        if (!node) return;
+        auto& canvases = node->getDrawingCanvasesMut();
+        if (_canvasIdx < canvases.size() && _strokeIdx < canvases[_canvasIdx].strokes.size()) {
+            canvases[_canvasIdx].strokes[_strokeIdx].rotation = _oldRotation;
+            _docModel->notifyNodeDrawingChanged(_nodeId);
+        }
+    }
+
+    std::string getDescription() const override { return "Rotate stroke"; }
+    gint64 getNodeId() const override { return _nodeId; }
+
+private:
+    std::shared_ptr<CtDocumentModel> _docModel;
+    gint64 _nodeId;
+    size_t _canvasIdx;
+    size_t _strokeIdx;
+    double _oldRotation;
+    double _newRotation;
+};
+
+class MoveStrokeCommand : public CtCommand {
+public:
+    MoveStrokeCommand(std::shared_ptr<CtDocumentModel> docModel,
+                      gint64 nodeId, size_t canvasIdx, size_t strokeIdx,
+                      std::vector<CtDrawingPoint> oldPoints,
+                      std::vector<CtDrawingPoint> newPoints)
+        : _docModel(std::move(docModel))
+        , _nodeId(nodeId)
+        , _canvasIdx(canvasIdx)
+        , _strokeIdx(strokeIdx)
+        , _oldPoints(std::move(oldPoints))
+        , _newPoints(std::move(newPoints))
+    {}
+
+    void execute() override {
+        auto node = _docModel->getNodeById(_nodeId);
+        if (!node) return;
+        auto& canvases = node->getDrawingCanvasesMut();
+        if (_canvasIdx < canvases.size() && _strokeIdx < canvases[_canvasIdx].strokes.size()) {
+            canvases[_canvasIdx].strokes[_strokeIdx].points = _newPoints;
+            _docModel->notifyNodeDrawingChanged(_nodeId);
+        }
+    }
+
+    void undo() override {
+        auto node = _docModel->getNodeById(_nodeId);
+        if (!node) return;
+        auto& canvases = node->getDrawingCanvasesMut();
+        if (_canvasIdx < canvases.size() && _strokeIdx < canvases[_canvasIdx].strokes.size()) {
+            canvases[_canvasIdx].strokes[_strokeIdx].points = _oldPoints;
+            _docModel->notifyNodeDrawingChanged(_nodeId);
+        }
+    }
+
+    std::string getDescription() const override { return "Move stroke"; }
+    gint64 getNodeId() const override { return _nodeId; }
+
+private:
+    std::shared_ptr<CtDocumentModel> _docModel;
+    gint64 _nodeId;
+    size_t _canvasIdx;
+    size_t _strokeIdx;
+    std::vector<CtDrawingPoint> _oldPoints;
+    std::vector<CtDrawingPoint> _newPoints;
+};
+
 class AddCanvasCommand : public CtCommand {
 public:
     AddCanvasCommand(std::shared_ptr<CtDocumentModel> docModel,
