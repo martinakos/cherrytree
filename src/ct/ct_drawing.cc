@@ -283,7 +283,14 @@ void CtDrawingOverlay::_buildToolbar()
             {_("Polyline"), "ct_draw_polyline.svg", CtDrawingElementType::Polyline}
         };
         for (auto& lt : lineTypes) {
-            auto* item = Gtk::manage(new Gtk::MenuItem(lt.label));
+            auto* img = Gtk::manage(new Gtk::Image());
+            img->set_from_resource(std::string("/icons/") + lt.icon);
+            img->set_pixel_size(16);
+            auto* box = Gtk::manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 6));
+            box->pack_start(*img, false, false);
+            box->pack_start(*Gtk::manage(new Gtk::Label(lt.label)), false, false);
+            auto* item = Gtk::manage(new Gtk::MenuItem());
+            item->add(*box);
             CtDrawingElementType ltype = lt.type;
             const char* licon = lt.icon;
             item->signal_activate().connect([this, ltype, licon, lineBtn]() {
@@ -321,7 +328,14 @@ void CtDrawingOverlay::_buildToolbar()
             {_("Diamond"), "ct_draw_diamond.svg", CtDrawingElementType::Diamond}
         };
         for (auto& st : shapeTypes) {
-            auto* item = Gtk::manage(new Gtk::MenuItem(st.label));
+            auto* img = Gtk::manage(new Gtk::Image());
+            img->set_from_resource(std::string("/icons/") + st.icon);
+            img->set_pixel_size(16);
+            auto* box = Gtk::manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 6));
+            box->pack_start(*img, false, false);
+            box->pack_start(*Gtk::manage(new Gtk::Label(st.label)), false, false);
+            auto* item = Gtk::manage(new Gtk::MenuItem());
+            item->add(*box);
             CtDrawingElementType stype = st.type;
             const char* sicon = st.icon;
             item->signal_activate().connect([this, stype, sicon, shapeBtn]() {
@@ -362,7 +376,14 @@ void CtDrawingOverlay::_buildToolbar()
             {_("Rotate"), "ct_draw_rotate.svg", CtDrawingTool::Rotate}
         };
         for (auto& mt : moveTypes) {
-            auto* item = Gtk::manage(new Gtk::MenuItem(mt.label));
+            auto* img = Gtk::manage(new Gtk::Image());
+            img->set_from_resource(std::string("/icons/") + mt.icon);
+            img->set_pixel_size(16);
+            auto* box = Gtk::manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 6));
+            box->pack_start(*img, false, false);
+            box->pack_start(*Gtk::manage(new Gtk::Label(mt.label)), false, false);
+            auto* item = Gtk::manage(new Gtk::MenuItem());
+            item->add(*box);
             CtDrawingTool mtool = mt.tool;
             const char* micon = mt.icon;
             item->signal_activate().connect([this, mtool, micon, moveBtn]() {
@@ -412,6 +433,34 @@ void CtDrawingOverlay::_buildToolbar()
     thickBtn->set_popup(*thickMenu);
     _pToolbarBox->pack_start(*thickBtn, false, false);
 
+    // line style dropdown
+    auto* styleBtn = Gtk::manage(new Gtk::MenuButton());
+    styleBtn->get_style_context()->add_provider(css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    styleBtn->set_tooltip_text(_("Line Style"));
+    auto* styleLabel = Gtk::manage(new Gtk::Label(_("Solid")));
+    styleBtn->add(*styleLabel);
+    auto* styleMenu = Gtk::manage(new Gtk::Menu());
+    struct StyleEntry { const char* label; CtDrawingLineStyle style; };
+    StyleEntry styles[] = {
+        {_("Solid"), CtDrawingLineStyle::Solid},
+        {_("Dashed"), CtDrawingLineStyle::Dashed},
+        {_("Dotted"), CtDrawingLineStyle::Dotted},
+        {_("Dash-Dot"), CtDrawingLineStyle::DashDot}
+    };
+    for (auto& s : styles) {
+        auto* item = Gtk::manage(new Gtk::MenuItem(s.label));
+        CtDrawingLineStyle sv = s.style;
+        const char* sl = s.label;
+        item->signal_activate().connect([this, sv, sl, styleLabel]() {
+            _currentLineStyle = sv;
+            styleLabel->set_text(sl);
+        });
+        styleMenu->append(*item);
+    }
+    styleMenu->show_all();
+    styleBtn->set_popup(*styleMenu);
+    _pToolbarBox->pack_start(*styleBtn, false, false);
+
     // color button
     auto* colorBtn = Gtk::manage(new Gtk::ColorButton());
     colorBtn->get_style_context()->add_provider(css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
@@ -454,34 +503,6 @@ void CtDrawingOverlay::_buildToolbar()
     opacMenu->show_all();
     opacBtn->set_popup(*opacMenu);
     _pToolbarBox->pack_start(*opacBtn, false, false);
-
-    // line style dropdown
-    auto* styleBtn = Gtk::manage(new Gtk::MenuButton());
-    styleBtn->get_style_context()->add_provider(css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    styleBtn->set_tooltip_text(_("Line Style"));
-    auto* styleLabel = Gtk::manage(new Gtk::Label(_("Solid")));
-    styleBtn->add(*styleLabel);
-    auto* styleMenu = Gtk::manage(new Gtk::Menu());
-    struct StyleEntry { const char* label; CtDrawingLineStyle style; };
-    StyleEntry styles[] = {
-        {_("Solid"), CtDrawingLineStyle::Solid},
-        {_("Dashed"), CtDrawingLineStyle::Dashed},
-        {_("Dotted"), CtDrawingLineStyle::Dotted},
-        {_("Dash-Dot"), CtDrawingLineStyle::DashDot}
-    };
-    for (auto& s : styles) {
-        auto* item = Gtk::manage(new Gtk::MenuItem(s.label));
-        CtDrawingLineStyle sv = s.style;
-        const char* sl = s.label;
-        item->signal_activate().connect([this, sv, sl, styleLabel]() {
-            _currentLineStyle = sv;
-            styleLabel->set_text(sl);
-        });
-        styleMenu->append(*item);
-    }
-    styleMenu->show_all();
-    styleBtn->set_popup(*styleMenu);
-    _pToolbarBox->pack_start(*styleBtn, false, false);
 
     // filled toggle
     auto* filledBtn = Gtk::manage(new Gtk::ToggleButton(_("Fill")));
