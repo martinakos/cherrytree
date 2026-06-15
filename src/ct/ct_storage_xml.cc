@@ -1040,6 +1040,9 @@ void CtXmlHelper::drawing_canvases_to_xml(xmlpp::Element* p_node_node,
             if (stroke.filled) {
                 p_stroke->set_attribute("filled", "1");
             }
+            if (std::abs(stroke.rotation) > 1e-6) {
+                p_stroke->set_attribute("rotation", std::to_string(stroke.rotation));
+            }
             if (!stroke.textContent.empty()) {
                 p_stroke->set_attribute("text", stroke.textContent);
             }
@@ -1097,6 +1100,8 @@ std::vector<CtDrawingCanvas> CtXmlHelper::drawing_canvases_from_xml(const xmlpp:
                 if (!lineStyleStr.empty()) stroke.lineStyle = static_cast<CtDrawingLineStyle>(std::stoi(lineStyleStr));
                 auto filledStr = strokeElem->get_attribute_value("filled");
                 if (!filledStr.empty()) stroke.filled = (filledStr == "1");
+                auto rotationStr = strokeElem->get_attribute_value("rotation");
+                if (!rotationStr.empty()) stroke.rotation = std::stod(rotationStr);
                 auto textStr = strokeElem->get_attribute_value("text");
                 if (!textStr.empty()) stroke.textContent = textStr;
                 auto fontFamStr = strokeElem->get_attribute_value("font_family");

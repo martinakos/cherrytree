@@ -53,7 +53,9 @@ enum class CtDrawingTool {
     Line,
     Shape,
     Text,
-    Rubber
+    Rubber,
+    Move,
+    Rotate
 };
 
 struct CtDrawingPoint {
@@ -72,6 +74,7 @@ struct CtDrawingStroke {
     std::string textContent;
     std::string fontFamily{"Sans"};
     double fontSize{14.0};
+    double rotation{0.0};
 };
 
 struct CtDrawingCanvas {
@@ -106,7 +109,9 @@ enum class CtDrawingDragType {
     Move,
     Draw,
     Resize,
-    CreateCanvas
+    CreateCanvas,
+    MoveStroke,
+    RotateStroke
 };
 
 class CtDrawingOverlay {
@@ -188,6 +193,8 @@ private:
                      const CtDrawingStroke& stroke,
                      double cx, double cy, double zoom);
 
+    void _strokeCenter(const CtDrawingStroke& stroke, double& centerX, double& centerY);
+
     static std::optional<CtDrawingCanvas> _clipboard;
 
     CtMainWin* _pMainWin;
@@ -224,6 +231,7 @@ private:
 
     Gtk::Image* _pLineToolIcon{nullptr};
     Gtk::Image* _pShapeToolIcon{nullptr};
+    Gtk::Image* _pMoveToolIcon{nullptr};
 
     CtDrawingDragType _dragType{CtDrawingDragType::None};
     CtDrawingHitZone _resizeZone{CtDrawingHitZone::None};
@@ -233,6 +241,15 @@ private:
     double _dragCanvasOrigY{0.0};
     double _dragCanvasOrigW{0.0};
     double _dragCanvasOrigH{0.0};
+
+    int _moveStrokeIdx{-1};
+    std::vector<CtDrawingPoint> _moveStrokeOrigPoints;
+
+    int _rotateStrokeIdx{-1};
+    double _rotateOrigRotation{0.0};
+    double _rotateStartAngle{0.0};
+
+    bool _updatingToolButtons{false};
 
     static constexpr double EDGE_HIT_THRESHOLD = 8.0;
     static constexpr double HEADER_HEIGHT = 28.0;

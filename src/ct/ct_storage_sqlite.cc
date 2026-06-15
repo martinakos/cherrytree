@@ -139,6 +139,7 @@ const char CtStorageSqlite::TABLE_DRAWING_STROKE_CREATE[]{"CREATE TABLE IF NOT E
 "font_family TEXT DEFAULT 'Sans',"
 "font_size REAL DEFAULT 14.0,"
 "line_style INTEGER DEFAULT 0,"
+"rotation REAL DEFAULT 0.0,"
 "PRIMARY KEY (node_id, canvas_index, stroke_index)"
 ")"
 };
@@ -1136,9 +1137,10 @@ std::vector<CtDrawingCanvas> CtStorageSqlite::_drawing_canvases_from_db(gint64 n
         sqlite3_exec(_pDb, "ALTER TABLE drawing_stroke ADD COLUMN font_family TEXT DEFAULT 'Sans'", nullptr, nullptr, nullptr);
         sqlite3_exec(_pDb, "ALTER TABLE drawing_stroke ADD COLUMN font_size REAL DEFAULT 14.0", nullptr, nullptr, nullptr);
         sqlite3_exec(_pDb, "ALTER TABLE drawing_stroke ADD COLUMN line_style INTEGER DEFAULT 0", nullptr, nullptr, nullptr);
+        sqlite3_exec(_pDb, "ALTER TABLE drawing_stroke ADD COLUMN rotation REAL DEFAULT 0.0", nullptr, nullptr, nullptr);
 
         // load strokes for this canvas
-        Sqlite3StmtAuto sStmt{_pDb, "SELECT color, width, opacity, points, element_type, filled, text_content, font_family, font_size, line_style FROM drawing_stroke WHERE node_id=? AND canvas_index=? ORDER BY stroke_index"};
+        Sqlite3StmtAuto sStmt{_pDb, "SELECT color, width, opacity, points, element_type, filled, text_content, font_family, font_size, line_style, rotation FROM drawing_stroke WHERE node_id=? AND canvas_index=? ORDER BY stroke_index"};
         if (!sStmt.is_bad()) {
             sqlite3_bind_int64(sStmt, 1, nodeId);
             sqlite3_bind_int(sStmt, 2, canvasIdx);
@@ -1155,6 +1157,7 @@ std::vector<CtDrawingCanvas> CtStorageSqlite::_drawing_canvases_from_db(gint64 n
                 if (!ff.empty()) stroke.fontFamily = ff;
                 if (sqlite3_column_type(sStmt, 8) != SQLITE_NULL) stroke.fontSize = sqlite3_column_double(sStmt, 8);
                 stroke.lineStyle = static_cast<CtDrawingLineStyle>(sqlite3_column_int(sStmt, 9));
+                if (sqlite3_column_type(sStmt, 10) != SQLITE_NULL) stroke.rotation = sqlite3_column_double(sStmt, 10);
                 // parse "x,y;x,y;..." format
                 size_t pos = 0;
                 while (pos < pointsStr.size()) {
@@ -1203,7 +1206,7 @@ void CtStorageSqlite::_write_drawing_canvases_to_db(gint64 nodeId, const std::ve
 
         for (size_t si = 0; si < canvas.strokes.size(); ++si) {
             const auto& stroke = canvas.strokes[si];
-            Sqlite3StmtAuto sIns{_pDb, "INSERT INTO drawing_stroke VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)"};
+            Sqlite3StmtAuto sIns{_pDb, "INSERT INTO drawing_stroke VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)"};
             if (sIns.is_bad()) continue;
             sqlite3_bind_int64(sIns, 1, nodeId);
             sqlite3_bind_int(sIns, 2, static_cast<int>(ci));
@@ -1225,6 +1228,7 @@ void CtStorageSqlite::_write_drawing_canvases_to_db(gint64 nodeId, const std::ve
             sqlite3_bind_text(sIns, 11, stroke.fontFamily.c_str(), -1, SQLITE_TRANSIENT);
             sqlite3_bind_double(sIns, 12, stroke.fontSize);
             sqlite3_bind_int(sIns, 13, static_cast<int>(stroke.lineStyle));
+            sqlite3_bind_double(sIns, 14, stroke.rotation);
             sqlite3_step(sIns);
         }
     }
