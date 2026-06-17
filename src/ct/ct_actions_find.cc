@@ -172,6 +172,9 @@ void CtActions::find_replace_in_multiple_nodes()
             _s_state.find_iterated_last_name_n_tags_id = 0;
             spdlog::debug("{} find_iterated_last_name_n_tags_id 0", __FUNCTION__);
         }
+        if (_s_state.find_iterated_last_drawing_canvases_id > 0) {
+            _s_state.find_iterated_last_drawing_canvases_id = 0;
+        }
         text_view_n_buffer_codebox_proof proof = _get_text_view_n_buffer_codebox_proof();
         Glib::ustring entry_predefined_text = CtTextIterUtil::get_selected_text(proof.text_view->get_buffer());
         if (not entry_predefined_text.empty()) {
@@ -454,6 +457,21 @@ CtMatchType CtActions::_parse_given_node_content(CtTreeIter node_iter,
             _s_state.find_iterated_last_name_n_tags_id = 0;
             spdlog::debug("{} find_iterated_last_name_n_tags_id 0", __FUNCTION__);
         }
+        if (_s_options.drawing_canvases and
+            (not all_matches or CtMatchType::DrawingCanvases != thisNodeLastMatchType))
+        {
+            if (_parse_node_drawing_canvases_iter(node_iter, re_pattern, all_matches)) {
+                if (_s_state.find_iterated_last_drawing_canvases_id <= 0 or
+                    _s_state.find_iterated_last_drawing_canvases_id != argNodeId)
+                {
+                    _s_state.find_iterated_last_drawing_canvases_id = argNodeId;
+                    return CtMatchType::DrawingCanvases;
+                }
+            }
+        }
+        if (_s_state.find_iterated_last_drawing_canvases_id > 0) {
+            _s_state.find_iterated_last_drawing_canvases_id = 0;
+        }
     }
 
     CtTreeStore& ctTreeStore = _pCtMainWin->get_tree_store();
@@ -539,6 +557,76 @@ bool CtActions::_parse_node_name_n_tags_iter(CtTreeIter& node_iter,
         return true;
     }
     return false;
+}
+
+bool CtActions::_parse_node_drawing_canvases_iter(CtTreeIter& node_iter,
+                                                  Glib::RefPtr<Glib::Regex> re_pattern,
+                                                  const bool all_matches)
+{
+    if (not _is_node_within_time_filter(node_iter)) {
+        return false;
+    }
+
+    const auto& canvases = node_iter.get_drawing_canvases();
+    if (canvases.empty()) {
+        return false;
+    }
+
+    bool found = false;
+    for (const auto& canvas : canvases) {
+        Glib::ustring canvas_name{canvas.name};
+        if (_s_options.accent_insensitive) {
+            canvas_name = str::diacritical_to_ascii(canvas_name);
+        }
+        Glib::MatchInfo match_info;
+        bool name_matches = not canvas_name.empty() and re_pattern->match(canvas_name, match_info);
+
+        std::vector<Glib::ustring> matching_texts;
+        for (const auto& stroke : canvas.strokes) {
+            if (stroke.type != CtDrawingElementType::Text or stroke.textContent.empty()) {
+                continue;
+            }
+            Glib::ustring text{stroke.textContent};
+            if (_s_options.accent_insensitive) {
+                text = str::diacritical_to_ascii(text);
+            }
+            Glib::MatchInfo text_match;
+            if (re_pattern->match(text, text_match)) {
+                matching_texts.emplace_back(stroke.textContent);
+            }
+        }
+
+        if (not name_matches and matching_texts.empty()) {
+            continue;
+        }
+        found = true;
+
+        if (all_matches) {
+            gint64 node_id = node_iter.get_node_id();
+            Glib::ustring node_hier_name = CtMiscUtil::get_node_hierarchical_name(node_iter, "  /  ", false, true);
+            Glib::ustring display_name = Glib::ustring("[") + _("Canvas") + ": " + canvas.name.c_str() + "]";
+            if (not matching_texts.empty()) {
+                for (const auto& txt : matching_texts) {
+                    _s_state.match_store->add_row(node_id,
+                                                  display_name,
+                                                  str::xml_escape(node_hier_name),
+                                                  0, 0, 0, txt, CtAnchWidgType::None, 0, 0, 0);
+                }
+            }
+            if (name_matches) {
+                _s_state.match_store->add_row(node_id,
+                                              display_name,
+                                              str::xml_escape(node_hier_name),
+                                              0, 0, 0, canvas_name, CtAnchWidgType::None, 0, 0, 0);
+            }
+        }
+    }
+
+    if (found and not all_matches) {
+        _pCtMainWin->get_tree_view().set_cursor_safe(node_iter);
+        _pCtMainWin->get_text_view().mm().grab_focus();
+    }
+    return found;
 }
 
 // Returns True if pattern was found, False otherwise

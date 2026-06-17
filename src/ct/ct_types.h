@@ -70,7 +70,7 @@ enum class CtDuplicateShared { None, Duplicate, Shared };
 
 enum class CtRestoreExpColl : int { FROM_STR=0, ALL_EXP=1, ALL_COLL=2 };
 
-enum class CtMatchType { None, Content, NameNTags };
+enum class CtMatchType { None, Content, NameNTags, DrawingCanvases };
 
 class CtCodebox;
 class CtMainWin;
@@ -431,6 +431,7 @@ struct CtSearchOptions {
     bool        only_sel_n_subnodes{false};
     bool        node_content{true};
     bool        node_name_n_tags{true};
+    bool        drawing_canvases{true};
     bool        replace_in_link_targets{false};
 };
 
@@ -527,6 +528,7 @@ struct CtSearchState {
     std::string    curr_find_pattern;
     bool           from_find_iterated{false};
     gint64         find_iterated_last_name_n_tags_id{0};
+    gint64         find_iterated_last_drawing_canvases_id{0};
     bool           from_find_back{false};
     bool           find_back_exclude_obj_offs_zero{false};
     size_t         find_iter_anchlist_idx{0u};

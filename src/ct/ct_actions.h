@@ -220,6 +220,9 @@ private:
     bool _parse_node_name_n_tags_iter(CtTreeIter& tree_iter,
                                       Glib::RefPtr<Glib::Regex> re_pattern,
                                       const bool all_matches);
+    bool _parse_node_drawing_canvases_iter(CtTreeIter& tree_iter,
+                                           Glib::RefPtr<Glib::Regex> re_pattern,
+                                           const bool all_matches);
     Gtk::TextIter _get_inner_start_iter(Glib::RefPtr<Gtk::TextBuffer> text_buffer,
                                         const bool forward,
                                         const bool all_matches);
