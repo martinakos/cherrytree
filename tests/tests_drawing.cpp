@@ -27,7 +27,9 @@
 #include "ct_drawing.h"
 #include "ct_drawing_commands.h"
 #include "ct_storage_xml.h"
+#include "ct_types.h"
 #include "gtest/gtest.h"
+#include <glibmm/regex.h>
 #include <cmath>
 #include <memory>
 
@@ -1513,4 +1515,203 @@ TEST(DrawingXmlTest, RoundTrip_ZeroRotationOmitted)
 
     ASSERT_EQ(1u, result[0].strokes.size());
     EXPECT_DOUBLE_EQ(0.0, result[0].strokes[0].rotation);
+}
+
+// ── Drawing canvas search tests ────────────────────────────────────────────
+
+static bool canvasNameMatchesPattern(const CtDrawingCanvas& canvas,
+                                     const Glib::RefPtr<Glib::Regex>& re)
+{
+    Glib::MatchInfo mi;
+    return not canvas.name.empty() and re->match(Glib::ustring{canvas.name}, mi) and mi.matches();
+}
+
+static std::vector<std::string> canvasTextMatches(const CtDrawingCanvas& canvas,
+                                                  const Glib::RefPtr<Glib::Regex>& re)
+{
+    std::vector<std::string> hits;
+    for (const auto& stroke : canvas.strokes) {
+        if (stroke.type != CtDrawingElementType::Text or stroke.textContent.empty()) continue;
+        Glib::MatchInfo mi;
+        if (re->match(Glib::ustring{stroke.textContent}, mi) and mi.matches()) {
+            hits.push_back(stroke.textContent);
+        }
+    }
+    return hits;
+}
+
+TEST(DrawingSearchTest, MatchCanvasName)
+{
+    auto re = Glib::Regex::create("Diagram", Glib::RegexCompileFlags::REGEX_CASELESS);
+    CtDrawingCanvas c;
+    c.name = "Architecture Diagram";
+    EXPECT_TRUE(canvasNameMatchesPattern(c, re));
+}
+
+TEST(DrawingSearchTest, NoMatchCanvasName)
+{
+    auto re = Glib::Regex::create("flowchart", Glib::RegexCompileFlags::REGEX_CASELESS);
+    CtDrawingCanvas c;
+    c.name = "Architecture Diagram";
+    EXPECT_FALSE(canvasNameMatchesPattern(c, re));
+}
+
+TEST(DrawingSearchTest, EmptyCanvasName_NoMatch)
+{
+    auto re = Glib::Regex::create("anything", Glib::RegexCompileFlags::REGEX_CASELESS);
+    CtDrawingCanvas c;
+    EXPECT_FALSE(canvasNameMatchesPattern(c, re));
+}
+
+TEST(DrawingSearchTest, MatchTextStrokeContent)
+{
+    auto re = Glib::Regex::create("hello", Glib::RegexCompileFlags::REGEX_CASELESS);
+    CtDrawingCanvas c;
+    c.strokes.push_back(makeTextStroke("Hello World", "Sans", 14.0, 10, 20));
+    c.strokes.push_back(makeStroke("#000000", 2.0, {{0,0},{10,10}}));  // freehand, no text
+    c.strokes.push_back(makeTextStroke("Goodbye", "Sans", 14.0, 30, 40));
+
+    auto hits = canvasTextMatches(c, re);
+    ASSERT_EQ(1u, hits.size());
+    EXPECT_EQ("Hello World", hits[0]);
+}
+
+TEST(DrawingSearchTest, MatchMultipleTextStrokes)
+{
+    auto re = Glib::Regex::create("note", Glib::RegexCompileFlags::REGEX_CASELESS);
+    CtDrawingCanvas c;
+    c.strokes.push_back(makeTextStroke("Note 1", "Sans", 14.0, 10, 20));
+    c.strokes.push_back(makeTextStroke("Another Note", "Sans", 14.0, 30, 40));
+    c.strokes.push_back(makeTextStroke("No match", "Sans", 14.0, 50, 60));
+
+    auto hits = canvasTextMatches(c, re);
+    ASSERT_EQ(2u, hits.size());
+    EXPECT_EQ("Note 1", hits[0]);
+    EXPECT_EQ("Another Note", hits[1]);
+}
+
+TEST(DrawingSearchTest, NoTextStrokes_NoMatch)
+{
+    auto re = Glib::Regex::create("anything", Glib::RegexCompileFlags::REGEX_CASELESS);
+    CtDrawingCanvas c;
+    c.strokes.push_back(makeStroke("#000000", 2.0, {{0,0},{10,10}}));
+    c.strokes.push_back(makeLineStroke("#ff0000", 1.0, 0, 0, 50, 50));
+
+    auto hits = canvasTextMatches(c, re);
+    EXPECT_TRUE(hits.empty());
+}
+
+TEST(DrawingSearchTest, SkipsNonTextStrokeTypes)
+{
+    auto re = Glib::Regex::create(".*", Glib::RegexCompileFlags::REGEX_CASELESS);
+    CtDrawingCanvas c;
+    auto rect = makeShapeStroke(CtDrawingElementType::Rectangle, "#00ff00", 2.0, true, 0, 0, 50, 50);
+    rect.textContent = "should not match";
+    c.strokes.push_back(std::move(rect));
+
+    auto hits = canvasTextMatches(c, re);
+    EXPECT_TRUE(hits.empty());
+}
+
+TEST(DrawingSearchTest, CaseSensitiveMatch)
+{
+    auto re = Glib::Regex::create("Hello", static_cast<Glib::RegexCompileFlags>(0));
+    CtDrawingCanvas c;
+    c.name = "hello canvas";
+    c.strokes.push_back(makeTextStroke("hello world", "Sans", 14.0, 10, 20));
+    c.strokes.push_back(makeTextStroke("Hello World", "Sans", 14.0, 30, 40));
+
+    EXPECT_FALSE(canvasNameMatchesPattern(c, re));
+    auto hits = canvasTextMatches(c, re);
+    ASSERT_EQ(1u, hits.size());
+    EXPECT_EQ("Hello World", hits[0]);
+}
+
+TEST(DrawingSearchTest, RegexPatternMatch)
+{
+    auto re = Glib::Regex::create("^Step \\d+$", Glib::RegexCompileFlags::REGEX_CASELESS);
+    CtDrawingCanvas c;
+    c.strokes.push_back(makeTextStroke("Step 1", "Sans", 14.0, 10, 20));
+    c.strokes.push_back(makeTextStroke("Step 2", "Sans", 14.0, 30, 40));
+    c.strokes.push_back(makeTextStroke("Step one", "Sans", 14.0, 50, 60));
+
+    auto hits = canvasTextMatches(c, re);
+    ASSERT_EQ(2u, hits.size());
+    EXPECT_EQ("Step 1", hits[0]);
+    EXPECT_EQ("Step 2", hits[1]);
+}
+
+TEST(DrawingSearchTest, SearchOptionsDefault_DrawingCanvasesEnabled)
+{
+    CtSearchOptions opts;
+    EXPECT_TRUE(opts.drawing_canvases);
+}
+
+TEST(DrawingSearchTest, MatchType_DrawingCanvasesExists)
+{
+    CtMatchType mt = CtMatchType::DrawingCanvases;
+    EXPECT_NE(CtMatchType::None, mt);
+    EXPECT_NE(CtMatchType::Content, mt);
+    EXPECT_NE(CtMatchType::NameNTags, mt);
+}
+
+TEST(DrawingSearchTest, ModelCanvasSearchableContent)
+{
+    auto model = std::make_shared<CtDocumentModel>();
+    auto node = model->createNode(1);
+    node->setName("TestNode");
+    model->addNode(node, 0, -1);
+
+    auto& canvases = node->getDrawingCanvasesMut();
+    CtDrawingCanvas c;
+    c.name = "FlowChart";
+    c.strokes.push_back(makeTextStroke("Start", "Sans", 14.0, 10, 20));
+    c.strokes.push_back(makeTextStroke("Process Data", "Sans", 14.0, 50, 60));
+    c.strokes.push_back(makeStroke("#000000", 2.0, {{0,0},{10,10}}));
+    canvases.push_back(std::move(c));
+
+    auto re = Glib::Regex::create("flow", Glib::RegexCompileFlags::REGEX_CASELESS);
+    const auto& stored = node->getDrawingCanvases();
+    ASSERT_EQ(1u, stored.size());
+    EXPECT_TRUE(canvasNameMatchesPattern(stored[0], re));
+
+    auto re2 = Glib::Regex::create("data", Glib::RegexCompileFlags::REGEX_CASELESS);
+    auto hits = canvasTextMatches(stored[0], re2);
+    ASSERT_EQ(1u, hits.size());
+    EXPECT_EQ("Process Data", hits[0]);
+}
+
+TEST(DrawingSearchTest, MultipleCanvases_IndependentMatching)
+{
+    auto model = std::make_shared<CtDocumentModel>();
+    auto node = model->createNode(1);
+    node->setName("TestNode");
+    model->addNode(node, 0, -1);
+
+    auto& canvases = node->getDrawingCanvasesMut();
+
+    CtDrawingCanvas c1;
+    c1.name = "Network Diagram";
+    c1.strokes.push_back(makeTextStroke("Server A", "Sans", 14.0, 10, 20));
+    canvases.push_back(std::move(c1));
+
+    CtDrawingCanvas c2;
+    c2.name = "User Flow";
+    c2.strokes.push_back(makeTextStroke("Login Page", "Sans", 14.0, 10, 20));
+    c2.strokes.push_back(makeTextStroke("Server Response", "Sans", 14.0, 50, 60));
+    canvases.push_back(std::move(c2));
+
+    auto re = Glib::Regex::create("server", Glib::RegexCompileFlags::REGEX_CASELESS);
+    const auto& stored = node->getDrawingCanvases();
+
+    auto hits1 = canvasTextMatches(stored[0], re);
+    ASSERT_EQ(1u, hits1.size());
+    EXPECT_EQ("Server A", hits1[0]);
+
+    auto hits2 = canvasTextMatches(stored[1], re);
+    ASSERT_EQ(1u, hits2.size());
+    EXPECT_EQ("Server Response", hits2[0]);
+
+    EXPECT_FALSE(canvasNameMatchesPattern(stored[0], re));
+    EXPECT_FALSE(canvasNameMatchesPattern(stored[1], re));
 }
