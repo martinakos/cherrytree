@@ -1,3 +1,20 @@
+cherrytree-docmodel (1.7.0+docmodel12-1) plucky; urgency=low
+
+  * drawing canvases: transparent overlays for annotating node content
+  * canvas properties dialog with name, background, corner radius, border
+  * canvas editing mode with toggle button and status bar indicator
+  * cut, copy, and paste drawing canvases via context menu
+  * floating toolbar with drawing tools and style controls
+  * polyline, triangle, diamond shapes and line styles
+  * move and rotate tools for individual strokes
+  * drawing canvas search by name and text content
+  * add drawing canvas actions to default toolbar and menus
+  * fix crash when deleting an image from a text node
+  * fix immediate wrap reflow in rich table cells
+  * UI: style status bar values as black thin text
+
+ -- Martin Tosas <martin.tosas@gmail.com>  Fri, 20 Jun 2026 12:00:00 +0000
+
 cherrytree-docmodel (1.7.0+docmodel11-1) plucky; urgency=low
 
   * configurable tree node context menu in preferences
