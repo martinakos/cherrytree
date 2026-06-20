@@ -273,7 +273,8 @@ const inline static gchar* TOOLBAR_VEC_DEFAULT {
     "separator,insert_horiz_line,handle_image,handle_table,handle_codebox,handle_latex,handle_embfile,"
     "handle_link,handle_anchor,separator,fmt_clone,fmt_latest,fmt_rm,fmt_color_fg,"
     "fmt_color_bg,fmt_bold,fmt_italic,fmt_underline,fmt_strikethrough,"
-    "fmt_h1,fmt_h2,fmt_h3,fmt_small,fmt_superscript,fmt_subscript,fmt_monospace"
+    "fmt_h1,fmt_h2,fmt_h3,fmt_small,fmt_superscript,fmt_subscript,fmt_monospace,"
+    "separator,new_drawing_canvas,toggle_drawing_mode"
 };
 
 const inline static gchar* MENUBAR_TOP_LEVEL_DEFAULT {
@@ -303,13 +304,15 @@ const inline static gchar* MENUBAR_EDIT_DEFAULT {
     "{CodeBoxSubMenu,codebox_cut,codebox_copy,codebox_copy_content,codebox_delete,"
     "codebox_delete_keeping_text,codebox_increase_width,codebox_decrease_width,"
     "codebox_increase_height,codebox_decrease_height,codebox_load_from_file,"
-    "codebox_save_to_file,codebox_change_properties,}"
+    "codebox_save_to_file,codebox_change_properties,},"
+    "toggle_drawing_mode"
 };
 const inline static gchar* MENUBAR_INSERT_DEFAULT {
     "handle_image,handle_table,handle_codebox,handle_latex,handle_embfile,"
     "handle_link,handle_anchor,insert_toc,insert_timestamp,insert_special_char,"
     "insert_horiz_rule,insert_horiz_line,"
-    "{ListSubMenu,handle_bull_list,handle_num_list,handle_todo_list,}"
+    "{ListSubMenu,handle_bull_list,handle_num_list,handle_todo_list,},"
+    "new_drawing_canvas"
 };
 const inline static gchar* MENUBAR_FORMAT_DEFAULT {
     "fmt_clone,fmt_latest,fmt_rm,separator,fmt_color_fg,fmt_color_bg,separator,"
