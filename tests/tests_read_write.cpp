@@ -62,6 +62,7 @@ private:
 void TestCtApp::on_activate()
 {
     _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
     ASSERT_EQ(4, _vec_args.size());
     // NOTE: on windows/msys2 unit tests the passed arguments do not work so we end up here
     _run_test(_vec_args.at(1), _vec_args.at(3));
@@ -70,6 +71,7 @@ void TestCtApp::on_activate()
 void TestCtApp::on_open(const Gio::Application::type_vec_files& files, const Glib::ustring& /*hint*/)
 {
     _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
     ASSERT_EQ(1, files.size());
     // NOTE: we use the trick of the [-t export_to_txt_dir] argument to pass the target file type
     _run_test(files.front()->get_path(), _export_to_txt_dir);
@@ -739,13 +741,15 @@ private:
 void DrawingRoundTripApp::on_activate()
 {
     _on_startup();
+    auto quitGuard = scope_guard([this](void*) { quit(); });
 
     // Phase 1: Open test CTB, add drawing canvases, save to temp file
     CtMainWin* pWin1 = _create_window(true/*start_hidden*/);
     ASSERT_TRUE(pWin1->file_open(UT::testCtbDocPath, ""/*node*/, ""/*anchor*/));
 
-    // Find a node and add drawing canvases to its doc model
-    CtTreeIter treeIter = pWin1->get_tree_store().get_node_from_node_name("e");
+    // Use node "b" (not shared) — node "e" has a shared instance that
+    // get_node_from_node_name finds first, whose canvases aren't persisted.
+    CtTreeIter treeIter = pWin1->get_tree_store().get_node_from_node_name("b");
     ASSERT_TRUE(treeIter);
     const gint64 nodeId = treeIter.get_node_id();
 
@@ -754,7 +758,7 @@ void DrawingRoundTripApp::on_activate()
     ASSERT_TRUE(bridge->isActive());
 
     auto nodeModel = bridge->getDocumentModel()->getNodeById(nodeId);
-    ASSERT_TRUE(nodeModel) << "Node 'e' (id=" << nodeId << ") not found in doc model";
+    ASSERT_TRUE(nodeModel) << "Node 'b' (id=" << nodeId << ") not found in doc model";
 
     // Add a canvas with strokes directly to the doc model
     {
@@ -799,7 +803,7 @@ void DrawingRoundTripApp::on_activate()
     ASSERT_FALSE(pWin2->get_tree_store().get_iter_first());
     ASSERT_TRUE(pWin2->file_open(tmpCtb, ""/*node*/, ""/*anchor*/));
 
-    CtTreeIter treeIter2 = pWin2->get_tree_store().get_node_from_node_name("e");
+    CtTreeIter treeIter2 = pWin2->get_tree_store().get_node_from_node_name("b");
     ASSERT_TRUE(treeIter2);
 
     // Check tree store column
@@ -854,7 +858,7 @@ void DrawingRoundTripApp::on_activate()
     CtMainWin* pWin3 = _create_window(true/*start_hidden*/);
     ASSERT_TRUE(pWin3->file_open(tmpCtb, ""/*node*/, ""/*anchor*/));
 
-    CtTreeIter treeIter3 = pWin3->get_tree_store().get_node_from_node_name("e");
+    CtTreeIter treeIter3 = pWin3->get_tree_store().get_node_from_node_name("b");
     ASSERT_TRUE(treeIter3);
     auto loadedAfterIncSave = treeIter3.get_drawing_canvases();
     ASSERT_EQ(1u, loadedAfterIncSave.size())

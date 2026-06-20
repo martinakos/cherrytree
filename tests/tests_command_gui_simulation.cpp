@@ -6913,6 +6913,7 @@ static void _test_cursor_pos_after_rich_cell_undo(CtMainWin* pWin)
 void TestRandomizedStressApp::on_activate()
 {
     _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
     CtMainWin* pWin = _create_window(true/*start_hidden*/);
     const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
     ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
@@ -6929,6 +6930,7 @@ void TestRandomizedStressApp::on_activate()
 void TestBufferAndSessionApp::on_activate()
 {
     _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
     CtMainWin* pWin = _create_window(true/*start_hidden*/);
     const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
     ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
@@ -6951,6 +6953,7 @@ void TestBufferAndSessionApp::on_activate()
 void TestCutPasteApp::on_activate()
 {
     _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
     CtMainWin* pWin = _create_window(true/*start_hidden*/);
     const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
     ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
@@ -6980,6 +6983,7 @@ void TestCutPasteApp::on_activate()
 void TestWidgetEditApp::on_activate()
 {
     _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
     CtMainWin* pWin = _create_window(true/*start_hidden*/);
     const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
     ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
@@ -7000,6 +7004,7 @@ void TestWidgetEditApp::on_activate()
 void TestRichTableApp::on_activate()
 {
     _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
     CtMainWin* pWin = _create_window(true/*start_hidden*/);
     const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
     ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
@@ -7026,6 +7031,7 @@ void TestRichTableApp::on_activate()
 void TestFormatApp::on_activate()
 {
     _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
     CtMainWin* pWin = _create_window(true/*start_hidden*/);
     const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
     ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
@@ -7056,6 +7062,7 @@ void TestFormatApp::on_activate()
 void TestRichCellListIndentApp::on_activate()
 {
     _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
     CtMainWin* pWin = _create_window(true/*start_hidden*/);
     const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
     ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
@@ -7075,6 +7082,7 @@ void TestRichCellListIndentApp::on_activate()
 void TestLinkAnchorApp::on_activate()
 {
     _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
     CtMainWin* pWin = _create_window(true/*start_hidden*/);
     const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
     ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
@@ -7102,6 +7110,7 @@ void TestLinkAnchorApp::on_activate()
 void TestWidgetInsertRoutingApp::on_activate()
 {
     _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
     CtMainWin* pWin = _create_window(true/*start_hidden*/);
     const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
     ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
@@ -7121,6 +7130,7 @@ void TestWidgetInsertRoutingApp::on_activate()
 void TestRichTableStyleApp::on_activate()
 {
     _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
     CtMainWin* pWin = _create_window(true/*start_hidden*/);
     const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
     ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
@@ -7141,6 +7151,7 @@ void TestRichTableStyleApp::on_activate()
 void TestCursorPositionApp::on_activate()
 {
     _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
     CtMainWin* pWin = _create_window(true/*start_hidden*/);
     const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
     ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
@@ -7997,6 +8008,7 @@ static void _test_rich_cell_image_delete(CtMainWin* pWin)
 void TestRichCellImageCopyPasteApp::on_activate()
 {
     _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
     CtMainWin* pWin = _create_window(true/*start_hidden*/);
     const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
     ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
@@ -8335,6 +8347,7 @@ static void _test_rich_table_row_col_copy_paste(CtMainWin* pWin)
 void TestRichTableCopyPasteApp::on_activate()
 {
     _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
     CtMainWin* pWin = _create_window(true/*start_hidden*/);
     const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
     ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
@@ -9326,6 +9339,7 @@ static void _test_rich_table_align_and_height_tests(CtMainWin* pWin)
 void TestRichTableAlignApp::on_activate()
 {
     _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
     CtMainWin* pWin = _create_window(true/*start_hidden*/);
     const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
     ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
@@ -9620,6 +9634,7 @@ static void _test_rich_cell_copy_preserves_borders(CtMainWin* pWin)
 void TestRichCellClipboardApp::on_activate()
 {
     _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
     CtMainWin* pWin = _create_window(true/*start_hidden*/);
     const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
     ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
