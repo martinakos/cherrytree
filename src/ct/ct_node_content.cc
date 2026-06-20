@@ -1046,6 +1046,7 @@ Glib::ustring CtNodeContent::toXml() const
     }
 
     Glib::ustring xml;
+    int runningOffset = 0;
 
     for (const auto& elem : _elements) {
         if (elem.isTextSpan()) {
@@ -1067,20 +1068,27 @@ Glib::ustring CtNodeContent::toXml() const
             // Add text content (XML-escaped)
             xml += str::xml_escape(span.text);
             xml += "</rich_text>";
+            runningOffset += span.text.size();
         }
         else {
             // Widget serialization
             const auto& widget = elem.widget;
+            const std::string computedOffset = std::to_string(runningOffset);
+            runningOffset += 1;
+
+            auto emitProp = [&](const std::pair<std::string, std::string>& prop) {
+                const std::string& val = (prop.first == "char_offset") ? computedOffset : prop.second;
+                xml += " " + prop.first + "=\"" + val + "\"";
+            };
 
             if (widget.type == CtAnchWidgType::ImagePng ||
                 widget.type == CtAnchWidgType::ImageAnchor ||
                 widget.type == CtAnchWidgType::ImageLatex ||
                 widget.type == CtAnchWidgType::ImageEmbFile) {
                 xml += "<encoded_png";
-                // Output attributes except _content (which is the element's text content)
                 for (const auto& prop : widget.properties) {
                     if (prop.first != "_content") {
-                        xml += " " + prop.first + "=\"" + prop.second + "\"";
+                        emitProp(prop);
                     }
                 }
                 // Output text content if present (base64 encoded image data)
@@ -1097,7 +1105,7 @@ Glib::ustring CtNodeContent::toXml() const
                 xml += "<codebox";
                 for (const auto& prop : widget.properties) {
                     if (prop.first != "_content") {
-                        xml += " " + prop.first + "=\"" + prop.second + "\"";
+                        emitProp(prop);
                     }
                 }
                 // Output text content if present (codebox source code)
@@ -1116,7 +1124,7 @@ Glib::ustring CtNodeContent::toXml() const
                 xml += "<table";
                 for (const auto& prop : widget.properties) {
                     if (prop.first != "_content" && prop.first != "is_rich") {
-                        xml += " " + prop.first + "=\"" + prop.second + "\"";
+                        emitProp(prop);
                     }
                 }
 
