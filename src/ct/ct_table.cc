@@ -28,6 +28,8 @@
 #include <cmath>
 #include <pango/pangocairo.h>
 #include "ct_actions.h"
+#define GTK_TEXT_USE_INTERNAL_UNSUPPORTED_API
+#include <gtk/gtktextlayout.h>
 #include "ct_storage_sqlite.h"
 #include "ct_storage_xml.h"
 #include "ct_logging.h"
@@ -1715,6 +1717,7 @@ void CtTableRich::_applyTableStyle()
                 const int scaledW = (int)std::ceil(get_col_width(c) * _zoomFactor);
                 const int scaledH = (int)std::ceil(get_row_min_height(r) * _zoomFactor);
                 tv.set_size_request(scaledW, scaledH);
+                _force_wrap_reflow(tv, scaledW);
             }
         }
     }
@@ -1734,26 +1737,38 @@ void CtTableRich::_apply_wrap_for_cell(size_t r, size_t c, Gtk::TextView& tv)
     const auto newMode = wrap ? Gtk::WRAP_WORD_CHAR : Gtk::WRAP_NONE;
     if (tv.get_wrap_mode() == newMode) return;
     tv.set_wrap_mode(newMode);
-    // Switching no-wrap → wrap creates a chicken-and-egg: GtkTextView's
-    // wrap width (Pango's pango_layout_set_width) is the cell's allocated
-    // width, set during size_allocate. Until the cell shrinks, lines wrap
-    // at the old (wide) allocation so layout->width stays wide; the cell
-    // can't shrink until layout->width does. Paint and mouse-motion
-    // events incrementally re-validate lines, slowly converging — which
-    // is the bug. Break the cycle by manually size-allocating the cell
-    // at the column width. The textview's size_allocate handler then
-    // calls set_screen_width, the layout re-validates against the
-    // narrower wrap width, and layout->width updates immediately. The
-    // grid will re-allocate normally on the next cycle, this time using
-    // the now-correct natural width.
     if (newMode == Gtk::WRAP_WORD_CHAR && tv.get_realized()) {
-        Gtk::Allocation alloc = tv.get_allocation();
         const int desiredW = (int)std::ceil(get_col_width(c) * _zoomFactor);
-        if (alloc.get_width() > desiredW && alloc.get_height() > 0) {
-            alloc.set_width(desiredW);
-            tv.size_allocate(alloc);
-        }
+        _force_wrap_reflow(tv, desiredW);
     }
+}
+
+void CtTableRich::_force_wrap_reflow(Gtk::TextView& tv, int targetW)
+{
+    if (tv.get_wrap_mode() != Gtk::WRAP_WORD_CHAR || !tv.get_realized()) return;
+
+    Gtk::Allocation alloc = tv.get_allocation();
+    if (alloc.get_height() <= 0) return;
+
+    // size_allocate sets GtkTextLayout::screen_width (the Pango wrap width)
+    // and invalidates all layout lines — but only re-validates the visible
+    // ones.  Off-screen lines retain their old (wide) width in the B-tree,
+    // so get_preferred_width keeps reporting the stale maximum and the grid
+    // re-allocates the column too wide.  Mouse-motion events then lazily
+    // re-validate a few lines at a time, causing the column to slowly
+    // converge to the correct width.
+    // Fix: call gtk_text_layout_validate(G_MAXINT) to force every line to
+    // re-wrap at the new screen_width.  The B-tree then aggregates only
+    // freshly-wrapped line widths, layout->width drops immediately, and the
+    // grid allocates the column correctly on the next cycle.
+    alloc.set_width(targetW);
+    tv.size_allocate(alloc);
+
+    GtkTextView* gtv = GTK_TEXT_VIEW(tv.gobj());
+    GtkTextLayout* layout = *reinterpret_cast<GtkTextLayout**>(gtv->priv);
+    gtk_text_layout_validate(layout, G_MAXINT);
+
+    tv.queue_resize();
 }
 
 void CtTableRich::_apply_remove_header_style(const bool isApply, CtTextView& textView)
@@ -2304,20 +2319,14 @@ void CtTableRich::apply_zoom(const double scaleFactor)
         const int scaledH = (int)std::ceil(get_row_min_height(r) * scaleFactor);
         for (size_t c = 0u; c < numColumns; ++c) {
             auto& tv = static_cast<CtRichCell*>(_tableMatrix[r][c])->get_text_view().mm();
-            // Reset v-align margins so the cell's natural height drops to text
-            // content. Without this, margins sized for the old scale keep the
-            // cell at its previous height regardless of the new size_request.
-            // The signal_size_allocate handler (updateMargin) will reapply
-            // correctly-scaled margins for middle/bottom valign cells using the
-            // updated _zoomFactor.
             if (tv.get_top_margin() != 0)    tv.set_top_margin(0);
             if (tv.get_bottom_margin() != 0) tv.set_bottom_margin(0);
             const int scaledWidth = (int)std::ceil(get_col_width(c) * scaleFactor);
             tv.set_size_request(scaledWidth, scaledH);
             CtTableRich::_apply_hint_style_for_zoom(tv);
+            _force_wrap_reflow(tv, scaledWidth);
         }
     }
-    // Re-apply cell borders so their pixel widths scale with the new zoom.
     _applyCellBordersScaled();
 }
 
@@ -2334,8 +2343,9 @@ void CtTableRich::set_col_width_default(const int colWidthDefault, bool clearOve
         const int scaledH = (int)std::ceil(get_row_min_height(r) * _zoomFactor);
         for (size_t c = 0u; c < numCols; ++c) {
             if (0u == _colWidths.at(c)) {
-                static_cast<CtRichCell*>(_tableMatrix[r][c])->get_text_view().mm()
-                    .set_size_request(scaledWidth, scaledH);
+                auto& tv = static_cast<CtRichCell*>(_tableMatrix[r][c])->get_text_view().mm();
+                tv.set_size_request(scaledWidth, scaledH);
+                _force_wrap_reflow(tv, scaledWidth);
             }
         }
     }
@@ -2349,8 +2359,9 @@ void CtTableRich::set_col_width(const int colWidth, std::optional<size_t> optCol
     const size_t numRows = get_num_rows();
     for (size_t r = 0u; r < numRows; ++r) {
         const int scaledH = (int)std::ceil(get_row_min_height(r) * _zoomFactor);
-        static_cast<CtRichCell*>(_tableMatrix[r][c])->get_text_view().mm()
-            .set_size_request(scaledWidth, scaledH);
+        auto& tv = static_cast<CtRichCell*>(_tableMatrix[r][c])->get_text_view().mm();
+        tv.set_size_request(scaledWidth, scaledH);
+        _force_wrap_reflow(tv, scaledWidth);
     }
 }
 
