@@ -27,6 +27,7 @@ private:
 void TestUndoRedoApp::on_activate()
 {
     _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
 
     // Create window and load test document
     CtMainWin* pWin = _create_window(true/*start_hidden*/);
