@@ -206,6 +206,7 @@ static void _test_rich_table_row_col_copy_paste(CtMainWin* pWin);
 static void _test_rich_table_latex_follows_cell_halign(CtMainWin* pWin);
 static void _test_rich_table_align_and_height_tests(CtMainWin* pWin);
 static void _test_rich_cell_copy_preserves_borders(CtMainWin* pWin);
+static void _test_rich_table_wrap_reflow_immediate(CtMainWin* pWin);
 
 // --- Isolated App classes, one per test group ---
 
@@ -6284,6 +6285,117 @@ static void _test_rich_table_style_preserves_cell_width(CtMainWin* pWin)
     spdlog::info("  Rich table style preserves cell width - all checks passed");
 }
 
+static void _test_rich_table_wrap_reflow_immediate(CtMainWin* pWin)
+{
+    spdlog::info("Test: Rich table wrap reflow is immediate after column width change");
+
+    auto pBridge = pWin->get_command_bridge();
+    ASSERT_TRUE(pBridge);
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    // Long text that overflows the viewport when wrapped at a narrow width,
+    // exercising the off-screen line validation path.
+    Glib::ustring longText;
+    for (int i = 0; i < 30; ++i) {
+        longText += "Lorem ipsum dolor sit amet, consectetur adipiscing elit. ";
+    }
+
+    std::vector<std::vector<CtCellContent>> richData(2, std::vector<CtCellContent>(1));
+    richData[0][0].textSpans.push_back(CtTextSpan{longText});
+    richData[1][0].textSpans.push_back(CtTextSpan{"short"});
+    insertRichTableAtEnd(pWin, pBridge, richData);
+
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+
+    // Realize the table's children so size allocation works.
+    pWin->show_all();
+    pWin->hide();
+    GuiEventSimulator::process_pending_events();
+
+    // Enable wrap and set a wide default width so text lays out at full width.
+    CtTableStyle style = pTable->getTableStyle();
+    style.tableWrapDefault = true;
+    style.tableWrapDefaultSet = true;
+    pTable->setTableStyle(style);
+    pTable->set_col_width_default(1500, true);
+    GuiEventSimulator::process_pending_events();
+
+    auto& tv0 = pTable->getCellAt(0, 0)->get_text_view().mm();
+    ASSERT_TRUE(tv0.get_realized()) << "Cell textview must be realized";
+    {
+        int minW = 0, natW = 0;
+        tv0.get_preferred_width(minW, natW);
+        EXPECT_GE(natW, 1000) << "Baseline natW should be wide before shrink";
+    }
+
+    // --- Test 1: set_col_width_default shrinks the column ---
+    // The bug: without the fix, natW stays at ~1500 after a single layout
+    // cycle and only converges via repeated mouse-motion events.
+    pTable->set_col_width_default(400, true);
+    GuiEventSimulator::process_pending_events();
+    {
+        int minW = 0, natW = 0;
+        tv0.get_preferred_width(minW, natW);
+        EXPECT_LE(natW, 500)
+            << "After set_col_width_default(400) + one layout cycle, natW=" << natW
+            << " should be <=500 (not stale at old width)";
+    }
+
+    // --- Test 2: set_col_width on a per-column override ---
+    pTable->set_col_width(300, 0);
+    GuiEventSimulator::process_pending_events();
+    {
+        int minW = 0, natW = 0;
+        tv0.get_preferred_width(minW, natW);
+        EXPECT_LE(natW, 400)
+            << "After set_col_width(300), natW=" << natW
+            << " should be <=400";
+    }
+
+    // --- Test 3: widen back — natW should grow, not stay clamped ---
+    pTable->set_col_width_default(1200, true);
+    GuiEventSimulator::process_pending_events();
+    {
+        int minW = 0, natW = 0;
+        tv0.get_preferred_width(minW, natW);
+        EXPECT_GE(natW, 800)
+            << "After widening to 1200, natW=" << natW
+            << " should have grown back";
+    }
+
+    // --- Test 4: wrap mode toggle (no-wrap → wrap) at narrow width ---
+    style = pTable->getTableStyle();
+    style.tableWrapDefault = false;
+    style.tableWrapDefaultSet = true;
+    pTable->setTableStyle(style);
+    pTable->set_col_width_default(400, true);
+    GuiEventSimulator::process_pending_events();
+
+    style.tableWrapDefault = true;
+    pTable->setTableStyle(style);
+    GuiEventSimulator::process_pending_events();
+    {
+        int minW = 0, natW = 0;
+        tv0.get_preferred_width(minW, natW);
+        EXPECT_LE(natW, 500)
+            << "After toggling wrap on at width=400, natW=" << natW
+            << " should be <=500";
+    }
+
+    // Clean up
+    while (pBridge->canUndo()) {
+        pWin->get_ct_actions()->requested_step_back();
+        GuiEventSimulator::process_pending_events();
+    }
+
+    spdlog::info("  Rich table wrap reflow immediate - all checks passed");
+}
+
 static void _test_rich_table_junction_colors_follow_last_operation(CtMainWin* pWin)
 {
     spdlog::info("Test: Rich table junction (corner) colors follow last styling operation");
@@ -7143,6 +7255,7 @@ void TestRichTableStyleApp::on_activate()
     _test_rich_table_per_corner_colors_independent(pWin);
     _test_rich_table_border_window_sizes(pWin);
     _test_rich_table_default_style_and_overrides(pWin);
+    _test_rich_table_wrap_reflow_immediate(pWin);
 
     pWin->force_exit() = true;
     remove_window(*pWin);

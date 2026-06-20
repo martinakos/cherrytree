@@ -452,6 +452,7 @@ protected:
     void _new_rich_cell_attach(const size_t rowIdx, const size_t colIdx, CtRichCell* pCell);
     void _apply_remove_header_style(const bool isApply, CtTextView& textView);
     void _apply_wrap_for_cell(size_t r, size_t c, Gtk::TextView& tv);
+    void _force_wrap_reflow(Gtk::TextView& tv, int targetW);
     void _applyTableStyle() override;
     // Resolve and apply the per-cell border widths and colors, scaled by
     // _zoomFactor. Extracted from _applyTableStyle so apply_zoom can re-run
