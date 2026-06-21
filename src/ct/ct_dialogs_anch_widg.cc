@@ -349,11 +349,11 @@ Glib::RefPtr<Gdk::Pixbuf> CtDialogs::image_handle_dialog(Gtk::Window& parent_win
     Gtk::Label label_height{_("Height")};
     Glib::RefPtr<Gtk::Adjustment> rAdj_height = Gtk::Adjustment::create(height, 1, 10000, 1);
     Gtk::SpinButton spinbutton_height{rAdj_height};
-    Gtk::Box hbox_3{Gtk::ORIENTATION_HORIZONTAL};
-    hbox_3.pack_start(label_width);
-    hbox_3.pack_start(spinbutton_width);
-    hbox_3.pack_start(label_height);
-    hbox_3.pack_start(spinbutton_height);
+    Gtk::Box hbox_3{Gtk::ORIENTATION_HORIZONTAL, 4/*spacing*/};
+    hbox_3.pack_start(label_width, false, false);
+    hbox_3.pack_start(spinbutton_width, false, false);
+    hbox_3.pack_start(label_height, false, false);
+    hbox_3.pack_start(spinbutton_height, false, false);
     Gtk::ComboBoxText combobox_unit;
     combobox_unit.append(_("Pixels"));
     combobox_unit.append(_("Percentage"));
@@ -367,20 +367,13 @@ Glib::RefPtr<Gdk::Pixbuf> CtDialogs::image_handle_dialog(Gtk::Window& parent_win
     }
     Gtk::CheckButton checkbutton_lock_ratio{_("Lock aspect ratio")};
     checkbutton_lock_ratio.set_active(true);
+    hbox_3.pack_start(combobox_unit, false, false);
+    hbox_3.pack_start(checkbutton_lock_ratio, false, false);
     Gtk::Box* pContentArea = dialog.get_content_area();
     pContentArea->pack_start(hbox_1);
     pContentArea->pack_start(hbox_2, false, false);
     pContentArea->pack_start(hbox_3, false, false);
     pContentArea->set_spacing(6);
-    G_GNUC_BEGIN_IGNORE_DEPRECATIONS
-    auto* pButtonBox = dynamic_cast<Gtk::ButtonBox*>(dialog.get_action_area());
-    G_GNUC_END_IGNORE_DEPRECATIONS
-    if (pButtonBox) {
-        pButtonBox->pack_start(combobox_unit, false, false);
-        pButtonBox->set_child_secondary(combobox_unit, true);
-        pButtonBox->pack_start(checkbutton_lock_ratio, false, false);
-        pButtonBox->set_child_secondary(checkbutton_lock_ratio, true);
-    }
 
     bool stop_update = false;
     auto image_load_into_dialog = [&]() {
