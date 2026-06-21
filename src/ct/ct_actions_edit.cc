@@ -1347,7 +1347,9 @@ void CtActions:: _latex_edit_dialog(const Glib::ustring& latex_text,
                                     Gtk::TextIter* pIterBound,
                                     CtRichCell* pRichCell)
 {
-    const Glib::ustring ret_latex_text = CtDialogs::latex_handle_dialog(_pCtMainWin, latex_text);
+    const gint64 origTsCr = pIterBound && curr_latex_anchor ? curr_latex_anchor->getTsCreation() : 0;
+    const gint64 origTsLs = pIterBound && curr_latex_anchor ? curr_latex_anchor->getTsLastSave() : 0;
+    const Glib::ustring ret_latex_text = CtDialogs::latex_handle_dialog(_pCtMainWin, latex_text, origTsCr, origTsLs);
     if (ret_latex_text.empty()) return;
     Glib::ustring image_justification;
     if (pIterBound) { // only in case of modify
@@ -1371,6 +1373,8 @@ void CtActions:: _latex_edit_dialog(const Glib::ustring& latex_text,
             insert_iter = cellBuffer->get_iter_at_offset(image_offset);
             auto* pWidget = new CtImageLatex{_pCtMainWin, ret_latex_text, image_offset,
                                              image_justification, CtImageEmbFile::get_next_unique_id()};
+            pWidget->setTsCreation(origTsCr);
+            pWidget->setTsLastSave(std::time(nullptr));
             pWidget->insertInTextBuffer(cellBuffer);
             pRichCell->addEmbeddedWidget(pWidget);
             curr_latex_anchor = static_cast<CtImageLatex*>(pWidget);
@@ -1384,12 +1388,13 @@ void CtActions:: _latex_edit_dialog(const Glib::ustring& latex_text,
         _curr_buffer()->erase(insert_iter, *pIterBound);
         insert_iter = _curr_buffer()->get_iter_at_offset(image_offset);
     }
-    image_insert_latex(insert_iter, ret_latex_text, image_justification);
+    image_insert_latex(insert_iter, ret_latex_text, image_justification, origTsCr);
 }
 
 void CtActions::image_insert_latex(Gtk::TextIter iter_insert,
                                    const Glib::ustring& latex_text,
-                                   const Glib::ustring& justification)
+                                   const Glib::ustring& justification,
+                                   gint64 origTsCreation)
 {
     if (latex_text.empty()) return;
 
@@ -1414,6 +1419,10 @@ void CtActions::image_insert_latex(Gtk::TextIter iter_insert,
             }
             auto* pWidget = new CtImageLatex{_pCtMainWin, latex_text, cellCharOffset,
                                              effectiveJust, CtImageEmbFile::get_next_unique_id()};
+            if (origTsCreation >= 0) {
+                pWidget->setTsCreation(origTsCreation);
+                pWidget->setTsLastSave(std::time(nullptr));
+            }
             pWidget->insertInTextBuffer(cellBuffer);
             pCell->addEmbeddedWidget(pWidget);
             pBridge->commitRichCellFormatChange("Insert LaTeX");
@@ -1423,6 +1432,10 @@ void CtActions::image_insert_latex(Gtk::TextIter iter_insert,
 
     const int charOffset = iter_insert.get_offset();
     CtAnchoredWidget* pAnchoredWidget = new CtImageLatex{_pCtMainWin, latex_text, charOffset, justification, CtImageEmbFile::get_next_unique_id()};
+    if (origTsCreation >= 0) {
+        pAnchoredWidget->setTsCreation(origTsCreation);
+        pAnchoredWidget->setTsLastSave(std::time(nullptr));
+    }
     pAnchoredWidget->insertInTextBuffer(_curr_buffer());
     _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
                                                      {pAnchoredWidget},
@@ -1449,7 +1462,10 @@ void CtActions::_image_edit_dialog(Glib::RefPtr<Gdk::Pixbuf> rPixbuf,
                                    CtRichCell* pRichCell,
                                    Glib::RefPtr<Gdk::Pixbuf> rOrigPixbuf)
 {
-    Glib::RefPtr<Gdk::Pixbuf> ret_pixbuf = CtDialogs::image_handle_dialog(*_pCtMainWin, rPixbuf, rOrigPixbuf);
+    const gint64 origTsCr = pIterBound && curr_image_anchor ? curr_image_anchor->getTsCreation() : 0;
+    const gint64 origTsLs = pIterBound && curr_image_anchor ? curr_image_anchor->getTsLastSave() : 0;
+    Glib::RefPtr<Gdk::Pixbuf> ret_pixbuf = CtDialogs::image_handle_dialog(
+        *_pCtMainWin, rPixbuf, rOrigPixbuf, _pCtConfig->timestampFormat, origTsCr, origTsLs);
     if (not ret_pixbuf) return;
     Glib::ustring image_justification;
 
@@ -1496,6 +1512,8 @@ void CtActions::_image_edit_dialog(Glib::RefPtr<Gdk::Pixbuf> rPixbuf,
             insert_iter = cellBuffer->get_iter_at_offset(image_offset);
             auto* pWidget = new CtImagePng{_pCtMainWin, ret_pixbuf, ""/*link*/, image_offset, ""};
             if (rOrigPixbuf) pWidget->set_orig_pixbuf(rOrigPixbuf);
+            pWidget->setTsCreation(origTsCr);
+            pWidget->setTsLastSave(std::time(nullptr));
             applyCurrentZoom(pWidget);
             pWidget->insertInTextBuffer(cellBuffer);
             pRichCell->addEmbeddedWidget(pWidget);
@@ -1525,6 +1543,8 @@ void CtActions::_image_edit_dialog(Glib::RefPtr<Gdk::Pixbuf> rPixbuf,
             insert_iter = _curr_buffer()->get_iter_at_offset(image_offset);
             CtAnchoredWidget* pAnchoredWidget = new CtImagePng{_pCtMainWin, ret_pixbuf, ""/*link*/, image_offset, image_justification};
             if (rOrigPixbuf) static_cast<CtImage*>(pAnchoredWidget)->set_orig_pixbuf(rOrigPixbuf);
+            pAnchoredWidget->setTsCreation(origTsCr);
+            pAnchoredWidget->setTsLastSave(std::time(nullptr));
             applyCurrentZoom(static_cast<CtImage*>(pAnchoredWidget));
             pAnchoredWidget->insertInTextBuffer(_curr_buffer());
             _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
@@ -1619,7 +1639,8 @@ void CtActions::image_insert_png(Gtk::TextIter iter_insert,
 void CtActions::image_insert_anchor(Gtk::TextIter iter_insert,
                                     const Glib::ustring& name,
                                     const CtAnchorExpCollState expCollState,
-                                    const Glib::ustring& image_justification)
+                                    const Glib::ustring& image_justification,
+                                    gint64 origTsCreation)
 {
     // RT-5: Route to cell buffer when a rich table cell is focused.
     auto pBridge = _pCtMainWin->get_command_bridge();
@@ -1633,6 +1654,10 @@ void CtActions::image_insert_anchor(Gtk::TextIter iter_insert,
             pBridge->cancelRichCellSession();
             auto* pWidget = new CtImageAnchor{_pCtMainWin, name, expCollState, cellCharOffset,
                                               image_justification};
+            if (origTsCreation >= 0) {
+                pWidget->setTsCreation(origTsCreation);
+                pWidget->setTsLastSave(std::time(nullptr));
+            }
             pWidget->insertInTextBuffer(cellBuffer);
             pCell->addEmbeddedWidget(pWidget);
             pBridge->commitRichCellFormatChange("Insert anchor");
@@ -1642,6 +1667,10 @@ void CtActions::image_insert_anchor(Gtk::TextIter iter_insert,
 
     const int charOffset = iter_insert.get_offset();
     CtAnchoredWidget* pAnchoredWidget = new CtImageAnchor{_pCtMainWin, name, expCollState, charOffset, image_justification};
+    if (origTsCreation >= 0) {
+        pAnchoredWidget->setTsCreation(origTsCreation);
+        pAnchoredWidget->setTsLastSave(std::time(nullptr));
+    }
     pAnchoredWidget->insertInTextBuffer(_curr_buffer());
     _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
                                                      {pAnchoredWidget},

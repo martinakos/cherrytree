@@ -143,7 +143,7 @@ public:
     void setNewScrollPos(double pos) { _newScrollPos = pos; }
 
 private:
-    void _applyText(const Glib::ustring& text);
+    void _applyText(const Glib::ustring& text, gint64 ts);
 
     std::shared_ptr<CtDocumentModel> _docModel;
     gint64 _nodeId;
@@ -156,6 +156,8 @@ private:
     int _newCursorPos;
     double _oldScrollPos{-1.0};
     double _newScrollPos{-1.0};
+    gint64 _oldTsLastSave{0};
+    gint64 _newTsLastSave{std::time(nullptr)};
 };
 
 // Lightweight delta command for editing a single rich table cell's content.
@@ -191,7 +193,7 @@ public:
     void setNewScrollPos(double pos) { _newScrollPos = pos; }
 
 private:
-    void _applyContent(const CtCellContent& content);
+    void _applyContent(const CtCellContent& content, gint64 ts);
 
     std::shared_ptr<CtDocumentModel> _docModel;
     CtCommandBridge* _bridge;
@@ -205,6 +207,8 @@ private:
     int _newCursorPos;
     double _oldScrollPos{-1.0};
     double _newScrollPos{-1.0};
+    gint64 _oldTsLastSave{0};
+    gint64 _newTsLastSave{std::time(nullptr)};
     std::string _description;
 };
 
@@ -237,7 +241,7 @@ public:
     void setNewScrollPos(double pos) { _newScrollPos = pos; }
 
 private:
-    void _applyContent(const std::string& content);
+    void _applyContent(const std::string& content, gint64 ts);
 
     std::shared_ptr<CtDocumentModel> _docModel;
     gint64 _nodeId;
@@ -248,4 +252,6 @@ private:
     int _newCursorPos;
     double _oldScrollPos{-1.0};
     double _newScrollPos{-1.0};
+    gint64 _oldTsLastSave{0};
+    gint64 _newTsLastSave{std::time(nullptr)};
 };

@@ -175,7 +175,10 @@ void dialog_search(CtMainWin* pCtMainWin,
 Glib::ustring img_n_entry_dialog(Gtk::Window& parent,
                                  const Glib::ustring& title,
                                  const Glib::ustring& entry_content,
-                                 const char* img_stock);
+                                 const char* img_stock,
+                                 const Glib::ustring& timestampFormat = "",
+                                 gint64 tsCreation = 0,
+                                 gint64 tsLastSave = 0);
 
 // Dialog to Insert/Edit Links
 bool link_handle_dialog(CtMainWin& ctMainWin,
@@ -204,14 +207,24 @@ std::string folder_save_as_dialog(Gtk::Window* pParentWin, const CtFileSelectArg
 // Insert/Edit Image
 Glib::RefPtr<Gdk::Pixbuf> image_handle_dialog(Gtk::Window& father_win,
                                               Glib::RefPtr<Gdk::Pixbuf> rOriginalPixbuf,
-                                              Glib::RefPtr<Gdk::Pixbuf> rHighResPixbuf = {});
+                                              Glib::RefPtr<Gdk::Pixbuf> rHighResPixbuf = {},
+                                              const Glib::ustring& timestampFormat = "",
+                                              gint64 tsCreation = 0,
+                                              gint64 tsLastSave = 0);
 // Insert/Edit Latex
 Glib::ustring latex_handle_dialog(CtMainWin* pCtMainWin,
-                                  const Glib::ustring& latex_text);
+                                  const Glib::ustring& latex_text,
+                                  gint64 tsCreation = 0,
+                                  gint64 tsLastSave = 0);
+
+// Append "Created" / "Modified" read-only labels to a dialog content area.
+void append_widget_timestamps(Gtk::Box& vbox, gint64 tsCreation, gint64 tsLastSave, const Glib::ustring& timestampFormat);
 
 // Opens the CodeBox Handle Dialog
 bool codeboxhandle_dialog(CtMainWin* pCtMainWin,
-                          const Glib::ustring& title);
+                          const Glib::ustring& title,
+                          gint64 tsCreation = 0,
+                          gint64 tsLastSave = 0);
 
 struct CtCanvasPropsDialogData {
     std::string name;
@@ -219,6 +232,8 @@ struct CtCanvasPropsDialogData {
     double bgOpacity;
     double cornerRadius;
     bool showBorderWhenInactive;
+    gint64 tsCreation{0};
+    gint64 tsLastSave{0};
 };
 
 bool canvas_properties_dialog(CtMainWin* pCtMainWin,
@@ -269,6 +284,8 @@ TableHandleResp table_handle_dialog(CtMainWin* pCtMainWin,
                                     size_t currentCol = 0,
                                     size_t numRows = 0,
                                     size_t numCols = 0,
-                                    int currentColWidth = 0);
+                                    int currentColWidth = 0,
+                                    gint64 tsCreation = 0,
+                                    gint64 tsLastSave = 0);
 
 } // namespace CtDialogs

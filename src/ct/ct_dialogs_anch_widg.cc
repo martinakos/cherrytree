@@ -26,9 +26,40 @@
 #include "ct_text_view.h"
 #include "ct_table.h"
 
+void CtDialogs::append_widget_timestamps(Gtk::Box& vbox, gint64 tsCreation, gint64 tsLastSave, const Glib::ustring& timestampFormat)
+{
+    const Glib::ustring fmt = timestampFormat.empty() ? "%Y/%m/%d - %H:%M" : timestampFormat;
+    auto* pFrame = Gtk::manage(new Gtk::Frame{});
+    pFrame->set_shadow_type(Gtk::ShadowType::SHADOW_IN);
+    auto* pGrid = Gtk::manage(new Gtk::Grid{});
+    pGrid->set_column_spacing(6);
+    pGrid->set_row_spacing(2);
+    pGrid->set_margin_start(4);
+    pGrid->set_margin_end(4);
+    pGrid->set_margin_top(2);
+    pGrid->set_margin_bottom(2);
+    auto* pLabelCr = Gtk::manage(new Gtk::Label{_("Created:")});
+    pLabelCr->set_halign(Gtk::ALIGN_START);
+    auto* pLabelMod = Gtk::manage(new Gtk::Label{_("Modified:")});
+    pLabelMod->set_halign(Gtk::ALIGN_START);
+    auto* pValCr = Gtk::manage(new Gtk::Label{tsCreation != 0 ? str::time_format(fmt, tsCreation) : "—"});
+    pValCr->set_halign(Gtk::ALIGN_START);
+    auto* pValMod = Gtk::manage(new Gtk::Label{tsLastSave != 0 ? str::time_format(fmt, tsLastSave) : "—"});
+    pValMod->set_halign(Gtk::ALIGN_START);
+    pGrid->attach(*pLabelCr, 0, 0);
+    pGrid->attach(*pValCr, 1, 0);
+    pGrid->attach(*pLabelMod, 0, 1);
+    pGrid->attach(*pValMod, 1, 1);
+    pFrame->add(*pGrid);
+    vbox.pack_start(*pFrame, false, false, 4);
+    pFrame->show_all();
+}
+
 #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
 Glib::ustring CtDialogs::latex_handle_dialog(CtMainWin* pCtMainWin,
-                                             const Glib::ustring& latex_text)
+                                             const Glib::ustring& latex_text,
+                                             gint64 tsCreation,
+                                             gint64 tsLastSave)
 {
     CtTextView textView{pCtMainWin};
     Glib::RefPtr<Gtk::TextBuffer> rBuffer = textView.get_buffer();
@@ -96,6 +127,7 @@ Glib::ustring CtDialogs::latex_handle_dialog(CtMainWin* pCtMainWin,
         return false;
     };
     dialog.signal_key_press_event().connect(on_key_press_dialog, false/*call me before other*/);
+    append_widget_timestamps(*pContentArea, tsCreation, tsLastSave, pCtMainWin->get_ct_config()->timestampFormat);
     pContentArea->show_all();
     return Gtk::RESPONSE_ACCEPT == dialog.run() ? rBuffer->get_text() : "";
 }
@@ -242,7 +274,10 @@ private:
 
 Glib::RefPtr<Gdk::Pixbuf> CtDialogs::image_handle_dialog(Gtk::Window& parent_win,
                                                          Glib::RefPtr<Gdk::Pixbuf> rOriginalPixbuf,
-                                                         Glib::RefPtr<Gdk::Pixbuf> rHighResPixbuf)
+                                                         Glib::RefPtr<Gdk::Pixbuf> rHighResPixbuf,
+                                                         const Glib::ustring& timestampFormat,
+                                                         gint64 tsCreation,
+                                                         gint64 tsLastSave)
 {
     // In headless/test mode, simulate "accept without size change using the high-res source"
     // — same logic as the real no-crop path below. This lets automated tests exercise the
@@ -477,6 +512,7 @@ Glib::RefPtr<Gdk::Pixbuf> CtDialogs::image_handle_dialog(Gtk::Window& parent_win
     };
     dialog.signal_key_press_event().connect(on_key_press_dialog, false/*call me before other*/);
     image_load_into_dialog();
+    append_widget_timestamps(*pContentArea, tsCreation, tsLastSave, timestampFormat);
     pContentArea->show_all();
     if ( Gtk::RESPONSE_ACCEPT == dialog.run() ) {
         double x, y, w, h;
@@ -505,7 +541,9 @@ Glib::RefPtr<Gdk::Pixbuf> CtDialogs::image_handle_dialog(Gtk::Window& parent_win
 }
 
 bool CtDialogs::codeboxhandle_dialog(CtMainWin* pCtMainWin,
-                                     const Glib::ustring& title)
+                                     const Glib::ustring& title,
+                                     gint64 tsCreation,
+                                     gint64 tsLastSave)
 {
     Gtk::Dialog dialog{title,
                        *pCtMainWin,
@@ -661,6 +699,7 @@ bool CtDialogs::codeboxhandle_dialog(CtMainWin* pCtMainWin,
         return false;
     };
     dialog.signal_key_press_event().connect(on_key_press_dialog, false/*call me before other*/);
+    append_widget_timestamps(*dialog.get_content_area(), tsCreation, tsLastSave, pConfig->timestampFormat);
 
     const int response = dialog.run();
     dialog.hide();
@@ -808,6 +847,7 @@ bool CtDialogs::canvas_properties_dialog(CtMainWin* pCtMainWin,
         }
         return false;
     }, false);
+    append_widget_timestamps(*dialog.get_content_area(), data.tsCreation, data.tsLastSave, pCtMainWin->get_ct_config()->timestampFormat);
 
     const int response = dialog.run();
     dialog.hide();
@@ -838,7 +878,9 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
                                                           size_t currentCol,
                                                           size_t numRows,
                                                           size_t numCols,
-                                                          int currentColWidth)
+                                                          int currentColWidth,
+                                                          gint64 tsCreation,
+                                                          gint64 tsLastSave)
 {
     Gtk::Dialog dialog{title,
                        *pCtMainWin,
@@ -1302,6 +1344,8 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
         };
         dialog.signal_key_press_event().connect(on_key_press_dialog2, false);
 
+        append_widget_timestamps(*dialog.get_content_area(), tsCreation, tsLastSave, pCtMainWin->get_ct_config()->timestampFormat);
+
         const int oldColWidthDefault = pCtConfig->tableColWidthDefault;
         const auto resp2 = dialog.run();
         pCtConfig->tableColWidthDefault = spinbutton_col_width.get_value_as_int();
@@ -1469,6 +1513,7 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
         return false;
     };
     dialog.signal_key_press_event().connect(on_key_press_dialog, false/*call me before other*/);
+    append_widget_timestamps(*dialog.get_content_area(), tsCreation, tsLastSave, pCtMainWin->get_ct_config()->timestampFormat);
 
     const auto resp = dialog.run();
     if (Gtk::RESPONSE_ACCEPT == resp) {
@@ -1490,25 +1535,32 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
 #else
 // GTK4 minimal fallbacks to satisfy build; functionality to be implemented.
 Glib::ustring CtDialogs::latex_handle_dialog(CtMainWin* pCtMainWin,
-                                             const Glib::ustring& latex_text)
+                                             const Glib::ustring& latex_text,
+                                             gint64 tsCreation,
+                                             gint64 tsLastSave)
 {
-    (void)pCtMainWin;
+    (void)pCtMainWin; (void)tsCreation; (void)tsLastSave;
     return latex_text;
 }
 
 Glib::RefPtr<Gdk::Pixbuf> CtDialogs::image_handle_dialog(Gtk::Window& parent_win,
                                                          Glib::RefPtr<Gdk::Pixbuf> rOriginalPixbuf,
-                                                         Glib::RefPtr<Gdk::Pixbuf> rHighResPixbuf)
+                                                         Glib::RefPtr<Gdk::Pixbuf> rHighResPixbuf,
+                                                         const Glib::ustring& timestampFormat,
+                                                         gint64 tsCreation,
+                                                         gint64 tsLastSave)
 {
-    (void)parent_win;
-    (void)rHighResPixbuf;
+    (void)parent_win; (void)rHighResPixbuf;
+    (void)timestampFormat; (void)tsCreation; (void)tsLastSave;
     return rOriginalPixbuf;
 }
 
 bool CtDialogs::codeboxhandle_dialog(CtMainWin* pCtMainWin,
-                                     const Glib::ustring& title)
+                                     const Glib::ustring& title,
+                                     gint64 tsCreation,
+                                     gint64 tsLastSave)
 {
-    (void)pCtMainWin; (void)title;
+    (void)pCtMainWin; (void)title; (void)tsCreation; (void)tsLastSave;
     return false;
 }
 
@@ -1522,10 +1574,13 @@ CtDialogs::TableHandleResp CtDialogs::table_handle_dialog(CtMainWin* pCtMainWin,
                                                           size_t currentCol,
                                                           size_t numRows,
                                                           size_t numCols,
-                                                          int currentColWidth)
+                                                          int currentColWidth,
+                                                          gint64 tsCreation,
+                                                          gint64 tsLastSave)
 {
     (void)pCtMainWin; (void)title; (void)is_insert; (void)is_light; (void)is_rich; (void)pTableStyle;
     (void)currentRow; (void)currentCol; (void)numRows; (void)numCols; (void)currentColWidth;
+    (void)tsCreation; (void)tsLastSave;
     return TableHandleResp::Cancel;
 }
 #endif

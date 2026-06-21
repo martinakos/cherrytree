@@ -281,6 +281,8 @@ std::list<CtAnchoredWidget*> buildBufferFromContent(
                 }
 
                 if (widget) {
+                    widget->setTsCreation(widgetDesc.getTsCreation());
+                    widget->setTsLastSave(widgetDesc.getTsLastSave());
                     // Insert widget anchor into buffer
                     widget->insertInTextBuffer(buffer);
                     createdWidgets.push_back(widget);

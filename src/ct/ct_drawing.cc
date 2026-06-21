@@ -544,6 +544,8 @@ void CtDrawingOverlay::_buildToolbar()
         data.bgOpacity = canvas.bgOpacity;
         data.cornerRadius = canvas.cornerRadius;
         data.showBorderWhenInactive = canvas.showBorderWhenInactive;
+        data.tsCreation = canvas.tsCreation;
+        data.tsLastSave = canvas.tsLastSave;
         if (CtDialogs::canvas_properties_dialog(_pMainWin, data)) {
             if (data.name != canvas.name || data.bgColor != canvas.bgColor ||
                 std::abs(data.bgOpacity - canvas.bgOpacity) > 0.001 ||
@@ -1815,6 +1817,8 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
             canvas.y = (sy + vScroll) / zoom;
             canvas.width = w;
             canvas.height = h;
+            canvas.tsCreation = std::time(nullptr);
+            canvas.tsLastSave = canvas.tsCreation;
 
             auto cmd = std::make_unique<AddCanvasCommand>(
                 bridge->getDocumentModel(), treeIter.get_node_id(), canvas);
@@ -2079,6 +2083,8 @@ void CtDrawingOverlay::_showContextMenu(GdkEventButton* event)
             data.bgOpacity = canvas.bgOpacity;
             data.cornerRadius = canvas.cornerRadius;
             data.showBorderWhenInactive = canvas.showBorderWhenInactive;
+            data.tsCreation = canvas.tsCreation;
+            data.tsLastSave = canvas.tsLastSave;
 
             if (CtDialogs::canvas_properties_dialog(_pMainWin, data)) {
                 if (data.name != canvas.name || data.bgColor != canvas.bgColor ||

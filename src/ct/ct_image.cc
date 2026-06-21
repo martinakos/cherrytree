@@ -176,6 +176,8 @@ void CtImagePng::to_xml(xmlpp::Element* p_node_parent,
     p_image_node->set_attribute("char_offset", std::to_string(_charOffset+offset_adjustment));
     p_image_node->set_attribute(CtConst::TAG_JUSTIFICATION, _justification);
     p_image_node->set_attribute("link", _link);
+    if (_tsCreation != 0) p_image_node->set_attribute("ts_creation", std::to_string(_tsCreation));
+    if (_tsLastSave != 0) p_image_node->set_attribute("ts_lastsave", std::to_string(_tsLastSave));
     if (_rZoomBasePixbuf and _rOrigPixbuf and
         (_rZoomBasePixbuf->get_width() != _rOrigPixbuf->get_width() or
          _rZoomBasePixbuf->get_height() != _rOrigPixbuf->get_height()))
@@ -206,6 +208,8 @@ CtWidgetDesc CtImagePng::to_widget_desc(int charOffset)
     desc.setProperty("char_offset", std::to_string(charOffset));
     desc.setProperty(CtConst::TAG_JUSTIFICATION, _justification);
     desc.setProperty("link", _link);
+    desc.setProperty("ts_creation", std::to_string(_tsCreation));
+    desc.setProperty("ts_lastsave", std::to_string(_tsLastSave));
     if (_rZoomBasePixbuf and _rOrigPixbuf and
         (_rZoomBasePixbuf->get_width() != _rOrigPixbuf->get_width() or
          _rZoomBasePixbuf->get_height() != _rOrigPixbuf->get_height()))
@@ -252,6 +256,8 @@ bool CtImagePng::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offset_
             sqlite3_bind_int64(p_stmt, 9, 0);
             sqlite3_bind_int64(p_stmt, 10, 0);
         }
+        sqlite3_bind_int64(p_stmt, 11, _tsCreation);
+        sqlite3_bind_int64(p_stmt, 12, _tsLastSave);
         if (sqlite3_step(p_stmt) != SQLITE_DONE) {
             spdlog::error("{}: {}", CtStorageSqlite::ERR_SQLITE_STEP, sqlite3_errmsg(pDb));
             retVal = false;
@@ -353,6 +359,8 @@ void CtImageAnchor::to_xml(xmlpp::Element* p_node_parent, const int offset_adjus
     if (CtAnchorExpCollState::Collapsed == _expCollState) {
         p_image_node->set_attribute("state", "coll");
     }
+    if (_tsCreation != 0) p_image_node->set_attribute("ts_creation", std::to_string(_tsCreation));
+    if (_tsLastSave != 0) p_image_node->set_attribute("ts_lastsave", std::to_string(_tsLastSave));
 }
 
 CtWidgetDesc CtImageAnchor::to_widget_desc(int charOffset)
@@ -361,6 +369,8 @@ CtWidgetDesc CtImageAnchor::to_widget_desc(int charOffset)
     desc.setProperty("char_offset", std::to_string(charOffset));
     desc.setProperty(CtConst::TAG_JUSTIFICATION, _justification);
     desc.setProperty("anchor", _anchorName);
+    desc.setProperty("ts_creation", std::to_string(_tsCreation));
+    desc.setProperty("ts_lastsave", std::to_string(_tsLastSave));
     if (CtAnchorExpCollState::Collapsed == _expCollState) {
         desc.setProperty("state", "coll");
     }
@@ -392,6 +402,8 @@ bool CtImageAnchor::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offs
         sqlite3_bind_int64(p_stmt, 8, 0); // time
         sqlite3_bind_int64(p_stmt, 9, 0); // display_width
         sqlite3_bind_int64(p_stmt, 10, 0); // display_height
+        sqlite3_bind_int64(p_stmt, 11, _tsCreation);
+        sqlite3_bind_int64(p_stmt, 12, _tsLastSave);
         if (sqlite3_step(p_stmt) != SQLITE_DONE) {
             spdlog::error("{}: {}", CtStorageSqlite::ERR_SQLITE_STEP, sqlite3_errmsg(pDb));
             retVal = false;
@@ -523,6 +535,8 @@ void CtImageLatex::to_xml(xmlpp::Element* p_node_parent, const int offset_adjust
     p_image_node->set_attribute("char_offset", std::to_string(_charOffset+offset_adjustment));
     p_image_node->set_attribute(CtConst::TAG_JUSTIFICATION, _justification);
     p_image_node->set_attribute("filename", CtImageLatex::LatexSpecialFilename);
+    if (_tsCreation != 0) p_image_node->set_attribute("ts_creation", std::to_string(_tsCreation));
+    if (_tsLastSave != 0) p_image_node->set_attribute("ts_lastsave", std::to_string(_tsLastSave));
     p_image_node->add_child_text(_latexText);
 }
 
@@ -532,6 +546,8 @@ CtWidgetDesc CtImageLatex::to_widget_desc(int charOffset)
     desc.setProperty("char_offset", std::to_string(charOffset));
     desc.setProperty(CtConst::TAG_JUSTIFICATION, _justification);
     desc.setProperty("filename", CtImageLatex::LatexSpecialFilename);
+    desc.setProperty("ts_creation", std::to_string(_tsCreation));
+    desc.setProperty("ts_lastsave", std::to_string(_tsLastSave));
     desc.contentData = _latexText.raw();
     desc.setProperty("_content", desc.contentData);
     return desc;
@@ -556,6 +572,8 @@ bool CtImageLatex::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offse
         sqlite3_bind_int64(p_stmt, 8, 0); // time
         sqlite3_bind_int64(p_stmt, 9, 0); // display_width
         sqlite3_bind_int64(p_stmt, 10, 0); // display_height
+        sqlite3_bind_int64(p_stmt, 11, _tsCreation);
+        sqlite3_bind_int64(p_stmt, 12, _tsLastSave);
         if (sqlite3_step(p_stmt) != SQLITE_DONE) {
             spdlog::error("{}: {}", CtStorageSqlite::ERR_SQLITE_STEP, sqlite3_errmsg(pDb));
             retVal = false;
@@ -931,6 +949,8 @@ void CtImageEmbFile::to_xml(xmlpp::Element* p_node_parent,
     p_image_node->set_attribute(CtConst::TAG_JUSTIFICATION, _justification);
     p_image_node->set_attribute("filename", _fileName.string());
     p_image_node->set_attribute("time", std::to_string(_timeSeconds));
+    if (_tsCreation != 0) p_image_node->set_attribute("ts_creation", std::to_string(_tsCreation));
+    if (_tsLastSave != 0) p_image_node->set_attribute("ts_lastsave", std::to_string(_tsLastSave));
     if (multifile_dir.empty()) {
         // target is not multifile
         _checkNonEmptyRawBlob(nullptr/*multifile_dir*/);
@@ -972,6 +992,8 @@ CtWidgetDesc CtImageEmbFile::to_widget_desc(int charOffset)
     desc.setProperty(CtConst::TAG_JUSTIFICATION, _justification);
     desc.setProperty("filename", _fileName.string());
     desc.setProperty("time", std::to_string(_timeSeconds));
+    desc.setProperty("ts_creation", std::to_string(_tsCreation));
+    desc.setProperty("ts_lastsave", std::to_string(_tsLastSave));
     _checkNonEmptyRawBlob(nullptr/*multifile_dir*/);
     desc.contentData = Glib::Base64::encode(_rawBlob);
     desc.setProperty("_content", desc.contentData);
@@ -999,6 +1021,8 @@ bool CtImageEmbFile::to_sqlite(sqlite3* pDb, const gint64 node_id, const int off
         sqlite3_bind_int64(p_stmt, 8, _timeSeconds);
         sqlite3_bind_int64(p_stmt, 9, 0); // display_width
         sqlite3_bind_int64(p_stmt, 10, 0); // display_height
+        sqlite3_bind_int64(p_stmt, 11, _tsCreation);
+        sqlite3_bind_int64(p_stmt, 12, _tsLastSave);
         if (sqlite3_step(p_stmt) != SQLITE_DONE) {
             spdlog::error("{}: {}", CtStorageSqlite::ERR_SQLITE_STEP, sqlite3_errmsg(pDb));
             retVal = false;
@@ -1142,6 +1166,8 @@ void CtHorizLine::to_xml(xmlpp::Element* p_node_parent, const int offset_adjustm
     p_node->set_attribute("char_offset", std::to_string(_charOffset + offset_adjustment));
     p_node->set_attribute(CtConst::TAG_JUSTIFICATION, _justification);
     p_node->set_attribute("filename", SpecialFilename);
+    if (_tsCreation != 0) p_node->set_attribute("ts_creation", std::to_string(_tsCreation));
+    if (_tsLastSave != 0) p_node->set_attribute("ts_lastsave", std::to_string(_tsLastSave));
 }
 
 CtWidgetDesc CtHorizLine::to_widget_desc(int charOffset)
@@ -1150,6 +1176,8 @@ CtWidgetDesc CtHorizLine::to_widget_desc(int charOffset)
     desc.setProperty("char_offset", std::to_string(charOffset));
     desc.setProperty(CtConst::TAG_JUSTIFICATION, _justification);
     desc.setProperty("filename", SpecialFilename);
+    desc.setProperty("ts_creation", std::to_string(_tsCreation));
+    desc.setProperty("ts_lastsave", std::to_string(_tsLastSave));
     return desc;
 }
 
@@ -1172,6 +1200,8 @@ bool CtHorizLine::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offset
         sqlite3_bind_int64(p_stmt, 8, 0); // time
         sqlite3_bind_int64(p_stmt, 9, 0); // display_width
         sqlite3_bind_int64(p_stmt, 10, 0); // display_height
+        sqlite3_bind_int64(p_stmt, 11, _tsCreation);
+        sqlite3_bind_int64(p_stmt, 12, _tsLastSave);
         if (sqlite3_step(p_stmt) != SQLITE_DONE) {
             spdlog::error("{}: {}", CtStorageSqlite::ERR_SQLITE_STEP, sqlite3_errmsg(pDb));
             retVal = false;

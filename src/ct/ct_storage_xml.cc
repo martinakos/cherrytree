@@ -537,6 +537,10 @@ bool CtStorageXmlHelper::get_text_buffer_one_slot_from_xml(Glib::RefPtr<Gtk::Tex
             widget = _create_codebox_from_xml(slot_element, char_offset, justification);
         }
         if (widget) {
+            const std::string tsCr = slot_element->get_attribute_value("ts_creation");
+            const std::string tsLs = slot_element->get_attribute_value("ts_lastsave");
+            widget->setTsCreation(tsCr.empty() ? 0 : std::stoll(tsCr));
+            widget->setTsLastSave(tsLs.empty() ? 0 : std::stoll(tsLs));
             widget->insertInTextBuffer(buffer);
             widgets.push_back(widget);
         }
@@ -1026,6 +1030,8 @@ void CtXmlHelper::drawing_canvases_to_xml(xmlpp::Element* p_node_node,
         if (canvas.showBorderWhenInactive) {
             p_canvas->set_attribute("show_border_inactive", "1");
         }
+        if (canvas.tsCreation != 0) p_canvas->set_attribute("ts_creation", std::to_string(canvas.tsCreation));
+        if (canvas.tsLastSave != 0) p_canvas->set_attribute("ts_lastsave", std::to_string(canvas.tsLastSave));
         for (const auto& stroke : canvas.strokes) {
             auto* p_stroke = p_canvas->add_child("stroke");
             p_stroke->set_attribute("color", stroke.color);
@@ -1085,6 +1091,10 @@ std::vector<CtDrawingCanvas> CtXmlHelper::drawing_canvases_from_xml(const xmlpp:
             if (!bgOpStr.empty()) canvas.bgOpacity = std::stod(bgOpStr);
             auto showBorderStr = canvasElem->get_attribute_value("show_border_inactive");
             if (!showBorderStr.empty()) canvas.showBorderWhenInactive = (showBorderStr == "1");
+            auto tsCrStr = canvasElem->get_attribute_value("ts_creation");
+            if (!tsCrStr.empty()) canvas.tsCreation = std::stoll(tsCrStr);
+            auto tsLsStr = canvasElem->get_attribute_value("ts_lastsave");
+            if (!tsLsStr.empty()) canvas.tsLastSave = std::stoll(tsLsStr);
             for (auto* strokeChild : canvasElem->get_children("stroke")) {
                 auto* strokeElem = dynamic_cast<const xmlpp::Element*>(strokeChild);
                 if (!strokeElem) continue;

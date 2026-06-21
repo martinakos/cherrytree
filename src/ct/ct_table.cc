@@ -580,10 +580,13 @@ void CtTableCommon::to_xml(xmlpp::Element* p_node_parent, const int offset_adjus
                               _colWidthDefault,
                               str::join_numbers(_colWidths, ","),
                               CtAnchWidgType::TableLight == get_type());
-    // Add style attributes to the last added <table> child
+    // Add style attributes and timestamps to the last added <table> child
     auto children = p_node_parent->get_children("table");
     if (!children.empty()) {
-        _serializeStyleAttrs(static_cast<xmlpp::Element*>(children.back()));
+        auto* pTableElem = static_cast<xmlpp::Element*>(children.back());
+        _serializeStyleAttrs(pTableElem);
+        if (_tsCreation != 0) pTableElem->set_attribute("ts_creation", std::to_string(_tsCreation));
+        if (_tsLastSave != 0) pTableElem->set_attribute("ts_lastsave", std::to_string(_tsLastSave));
     }
 }
 
@@ -641,6 +644,8 @@ CtWidgetDesc CtTableCommon::to_widget_desc(int charOffset)
         desc.setProperty("cell_border_seq", s);
         desc.setProperty("border_seq_counter", std::to_string(_tableStyle.borderSeqCounter));
     }
+    desc.setProperty("ts_creation", std::to_string(_tsCreation));
+    desc.setProperty("ts_lastsave", std::to_string(_tsLastSave));
     // Table cell data: write_strings_matrix returns rows in natural order (header first)
     write_strings_matrix(desc.tableData);
     return desc;
@@ -672,6 +677,8 @@ bool CtTableCommon::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offs
         sqlite3_bind_text(p_stmt, 4, table_txt.c_str(), table_txt.size(), SQLITE_STATIC);
         sqlite3_bind_int64(p_stmt, 5, _colWidthDefault); // todo get rid of column min
         sqlite3_bind_int64(p_stmt, 6, _colWidthDefault);
+        sqlite3_bind_int64(p_stmt, 7, _tsCreation);
+        sqlite3_bind_int64(p_stmt, 8, _tsLastSave);
         if (sqlite3_step(p_stmt) != SQLITE_DONE) {
             spdlog::error("{}: {}", CtStorageSqlite::ERR_SQLITE_STEP, sqlite3_errmsg(pDb));
             retVal = false;
@@ -1822,6 +1829,8 @@ void CtTableRich::to_xml(xmlpp::Element* p_node_parent, const int offset_adjustm
     p_table_node->set_attribute("col_widths", str::join_numbers(_colWidths, ","));
     p_table_node->set_attribute("is_rich", "1");
     _serializeStyleAttrs(p_table_node);
+    if (_tsCreation != 0) p_table_node->set_attribute("ts_creation", std::to_string(_tsCreation));
+    if (_tsLastSave != 0) p_table_node->set_attribute("ts_lastsave", std::to_string(_tsLastSave));
     _populate_xml_rows_cells(p_table_node);
 }
 
@@ -1921,6 +1930,8 @@ CtWidgetDesc CtTableRich::to_widget_desc(int charOffset)
         }
         desc.setProperty("cell_wrap", s);
     }
+    desc.setProperty("ts_creation", std::to_string(_tsCreation));
+    desc.setProperty("ts_lastsave", std::to_string(_tsLastSave));
     // Rich cell data: iterate matrix in natural order (header = _tableMatrix[0])
     for (const auto& row : _tableMatrix) {
         std::vector<CtCellContent> richRow;

@@ -530,6 +530,8 @@ void CtCodebox::to_xml(xmlpp::Element* p_node_parent, const int offset_adjustmen
     p_codebox_node->set_attribute("syntax_highlighting", _syntaxHighlighting);
     p_codebox_node->set_attribute("highlight_brackets", std::to_string(_highlightBrackets));
     p_codebox_node->set_attribute("show_line_numbers", std::to_string(_showLineNumbers));
+    if (_tsCreation != 0) p_codebox_node->set_attribute("ts_creation", std::to_string(_tsCreation));
+    if (_tsLastSave != 0) p_codebox_node->set_attribute("ts_lastsave", std::to_string(_tsLastSave));
     p_codebox_node->add_child_text(get_text_content());
 }
 
@@ -544,6 +546,8 @@ CtWidgetDesc CtCodebox::to_widget_desc(int charOffset)
     desc.setProperty("syntax_highlighting", _syntaxHighlighting);
     desc.setProperty("highlight_brackets", std::to_string(_highlightBrackets));
     desc.setProperty("show_line_numbers", std::to_string(_showLineNumbers));
+    desc.setProperty("ts_creation", std::to_string(_tsCreation));
+    desc.setProperty("ts_lastsave", std::to_string(_tsLastSave));
     const Glib::ustring textContent = get_text_content();
     desc.contentData = textContent.raw();
     desc.setProperty("_content", desc.contentData);
@@ -570,6 +574,8 @@ bool CtCodebox::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offset_a
         sqlite3_bind_int64(p_stmt, 8, _widthInPixels);
         sqlite3_bind_int64(p_stmt, 9, _highlightBrackets);
         sqlite3_bind_int64(p_stmt, 10, _showLineNumbers);
+        sqlite3_bind_int64(p_stmt, 11, _tsCreation);
+        sqlite3_bind_int64(p_stmt, 12, _tsLastSave);
         if (sqlite3_step(p_stmt) != SQLITE_DONE) {
             spdlog::error("{}: {}", CtStorageSqlite::ERR_SQLITE_STEP, sqlite3_errmsg(pDb));
             retVal = false;

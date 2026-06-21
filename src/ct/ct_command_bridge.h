@@ -204,6 +204,8 @@ public:
                               size_t col,
                               const CtCellContent& content);
 
+    void setLiveWidgetTsLastSave(gint64 nodeId, int charOffset, gint64 ts);
+
 private:
 
     // Helper to update buffer from XML

@@ -44,7 +44,9 @@ public:
         if (!node) return;
         auto& canvases = node->getDrawingCanvasesMut();
         if (_canvasIdx < canvases.size()) {
+            _oldTsLastSave = canvases[_canvasIdx].tsLastSave;
             canvases[_canvasIdx].strokes.push_back(_stroke);
+            canvases[_canvasIdx].tsLastSave = _newTsLastSave;
             _docModel->notifyNodeDrawingChanged(_nodeId);
         }
     }
@@ -55,6 +57,7 @@ public:
         auto& canvases = node->getDrawingCanvasesMut();
         if (_canvasIdx < canvases.size() && !canvases[_canvasIdx].strokes.empty()) {
             canvases[_canvasIdx].strokes.pop_back();
+            canvases[_canvasIdx].tsLastSave = _oldTsLastSave;
             _docModel->notifyNodeDrawingChanged(_nodeId);
         }
     }
@@ -67,6 +70,8 @@ private:
     gint64 _nodeId;
     size_t _canvasIdx;
     CtDrawingStroke _stroke;
+    gint64 _oldTsLastSave{0};
+    gint64 _newTsLastSave{std::time(nullptr)};
 };
 
 class EraseStrokeCommand : public CtCommand {
@@ -86,7 +91,9 @@ public:
         if (!node) return;
         auto& canvases = node->getDrawingCanvasesMut();
         if (_canvasIdx < canvases.size() && _strokeIdx < canvases[_canvasIdx].strokes.size()) {
+            _oldTsLastSave = canvases[_canvasIdx].tsLastSave;
             canvases[_canvasIdx].strokes.erase(canvases[_canvasIdx].strokes.begin() + _strokeIdx);
+            canvases[_canvasIdx].tsLastSave = _newTsLastSave;
             _docModel->notifyNodeDrawingChanged(_nodeId);
         }
     }
@@ -102,6 +109,7 @@ public:
             } else {
                 strokes.push_back(_stroke);
             }
+            canvases[_canvasIdx].tsLastSave = _oldTsLastSave;
             _docModel->notifyNodeDrawingChanged(_nodeId);
         }
     }
@@ -115,6 +123,8 @@ private:
     size_t _canvasIdx;
     CtDrawingStroke _stroke;
     size_t _strokeIdx;
+    gint64 _oldTsLastSave{0};
+    gint64 _newTsLastSave{std::time(nullptr)};
 };
 
 class RotateStrokeCommand : public CtCommand {
@@ -135,7 +145,9 @@ public:
         if (!node) return;
         auto& canvases = node->getDrawingCanvasesMut();
         if (_canvasIdx < canvases.size() && _strokeIdx < canvases[_canvasIdx].strokes.size()) {
+            _oldTsLastSave = canvases[_canvasIdx].tsLastSave;
             canvases[_canvasIdx].strokes[_strokeIdx].rotation = _newRotation;
+            canvases[_canvasIdx].tsLastSave = _newTsLastSave;
             _docModel->notifyNodeDrawingChanged(_nodeId);
         }
     }
@@ -146,6 +158,7 @@ public:
         auto& canvases = node->getDrawingCanvasesMut();
         if (_canvasIdx < canvases.size() && _strokeIdx < canvases[_canvasIdx].strokes.size()) {
             canvases[_canvasIdx].strokes[_strokeIdx].rotation = _oldRotation;
+            canvases[_canvasIdx].tsLastSave = _oldTsLastSave;
             _docModel->notifyNodeDrawingChanged(_nodeId);
         }
     }
@@ -160,6 +173,8 @@ private:
     size_t _strokeIdx;
     double _oldRotation;
     double _newRotation;
+    gint64 _oldTsLastSave{0};
+    gint64 _newTsLastSave{std::time(nullptr)};
 };
 
 class MoveStrokeCommand : public CtCommand {
@@ -181,7 +196,9 @@ public:
         if (!node) return;
         auto& canvases = node->getDrawingCanvasesMut();
         if (_canvasIdx < canvases.size() && _strokeIdx < canvases[_canvasIdx].strokes.size()) {
+            _oldTsLastSave = canvases[_canvasIdx].tsLastSave;
             canvases[_canvasIdx].strokes[_strokeIdx].points = _newPoints;
+            canvases[_canvasIdx].tsLastSave = _newTsLastSave;
             _docModel->notifyNodeDrawingChanged(_nodeId);
         }
     }
@@ -192,6 +209,7 @@ public:
         auto& canvases = node->getDrawingCanvasesMut();
         if (_canvasIdx < canvases.size() && _strokeIdx < canvases[_canvasIdx].strokes.size()) {
             canvases[_canvasIdx].strokes[_strokeIdx].points = _oldPoints;
+            canvases[_canvasIdx].tsLastSave = _oldTsLastSave;
             _docModel->notifyNodeDrawingChanged(_nodeId);
         }
     }
@@ -206,6 +224,8 @@ private:
     size_t _strokeIdx;
     std::vector<CtDrawingPoint> _oldPoints;
     std::vector<CtDrawingPoint> _newPoints;
+    gint64 _oldTsLastSave{0};
+    gint64 _newTsLastSave{std::time(nullptr)};
 };
 
 class AddCanvasCommand : public CtCommand {
@@ -306,8 +326,10 @@ public:
         if (!node) return;
         auto& canvases = node->getDrawingCanvasesMut();
         if (_canvasIdx < canvases.size()) {
+            _oldTsLastSave = canvases[_canvasIdx].tsLastSave;
             canvases[_canvasIdx].x = _newX;
             canvases[_canvasIdx].y = _newY;
+            canvases[_canvasIdx].tsLastSave = _newTsLastSave;
             _docModel->notifyNodeDrawingChanged(_nodeId);
         }
     }
@@ -319,6 +341,7 @@ public:
         if (_canvasIdx < canvases.size()) {
             canvases[_canvasIdx].x = _oldX;
             canvases[_canvasIdx].y = _oldY;
+            canvases[_canvasIdx].tsLastSave = _oldTsLastSave;
             _docModel->notifyNodeDrawingChanged(_nodeId);
         }
     }
@@ -331,6 +354,8 @@ private:
     gint64 _nodeId;
     size_t _canvasIdx;
     double _oldX, _oldY, _newX, _newY;
+    gint64 _oldTsLastSave{0};
+    gint64 _newTsLastSave{std::time(nullptr)};
 };
 
 class ResizeCanvasCommand : public CtCommand {
@@ -351,10 +376,12 @@ public:
         if (!node) return;
         auto& canvases = node->getDrawingCanvasesMut();
         if (_canvasIdx < canvases.size()) {
+            _oldTsLastSave = canvases[_canvasIdx].tsLastSave;
             canvases[_canvasIdx].x = _newX;
             canvases[_canvasIdx].y = _newY;
             canvases[_canvasIdx].width = _newW;
             canvases[_canvasIdx].height = _newH;
+            canvases[_canvasIdx].tsLastSave = _newTsLastSave;
             _docModel->notifyNodeDrawingChanged(_nodeId);
         }
     }
@@ -368,6 +395,7 @@ public:
             canvases[_canvasIdx].y = _oldY;
             canvases[_canvasIdx].width = _oldW;
             canvases[_canvasIdx].height = _oldH;
+            canvases[_canvasIdx].tsLastSave = _oldTsLastSave;
             _docModel->notifyNodeDrawingChanged(_nodeId);
         }
     }
@@ -381,6 +409,8 @@ private:
     size_t _canvasIdx;
     double _oldX, _oldY, _oldW, _oldH;
     double _newX, _newY, _newW, _newH;
+    gint64 _oldTsLastSave{0};
+    gint64 _newTsLastSave{std::time(nullptr)};
 };
 
 class CanvasPropertiesCommand : public CtCommand {
@@ -407,11 +437,13 @@ public:
         if (!node) return;
         auto& canvases = node->getDrawingCanvasesMut();
         if (_canvasIdx < canvases.size()) {
+            _oldTsLastSave = canvases[_canvasIdx].tsLastSave;
             canvases[_canvasIdx].name = _newName;
             canvases[_canvasIdx].bgColor = _newBgColor;
             canvases[_canvasIdx].bgOpacity = _newBgOpacity;
             canvases[_canvasIdx].cornerRadius = _newCornerRadius;
             canvases[_canvasIdx].showBorderWhenInactive = _newShowBorder;
+            canvases[_canvasIdx].tsLastSave = _newTsLastSave;
             _docModel->notifyNodeDrawingChanged(_nodeId);
         }
     }
@@ -426,6 +458,7 @@ public:
             canvases[_canvasIdx].bgOpacity = _oldBgOpacity;
             canvases[_canvasIdx].cornerRadius = _oldCornerRadius;
             canvases[_canvasIdx].showBorderWhenInactive = _oldShowBorder;
+            canvases[_canvasIdx].tsLastSave = _oldTsLastSave;
             _docModel->notifyNodeDrawingChanged(_nodeId);
         }
     }
@@ -442,4 +475,6 @@ private:
     double _oldBgOpacity, _newBgOpacity;
     double _oldCornerRadius, _newCornerRadius;
     bool _oldShowBorder, _newShowBorder;
+    gint64 _oldTsLastSave{0};
+    gint64 _newTsLastSave{std::time(nullptr)};
 };

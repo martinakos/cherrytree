@@ -393,10 +393,12 @@ public:
     void image_insert_anchor(Gtk::TextIter iter_insert,
                              const Glib::ustring& name,
                              const CtAnchorExpCollState expCollState,
-                             const Glib::ustring& image_justification);
+                             const Glib::ustring& image_justification,
+                             gint64 origTsCreation = -1);
     void image_insert_latex(Gtk::TextIter iter_insert,
                             const Glib::ustring& latex_text,
-                            const Glib::ustring& image_justification);
+                            const Glib::ustring& image_justification,
+                            gint64 origTsCreation = -1);
 
 private:
     void _insert_toc_at_pos(Glib::RefPtr<Gtk::TextBuffer> text_buffer, const std::list<TocEntry>& entries);

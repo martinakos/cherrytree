@@ -79,6 +79,7 @@ package_add_test(run_tests_no_x
   tests_lists.cpp
   tests_document_model.cpp
   tests_drawing.cpp
+  tests_widget_timestamps.cpp
 )
 
 package_add_test(run_tests_with_x_1
