@@ -84,6 +84,8 @@ CtAnchoredWidget::CtAnchoredWidget(CtMainWin* pCtMainWin, const int charOffset, 
  , _pCtConfig{pCtMainWin->get_ct_config()}
  , _charOffset{charOffset}
  , _justification{justification}
+ , _tsCreation{std::time(nullptr)}
+ , _tsLastSave{std::time(nullptr)}
 {
     _frame.set_shadow_type(Gtk::ShadowType::SHADOW_NONE);
     signal_button_press_event().connect([this](GdkEventButton* /*pEvent*/){

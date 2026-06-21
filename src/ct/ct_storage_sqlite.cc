@@ -61,10 +61,12 @@ const char CtStorageSqlite::TABLE_CODEBOX_CREATE[]{"CREATE TABLE codebox ("
 "height INTEGER,"
 "is_width_pix INTEGER,"
 "do_highl_bra INTEGER,"
-"do_show_linenum INTEGER"
+"do_show_linenum INTEGER,"
+"ts_creation INTEGER,"
+"ts_lastsave INTEGER"
 ")"
 };
-const char CtStorageSqlite::TABLE_CODEBOX_INSERT[]{"INSERT INTO codebox VALUES(?,?,?,?,?,?,?,?,?,?)"};
+const char CtStorageSqlite::TABLE_CODEBOX_INSERT[]{"INSERT INTO codebox VALUES(?,?,?,?,?,?,?,?,?,?,?,?)"};
 const char CtStorageSqlite::TABLE_CODEBOX_DELETE[]{"DELETE FROM codebox WHERE node_id=?"};
 
 const char CtStorageSqlite::TABLE_TABLE_CREATE[]{"CREATE TABLE grid ("
@@ -73,10 +75,12 @@ const char CtStorageSqlite::TABLE_TABLE_CREATE[]{"CREATE TABLE grid ("
 "justification TEXT,"
 "txt TEXT,"
 "col_min INTEGER,"
-"col_max INTEGER"
+"col_max INTEGER,"
+"ts_creation INTEGER,"
+"ts_lastsave INTEGER"
 ")"
 };
-const char CtStorageSqlite::TABLE_TABLE_INSERT[]{"INSERT INTO grid VALUES(?,?,?,?,?,?)"};
+const char CtStorageSqlite::TABLE_TABLE_INSERT[]{"INSERT INTO grid VALUES(?,?,?,?,?,?,?,?)"};
 const char CtStorageSqlite::TABLE_TABLE_DELETE[]{"DELETE FROM grid WHERE node_id=?"};
 
 const char CtStorageSqlite::TABLE_IMAGE_CREATE[]{"CREATE TABLE image ("
@@ -89,10 +93,12 @@ const char CtStorageSqlite::TABLE_IMAGE_CREATE[]{"CREATE TABLE image ("
 "link TEXT,"
 "time INTEGER,"
 "display_width INTEGER,"
-"display_height INTEGER"
+"display_height INTEGER,"
+"ts_creation INTEGER,"
+"ts_lastsave INTEGER"
 ")"
 };
-const char CtStorageSqlite::TABLE_IMAGE_INSERT[]{"INSERT INTO image VALUES(?,?,?,?,?,?,?,?,?,?)"};
+const char CtStorageSqlite::TABLE_IMAGE_INSERT[]{"INSERT INTO image VALUES(?,?,?,?,?,?,?,?,?,?,?,?)"};
 const char CtStorageSqlite::TABLE_IMAGE_DELETE[]{"DELETE FROM image WHERE node_id=?"};
 
 const char CtStorageSqlite::TABLE_CHILDREN_CREATE[]{"CREATE TABLE children ("
@@ -122,6 +128,8 @@ const char CtStorageSqlite::TABLE_DRAWING_CANVAS_CREATE[]{"CREATE TABLE IF NOT E
 "bg_color TEXT DEFAULT '#ffffff',"
 "bg_opacity REAL DEFAULT 0.15,"
 "show_border_inactive INTEGER DEFAULT 0,"
+"ts_creation INTEGER DEFAULT 0,"
+"ts_lastsave INTEGER DEFAULT 0,"
 "PRIMARY KEY (node_id, canvas_index)"
 ")"
 };
@@ -573,6 +581,9 @@ void CtStorageSqlite::_image_from_db(const gint64& nodeId, std::list<CtAnchoredW
         Glib::ustring justification = safe_sqlite3_column_text(stmt, 2);
         if (justification.empty()) justification = CtConst::TAG_PROP_VAL_LEFT;
 
+        const gint64 tsCreation = sqlite3_column_int64(stmt, 10);
+        const gint64 tsLastSave = sqlite3_column_int64(stmt, 11);
+
         // image
         const Glib::ustring anchorName = safe_sqlite3_column_text(stmt, 3);
         if (not anchorName.empty()) {
@@ -623,6 +634,8 @@ void CtStorageSqlite::_image_from_db(const gint64& nodeId, std::list<CtAnchoredW
                 anchoredWidgets.push_back(pImage);
             }
         }
+        anchoredWidgets.back()->setTsCreation(tsCreation);
+        anchoredWidgets.back()->setTsLastSave(tsLastSave);
     }
 }
 
@@ -647,17 +660,22 @@ void CtStorageSqlite::_codebox_from_db(const gint64& nodeId ,std::list<CtAnchore
         const bool widthInPixels = sqlite3_column_int64(stmt, 7);
         const bool highlightBrackets = sqlite3_column_int64(stmt, 8);
         const bool showLineNumbers = sqlite3_column_int64(stmt, 9);
+        const gint64 tsCreation = sqlite3_column_int64(stmt, 10);
+        const gint64 tsLastSave = sqlite3_column_int64(stmt, 11);
 
-        anchoredWidgets.push_back(new CtCodebox(_pCtMainWin,
-                                                textContent,
-                                                syntaxHighlighting,
-                                                frameWidth,
-                                                frameHeight,
-                                                charOffset,
-                                                justification,
-                                                widthInPixels,
-                                                highlightBrackets,
-                                                showLineNumbers));
+        auto* pCodebox = new CtCodebox(_pCtMainWin,
+                                       textContent,
+                                       syntaxHighlighting,
+                                       frameWidth,
+                                       frameHeight,
+                                       charOffset,
+                                       justification,
+                                       widthInPixels,
+                                       highlightBrackets,
+                                       showLineNumbers);
+        pCodebox->setTsCreation(tsCreation);
+        pCodebox->setTsLastSave(tsLastSave);
+        anchoredWidgets.push_back(pCodebox);
     }
 }
 
@@ -677,6 +695,8 @@ void CtStorageSqlite::_table_from_db(const gint64& nodeId, std::list<CtAnchoredW
 
         const char* textContent = safe_sqlite3_column_text(stmt, 3);
         const int colWidthDefault = sqlite3_column_int64(stmt, 5);
+        const gint64 tsCreation = sqlite3_column_int64(stmt, 6);
+        const gint64 tsLastSave = sqlite3_column_int64(stmt, 7);
 
         CtStorageXmlHelper xmlHelper{_pCtMainWin};
 
@@ -690,9 +710,13 @@ void CtStorageSqlite::_table_from_db(const gint64& nodeId, std::list<CtAnchoredW
                 if (not colWidthsStr.empty()) {
                     tableColWidths = CtStrUtil::gstring_split_to_int(colWidthsStr.c_str(), ",");
                 }
-                anchoredWidgets.push_back(
-                    xmlHelper._create_rich_table_from_xml(rootElem, charOffset, justification,
-                                                          colWidthDefault, tableColWidths));
+                auto* pTable = xmlHelper._create_rich_table_from_xml(rootElem, charOffset, justification,
+                                                                      colWidthDefault, tableColWidths);
+                if (pTable) {
+                    pTable->setTsCreation(tsCreation);
+                    pTable->setTsLastSave(tsLastSave);
+                }
+                anchoredWidgets.push_back(pTable);
                 continue;
             }
         }
@@ -702,12 +726,16 @@ void CtStorageSqlite::_table_from_db(const gint64& nodeId, std::list<CtAnchoredW
         bool is_light{false};
         if (xmlHelper.populate_table_matrix(tableMatrix, textContent, tableColWidths, is_light))
         {
+            CtAnchoredWidget* pTable;
             if (is_light) {
-                anchoredWidgets.push_back(new CtTableLight{_pCtMainWin, tableMatrix, colWidthDefault, charOffset, justification, tableColWidths});
+                pTable = new CtTableLight{_pCtMainWin, tableMatrix, colWidthDefault, charOffset, justification, tableColWidths};
             }
             else {
-                anchoredWidgets.push_back(new CtTableHeavy{_pCtMainWin, tableMatrix, colWidthDefault, charOffset, justification, tableColWidths});
+                pTable = new CtTableHeavy{_pCtMainWin, tableMatrix, colWidthDefault, charOffset, justification, tableColWidths};
             }
+            pTable->setTsCreation(tsCreation);
+            pTable->setTsLastSave(tsLastSave);
+            anchoredWidgets.push_back(pTable);
         }
         else {
             spdlog::error("!! table xml read: {}", textContent);
@@ -1067,7 +1095,9 @@ void CtStorageSqlite::_fix_db_tables()
 {
     const static std::vector<std::vector<std::string>> tables = {
         {"node", "ts_creation", "INTEGER", "ts_lastsave", "INTEGER"},
-        {"image", "filename", "TEXT", "link", "TEXT", "time", "TEXT", "display_width", "INTEGER", "display_height", "INTEGER"},
+        {"image", "filename", "TEXT", "link", "TEXT", "time", "TEXT", "display_width", "INTEGER", "display_height", "INTEGER", "ts_creation", "INTEGER", "ts_lastsave", "INTEGER"},
+        {"codebox", "ts_creation", "INTEGER", "ts_lastsave", "INTEGER"},
+        {"grid", "ts_creation", "INTEGER", "ts_lastsave", "INTEGER"},
         {"children", "master_id", "INTEGER"},
     };
     try {
@@ -1110,8 +1140,10 @@ std::vector<CtDrawingCanvas> CtStorageSqlite::_drawing_canvases_from_db(gint64 n
     sqlite3_exec(_pDb, "ALTER TABLE drawing_canvas ADD COLUMN bg_color TEXT DEFAULT '#ffffff'", nullptr, nullptr, nullptr);
     sqlite3_exec(_pDb, "ALTER TABLE drawing_canvas ADD COLUMN bg_opacity REAL DEFAULT 0.15", nullptr, nullptr, nullptr);
     sqlite3_exec(_pDb, "ALTER TABLE drawing_canvas ADD COLUMN show_border_inactive INTEGER DEFAULT 0", nullptr, nullptr, nullptr);
+    sqlite3_exec(_pDb, "ALTER TABLE drawing_canvas ADD COLUMN ts_creation INTEGER DEFAULT 0", nullptr, nullptr, nullptr);
+    sqlite3_exec(_pDb, "ALTER TABLE drawing_canvas ADD COLUMN ts_lastsave INTEGER DEFAULT 0", nullptr, nullptr, nullptr);
 
-    Sqlite3StmtAuto cStmt{_pDb, "SELECT canvas_index, x, y, width, height, corner_radius, name, bg_color, bg_opacity, show_border_inactive FROM drawing_canvas WHERE node_id=? ORDER BY canvas_index"};
+    Sqlite3StmtAuto cStmt{_pDb, "SELECT canvas_index, x, y, width, height, corner_radius, name, bg_color, bg_opacity, show_border_inactive, ts_creation, ts_lastsave FROM drawing_canvas WHERE node_id=? ORDER BY canvas_index"};
     if (cStmt.is_bad()) return canvases;
     sqlite3_bind_int64(cStmt, 1, nodeId);
 
@@ -1129,6 +1161,8 @@ std::vector<CtDrawingCanvas> CtStorageSqlite::_drawing_canvases_from_db(gint64 n
         double bgOp = sqlite3_column_double(cStmt, 8);
         if (sqlite3_column_type(cStmt, 8) != SQLITE_NULL) canvas.bgOpacity = bgOp;
         canvas.showBorderWhenInactive = sqlite3_column_int(cStmt, 9) != 0;
+        canvas.tsCreation = sqlite3_column_int64(cStmt, 10);
+        canvas.tsLastSave = sqlite3_column_int64(cStmt, 11);
 
         // migrate older schemas that lack new stroke columns
         sqlite3_exec(_pDb, "ALTER TABLE drawing_stroke ADD COLUMN element_type INTEGER DEFAULT 0", nullptr, nullptr, nullptr);
@@ -1189,7 +1223,7 @@ void CtStorageSqlite::_write_drawing_canvases_to_db(gint64 nodeId, const std::ve
 
     for (size_t ci = 0; ci < canvases.size(); ++ci) {
         const auto& canvas = canvases[ci];
-        Sqlite3StmtAuto cIns{_pDb, "INSERT INTO drawing_canvas VALUES(?,?,?,?,?,?,?,?,?,?,?)"};
+        Sqlite3StmtAuto cIns{_pDb, "INSERT INTO drawing_canvas VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)"};
         if (cIns.is_bad()) continue;
         sqlite3_bind_int64(cIns, 1, nodeId);
         sqlite3_bind_int(cIns, 2, static_cast<int>(ci));
@@ -1202,6 +1236,8 @@ void CtStorageSqlite::_write_drawing_canvases_to_db(gint64 nodeId, const std::ve
         sqlite3_bind_text(cIns, 9, canvas.bgColor.c_str(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_double(cIns, 10, canvas.bgOpacity);
         sqlite3_bind_int(cIns, 11, canvas.showBorderWhenInactive ? 1 : 0);
+        sqlite3_bind_int64(cIns, 12, canvas.tsCreation);
+        sqlite3_bind_int64(cIns, 13, canvas.tsLastSave);
         sqlite3_step(cIns);
 
         for (size_t si = 0; si < canvas.strokes.size(); ++si) {

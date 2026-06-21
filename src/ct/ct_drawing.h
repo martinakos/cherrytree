@@ -87,6 +87,8 @@ struct CtDrawingCanvas {
     std::string bgColor{"#ffffff"};
     double bgOpacity{0.15};
     bool showBorderWhenInactive{false};
+    gint64 tsCreation{0};
+    gint64 tsLastSave{0};
     std::vector<CtDrawingStroke> strokes;
 };
 
