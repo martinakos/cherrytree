@@ -159,6 +159,9 @@ struct CtWidgetDesc {
     int64_t     getFileTime()           const { return static_cast<int64_t>(std::stoll(getProperty("time", "0"))); }
     // Png
     std::string getLink()               const { return getProperty("link"); }
+    // Widget timestamps
+    gint64      getTsCreation()         const { return static_cast<gint64>(std::stoll(getProperty("ts_creation", "0"))); }
+    gint64      getTsLastSave()         const { return static_cast<gint64>(std::stoll(getProperty("ts_lastsave", "0"))); }
 
     bool operator==(const CtWidgetDesc& other) const {
         return type == other.type &&
@@ -300,6 +303,9 @@ public:
 
     // Replace widget descriptor at given char_offset. Returns old descriptor (type==None if not found).
     CtWidgetDesc replaceWidget(int charOffset, const CtWidgetDesc& newWidget);
+
+    // Update tsLastSave on a widget desc, returns the previous value.
+    gint64 setWidgetTsLastSave(int charOffset, gint64 ts);
 
     // Get widget descriptor at given char_offset. Returns empty desc (type==None) if not found.
     CtWidgetDesc getWidgetDescAt(int charOffset) const;

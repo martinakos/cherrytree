@@ -602,6 +602,18 @@ CtWidgetDesc CtNodeContent::replaceWidget(int charOffset, const CtWidgetDesc& ne
     return CtWidgetDesc(); // not found — type==None
 }
 
+gint64 CtNodeContent::setWidgetTsLastSave(int charOffset, gint64 ts)
+{
+    for (auto& elem : _elements) {
+        if (elem.isWidget() && elem.widget.getCharOffset() == charOffset) {
+            gint64 old = elem.widget.getTsLastSave();
+            elem.widget.setProperty("ts_lastsave", std::to_string(ts));
+            return old;
+        }
+    }
+    return 0;
+}
+
 CtWidgetDesc CtNodeContent::getWidgetDescAt(int charOffset) const
 {
     for (const auto& elem : _elements) {

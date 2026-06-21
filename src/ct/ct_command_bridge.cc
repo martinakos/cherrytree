@@ -1176,6 +1176,9 @@ void CtCommandBridge::endWidgetEdit()
                 auto node = _docModel->getNodeById(_widgetEditNodeId);
                 if (node && node->getContent().setWidgetTableCell(
                         savedCharOffset, (size_t)savedRow, (size_t)savedCol, newCellText)) {
+                    gint64 now = std::time(nullptr);
+                    node->getContent().setWidgetTsLastSave(savedCharOffset, now);
+                    setLiveWidgetTsLastSave(_widgetEditNodeId, savedCharOffset, now);
                     auto cmd = std::make_unique<EditTableCellCommand>(
                         _docModel,
                         _widgetEditNodeId,
@@ -1229,6 +1232,9 @@ void CtCommandBridge::endWidgetEdit()
                 // Update model to reflect new content
                 auto node = _docModel->getNodeById(_widgetEditNodeId);
                 if (node && node->getContent().setWidgetContentData(savedCharOffset, newContent)) {
+                    gint64 now = std::time(nullptr);
+                    node->getContent().setWidgetTsLastSave(savedCharOffset, now);
+                    setLiveWidgetTsLastSave(_widgetEditNodeId, savedCharOffset, now);
                     auto cmd = std::make_unique<EditCodeboxContentCommand>(
                         _docModel,
                         _widgetEditNodeId,
@@ -1407,13 +1413,16 @@ void CtCommandBridge::flushRichCellSession()
     }
 
     // Sync model
+    gint64 now = std::time(nullptr);
     if (_docModel) {
         auto node = _docModel->getNodeById(_widgetEditNodeId);
         if (node) {
             node->getContent().setWidgetRichTableCell(
                 _widgetEditCharOffset, _widgetEditRow, _widgetEditCol, newContent);
+            node->getContent().setWidgetTsLastSave(_widgetEditCharOffset, now);
         }
     }
+    setLiveWidgetTsLastSave(_widgetEditNodeId, _widgetEditCharOffset, now);
 
     auto cmd = std::make_unique<EditRichCellCommand>(
         _docModel,
@@ -1529,6 +1538,19 @@ void CtCommandBridge::applyRichCellInPlace(gint64 nodeId,
         _docModel->notifyNodeChanged(nodeId);
     }
     _skipNextRebuildNodeId = -1;
+}
+
+void CtCommandBridge::setLiveWidgetTsLastSave(gint64 nodeId, int charOffset, gint64 ts)
+{
+    if (!_pMainWin) return;
+    auto treeIter = _pMainWin->get_tree_store().get_node_from_node_id(nodeId);
+    if (!treeIter) return;
+    for (auto* w : treeIter.get_anchored_widgets()) {
+        if (w->getOffset() == charOffset) {
+            w->setTsLastSave(ts);
+            break;
+        }
+    }
 }
 
 void CtCommandBridge::commitRichCellFormatChange(std::string description)
