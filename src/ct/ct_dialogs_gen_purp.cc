@@ -240,7 +240,10 @@ Gtk::TreeModel::iterator CtDialogs::choose_item_dialog(Gtk::Window& parent,
 Glib::ustring CtDialogs::img_n_entry_dialog(Gtk::Window& parent,
                                             const Glib::ustring& title,
                                             const Glib::ustring& entry_content,
-                                            const char* img_stock)
+                                            const char* img_stock,
+                                            const Glib::ustring& timestampFormat,
+                                            gint64 tsCreation,
+                                            gint64 tsLastSave)
 {
 #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     Gtk::Dialog dialog{title,
@@ -259,11 +262,13 @@ Glib::ustring CtDialogs::img_n_entry_dialog(Gtk::Window& parent,
     hbox.pack_start(entry);
     Gtk::Box* pContentArea = dialog.get_content_area();
     pContentArea->pack_start(hbox);
+    append_widget_timestamps(*pContentArea, tsCreation, tsLastSave, timestampFormat);
     pContentArea->show_all();
     entry.grab_focus();
     entry.signal_activate().connect([&](){ if (not entry.get_text().empty()) dialog.response(Gtk::RESPONSE_ACCEPT); });
     return Gtk::RESPONSE_ACCEPT == dialog.run() ? str::trim(entry.get_text()) : "";
 #else
+    (void)timestampFormat; (void)tsCreation; (void)tsLastSave;
     Gtk::Dialog dialog{title, parent, true/*modal*/};
     dialog.set_transient_for(parent);
     dialog.add_button(_("Cancel"), Gtk::ResponseType::REJECT);

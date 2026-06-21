@@ -84,6 +84,11 @@ public:
     bool get_hidden() const { return _hidden; }
     void set_hidden(const bool hidden);
 
+    gint64 getTsCreation() const { return _tsCreation; }
+    gint64 getTsLastSave() const { return _tsLastSave; }
+    void setTsCreation(gint64 ts) { _tsCreation = ts; }
+    void setTsLastSave(gint64 ts) { _tsLastSave = ts; }
+
     bool operator<(const CtAnchoredWidget &other) { return getOffset() < other.getOffset(); }
     bool operator>(const CtAnchoredWidget &other) { return getOffset() > other.getOffset(); }
 
@@ -95,6 +100,8 @@ protected:
     CtConfig* _pCtConfig;
     int _charOffset;
     std::string _justification;
+    gint64 _tsCreation{0};
+    gint64 _tsLastSave{0};
     Gtk::Frame _frame;
     Gtk::Label _labelWidget;
     Glib::RefPtr<Gtk::TextChildAnchor> _rTextChildAnchor;

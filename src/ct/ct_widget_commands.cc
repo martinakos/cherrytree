@@ -143,27 +143,30 @@ EditTableCellCommand::EditTableCellCommand(
 {
 }
 
-void EditTableCellCommand::_applyText(const Glib::ustring& text)
+void EditTableCellCommand::_applyText(const Glib::ustring& text, gint64 ts)
 {
     auto node = _docModel->getNodeById(_nodeId);
     if (!node) return;
     node->getContent().setWidgetTableCell(_widgetCharOffset, _row, _col, text);
+    node->getContent().setWidgetTsLastSave(_widgetCharOffset, ts);
     _docModel->notifyNodeChanged(_nodeId);
 }
 
 void EditTableCellCommand::execute()
 {
-    _applyText(_newText);
+    auto node = _docModel->getNodeById(_nodeId);
+    if (node) _oldTsLastSave = node->getContent().getWidgetDescAt(_widgetCharOffset).getTsLastSave();
+    _applyText(_newText, _newTsLastSave);
 }
 
 void EditTableCellCommand::undo()
 {
-    _applyText(_oldText);
+    _applyText(_oldText, _oldTsLastSave);
 }
 
 void EditTableCellCommand::redo()
 {
-    _applyText(_newText);
+    _applyText(_newText, _newTsLastSave);
 }
 
 std::string EditTableCellCommand::getDescription() const
@@ -199,24 +202,31 @@ EditRichCellCommand::EditRichCellCommand(
 {
 }
 
-void EditRichCellCommand::_applyContent(const CtCellContent& content)
+void EditRichCellCommand::_applyContent(const CtCellContent& content, gint64 ts)
 {
     if (_bridge) {
-        // In-place path: updates model + live cell widget directly,
-        // without rebuilding the whole node buffer.
         _bridge->applyRichCellInPlace(_nodeId, _widgetCharOffset, _row, _col, content);
-        return;
+        _bridge->setLiveWidgetTsLastSave(_nodeId, _widgetCharOffset, ts);
     }
-    // Fallback (e.g. unit tests): model-only path.
+    else {
+        auto node = _docModel->getNodeById(_nodeId);
+        if (!node) return;
+        node->getContent().setWidgetRichTableCell(_widgetCharOffset, _row, _col, content);
+        _docModel->notifyNodeChanged(_nodeId);
+    }
     auto node = _docModel->getNodeById(_nodeId);
-    if (!node) return;
-    node->getContent().setWidgetRichTableCell(_widgetCharOffset, _row, _col, content);
-    _docModel->notifyNodeChanged(_nodeId);
+    if (node) node->getContent().setWidgetTsLastSave(_widgetCharOffset, ts);
 }
 
-void EditRichCellCommand::execute() { _applyContent(_newContent); }
-void EditRichCellCommand::undo()    { _applyContent(_oldContent); }
-void EditRichCellCommand::redo()    { _applyContent(_newContent); }
+void EditRichCellCommand::execute()
+{
+    auto node = _docModel->getNodeById(_nodeId);
+    if (node) _oldTsLastSave = node->getContent().getWidgetDescAt(_widgetCharOffset).getTsLastSave();
+    _applyContent(_newContent, _newTsLastSave);
+}
+
+void EditRichCellCommand::undo()    { _applyContent(_oldContent, _oldTsLastSave); }
+void EditRichCellCommand::redo()    { _applyContent(_newContent, _newTsLastSave); }
 
 std::string EditRichCellCommand::getDescription() const
 {
@@ -284,27 +294,30 @@ EditCodeboxContentCommand::EditCodeboxContentCommand(
 {
 }
 
-void EditCodeboxContentCommand::_applyContent(const std::string& content)
+void EditCodeboxContentCommand::_applyContent(const std::string& content, gint64 ts)
 {
     auto node = _docModel->getNodeById(_nodeId);
     if (!node) return;
     node->getContent().setWidgetContentData(_widgetCharOffset, content);
+    node->getContent().setWidgetTsLastSave(_widgetCharOffset, ts);
     _docModel->notifyNodeChanged(_nodeId);
 }
 
 void EditCodeboxContentCommand::execute()
 {
-    _applyContent(_newContent);
+    auto node = _docModel->getNodeById(_nodeId);
+    if (node) _oldTsLastSave = node->getContent().getWidgetDescAt(_widgetCharOffset).getTsLastSave();
+    _applyContent(_newContent, _newTsLastSave);
 }
 
 void EditCodeboxContentCommand::undo()
 {
-    _applyContent(_oldContent);
+    _applyContent(_oldContent, _oldTsLastSave);
 }
 
 void EditCodeboxContentCommand::redo()
 {
-    _applyContent(_newContent);
+    _applyContent(_newContent, _newTsLastSave);
 }
 
 std::string EditCodeboxContentCommand::getDescription() const

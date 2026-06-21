@@ -84,6 +84,8 @@ CtAnchoredWidget::CtAnchoredWidget(CtMainWin* pCtMainWin, const int charOffset, 
  , _pCtConfig{pCtMainWin->get_ct_config()}
  , _charOffset{charOffset}
  , _justification{justification}
+ , _tsCreation{std::time(nullptr)}
+ , _tsLastSave{std::time(nullptr)}
 {
 #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     _frame.set_shadow_type(Gtk::ShadowType::SHADOW_NONE);

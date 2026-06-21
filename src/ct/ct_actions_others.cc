@@ -239,11 +239,30 @@ void CtActions::embfile_rename()
     if (not _is_curr_node_not_read_only_or_error()) return;
 
     Glib::ustring name = curr_file_anchor->get_file_name().string();
-    Glib::ustring ret_name = CtDialogs::img_n_entry_dialog(*_pCtMainWin, _("Rename"), name, "");
+    Glib::ustring ret_name = CtDialogs::img_n_entry_dialog(*_pCtMainWin, _("Rename"), name, "",
+        _pCtConfig->timestampFormat, curr_file_anchor->getTsCreation(), curr_file_anchor->getTsLastSave());
     if (ret_name.empty()) return;
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    const int widgetOffset = curr_file_anchor->getOffset();
+    CtWidgetDesc oldDesc;
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+        oldDesc = pBridge->getDocumentModel()->getNodeById(nodeId)->getContent().getWidgetDescAt(widgetOffset);
+    }
 
     curr_file_anchor->set_file_name(ret_name.c_str());
     curr_file_anchor->update_label_widget();
+    curr_file_anchor->setTsLastSave(std::time(nullptr));
+
+    if (pBridge && pBridge->isActive()) {
+        gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+        auto newDesc = extractWidgetDesc(curr_file_anchor, widgetOffset);
+        if (!(oldDesc == newDesc)) {
+            pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Rename embedded file");
+        }
+    }
     _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
 }
 
@@ -839,7 +858,17 @@ void CtActions::codebox_change_properties()
     _pCtConfig->codeboxMatchBra = curr_codebox_anchor->get_highlight_brackets();
     _pCtConfig->codeboxSynHighl = curr_codebox_anchor->get_syntax_highlighting();
 
-    if (not CtDialogs::codeboxhandle_dialog(_pCtMainWin, _("Edit CodeBox"))) return;
+    if (not CtDialogs::codeboxhandle_dialog(_pCtMainWin, _("Edit CodeBox"),
+            curr_codebox_anchor->getTsCreation(), curr_codebox_anchor->getTsLastSave())) return;
+
+    auto pBridge = _pCtMainWin->get_command_bridge();
+    const int widgetOffset = curr_codebox_anchor->getOffset();
+    CtWidgetDesc oldDesc;
+    if (pBridge && pBridge->isActive()) {
+        pBridge->endTextEditSession();
+        gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+        oldDesc = pBridge->getDocumentModel()->getNodeById(nodeId)->getContent().getWidgetDescAt(widgetOffset);
+    }
 
     curr_codebox_anchor->set_syntax_highlighting(_pCtConfig->codeboxSynHighl,
                                                  _pCtMainWin->get_language_manager());
@@ -848,6 +877,15 @@ void CtActions::codebox_change_properties()
     curr_codebox_anchor->set_width_height((int)_pCtConfig->codeboxWidth, (int)_pCtConfig->codeboxHeight);
     curr_codebox_anchor->set_show_line_numbers(_pCtConfig->codeboxLineNum);
     curr_codebox_anchor->set_highlight_brackets(_pCtConfig->codeboxMatchBra);
+    curr_codebox_anchor->setTsLastSave(std::time(nullptr));
+
+    if (pBridge && pBridge->isActive()) {
+        gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+        auto newDesc = extractWidgetDesc(curr_codebox_anchor, widgetOffset);
+        if (!(oldDesc == newDesc)) {
+            pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Edit codebox properties");
+        }
+    }
     _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
 }
 
@@ -1079,6 +1117,7 @@ void CtActions::table_column_add()
 
         curr_table_anchor->column_add(curr_table_anchor->current_column());
 
+        curr_table_anchor->setTsLastSave(std::time(nullptr));
         auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
         pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Add table column");
     }
@@ -1209,6 +1248,7 @@ void CtActions::table_column_delete()
 
         curr_table_anchor->column_delete(curr_table_anchor->current_column());
 
+        curr_table_anchor->setTsLastSave(std::time(nullptr));
         auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
         pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Delete table column");
     }
@@ -1232,6 +1272,7 @@ void CtActions::table_column_left()
 
         curr_table_anchor->column_move_left(curr_table_anchor->current_column(), false/*from_move_right*/);
 
+        curr_table_anchor->setTsLastSave(std::time(nullptr));
         auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
         pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Move table column left");
     }
@@ -1255,6 +1296,7 @@ void CtActions::table_column_right()
 
         curr_table_anchor->column_move_right(curr_table_anchor->current_column());
 
+        curr_table_anchor->setTsLastSave(std::time(nullptr));
         auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
         pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Move table column right");
     }
@@ -1278,6 +1320,7 @@ void CtActions::table_column_increase_width()
 
         curr_table_anchor->set_col_width(curr_table_anchor->get_col_width() + CtCodebox::CB_WIDTH_HEIGHT_STEP_PIX);
 
+        curr_table_anchor->setTsLastSave(std::time(nullptr));
         auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
         pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Increase table column width");
     }
@@ -1301,6 +1344,7 @@ void CtActions::table_column_decrease_width()
 
             curr_table_anchor->set_col_width(curr_table_anchor->get_col_width() - CtCodebox::CB_WIDTH_HEIGHT_STEP_PIX);
 
+            curr_table_anchor->setTsLastSave(std::time(nullptr));
             auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
             pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Decrease table column width");
         }
@@ -1325,6 +1369,7 @@ void CtActions::table_row_add()
 
         curr_table_anchor->row_add(curr_table_anchor->current_row());
 
+        curr_table_anchor->setTsLastSave(std::time(nullptr));
         auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
         pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Add table row");
     }
@@ -1460,6 +1505,7 @@ void CtActions::table_row_delete()
 
         curr_table_anchor->row_delete(curr_table_anchor->current_row());
 
+        curr_table_anchor->setTsLastSave(std::time(nullptr));
         auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
         pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Delete table row");
     }
@@ -1483,6 +1529,7 @@ void CtActions::table_row_up()
 
         curr_table_anchor->row_move_up(curr_table_anchor->current_row(), false/*from_move_down*/);
 
+        curr_table_anchor->setTsLastSave(std::time(nullptr));
         auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
         pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Move table row up");
     }
@@ -1506,6 +1553,7 @@ void CtActions::table_row_down()
 
         curr_table_anchor->row_move_down(curr_table_anchor->current_row());
 
+        curr_table_anchor->setTsLastSave(std::time(nullptr));
         auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
         pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Move table row down");
     }
@@ -1528,6 +1576,7 @@ void CtActions::table_rows_sort_descending()
         auto oldDesc = pBridge->getDocumentModel()->getNodeById(nodeId)->getContent().getWidgetDescAt(widgetOffset);
 
         if (curr_table_anchor->row_sort_desc()) {
+            curr_table_anchor->setTsLastSave(std::time(nullptr));
             auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
             pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Sort table rows descending");
             _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
@@ -1553,6 +1602,7 @@ void CtActions::table_rows_sort_ascending()
         auto oldDesc = pBridge->getDocumentModel()->getNodeById(nodeId)->getContent().getWidgetDescAt(widgetOffset);
 
         if (curr_table_anchor->row_sort_asc()) {
+            curr_table_anchor->setTsLastSave(std::time(nullptr));
             auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
             pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Sort table rows ascending");
             _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
@@ -1585,6 +1635,7 @@ void CtActions::_table_cell_set_halign(const std::string& halign)
         style.cellHAlign[{row, col}] = halign;
         curr_table_anchor->setTableStyle(style);
 
+        curr_table_anchor->setTsLastSave(std::time(nullptr));
         auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
         pBridge->commitWidgetModification(nodeId, widgetOffset, oldDesc, newDesc, "Set cell align " + halign);
     }
@@ -1618,7 +1669,8 @@ void CtActions::table_edit_properties()
     if (CtDialogs::TableHandleResp::Cancel == CtDialogs::table_handle_dialog(
         _pCtMainWin, _("Edit Table Properties"), false/*is_insert*/, is_light, is_rich, pTableStyle,
         currentRow, currentCol, numRows, numCols,
-        was_rich ? curr_table_anchor->get_col_width(currentCol) : 0))
+        was_rich ? curr_table_anchor->get_col_width(currentCol) : 0,
+        curr_table_anchor->getTsCreation(), curr_table_anchor->getTsLastSave()))
     {
         return;
     }
@@ -1660,6 +1712,7 @@ void CtActions::table_edit_properties()
         const int col_width_default = curr_table_anchor->get_col_width_default();
         const int char_offset = curr_table_anchor->getOffset();
         const std::string justification = curr_table_anchor->getJustification();
+        const gint64 oldTsCr = curr_table_anchor->getTsCreation();
 
         table_delete();
 
@@ -1695,6 +1748,8 @@ void CtActions::table_edit_properties()
                     _pCtMainWin, tbl_matrix, col_width_default, char_offset, justification, col_widths});
         }
 
+        if (oldTsCr != 0) pCtTable->setTsCreation(oldTsCr);
+        pCtTable->setTsLastSave(std::time(nullptr));
         pCtTable->insertInTextBuffer(_curr_buffer());
         _pCtMainWin->get_tree_store().addAnchoredWidgets(
             _pCtMainWin->curr_tree_iter(),
@@ -1706,6 +1761,7 @@ void CtActions::table_edit_properties()
         curr_table_anchor = pCtTable;
     }
     else {
+        curr_table_anchor->setTsLastSave(std::time(nullptr));
         if (pBridge && pBridge->isActive()) {
             gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
             auto newDesc = extractWidgetDesc(curr_table_anchor, widgetOffset);
@@ -1750,7 +1806,10 @@ void CtActions::_anchor_edit_dialog(CtImageAnchor* anchor, Gtk::TextIter insert_
         name = anchor->get_anchor_name();
         expCollState = anchor->get_exp_coll_state();
     }
-    Glib::ustring ret_anchor_name = CtDialogs::img_n_entry_dialog(*_pCtMainWin, dialog_title, name, "ct_anchor");
+    const gint64 origTsCr = anchor ? anchor->getTsCreation() : 0;
+    const gint64 origTsLs = anchor ? anchor->getTsLastSave() : 0;
+    Glib::ustring ret_anchor_name = CtDialogs::img_n_entry_dialog(*_pCtMainWin, dialog_title, name, "ct_anchor",
+        _pCtConfig->timestampFormat, origTsCr, origTsLs);
     if (ret_anchor_name.empty()) return;
 
     Glib::ustring image_justification;
@@ -1760,7 +1819,7 @@ void CtActions::_anchor_edit_dialog(CtImageAnchor* anchor, Gtk::TextIter insert_
         _curr_buffer()->erase(insert_iter, *iter_bound);
         insert_iter = _curr_buffer()->get_iter_at_offset(image_offset);
     }
-    image_insert_anchor(insert_iter, ret_anchor_name, expCollState, image_justification);
+    image_insert_anchor(insert_iter, ret_anchor_name, expCollState, image_justification, origTsCr);
 }
 
 bool CtActions::_on_embfiles_sentinel_timeout()
