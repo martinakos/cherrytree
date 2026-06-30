@@ -104,6 +104,7 @@ void CtCommandBridge::initializeFromExistingDocument()
             nodeModel->setForegroundRgb24(ti.get_node_foreground());
             nodeModel->setExcludedFromSearch(ti.get_node_is_excluded_from_search());
             nodeModel->setChildrenExcludedFromSearch(ti.get_node_children_are_excluded_from_search());
+            nodeModel->setLineWrap(ti.get_node_line_wrap());
             nodeModel->setCreationTime(ti.get_node_creating_time());
             nodeModel->setLastSaveTime(ti.get_node_modification_time());
             nodeModel->setSharedMasterId(ti.get_node_shared_master_id());
@@ -181,6 +182,7 @@ void CtCommandBridge::syncModelFromTree()
         nodeModel->setForegroundRgb24(treeIter.get_node_foreground());
         nodeModel->setExcludedFromSearch(treeIter.get_node_is_excluded_from_search());
         nodeModel->setChildrenExcludedFromSearch(treeIter.get_node_children_are_excluded_from_search());
+        nodeModel->setLineWrap(treeIter.get_node_line_wrap());
         nodeModel->setCreationTime(treeIter.get_node_creating_time());
         nodeModel->setLastSaveTime(treeIter.get_node_modification_time());
         nodeModel->setSharedMasterId(treeIter.get_node_shared_master_id());
@@ -2178,6 +2180,7 @@ void CtCommandBridge::registerNewNode(gint64 nodeId, gint64 parentId)
     nodeModel->setForegroundRgb24(treeIter.get_node_foreground());
     nodeModel->setExcludedFromSearch(treeIter.get_node_is_excluded_from_search());
     nodeModel->setChildrenExcludedFromSearch(treeIter.get_node_children_are_excluded_from_search());
+    nodeModel->setLineWrap(treeIter.get_node_line_wrap());
     nodeModel->setCreationTime(treeIter.get_node_creating_time());
     nodeModel->setLastSaveTime(treeIter.get_node_modification_time());
     nodeModel->setSharedMasterId(treeIter.get_node_shared_master_id());
@@ -2592,6 +2595,7 @@ void CtCommandBridge::BridgeObserver::onNodeAdded(gint64 nodeId, gint64 parentId
     nodeData.foregroundRgb24  = node->getForegroundRgb24();
     nodeData.excludeMeFromSearch       = node->isExcludedFromSearch();
     nodeData.excludeChildrenFromSearch = node->areChildrenExcludedFromSearch();
+    nodeData.lineWrap         = node->isLineWrap();
     nodeData.tsCreation       = node->getCreationTime();
     nodeData.tsLastSave       = node->getLastSaveTime();
 
@@ -2799,6 +2803,7 @@ void CtCommandBridge::BridgeObserver::onNodeMoved(gint64 nodeId, gint64 newParen
         d.foregroundRgb24     = n->getForegroundRgb24();
         d.excludeMeFromSearch       = n->isExcludedFromSearch();
         d.excludeChildrenFromSearch = n->areChildrenExcludedFromSearch();
+        d.lineWrap            = n->isLineWrap();
         d.tsCreation          = n->getCreationTime();
         d.tsLastSave          = n->getLastSaveTime();
         auto it = savedState.find(n->getNodeId());
@@ -2958,6 +2963,7 @@ void CtCommandBridge::BridgeObserver::onTreeStructureChanged()
         d.foregroundRgb24     = node->getForegroundRgb24();
         d.excludeMeFromSearch       = node->isExcludedFromSearch();
         d.excludeChildrenFromSearch = node->areChildrenExcludedFromSearch();
+        d.lineWrap            = node->isLineWrap();
         d.tsCreation          = node->getCreationTime();
         d.tsLastSave          = node->getLastSaveTime();
         auto gtkIter = treeStore.append_node(&d, parentGtk);
@@ -3018,6 +3024,7 @@ void CtCommandBridge::BridgeObserver::onNodePropertiesChanged(
     gtkIter->set_value(cols.colNodeIsReadOnly, newProps.isReadOnly);
     gtkIter->set_value(cols.colNodeIsExcludedFromSearch, newProps.excludeMeFromSearch);
     gtkIter->set_value(cols.colNodeChildrenAreExcludedFromSearch, newProps.excludeChildrenFromSearch);
+    gtkIter->set_value(cols.colNodeLineWrap, newProps.lineWrap);
     gtkIter->set_value(cols.colCustomIconId, static_cast<guint16>(newProps.customIconId));
     gtkIter->set_value(cols.colForeground, newProps.foregroundRgb24);
     gtkIter->set_value(cols.colWeight,
@@ -3049,6 +3056,11 @@ void CtCommandBridge::BridgeObserver::onNodePropertiesChanged(
             newProps.excludeMeFromSearch || newProps.excludeChildrenFromSearch);
         win.update_selected_node_statusbar_info();
         win.get_text_view().mm().set_editable(!newProps.isReadOnly);
+        #if GTKMM_MAJOR_VERSION >= 4
+        win.get_text_view().mm().set_wrap_mode(newProps.lineWrap ? Gtk::WrapMode::WORD_CHAR : Gtk::WrapMode::NONE);
+        #else
+        win.get_text_view().mm().set_wrap_mode(newProps.lineWrap ? Gtk::WrapMode::WRAP_WORD_CHAR : Gtk::WrapMode::WRAP_NONE);
+        #endif
     }
 
     // Refresh bookmark menu if this node is bookmarked

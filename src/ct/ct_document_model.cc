@@ -108,6 +108,7 @@ CtNodeProps CtNodeModel::captureProps() const
     p.foregroundRgb24          = _foregroundRgb24;
     p.excludeMeFromSearch      = _excludeMeFromSearch;
     p.excludeChildrenFromSearch = _excludeChildrenFromSearch;
+    p.lineWrap                 = _lineWrap;
     p.tsCreation               = _tsCreation;
     p.tsLastSave               = _tsLastSave;
     return p;
@@ -124,6 +125,7 @@ void CtNodeModel::applyProps(const CtNodeProps& p)
     _foregroundRgb24          = p.foregroundRgb24;
     _excludeMeFromSearch      = p.excludeMeFromSearch;
     _excludeChildrenFromSearch = p.excludeChildrenFromSearch;
+    _lineWrap                 = p.lineWrap;
     _tsCreation               = p.tsCreation;
     _tsLastSave               = p.tsLastSave;
 }

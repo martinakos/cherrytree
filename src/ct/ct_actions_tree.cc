@@ -49,6 +49,7 @@ static CtNodeProps nodePropsFromIter(const CtTreeIter& iter)
     p.foregroundRgb24          = iter.get_node_foreground();
     p.excludeMeFromSearch      = iter.get_node_is_excluded_from_search();
     p.excludeChildrenFromSearch = iter.get_node_children_are_excluded_from_search();
+    p.lineWrap                 = iter.get_node_line_wrap();
     p.tsCreation               = iter.get_node_creating_time();
     p.tsLastSave               = iter.get_node_modification_time();
     return p;
@@ -67,6 +68,7 @@ static CtNodeProps nodePropsFromData(const CtNodeData& d)
     p.foregroundRgb24          = d.foregroundRgb24;
     p.excludeMeFromSearch      = d.excludeMeFromSearch;
     p.excludeChildrenFromSearch = d.excludeChildrenFromSearch;
+    p.lineWrap                 = d.lineWrap;
     p.tsCreation               = d.tsCreation;
     p.tsLastSave               = d.tsLastSave;
     return p;
@@ -742,6 +744,11 @@ void CtActions::node_edit()
         if (nodeData.syntax != newData.syntax) {
             _pCtMainWin->switch_buffer_text_source(ct_tree_iter.get_node_text_buffer(), ct_tree_iter, newData.syntax, nodeData.syntax);
         }
+        #if GTKMM_MAJOR_VERSION >= 4
+        _pCtMainWin->get_text_view().mm().set_wrap_mode(newData.lineWrap ? Gtk::WrapMode::WORD_CHAR : Gtk::WrapMode::NONE);
+        #else
+        _pCtMainWin->get_text_view().mm().set_wrap_mode(newData.lineWrap ? Gtk::WrapMode::WRAP_WORD_CHAR : Gtk::WrapMode::WRAP_NONE);
+        #endif
         _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::npro);
     }
 

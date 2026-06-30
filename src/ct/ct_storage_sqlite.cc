@@ -43,7 +43,7 @@ const char CtStorageSqlite::TABLE_NODE_CREATE[]{"CREATE TABLE node ("
 "has_codebox INTEGER,"
 "has_table INTEGER,"
 "has_image INTEGER,"
-"level INTEGER,"        /* level is bitfield [ ... | exclude_child_from_search | exclude_me_from_search ] */
+"level INTEGER,"        /* level is bitfield [ ... | line_wrap | exclude_child_from_search | exclude_me_from_search ] */
 "ts_creation INTEGER,"
 "ts_lastsave INTEGER"
 ")"
@@ -507,6 +507,7 @@ Gtk::TreeModel::iterator CtStorageSqlite::_node_from_db(const gint64 node_id,
     const gint64 exclude_from_search = sqlite3_column_int64(*uStmt, 5);
     nodeData.excludeMeFromSearch = exclude_from_search & 0x01;
     nodeData.excludeChildrenFromSearch = exclude_from_search & 0x02;
+    nodeData.lineWrap = exclude_from_search & 0x04;
     nodeData.tsCreation = sqlite3_column_int64(*uStmt, 6);
     nodeData.tsLastSave = sqlite3_column_int64(*uStmt, 7);
 
@@ -842,10 +843,13 @@ void CtStorageSqlite::_write_node_to_db(const CtTreeIter* ct_tree_iter,
         is_richtxt |= 0x04;
         is_richtxt |= CtRgbUtil::get_rgb24int_from_str_any(ct_tree_iter->get_node_foreground().c_str()+1) << 3;
     }
-    /* level is bitfield [ ... | exclude_child_from_search | exclude_me_from_search ] */
+    /* level is bitfield [ ... | line_wrap | exclude_child_from_search | exclude_me_from_search ] */
     gint64 exclude_from_search = ct_tree_iter->get_node_is_excluded_from_search();
     if (ct_tree_iter->get_node_children_are_excluded_from_search()) {
         exclude_from_search |= 0x02;
+    }
+    if (ct_tree_iter->get_node_line_wrap()) {
+        exclude_from_search |= 0x04;
     }
 
     // write widgets

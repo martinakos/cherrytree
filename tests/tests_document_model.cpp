@@ -397,6 +397,69 @@ TEST(NodeCommandsTest, AddNodeCmd_PreservesNodeProps)
     EXPECT_EQ("custom-colors", n->getSyntax());
 }
 
+// ─── Per-node line wrap property ──────────────────────────────────────────────
+
+TEST(NodeLineWrapTest, DefaultsToNotWrapping)
+{
+    CtNodeProps p;
+    EXPECT_FALSE(p.lineWrap);
+
+    CtDocumentModel model;
+    auto node = model.createNode(1);
+    EXPECT_FALSE(node->isLineWrap());
+}
+
+TEST(NodeLineWrapTest, CapturePropsRoundTrip)
+{
+    CtDocumentModel model;
+    auto node = model.createNode(1);
+    node->setLineWrap(true);
+
+    CtNodeProps p = node->captureProps();
+    EXPECT_TRUE(p.lineWrap);
+
+    auto other = model.createNode(2);
+    other->applyProps(p);
+    EXPECT_TRUE(other->isLineWrap());
+}
+
+TEST(NodeLineWrapTest, EditNodePropsCmd_TogglesLineWrap)
+{
+    CtDocumentModel model;
+    auto node = model.createNode(1);
+    model.addNode(node, 0, -1);
+
+    CtNodeProps oldProps = node->captureProps();
+    ASSERT_FALSE(oldProps.lineWrap);
+    CtNodeProps newProps = oldProps;
+    newProps.lineWrap = true;
+
+    EditNodePropertiesCommand cmd(&model, 1, oldProps, newProps);
+    cmd.execute();
+    EXPECT_TRUE(model.getNodeById(1)->isLineWrap());
+
+    cmd.undo();
+    EXPECT_FALSE(model.getNodeById(1)->isLineWrap());
+
+    cmd.redo();
+    EXPECT_TRUE(model.getNodeById(1)->isLineWrap());
+}
+
+TEST(NodeLineWrapTest, AddNodeCmd_PreservesLineWrap)
+{
+    CtDocumentModel model;
+
+    CtNodeProps props = makeProps("wrapped");
+    props.lineWrap = true;
+
+    AddNodeCommand cmd(&model, 7, 0, -1, props, CtNodeContent{});
+    cmd.execute();
+
+    auto n = model.getNodeById(7);
+    ASSERT_NE(nullptr, n);
+    EXPECT_TRUE(n->isLineWrap());
+}
+
 // ─── DeleteNodeCommand ────────────────────────────────────────────────────────
 
 TEST(NodeCommandsTest, DeleteNodeCmd_ExecuteRemovesSubtree)

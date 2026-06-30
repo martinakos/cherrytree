@@ -252,6 +252,44 @@ void CtTreeIter::set_node_children_are_excluded_from_search(const bool val)
     }
 }
 
+bool CtTreeIter::get_node_line_wrap() const
+{
+    if (*this) {
+        const gint64 masterId = (*this)->get_value(_pColumns->colSharedNodesMasterId);
+        if (masterId > 0) {
+            CtTreeIter masterIter = _pCtMainWin->get_tree_store().get_node_from_node_id(masterId);
+            if (masterIter) {
+                return masterIter.get_node_line_wrap();
+            }
+            spdlog::error("!! {} master {}", __FUNCTION__, masterId);
+            (*this)->set_value(_pColumns->colSharedNodesMasterId, static_cast<gint64>(0));
+        }
+        return (*this)->get_value(_pColumns->colNodeLineWrap);
+    }
+    spdlog::error("!! {}", __FUNCTION__);
+    return false;
+}
+
+void CtTreeIter::set_node_line_wrap(const bool val)
+{
+    if (*this) {
+        const gint64 masterId = (*this)->get_value(_pColumns->colSharedNodesMasterId);
+        if (masterId > 0) {
+            CtTreeIter masterIter = _pCtMainWin->get_tree_store().get_node_from_node_id(masterId);
+            if (masterIter) {
+                masterIter.set_node_line_wrap(val);
+                return;
+            }
+            spdlog::error("!! {} master {}", __FUNCTION__, masterId);
+            (*this)->set_value(_pColumns->colSharedNodesMasterId, static_cast<gint64>(0));
+        }
+        (*this)->set_value(_pColumns->colNodeLineWrap, val);
+    }
+    else {
+        spdlog::error("!! {}", __FUNCTION__);
+    }
+}
+
 Glib::RefPtr<Gdk::Pixbuf> CtTreeIter::get_node_icon() const
 {
     if (*this) {
@@ -917,6 +955,11 @@ void CtTreeStore::text_view_apply_textbuffer(CtTreeIter& treeIter, CtTextView* p
     pCtTextView->set_spell_check(treeIter.get_node_is_text());
     textView.set_sensitive(true);
     textView.set_editable(not treeIter.get_node_read_only());
+    #if GTKMM_MAJOR_VERSION >= 4
+    textView.set_wrap_mode(treeIter.get_node_line_wrap() ? Gtk::WrapMode::WORD_CHAR : Gtk::WrapMode::NONE);
+    #else
+    textView.set_wrap_mode(treeIter.get_node_line_wrap() ? Gtk::WrapMode::WRAP_WORD_CHAR : Gtk::WrapMode::WRAP_NONE);
+    #endif
     pCtTextView->cursor_and_tooltips_reset();
 
     std::list<CtAnchoredWidget*> anchored_widgets_to_hide;
@@ -1085,6 +1128,7 @@ void CtTreeStore::get_node_data(const Gtk::TreeModel::iterator& treeIter, CtNode
     nodeData.isReadOnly = row[_columns.colNodeIsReadOnly];
     nodeData.excludeMeFromSearch = row[_columns.colNodeIsExcludedFromSearch];
     nodeData.excludeChildrenFromSearch = row[_columns.colNodeChildrenAreExcludedFromSearch];
+    nodeData.lineWrap = row[_columns.colNodeLineWrap];
     nodeData.customIconId = row[_columns.colCustomIconId];
     nodeData.isBold = CtTreeIter::get_is_bold_from_pango_weight(row[_columns.colWeight]);
     nodeData.foregroundRgb24 = row[_columns.colForeground];
@@ -1109,6 +1153,7 @@ void CtTreeStore::update_node_data(const Gtk::TreeModel::iterator& treeIter, con
     row[_columns.colNodeIsReadOnly] = nodeData.isReadOnly;
     row[_columns.colNodeIsExcludedFromSearch] = nodeData.excludeMeFromSearch;
     row[_columns.colNodeChildrenAreExcludedFromSearch] = nodeData.excludeChildrenFromSearch;
+    row[_columns.colNodeLineWrap] = nodeData.lineWrap;
     row[_columns.colCustomIconId] = (guint16)nodeData.customIconId;
     row[_columns.colWeight] = CtTreeIter::get_pango_weight_from_is_bold(nodeData.isBold);
     row[_columns.colForeground] = nodeData.foregroundRgb24;

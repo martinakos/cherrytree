@@ -45,6 +45,7 @@ struct CtNodeProps {
     std::string foregroundRgb24;
     bool excludeMeFromSearch{false};
     bool excludeChildrenFromSearch{false};
+    bool lineWrap{false};
     gint64 tsCreation{0};
     gint64 tsLastSave{0};
 };
@@ -103,6 +104,9 @@ public:
     bool areChildrenExcludedFromSearch() const { return _excludeChildrenFromSearch; }
     void setChildrenExcludedFromSearch(bool excluded) { _excludeChildrenFromSearch = excluded; }
 
+    bool isLineWrap() const { return _lineWrap; }
+    void setLineWrap(bool lineWrap) { _lineWrap = lineWrap; }
+
     gint64 getCreationTime() const { return _tsCreation; }
     void setCreationTime(gint64 timestamp) { _tsCreation = timestamp; }
 
@@ -157,6 +161,7 @@ private:
     bool _isBold{false};
     bool _excludeMeFromSearch{false};
     bool _excludeChildrenFromSearch{false};
+    bool _lineWrap{false};
     std::string _foregroundRgb24;
     gint64 _tsCreation{0};
     gint64 _tsLastSave{0};
