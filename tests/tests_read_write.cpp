@@ -878,3 +878,75 @@ TEST(DrawingRoundTrip, SqliteSaveAndReload)
     DrawingRoundTripApp app;
     app.run(0, nullptr);
 }
+
+// ── Per-node line wrap save/load round-trip integration test ────────────────
+
+class LineWrapRoundTripApp : public CtApp
+{
+public:
+    LineWrapRoundTripApp(CtDocType docType, const char* ext)
+     : CtApp{"_test_linewrap_rt"}, _docType{docType}, _ext{ext} { _no_gui = true; }
+private:
+    void on_activate() override;
+    CtDocType   _docType;
+    const char* _ext;
+};
+
+void LineWrapRoundTripApp::on_activate()
+{
+    _on_startup();
+    auto quitGuard = scope_guard([this](void*) { quit(); });
+
+    // Phase 1: open test doc, enable line wrap on node "b", save to temp file
+    CtMainWin* pWin1 = _create_window(true/*start_hidden*/);
+    ASSERT_TRUE(pWin1->file_open(UT::testCtbDocPath, ""/*node*/, ""/*anchor*/));
+
+    CtTreeIter treeIter = pWin1->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(treeIter);
+    // default loaded from the test doc (which has no line_wrap attribute) is off
+    EXPECT_FALSE(treeIter.get_node_line_wrap());
+
+    treeIter.set_node_line_wrap(true);
+    pWin1->update_window_save_needed(CtSaveNeededUpdType::npro, false/*new_machine_state*/, &treeIter);
+
+    fs::path tmpDir = pWin1->get_ct_tmp()->getHiddenDirPath("UT_WRAP");
+    fs::path tmpDoc = tmpDir / (std::string{"linewrap_test"} + _ext);
+    pWin1->file_save_as(tmpDoc.string(), _docType, "");
+
+    pWin1->force_exit() = true;
+    remove_window(*pWin1);
+
+    // Phase 2: reopen and verify line wrap survived in both tree store and doc model
+    CtMainWin* pWin2 = _create_window(true/*start_hidden*/);
+    ASSERT_TRUE(pWin2->file_open(tmpDoc, ""/*node*/, ""/*anchor*/));
+
+    CtTreeIter treeIter2 = pWin2->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(treeIter2);
+    EXPECT_TRUE(treeIter2.get_node_line_wrap()) << "line wrap not persisted via " << _ext;
+
+    auto* bridge2 = pWin2->get_command_bridge();
+    ASSERT_TRUE(bridge2 && bridge2->isActive());
+    auto nodeModel2 = bridge2->getDocumentModel()->getNodeById(treeIter2.get_node_id());
+    ASSERT_TRUE(nodeModel2);
+    EXPECT_TRUE(nodeModel2->isLineWrap());
+
+    // a different node keeps the default (not wrapping)
+    CtTreeIter treeIterD = pWin2->get_tree_store().get_node_from_node_name("d");
+    ASSERT_TRUE(treeIterD);
+    EXPECT_FALSE(treeIterD.get_node_line_wrap());
+
+    pWin2->force_exit() = true;
+    remove_window(*pWin2);
+}
+
+TEST(LineWrapRoundTrip, SqliteSaveAndReload)
+{
+    LineWrapRoundTripApp app{CtDocType::SQLite, ".ctb"};
+    app.run(0, nullptr);
+}
+
+TEST(LineWrapRoundTrip, XmlSaveAndReload)
+{
+    LineWrapRoundTripApp app{CtDocType::XML, ".ctd"};
+    app.run(0, nullptr);
+}
