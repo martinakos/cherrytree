@@ -36,7 +36,7 @@ Gtk::Widget* CtPrefDlg::build_tab_text_n_code()
 
     auto checkbutton_spaces_tabs = Gtk::manage(new Gtk::CheckButton{_("Insert Spaces Instead of Tabs")});
     checkbutton_spaces_tabs->set_active(_pConfig->spacesInsteadTabs);
-    auto checkbutton_line_wrap = Gtk::manage(new Gtk::CheckButton{_("Use Line Wrapping")});
+    auto checkbutton_line_wrap = Gtk::manage(new Gtk::CheckButton{_("Use Line Wrapping (CodeBoxes and Tables)")});
     checkbutton_line_wrap->set_active(_pConfig->lineWrapping);
     auto hbox_wrapping_indent = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 4/*spacing*/});
     auto label_wrapping_indent = Gtk::manage(new Gtk::Label{_("Line Wrapping Indentation")});
@@ -292,14 +292,9 @@ Gtk::Widget* CtPrefDlg::build_tab_text_n_code()
         });
     });
     checkbutton_line_wrap->signal_toggled().connect([this, checkbutton_line_wrap](){
+        // Line wrapping of the main node text is a per-node property (see Node Properties);
+        // this global setting only governs codeboxes and tables.
         _pConfig->lineWrapping = checkbutton_line_wrap->get_active();
-        apply_for_each_window([](CtMainWin* win) {
-#if GTKMM_MAJOR_VERSION >= 4
-            win->get_text_view().mm().set_wrap_mode(win->get_ct_config()->lineWrapping ? Gtk::WrapMode::WORD_CHAR : Gtk::WrapMode::NONE);
-#else
-            win->get_text_view().mm().set_wrap_mode(win->get_ct_config()->lineWrapping ? Gtk::WrapMode::WRAP_WORD_CHAR : Gtk::WrapMode::WRAP_NONE);
-#endif
-        });
     });
     checkbutton_auto_indent->signal_toggled().connect([this, checkbutton_auto_indent](){
         _pConfig->autoIndent = checkbutton_auto_indent->get_active();
