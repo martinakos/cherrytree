@@ -227,6 +227,9 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
     auto ro_checkbutton = Gtk::manage(new Gtk::CheckButton{_("Read Only")});
     ro_checkbutton->set_active(nodeData.isReadOnly);
 
+    auto wrap_checkbutton = Gtk::manage(new Gtk::CheckButton{_("Wrap Lines")});
+    wrap_checkbutton->set_active(nodeData.lineWrap);
+
     Glib::ustring id_str = Glib::ustring{_("Unique Id")} + ": " + std::to_string(nodeData.nodeId);
     CtTreeIter currIter = pCtMainWin->get_tree_store().get_node_from_node_id(nodeData.nodeId);
     bool hasCurrIter = static_cast<bool>(currIter);
@@ -259,6 +262,7 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
     pContentArea->pack_start(*tags_frame);
     pContentArea->pack_start(*excl_hbox);
     pContentArea->pack_start(*ro_checkbutton);
+    pContentArea->pack_start(*wrap_checkbutton);
     pContentArea->pack_start(*id_label);
     pContentArea->show_all();
     name_entry->grab_focus();
@@ -415,6 +419,7 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
     }
     nodeData.tags = tags_entry->get_text();
     nodeData.isReadOnly = ro_checkbutton->get_active();
+    nodeData.lineWrap = wrap_checkbutton->get_active();
     nodeData.excludeMeFromSearch = excl_me_checkbutton->get_active();
     nodeData.excludeChildrenFromSearch = excl_ch_checkbutton->get_active();
     if (c_icon_checkbutton->get_active()) {
