@@ -45,17 +45,17 @@ static void applyLineStyle(const Cairo::RefPtr<Cairo::Context>& cr, CtDrawingLin
 {
     switch (style) {
     case CtDrawingLineStyle::Dashed: {
-        std::vector<double> d{lineWidth * 3.0, lineWidth * 2.0};
+        std::vector<double> d{lineWidth * 3.0, lineWidth * 3.0};
         cr->set_dash(d, 0.0);
         break;
     }
     case CtDrawingLineStyle::Dotted: {
-        std::vector<double> d{lineWidth, lineWidth * 2.0};
+        std::vector<double> d{lineWidth, lineWidth * 3.0};
         cr->set_dash(d, 0.0);
         break;
     }
     case CtDrawingLineStyle::DashDot: {
-        std::vector<double> d{lineWidth * 3.0, lineWidth * 1.5, lineWidth, lineWidth * 1.5};
+        std::vector<double> d{lineWidth * 3.0, lineWidth * 2.5, lineWidth, lineWidth * 2.5};
         cr->set_dash(d, 0.0);
         break;
     }
@@ -323,6 +323,7 @@ void CtDrawingOverlay::_buildToolbar()
         struct ShapeEntry { const char* label; const char* icon; CtDrawingElementType type; };
         ShapeEntry shapeTypes[] = {
             {_("Rectangle"), "ct_draw_rectangle.svg", CtDrawingElementType::Rectangle},
+            {_("Rounded Rectangle"), "ct_draw_rounded_rectangle.svg", CtDrawingElementType::RoundedRectangle},
             {_("Ellipse"), "ct_draw_ellipse.svg", CtDrawingElementType::Ellipse},
             {_("Triangle"), "ct_draw_triangle.svg", CtDrawingElementType::Triangle},
             {_("Diamond"), "ct_draw_diamond.svg", CtDrawingElementType::Diamond}
@@ -345,10 +346,11 @@ void CtDrawingOverlay::_buildToolbar()
                     _pShapeToolIcon->set_pixel_size(18);
                 }
                 shapeBtn->set_tooltip_text(
-                    stype == CtDrawingElementType::Rectangle ? _("Shape (Rectangle)") :
-                    stype == CtDrawingElementType::Ellipse   ? _("Shape (Ellipse)") :
-                    stype == CtDrawingElementType::Triangle   ? _("Shape (Triangle)") :
-                                                                _("Shape (Diamond)"));
+                    stype == CtDrawingElementType::Rectangle        ? _("Shape (Rectangle)") :
+                    stype == CtDrawingElementType::RoundedRectangle ? _("Shape (Rounded Rectangle)") :
+                    stype == CtDrawingElementType::Ellipse          ? _("Shape (Ellipse)") :
+                    stype == CtDrawingElementType::Triangle          ? _("Shape (Triangle)") :
+                                                                       _("Shape (Diamond)"));
                 setCurrentTool(CtDrawingTool::Shape);
             });
             shapeMenu->append(*item);
@@ -433,27 +435,109 @@ void CtDrawingOverlay::_buildToolbar()
     thickBtn->set_popup(*thickMenu);
     _pToolbarBox->pack_start(*thickBtn, false, false);
 
-    // line style dropdown
+    // arrow head dropdown
+    auto* arrowBtn = Gtk::manage(new Gtk::MenuButton());
+    arrowBtn->get_style_context()->add_provider(css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    arrowBtn->set_tooltip_text(_("Arrow Heads"));
+    auto* arrowImg = Gtk::manage(new Gtk::Image());
+    arrowImg->set_from_resource("/icons/ct_draw_line.svg");
+    arrowImg->set_pixel_size(16);
+    arrowBtn->set_image(*arrowImg);
+    arrowBtn->set_always_show_image(true);
+    auto* arrowMenu = Gtk::manage(new Gtk::Menu());
+    {
+        struct ArrowEntry { const char* label; const char* icon;
+                            CtDrawingArrowHead head; CtDrawingArrowStyle style; };
+        ArrowEntry arrowTypes[] = {
+            {_("None"), "ct_draw_line.svg",
+             CtDrawingArrowHead::None, CtDrawingArrowStyle::Solid},
+            {_("End (Solid)"), "ct_draw_arrow_end_solid.svg",
+             CtDrawingArrowHead::End, CtDrawingArrowStyle::Solid},
+            {_("End (Open)"), "ct_draw_arrow_end_open.svg",
+             CtDrawingArrowHead::End, CtDrawingArrowStyle::Open},
+            {_("Start (Solid)"), "ct_draw_arrow_start_solid.svg",
+             CtDrawingArrowHead::Start, CtDrawingArrowStyle::Solid},
+            {_("Start (Open)"), "ct_draw_arrow_start_open.svg",
+             CtDrawingArrowHead::Start, CtDrawingArrowStyle::Open},
+            {_("Both (Solid)"), "ct_draw_arrow_both_solid.svg",
+             CtDrawingArrowHead::Both, CtDrawingArrowStyle::Solid},
+            {_("Both (Open)"), "ct_draw_arrow_both_open.svg",
+             CtDrawingArrowHead::Both, CtDrawingArrowStyle::Open},
+        };
+        for (auto& at : arrowTypes) {
+            auto* img = Gtk::manage(new Gtk::Image());
+            img->set_from_resource(std::string("/icons/") + at.icon);
+            img->set_pixel_size(16);
+            auto* box = Gtk::manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 6));
+            box->pack_start(*img, false, false);
+            box->pack_start(*Gtk::manage(new Gtk::Label(at.label)), false, false);
+            auto* item = Gtk::manage(new Gtk::MenuItem());
+            item->add(*box);
+            CtDrawingArrowHead aHead = at.head;
+            CtDrawingArrowStyle aStyle = at.style;
+            const char* aIcon = at.icon;
+            item->signal_activate().connect([this, aHead, aStyle, aIcon, arrowImg]() {
+                _currentArrowHead = aHead;
+                _currentArrowStyle = aStyle;
+                arrowImg->set_from_resource(std::string("/icons/") + aIcon);
+                arrowImg->set_pixel_size(16);
+            });
+            arrowMenu->append(*item);
+        }
+        arrowMenu->show_all();
+    }
+    arrowBtn->set_popup(*arrowMenu);
+    _pToolbarBox->pack_start(*arrowBtn, false, false);
+
+    // line style dropdown — drawn line previews instead of text
     auto* styleBtn = Gtk::manage(new Gtk::MenuButton());
     styleBtn->get_style_context()->add_provider(css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
     styleBtn->set_tooltip_text(_("Line Style"));
-    auto* styleLabel = Gtk::manage(new Gtk::Label(_("Solid")));
-    styleBtn->add(*styleLabel);
-    auto* styleMenu = Gtk::manage(new Gtk::Menu());
-    struct StyleEntry { const char* label; CtDrawingLineStyle style; };
-    StyleEntry styles[] = {
-        {_("Solid"), CtDrawingLineStyle::Solid},
-        {_("Dashed"), CtDrawingLineStyle::Dashed},
-        {_("Dotted"), CtDrawingLineStyle::Dotted},
-        {_("Dash-Dot"), CtDrawingLineStyle::DashDot}
+    auto makeStyleDraw = [](CtDrawingLineStyle st, int w, int h) {
+        auto* da = Gtk::manage(new Gtk::DrawingArea());
+        da->set_size_request(w, h);
+        da->signal_draw().connect([st, w, h](const Cairo::RefPtr<Cairo::Context>& cr) -> bool {
+            cr->set_source_rgb(0.3, 0.3, 0.3);
+            cr->set_line_width(2.0);
+            cr->set_line_cap(Cairo::LINE_CAP_ROUND);
+            applyLineStyle(cr, st, 2.0);
+            cr->move_to(2, h / 2.0);
+            cr->line_to(w - 2, h / 2.0);
+            cr->stroke();
+            return true;
+        });
+        return da;
     };
-    for (auto& s : styles) {
-        auto* item = Gtk::manage(new Gtk::MenuItem(s.label));
-        CtDrawingLineStyle sv = s.style;
-        const char* sl = s.label;
-        item->signal_activate().connect([this, sv, sl, styleLabel]() {
+    auto styleBtnStyle = std::make_shared<CtDrawingLineStyle>(CtDrawingLineStyle::Solid);
+    auto* styleBtnDraw = Gtk::manage(new Gtk::DrawingArea());
+    styleBtnDraw->set_size_request(24, 16);
+    styleBtnDraw->signal_draw().connect([styleBtnStyle, styleBtnDraw](const Cairo::RefPtr<Cairo::Context>& cr) -> bool {
+        int w = styleBtnDraw->get_allocated_width();
+        int h = styleBtnDraw->get_allocated_height();
+        cr->set_source_rgb(0.3, 0.3, 0.3);
+        cr->set_line_width(2.0);
+        cr->set_line_cap(Cairo::LINE_CAP_ROUND);
+        applyLineStyle(cr, *styleBtnStyle, 2.0);
+        cr->move_to(2, h / 2.0);
+        cr->line_to(w - 2, h / 2.0);
+        cr->stroke();
+        return true;
+    });
+    styleBtn->add(*styleBtnDraw);
+    auto* styleMenu = Gtk::manage(new Gtk::Menu());
+    CtDrawingLineStyle styles[] = {
+        CtDrawingLineStyle::Solid,
+        CtDrawingLineStyle::Dashed,
+        CtDrawingLineStyle::Dotted,
+        CtDrawingLineStyle::DashDot
+    };
+    for (auto sv : styles) {
+        auto* item = Gtk::manage(new Gtk::MenuItem());
+        item->add(*makeStyleDraw(sv, 80, 16));
+        item->signal_activate().connect([this, sv, styleBtnStyle, styleBtnDraw]() {
             _currentLineStyle = sv;
-            styleLabel->set_text(sl);
+            *styleBtnStyle = sv;
+            styleBtnDraw->queue_draw();
         });
         styleMenu->append(*item);
     }
@@ -774,6 +858,12 @@ bool CtDrawingOverlay::_onDraw(const Cairo::RefPtr<Cairo::Context>& cr)
                     cr->move_to(sx, sy);
                     cr->line_to(ex, ey);
                     cr->stroke();
+                    if (_currentArrowHead == CtDrawingArrowHead::End || _currentArrowHead == CtDrawingArrowHead::Both) {
+                        _drawArrowHead(cr, ex, ey, sx, sy, _currentLineWidth, zoom, _currentArrowStyle);
+                    }
+                    if (_currentArrowHead == CtDrawingArrowHead::Start || _currentArrowHead == CtDrawingArrowHead::Both) {
+                        _drawArrowHead(cr, sx, sy, ex, ey, _currentLineWidth, zoom, _currentArrowStyle);
+                    }
                 } else if (_currentTool == CtDrawingTool::Shape) {
                     double rx = std::min(sx, ex);
                     double ry = std::min(sy, ey);
@@ -800,6 +890,10 @@ bool CtDrawingOverlay::_onDraw(const Cairo::RefPtr<Cairo::Context>& cr)
                         cr->line_to(rx + rw / 2.0, ry + rh);
                         cr->line_to(rx, ry + rh / 2.0);
                         cr->close_path();
+                        cr->stroke();
+                    } else if (_currentShapeType == CtDrawingElementType::RoundedRectangle) {
+                        double rr = std::min(std::min(rw, rh) * 0.25, 12.0 * zoom);
+                        _drawRoundedRect(cr, rx, ry, rw, rh, rr);
                         cr->stroke();
                     } else {
                         cr->rectangle(rx, ry, rw, rh);
@@ -1023,9 +1117,19 @@ void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
     }
     case CtDrawingElementType::Line: {
         if (stroke.points.size() < 2) break;
-        cr->move_to(cx + stroke.points[0].x * zoom, cy + stroke.points[0].y * zoom);
-        cr->line_to(cx + stroke.points[1].x * zoom, cy + stroke.points[1].y * zoom);
+        double x0 = cx + stroke.points[0].x * zoom;
+        double y0 = cy + stroke.points[0].y * zoom;
+        double x1 = cx + stroke.points[1].x * zoom;
+        double y1 = cy + stroke.points[1].y * zoom;
+        cr->move_to(x0, y0);
+        cr->line_to(x1, y1);
         cr->stroke();
+        if (stroke.arrowHead == CtDrawingArrowHead::End || stroke.arrowHead == CtDrawingArrowHead::Both) {
+            _drawArrowHead(cr, x1, y1, x0, y0, stroke.lineWidth, zoom, stroke.arrowStyle);
+        }
+        if (stroke.arrowHead == CtDrawingArrowHead::Start || stroke.arrowHead == CtDrawingArrowHead::Both) {
+            _drawArrowHead(cr, x0, y0, x1, y1, stroke.lineWidth, zoom, stroke.arrowStyle);
+        }
         break;
     }
     case CtDrawingElementType::Polyline: {
@@ -1035,6 +1139,17 @@ void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
             cr->line_to(cx + stroke.points[j].x * zoom, cy + stroke.points[j].y * zoom);
         }
         cr->stroke();
+        if (stroke.arrowHead == CtDrawingArrowHead::End || stroke.arrowHead == CtDrawingArrowHead::Both) {
+            size_t last = stroke.points.size() - 1;
+            _drawArrowHead(cr, cx + stroke.points[last].x * zoom, cy + stroke.points[last].y * zoom,
+                           cx + stroke.points[last - 1].x * zoom, cy + stroke.points[last - 1].y * zoom,
+                           stroke.lineWidth, zoom, stroke.arrowStyle);
+        }
+        if (stroke.arrowHead == CtDrawingArrowHead::Start || stroke.arrowHead == CtDrawingArrowHead::Both) {
+            _drawArrowHead(cr, cx + stroke.points[0].x * zoom, cy + stroke.points[0].y * zoom,
+                           cx + stroke.points[1].x * zoom, cy + stroke.points[1].y * zoom,
+                           stroke.lineWidth, zoom, stroke.arrowStyle);
+        }
         break;
     }
     case CtDrawingElementType::Rectangle: {
@@ -1046,6 +1161,20 @@ void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
         double rx = std::min(x0, x1), ry = std::min(y0, y1);
         double rw = std::abs(x1 - x0), rh = std::abs(y1 - y0);
         cr->rectangle(rx, ry, rw, rh);
+        if (stroke.filled) { cr->fill_preserve(); }
+        cr->stroke();
+        break;
+    }
+    case CtDrawingElementType::RoundedRectangle: {
+        if (stroke.points.size() < 2) break;
+        double x0 = cx + stroke.points[0].x * zoom;
+        double y0 = cy + stroke.points[0].y * zoom;
+        double x1 = cx + stroke.points[1].x * zoom;
+        double y1 = cy + stroke.points[1].y * zoom;
+        double rx = std::min(x0, x1), ry = std::min(y0, y1);
+        double rw = std::abs(x1 - x0), rh = std::abs(y1 - y0);
+        double rr = std::min(std::min(rw, rh) * 0.25, 12.0 * zoom);
+        _drawRoundedRect(cr, rx, ry, rw, rh, rr);
         if (stroke.filled) { cr->fill_preserve(); }
         cr->stroke();
         break;
@@ -1117,6 +1246,44 @@ void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
 
     if (std::abs(stroke.rotation) > 1e-6) {
         cr->restore();
+    }
+}
+
+void CtDrawingOverlay::_drawArrowHead(const Cairo::RefPtr<Cairo::Context>& cr,
+                                       double tipX, double tipY,
+                                       double fromX, double fromY,
+                                       double lineWidth, double zoom,
+                                       CtDrawingArrowStyle style)
+{
+    double dx = tipX - fromX;
+    double dy = tipY - fromY;
+    double len = std::sqrt(dx * dx + dy * dy);
+    if (len < 1e-6) return;
+    dx /= len;
+    dy /= len;
+
+    double arrowLen = std::max(10.0, lineWidth * zoom * 4.0);
+    double arrowHalfW = arrowLen * 0.4;
+    double bx = tipX - dx * arrowLen;
+    double by = tipY - dy * arrowLen;
+    double px = -dy, py = dx;
+    double lx = bx + px * arrowHalfW, ly = by + py * arrowHalfW;
+    double rx = bx - px * arrowHalfW, ry = by - py * arrowHalfW;
+
+    cr->unset_dash();
+    if (style == CtDrawingArrowStyle::Solid) {
+        cr->move_to(tipX, tipY);
+        cr->line_to(lx, ly);
+        cr->line_to(rx, ry);
+        cr->close_path();
+        cr->fill();
+    } else {
+        cr->set_line_cap(Cairo::LINE_CAP_ROUND);
+        cr->set_line_join(Cairo::LINE_JOIN_ROUND);
+        cr->move_to(lx, ly);
+        cr->line_to(tipX, tipY);
+        cr->line_to(rx, ry);
+        cr->stroke();
     }
 }
 
@@ -1264,6 +1431,7 @@ int CtDrawingOverlay::_hitTestStroke(double mx, double my,
                 cx + pts[1].x * zoom, cy + pts[1].y * zoom);
             break;
         }
+        case CtDrawingElementType::RoundedRectangle:
         case CtDrawingElementType::Rectangle: {
             if (pts.size() < 2) continue;
             double x0 = cx + pts[0].x * zoom, y0 = cy + pts[0].y * zoom;
@@ -1520,6 +1688,13 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
                 if (event->type == GDK_2BUTTON_PRESS) {
                     _previewActive = false;
                     _polylineActive = false;
+                    while (_polylinePoints.size() >= 2) {
+                        auto& a = _polylinePoints[_polylinePoints.size() - 2];
+                        auto& b = _polylinePoints[_polylinePoints.size() - 1];
+                        if (std::abs(a.x - b.x) < 1.0 && std::abs(a.y - b.y) < 1.0)
+                            _polylinePoints.pop_back();
+                        else break;
+                    }
                     if (_polylinePoints.size() >= 2) {
                         CtDrawingStroke newStroke;
                         newStroke.color = _currentColor;
@@ -1527,6 +1702,8 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
                         newStroke.opacity = _currentOpacity;
                         newStroke.lineStyle = _currentLineStyle;
                         newStroke.type = CtDrawingElementType::Polyline;
+                        newStroke.arrowHead = _currentArrowHead;
+                        newStroke.arrowStyle = _currentArrowStyle;
                         newStroke.points = _polylinePoints;
                         auto cmd = std::make_unique<DrawStrokeCommand>(
                             bridge->getDocumentModel(), _pMainWin->curr_tree_iter().get_node_id(), ci,
@@ -1937,6 +2114,8 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
                 newStroke.points.push_back(_previewEnd);
                 if (_currentTool == CtDrawingTool::Line) {
                     newStroke.type = _currentLineType;
+                    newStroke.arrowHead = _currentArrowHead;
+                    newStroke.arrowStyle = _currentArrowStyle;
                 } else {
                     newStroke.type = _currentShapeType;
                 }
