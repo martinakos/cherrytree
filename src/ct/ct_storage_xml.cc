@@ -1051,6 +1051,10 @@ void CtXmlHelper::drawing_canvases_to_xml(xmlpp::Element* p_node_node,
             if (std::abs(stroke.rotation) > 1e-6) {
                 p_stroke->set_attribute("rotation", std::to_string(stroke.rotation));
             }
+            if (stroke.arrowHead != CtDrawingArrowHead::None) {
+                p_stroke->set_attribute("arrow_head", std::to_string(static_cast<int>(stroke.arrowHead)));
+                p_stroke->set_attribute("arrow_style", std::to_string(static_cast<int>(stroke.arrowStyle)));
+            }
             if (!stroke.textContent.empty()) {
                 p_stroke->set_attribute("text", stroke.textContent);
             }
@@ -1114,6 +1118,10 @@ std::vector<CtDrawingCanvas> CtXmlHelper::drawing_canvases_from_xml(const xmlpp:
                 if (!filledStr.empty()) stroke.filled = (filledStr == "1");
                 auto rotationStr = strokeElem->get_attribute_value("rotation");
                 if (!rotationStr.empty()) stroke.rotation = std::stod(rotationStr);
+                auto arrowHeadStr = strokeElem->get_attribute_value("arrow_head");
+                if (!arrowHeadStr.empty()) stroke.arrowHead = static_cast<CtDrawingArrowHead>(std::stoi(arrowHeadStr));
+                auto arrowStyleStr = strokeElem->get_attribute_value("arrow_style");
+                if (!arrowStyleStr.empty()) stroke.arrowStyle = static_cast<CtDrawingArrowStyle>(std::stoi(arrowStyleStr));
                 auto textStr = strokeElem->get_attribute_value("text");
                 if (!textStr.empty()) stroke.textContent = textStr;
                 auto fontFamStr = strokeElem->get_attribute_value("font_family");
