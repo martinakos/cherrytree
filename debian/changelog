@@ -1,3 +1,15 @@
+cherrytree-docmodel (1.7.0+docmodel13-1) plucky; urgency=low
+
+  * arrow heads for lines/polylines (end/start/both, solid/open)
+  * rounded rectangle shape
+  * line style dropdown with drawn previews instead of text labels
+  * per-node line wrapping property in node properties dialog
+  * creation and modification timestamps on all widget types
+  * image properties: unit selector and lock aspect ratio in size row
+  * fix polyline arrow heads with duplicate trailing points
+
+ -- Martin Tosas <martin.tosas@gmail.com>  Thu, 24 Jul 2026 12:00:00 +0000
+
 cherrytree-docmodel (1.7.0+docmodel12-1) plucky; urgency=low
 
   * drawing canvases: transparent overlays for annotating node content
