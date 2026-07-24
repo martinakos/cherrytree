@@ -38,7 +38,8 @@ enum class CtDrawingElementType {
     Text,
     Polyline,
     Triangle,
-    Diamond
+    Diamond,
+    RoundedRectangle
 };
 
 enum class CtDrawingLineStyle {
@@ -47,6 +48,9 @@ enum class CtDrawingLineStyle {
     Dotted,
     DashDot
 };
+
+enum class CtDrawingArrowHead { None, Start, End, Both };
+enum class CtDrawingArrowStyle { Solid, Open };
 
 enum class CtDrawingTool {
     Pencil,
@@ -75,6 +79,8 @@ struct CtDrawingStroke {
     std::string fontFamily{"Sans"};
     double fontSize{14.0};
     double rotation{0.0};
+    CtDrawingArrowHead arrowHead{CtDrawingArrowHead::None};
+    CtDrawingArrowStyle arrowStyle{CtDrawingArrowStyle::Solid};
 };
 
 struct CtDrawingCanvas {
@@ -194,6 +200,11 @@ private:
     void _drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
                      const CtDrawingStroke& stroke,
                      double cx, double cy, double zoom);
+    void _drawArrowHead(const Cairo::RefPtr<Cairo::Context>& cr,
+                        double tipX, double tipY,
+                        double fromX, double fromY,
+                        double lineWidth, double zoom,
+                        CtDrawingArrowStyle style);
 
     void _strokeCenter(const CtDrawingStroke& stroke, double& centerX, double& centerY);
 
@@ -212,6 +223,8 @@ private:
     CtDrawingElementType _currentShapeType{CtDrawingElementType::Rectangle};
     CtDrawingElementType _currentLineType{CtDrawingElementType::Line};
     CtDrawingLineStyle _currentLineStyle{CtDrawingLineStyle::Solid};
+    CtDrawingArrowHead _currentArrowHead{CtDrawingArrowHead::None};
+    CtDrawingArrowStyle _currentArrowStyle{CtDrawingArrowStyle::Solid};
     double _currentLineWidth{2.0};
     std::string _currentColor{"#000000"};
     double _currentOpacity{1.0};
