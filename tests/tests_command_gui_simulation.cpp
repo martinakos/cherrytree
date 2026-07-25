@@ -7688,12 +7688,13 @@ CtImagePng* _firstImageInRichCell(CtTableRich* pTable, size_t row, size_t col)
 }
 
 // Return the first CtImagePng anchored in the given node (main buffer), or nullptr.
-CtImagePng* _firstImageInMainBuffer(CtMainWin* pWin)
+CtImagePng* _lastImageInMainBuffer(CtMainWin* pWin)
 {
+    CtImagePng* last = nullptr;
     for (auto* w : pWin->curr_tree_iter().get_anchored_widgets()) {
-        if (auto* p = dynamic_cast<CtImagePng*>(w)) return p;
+        if (auto* p = dynamic_cast<CtImagePng*>(w)) last = p;
     }
-    return nullptr;
+    return last;
 }
 
 } // namespace
@@ -7899,7 +7900,7 @@ static void _test_rich_cell_image_zoom_after_paste_outside(CtMainWin* pWin)
     CtClipboard{pWin}.from_xml_string_to_buffer(mainBuf, xml);
     GuiEventSimulator::process_pending_events();
 
-    CtImagePng* pasted = _firstImageInMainBuffer(pWin);
+    CtImagePng* pasted = _lastImageInMainBuffer(pWin);
     ASSERT_TRUE(pasted) << "main buffer must contain the pasted image";
     EXPECT_EQ(expectedW, pasted->get_pixbuf()->get_width())
         << "pasted image should be at zoomed width (" << expectedW
