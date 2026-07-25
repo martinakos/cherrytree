@@ -1,4 +1,4 @@
-cherrytree-docmodel (1.7.0+docmodel13-1) plucky; urgency=low
+cherrytree-docmodel (1.7.1+docmodel13-1) plucky; urgency=low
 
   * arrow heads for lines/polylines (end/start/both, solid/open)
   * rounded rectangle shape
@@ -10,7 +10,7 @@ cherrytree-docmodel (1.7.0+docmodel13-1) plucky; urgency=low
 
  -- Martin Tosas <martin.tosas@gmail.com>  Thu, 24 Jul 2026 12:00:00 +0000
 
-cherrytree-docmodel (1.7.0+docmodel12-1) plucky; urgency=low
+cherrytree-docmodel (1.7.1+docmodel12-1) plucky; urgency=low
 
   * drawing canvases: transparent overlays for annotating node content
   * canvas properties dialog with name, background, corner radius, border
@@ -27,7 +27,7 @@ cherrytree-docmodel (1.7.0+docmodel12-1) plucky; urgency=low
 
  -- Martin Tosas <martin.tosas@gmail.com>  Fri, 20 Jun 2026 12:00:00 +0000
 
-cherrytree-docmodel (1.7.0+docmodel11-1) plucky; urgency=low
+cherrytree-docmodel (1.7.1+docmodel11-1) plucky; urgency=low
 
   * configurable tree node context menu in preferences
   * optional full-width header bar layout spanning tree and editor
@@ -41,7 +41,7 @@ cherrytree-docmodel (1.7.0+docmodel11-1) plucky; urgency=low
 
  -- Martin Tosas <martin.tosas@gmail.com>  Thu, 05 Jun 2026 12:00:00 +0000
 
-cherrytree-docmodel (1.7.0+docmodel10-1) plucky; urgency=low
+cherrytree-docmodel (1.7.1+docmodel10-1) plucky; urgency=low
 
   * UI: redesign status bar with clearer layout for faster readability
   * UI: fully customizable menu bar and context menus from Preferences
@@ -51,7 +51,7 @@ cherrytree-docmodel (1.7.0+docmodel10-1) plucky; urgency=low
 
  -- Martin Tosas <martin.tosas@gmail.com>  Sat, 24 May 2026 12:00:00 +0000
 
-cherrytree-docmodel (1.6.3+docmodel9-1) plucky; urgency=low
+cherrytree-docmodel (1.7.1+docmodel9-1) plucky; urgency=low
 
   * HTML paste: preserve rich formatting, cell backgrounds, and colspan in tables
   * rich table: prefill cell 0,0 from selection on insert
@@ -69,7 +69,7 @@ cherrytree-docmodel (1.6.3+docmodel9-1) plucky; urgency=low
 
  -- Martin Tosas <martin.tosas@gmail.com>  Sun, 18 May 2026 12:00:00 +0000
 
-cherrytree-docmodel (1.6.3+docmodel8-1) plucky; urgency=low
+cherrytree-docmodel (1.7.1+docmodel8-1) plucky; urgency=low
 
   * rich table: cell horizontal alignment (left/center/right) toolbar actions, fully undo/redo-able
   * rich table: fix paste alignment — widgets from right-aligned cells no longer inherit cell alignment in main buffer
@@ -85,7 +85,7 @@ cherrytree-docmodel (1.6.3+docmodel8-1) plucky; urgency=low
 
  -- Martin Tosas <martin.tosas@gmail.com>  Thu, 07 May 2026 12:00:00 +0000
 
-cherrytree-docmodel (1.6.3+docmodel7-1) plucky; urgency=low
+cherrytree-docmodel (1.7.1+docmodel7-1) plucky; urgency=low
 
   * rich table: configurable minimum row height (default 25), vertical alignment, wrap-mode and formatting preserved on copy-paste and undo
   * rich table: LaTeX in cells follows cell horizontal alignment
@@ -95,7 +95,7 @@ cherrytree-docmodel (1.6.3+docmodel7-1) plucky; urgency=low
 
  -- Martin Tosas <martin.tosas@gmail.com>  Thu, 01 May 2026 12:00:00 +0000
 
-cherrytree-docmodel (1.6.3+docmodel6-1) plucky; urgency=low
+cherrytree-docmodel (1.7.1+docmodel6-1) plucky; urgency=low
 
   * eliminated internal XML round-trips in the document model, replacing them with direct object operations
   * rich table improvements: row/column copy-paste with undo, cut/paste preserving rich formatting, inherited formatting on add, in-place undo/redo
@@ -106,7 +106,7 @@ cherrytree-docmodel (1.6.3+docmodel6-1) plucky; urgency=low
 
  -- Martin Tosas <martin.tosas@gmail.com>  Fri, 18 Apr 2026 12:00:00 +0000
 
-cherrytree-docmodel (1.6.3+docmodel5-1) plucky; urgency=low
+cherrytree-docmodel (1.7.1+docmodel5-1) plucky; urgency=low
 
   * word count now enabled by default (can be disabled in preferences dialog, tab 'Interface')
   * word count now counting only inside of the selection when a selection is in place (#283)
