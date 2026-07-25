@@ -1,3 +1,11 @@
+cherrytree-docmodel (1.7.1+docmodel14-1) plucky; urgency=low
+
+  * rebased onto upstream v1.7.1
+  * fix word count not working in rich table cells
+  * fix statusbar word count not reflecting text selection
+
+ -- Martin Tosas <martin.tosas@gmail.com>  Fri, 25 Jul 2026 12:00:00 +0000
+
 cherrytree-docmodel (1.7.1+docmodel13-1) plucky; urgency=low
 
   * arrow heads for lines/polylines (end/start/both, solid/open)
