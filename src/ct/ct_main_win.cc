@@ -1887,7 +1887,7 @@ void CtMainWin::update_selected_node_statusbar_info()
 
     Glib::ustring wordCountStr;
     if (_pCtConfig->wordCountOn) {
-        wordCountStr = std::to_string(CtTextIterUtil::get_words_count(_ctTextview.get_buffer()));
+        wordCountStr = std::to_string(_uCtActions->get_word_count_for_statusbar());
     }
 
     Glib::ustring sizeStr;
