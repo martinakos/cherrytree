@@ -772,6 +772,25 @@ void CtTableHeavy::_new_text_cell_attach(const size_t rowIdx, const size_t colId
     }
     textView.signal_populate_popup().connect(sigc::mem_fun(*this, &CtTableCommon::on_cell_populate_popup));
     textView.signal_key_press_event().connect(sigc::mem_fun(*this, &CtTableCommon::on_cell_key_press_event), false);
+    textView.signal_button_release_event().connect([this](GdkEventButton*) -> bool {
+        if (_pCtMainWin->get_ct_config()->wordCountOn) {
+            _pCtMainWin->update_selected_node_statusbar_info();
+        }
+        return false;
+    }, false);
+    textView.signal_key_release_event().connect([this, pTextCell](GdkEventKey* event) -> bool {
+        if (_pCtMainWin->get_ct_config()->wordCountOn) {
+            const auto& buf = pTextCell->get_buffer();
+            Gtk::TextIter s, e;
+            if (buf->get_selection_bounds(s, e) ||
+                GDK_KEY_Return == event->keyval || GDK_KEY_KP_Enter == event->keyval ||
+                event->keyval == GDK_KEY_space)
+            {
+                _pCtMainWin->update_selected_node_statusbar_info();
+            }
+        }
+        return false;
+    });
     _grid.attach(pTextCell->get_text_view().mm(), colIdx, rowIdx, 1/*# cell horiz*/, 1/*# cell vert*/);
 
     _pCtMainWin->apply_syntax_highlighting(pTextCell->get_buffer(), pTextCell->get_syntax_highlighting(), false/*forceReApply*/);
@@ -1486,6 +1505,25 @@ void CtTableRich::_new_rich_cell_attach(const size_t rowIdx, const size_t colIdx
     textView.signal_populate_popup().connect(sigc::mem_fun(*this, &CtTableCommon::on_cell_populate_popup));
     textView.signal_key_press_event().connect(sigc::mem_fun(*this, &CtTableCommon::on_cell_key_press_event), false);
     textView.signal_key_release_event().connect(sigc::mem_fun(*this, &CtTableCommon::on_rich_cell_key_release_event), false);
+    textView.signal_button_release_event().connect([this](GdkEventButton*) -> bool {
+        if (_pCtMainWin->get_ct_config()->wordCountOn) {
+            _pCtMainWin->update_selected_node_statusbar_info();
+        }
+        return false;
+    }, false);
+    textView.signal_key_release_event().connect([this, pCell](GdkEventKey* event) -> bool {
+        if (_pCtMainWin->get_ct_config()->wordCountOn) {
+            const auto& buf = pCell->get_buffer();
+            Gtk::TextIter s, e;
+            if (buf->get_selection_bounds(s, e) ||
+                GDK_KEY_Return == event->keyval || GDK_KEY_KP_Enter == event->keyval ||
+                event->keyval == GDK_KEY_space)
+            {
+                _pCtMainWin->update_selected_node_statusbar_info();
+            }
+        }
+        return false;
+    });
 #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     textView.signal_motion_notify_event().connect([this, pCell](GdkEventMotion* event) -> bool {
         if (not _pCtMainWin->user_active()) return false;
