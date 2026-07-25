@@ -441,9 +441,10 @@ void TestPasteRichFormatApp::on_activate()
     auto pBridge = pWin->get_command_bridge();
     ASSERT_TRUE(pBridge && pBridge->isActive());
 
-    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("d");
     ASSERT_TRUE(ctIter);
     ASSERT_TRUE(ctIter.get_node_is_rich_text());
+    ctIter.set_node_read_only(false);
     pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
     drainEvents();
 
@@ -461,7 +462,7 @@ void TestPasteRichFormatApp::on_activate()
     auto isBoldAtOffset = [&](int offset) {
         return buffer->get_iter_at_offset(offset).has_tag(boldTag);
     };
-    const Glib::ustring boldWord = "BOLDWORD";
+    const Glib::ustring boldWord = "PASTETEST";
     auto countBoldWord = [&]() {
         const Glib::ustring text = buffer->get_text();
         size_t count = 0, pos = 0;

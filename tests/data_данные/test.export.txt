@@ -3,7 +3,7 @@ ciao plain
 йцукенгшщз
 
 # b
-ciao rich
+BOLDWORDBOLDWORDBOLDWORDciao rich
 fore
 back
 bold
@@ -20,7 +20,7 @@ small
 asuper
 asub
 mono
-
+BOLDWORDBOLDWORDBOLDWORDBOLDWORD
 
 ## c
 int main(int argc, char *argv[])
