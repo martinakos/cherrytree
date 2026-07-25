@@ -7020,6 +7020,71 @@ static void _test_cursor_pos_after_rich_cell_undo(CtMainWin* pWin)
     spdlog::info("  Cursor position after rich cell in-place undo/redo test passed");
 }
 
+static void _test_rich_table_word_count_with_selection(CtMainWin* pWin)
+{
+    spdlog::info("Test: Word count in rich table respects cell selection");
+
+    auto pBridge = pWin->get_command_bridge();
+    auto pActions = pWin->get_ct_actions();
+
+    pBridge->endWidgetEdit();
+    GuiEventSimulator::process_pending_events();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    while (pBridge->canRedo()) pActions->requested_step_ahead();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    gint64 nodeId = ctIter.get_node_id();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    GuiEventSimulator::process_pending_events();
+
+    pWin->get_ct_config()->wordCountOn = true;
+
+    std::vector<std::vector<CtCellContent>> richData(1, std::vector<CtCellContent>(1));
+    richData[0][0].textSpans.push_back(CtTextSpan{"alpha beta gamma delta"});
+    insertRichTableAtEnd(pWin, pBridge, richData);
+    auto* pTable = findFirstRichTable(pWin);
+    ASSERT_TRUE(pTable);
+
+    pBridge->endTextEditSession();
+    pActions->curr_table_anchor = pTable;
+    pTable->set_current_row_column(0, 0);
+    pWin->curr_buffer()->place_cursor(
+        pWin->curr_buffer()->get_iter_at_offset(pTable->getOffset()));
+    pBridge->beginWidgetEdit(nodeId, pTable, 0, 0);
+    pTable->grab_focus();
+    GuiEventSimulator::process_pending_events();
+
+    auto cellBuf = pTable->get_buffer(0, 0);
+    ASSERT_TRUE(cellBuf);
+    ASSERT_EQ(Glib::ustring{"alpha beta gamma delta"}, cellBuf->get_text());
+
+    // No selection: word count should be for the full cell (4 words)
+    cellBuf->place_cursor(cellBuf->begin());
+    GuiEventSimulator::process_pending_events();
+    int fullCount = pActions->get_word_count_for_statusbar();
+    EXPECT_EQ(4, fullCount) << "Full cell should have 4 words";
+
+    // Select "alpha beta" (first 10 chars): word count should be 2
+    Gtk::TextIter selStart = cellBuf->begin();
+    Gtk::TextIter selEnd = cellBuf->get_iter_at_offset(10);
+    cellBuf->select_range(selStart, selEnd);
+    GuiEventSimulator::process_pending_events();
+
+    ASSERT_TRUE(cellBuf->get_has_selection());
+    int selCount = pActions->get_word_count_for_statusbar();
+    EXPECT_EQ(2, selCount) << "Selection 'alpha beta' should count as 2 words";
+
+    pBridge->endWidgetEdit();
+    GuiEventSimulator::process_pending_events();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    GuiEventSimulator::process_pending_events();
+
+    spdlog::info("  Rich table word count with selection test passed");
+}
+
 // --- on_activate implementations for each isolated test group ---
 
 void TestRandomizedStressApp::on_activate()
@@ -7135,6 +7200,7 @@ void TestRichTableApp::on_activate()
     _test_rich_cell_edit_then_format_separate_commands(pWin);
     _test_rich_table_full_undo_redo_cycle(pWin);
     _test_rich_table_insert_from_selection(pWin);
+    _test_rich_table_word_count_with_selection(pWin);
 
     pWin->force_exit() = true;
     remove_window(*pWin);

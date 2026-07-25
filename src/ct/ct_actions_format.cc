@@ -1029,6 +1029,10 @@ int CtActions::get_word_count_for_statusbar()
         if (not pTable) {
             return 0;
         }
+        if (auto pTableRich = dynamic_cast<CtTableRich*>(pTable)) {
+            const auto curr_cell_buffer = pTableRich->curr_cell_text_view().get_buffer();
+            return get_words_count_for_buffer(curr_cell_buffer);
+        }
         if (auto pTableHeavy = dynamic_cast<CtTableHeavy*>(pTable)) {
             const auto curr_cell_buffer = pTableHeavy->curr_cell_text_view().get_buffer();
             return get_words_count_for_buffer(curr_cell_buffer);
@@ -1099,7 +1103,12 @@ CtTableCommon* CtActions::_table_in_use()
 
     const auto anchored_widgets = tree_iter.get_anchored_widgets_fast();
     for (CtAnchoredWidget* pAnchoredWidget : anchored_widgets) {
-        if (auto pTableHeavy = dynamic_cast<CtTableHeavy*>(pAnchoredWidget)) {
+        if (auto pTableRich = dynamic_cast<CtTableRich*>(pAnchoredWidget)) {
+            if (pTableRich->curr_cell_text_view().mm().has_focus()) {
+                return pTableRich;
+            }
+        }
+        else if (auto pTableHeavy = dynamic_cast<CtTableHeavy*>(pAnchoredWidget)) {
             if (pTableHeavy->curr_cell_text_view().mm().has_focus()) {
                 return pTableHeavy;
             }
