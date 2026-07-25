@@ -226,7 +226,7 @@ void TestCtApp::_assert_tree_data(CtMainWin* pWin, const bool after_mods)
     ASSERT_EQ(1, summaryInfo.nodes_plain_text_num);
     if (after_mods) ASSERT_EQ(4, summaryInfo.nodes_code_num);
     else ASSERT_EQ(5, summaryInfo.nodes_code_num);
-    ASSERT_EQ(1, summaryInfo.images_num);
+    ASSERT_EQ(2, summaryInfo.images_num);
     ASSERT_EQ(1, summaryInfo.embfile_num);
     ASSERT_EQ(1, summaryInfo.heavytables_num);
     ASSERT_EQ(1, summaryInfo.lighttables_num);
@@ -270,6 +270,7 @@ void TestCtApp::_assert_tree_data(CtMainWin* pWin, const bool after_mods)
         ASSERT_TRUE(pWin->get_tree_store().is_node_bookmarked(ctTreeIter.get_node_id()));
         // assert text
         const Glib::ustring expectedText{
+            "BOLDWORDBOLDWORDBOLDWORD"
             "ciao rich" _NL
             "fore" _NL
             "back" _NL
@@ -287,6 +288,7 @@ void TestCtApp::_assert_tree_data(CtMainWin* pWin, const bool after_mods)
             "asuper" _NL
             "asub" _NL
             "mono" _NL
+            "BOLDWORDBOLDWORDBOLDWORDBOLDWORD"
         };
         _assert_node_text(ctTreeIter, expectedText);
         // assert rich text tags
@@ -346,6 +348,9 @@ void TestCtApp::_assert_tree_data(CtMainWin* pWin, const bool after_mods)
             ExpectedTag{
                 .text_slot="mono",
                 .attr_map=CtCurrAttributesMap{{CtConst::TAG_FAMILY, CtConst::TAG_PROP_VAL_MONOSPACE}}},
+            ExpectedTag{
+                .text_slot="BOLDWORDBOLDWORDBOLDWORDBOLDWORD",
+                .attr_map=CtCurrAttributesMap{{CtConst::TAG_WEIGHT, CtConst::TAG_PROP_VAL_HEAVY}}},
         };
         _process_rich_text_buffer(pWin, expectedTags, ctTreeIter.get_node_text_buffer());
         for (auto& expTag : expectedTags) {

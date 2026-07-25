@@ -6,6 +6,8 @@
 йцукенгшщз</rich_text>
   </node>
   <node unique_id="2" master_id="0" name="b" prog_lang="custom-colors" tags="" readonly="0" nosearch_me="0" nosearch_ch="0" custom_icon_id="0" is_bold="0" foreground="" ts_creation="1564932982" ts_lastsave="1617718637">
+    <rich_text>BOLDWORDBOLDWORDBOLDWORD</rich_text>
+    <encoded_png char_offset="24" justification="left">iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAIAAAADnC86AAAAA3NCSVQICAjb4U/gAAAALUlEQVRYhe3NAQ0AAAgDILV/Z43xzUEBeitjQq9YLBaLxWKxWCwWi8VisfhlfNx8AU/q7SAHAAAAAElFTkSuQmCC</encoded_png>
     <rich_text justification="fill">ciao rich</rich_text>
     <rich_text>
 </rich_text>
@@ -59,6 +61,7 @@
     <rich_text family="monospace">mono</rich_text>
     <rich_text>
 </rich_text>
+    <rich_text weight="heavy">BOLDWORDBOLDWORDBOLDWORDBOLDWORD</rich_text>
     <node unique_id="3" master_id="0" name="c" prog_lang="c" tags="" readonly="0" nosearch_me="0" nosearch_ch="0" custom_icon_id="0" is_bold="0" foreground="" ts_creation="1564988027" ts_lastsave="0">
       <rich_text>int main(int argc, char *argv[])
 {
