@@ -29,6 +29,7 @@ set(CT_SHARED_FILES
   ct_actions_help.cc
   ct_actions_draw.cc
   ct_drawing.cc
+  ct_history_panel.cc
   ct_app.cc
   ct_clipboard.cc
   ct_codebox.cc

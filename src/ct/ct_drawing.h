@@ -167,6 +167,9 @@ public:
     void refresh();
     void updateScrollableExtent();
 
+    void showTargetSign(int bufferX, int bufferY);
+    void cancelTargetSign();
+
     void beginCreateCanvas();
     bool isCreateCanvasMode() const { return _createCanvasMode; }
 
@@ -242,6 +245,7 @@ private:
     void _deleteSelectedStrokes();
     void _clearStrokeSelection();
     void _applyPropertyToSelection(std::function<void(CtDrawingStroke&)> mutate);
+    void _recordCanvasEditPos(double widgetX, double widgetY);
 
     void _buildToolbar();
     void _showToolbar();
@@ -358,6 +362,13 @@ private:
 
     bool _updatingToolButtons{false};
     bool _updatingScrollExtent{false};
+
+    bool _targetSignActive{false};
+    bool _targetSignFlashOn{false};
+    int _targetSignFlashCount{0};
+    int _targetSignBufX{0};
+    int _targetSignBufY{0};
+    sigc::connection _targetSignTimeout;
 
     static constexpr double EDGE_HIT_THRESHOLD = 8.0;
     static constexpr double HEADER_HEIGHT = 28.0;

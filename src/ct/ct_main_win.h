@@ -51,6 +51,7 @@
 #else
 class CtOcrManager;
 #endif
+#include "ct_history_panel.h"
 
 struct CtStatusBar
 {
@@ -288,6 +289,8 @@ public:
     void         restart_vte(const char* first_cmd_passed);
 
     void show_hide_win_header(bool visible) { _ctWinHeader.headerBox.property_visible() = visible; }
+    void show_hide_history_panel(bool visible) { _uCtHistoryPanel->get_widget().property_visible() = visible; }
+    CtHistoryPanel* get_history_panel() { return _uCtHistoryPanel.get(); }
 
     void resetPrevTreeIter()                { _prevTreeIter = CtTreeIter(); }
 
@@ -404,6 +407,7 @@ private:
     Gtk::Box                     _vboxText{Gtk::ORIENTATION_VERTICAL};
     Gtk::Box                     _hBoxVte{Gtk::ORIENTATION_HORIZONTAL};
     Gtk::Paned                   _hPaned{Gtk::ORIENTATION_HORIZONTAL};
+    Gtk::Paned                   _hPanedRight{Gtk::ORIENTATION_HORIZONTAL};
     Gtk::Paned                   _vPaned{Gtk::ORIENTATION_VERTICAL};
     Gtk::HeaderBar*              _pHeaderBar{nullptr};
     #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
@@ -453,6 +457,7 @@ private:
     void _on_ocr_result_ready();
     void _process_one_ocr_result();
 #endif
+    std::unique_ptr<CtHistoryPanel>   _uCtHistoryPanel;
 
     Glib::RefPtr<Gtk::CssProvider> _css_provider_theme;
 
@@ -478,8 +483,15 @@ private:
     std::unordered_set<gint64> _treeExpandedNodeIds;
     std::unordered_map<gint64, int> _nodesCursorPos;
     std::unordered_map<gint64, int> _nodesVScrollPos;
+    std::unordered_set<gint64>      _nodesEditedSinceLastVisit;
+    std::unordered_map<gint64, std::pair<int,int>> _nodesLastCanvasEditPos;
 
 public:
+    void set_last_canvas_edit_pos(gint64 nodeId, int bufX, int bufY) { _nodesLastCanvasEditPos[nodeId] = {bufX, bufY}; }
+    std::pair<int,int> get_last_canvas_edit_pos(gint64 nodeId) const {
+        auto it = _nodesLastCanvasEditPos.find(nodeId);
+        return it != _nodesLastCanvasEditPos.end() ? it->second : std::pair<int,int>{-1, -1};
+    }
     // Navigation history (back/forward buttons) - public for friend class CtCommandBridge
     std::deque<gint64>  _visitedNodes;
     size_t              _visitedNodesIdx{0};

@@ -137,10 +137,19 @@ struct CtTextRange
     int leading_chars_num{0};
 };
 
+struct CtHistoryEntry
+{
+    gint64 nodeId{0};
+    gint64 timestamp{0};
+    int    cursorPos{0};
+    int    scrollPos{0};
+    int    canvasEditX{-1};
+    int    canvasEditY{-1};
+};
+
 struct CtRecentDocRestore
 {
     std::string   exp_coll_str;   // list of expanded nodes
-    std::string   visited_nodes;
     std::string   node_path;      // the current node
     int           cursor_pos{0};  // cursor position in the current node
     int           v_adj_val{0};   // text vertical scrollbar position in the current node
@@ -300,6 +309,7 @@ struct CtStorageSyncPending
 {
     bool                                           fix_db_tables{true};
     bool                                           bookmarks_to_write{false};
+    bool                                           history_to_write{false};
     std::unordered_map<gint64, CtStorageNodeState> nodes_to_write_dict;
     std::unordered_set<gint64>                     nodes_to_rm_set;
 };

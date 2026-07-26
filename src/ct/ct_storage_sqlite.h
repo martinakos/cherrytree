@@ -100,6 +100,8 @@ private:
 
     void                _create_all_tables_in_db();
     void                _write_bookmarks_to_db(const std::list<gint64>& bookmarks);
+    void                _write_history_to_db();
+    void                _read_history_from_db();
     void                _write_node_to_db(const CtTreeIter* ct_tree_iter,
                                           const gint64 sequence,
                                           const gint64 node_father_id,
@@ -156,6 +158,9 @@ public:
     static const char TABLE_PROTECTED_AREA_CREATE[];
     static const char TABLE_PROTECTED_AREA_INSERT[];
     static const char TABLE_PROTECTED_AREA_DELETE[];
+    static const char TABLE_HISTORY_CREATE[];
+    static const char TABLE_HISTORY_INSERT[];
+    static const char TABLE_HISTORY_DELETE[];
     static const std::string ERR_SQLITE_PREPV2;
     static const std::string ERR_SQLITE_STEP;
     static const char* safe_sqlite3_column_text(sqlite3_stmt* stmt, int iCol);
