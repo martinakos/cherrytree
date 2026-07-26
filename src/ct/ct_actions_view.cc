@@ -94,6 +94,15 @@ void CtActions::toggle_show_hide_tree_lines()
     _pCtMainWin->show_hide_tree_lines(_pCtConfig->treeLinesVisible);
 }
 
+void CtActions::toggle_show_hide_history_panel()
+{
+    _pCtConfig->historyPanelVisible = not _pCtConfig->historyPanelVisible;
+    _pCtMainWin->show_hide_history_panel(_pCtConfig->historyPanelVisible);
+    if (_pCtConfig->historyPanelVisible) {
+        _pCtMainWin->get_history_panel()->refresh_names();
+    }
+}
+
 void CtActions::toggle_focus_tree_text()
 {
     if (_pCtMainWin->get_tree_view().has_focus()) {

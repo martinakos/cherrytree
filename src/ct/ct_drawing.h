@@ -141,6 +141,9 @@ public:
     void resetSelection();
     void refresh();
 
+    void showTargetSign(int bufferX, int bufferY);
+    void cancelTargetSign();
+
     void beginCreateCanvas();
     bool isCreateCanvasMode() const { return _createCanvasMode; }
 
@@ -186,6 +189,7 @@ private:
                                double ax, double ay, double bx, double by);
 
     void _showContextMenu(GdkEventButton* event);
+    void _recordCanvasEditPos(double widgetX, double widgetY);
 
     void _buildToolbar();
     void _showToolbar();
@@ -265,6 +269,13 @@ private:
     double _rotateStartAngle{0.0};
 
     bool _updatingToolButtons{false};
+
+    bool _targetSignActive{false};
+    bool _targetSignFlashOn{false};
+    int _targetSignFlashCount{0};
+    int _targetSignBufX{0};
+    int _targetSignBufY{0};
+    sigc::connection _targetSignTimeout;
 
     static constexpr double EDGE_HIT_THRESHOLD = 8.0;
     static constexpr double HEADER_HEIGHT = 28.0;

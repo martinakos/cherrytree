@@ -27,9 +27,11 @@
 #include "ct_main_win.h"
 #include "ct_logging.h"
 #include <glib/gstdio.h>
+#include <sstream>
 
 /*static*/const std::string CtStorageMultiFile::SUBNODES_LST{"subnodes.lst"};
 /*static*/const std::string CtStorageMultiFile::BOOKMARKS_LST{"bookmarks.lst"};
+/*static*/const std::string CtStorageMultiFile::HISTORY_LST{"history.lst"};
 /*static*/const std::string CtStorageMultiFile::NODE_XML{"node.xml"};
 /*static*/const std::string CtStorageMultiFile::BEFORE_SAVE{".before"};
 
@@ -61,6 +63,8 @@ bool CtStorageMultiFile::save_treestore(const fs::path& dir_path,
             {
                 // save bookmarks
                 _write_bookmarks_to_disk(ct_tree_store.bookmarks_get());
+                // save history
+                _write_history_to_disk();
             }
             CtStorageNodeState node_state;
             node_state.is_update_of_existing = false; // no need to delete the prev data
@@ -126,6 +130,10 @@ bool CtStorageMultiFile::save_treestore(const fs::path& dir_path,
             // update bookmarks
             if (syncPending.bookmarks_to_write) {
                 _write_bookmarks_to_disk(ct_tree_store.bookmarks_get());
+            }
+            // update history
+            if (syncPending.history_to_write) {
+                _write_history_to_disk();
             }
             // update changed nodes
             const std::list<std::pair<CtTreeIter, CtStorageNodeState>> nodes_to_write = CtStorageControl::get_sorted_by_level_nodes_to_write(
@@ -305,6 +313,62 @@ void CtStorageMultiFile::_write_bookmarks_to_disk(const std::list<gint64>& bookm
         Glib::file_set_contents(bookmarks_filepath.string(),
                                 str::join_numbers(bookmarks_list, ","));
     }
+}
+
+void CtStorageMultiFile::_write_history_to_disk()
+{
+    const fs::path history_filepath = _dir_path / HISTORY_LST;
+    (void)fs::remove(history_filepath);
+    auto entries = _pCtMainWin->get_history_panel()->get_all_entries();
+    if (entries.empty()) return;
+    std::string content;
+    for (const auto& e : entries) {
+        if (!content.empty()) content += "\n";
+        content += std::to_string(e.nodeId) + ","
+                 + std::to_string(e.timestamp) + ","
+                 + std::to_string(e.cursorPos) + ","
+                 + std::to_string(e.scrollPos) + ","
+                 + std::to_string(e.canvasEditX) + ","
+                 + std::to_string(e.canvasEditY);
+    }
+    Glib::file_set_contents(history_filepath.string(), content);
+}
+
+void CtStorageMultiFile::_read_history_from_disk()
+{
+    const fs::path history_filepath = _dir_path / HISTORY_LST;
+    if (!fs::is_regular_file(history_filepath)) return;
+    std::string content = Glib::file_get_contents(history_filepath.string());
+    if (content.empty()) return;
+    std::vector<CtHistoryEntry> entries;
+    std::istringstream iss(content);
+    std::string line;
+    while (std::getline(iss, line)) {
+        if (line.empty()) continue;
+        std::vector<std::string> parts;
+        size_t s = 0;
+        while (s < line.size()) {
+            auto p = line.find(',', s);
+            if (p == std::string::npos) { parts.push_back(line.substr(s)); break; }
+            parts.push_back(line.substr(s, p - s));
+            s = p + 1;
+        }
+        if (parts.size() < 4) continue;
+        CtHistoryEntry e;
+        try {
+            e.nodeId = std::stoll(parts[0]);
+            e.timestamp = std::stoll(parts[1]);
+            e.cursorPos = std::stoi(parts[2]);
+            e.scrollPos = std::stoi(parts[3]);
+            if (parts.size() >= 6) {
+                e.canvasEditX = std::stoi(parts[4]);
+                e.canvasEditY = std::stoi(parts[5]);
+            }
+        }
+        catch (...) { continue; }
+        entries.push_back(e);
+    }
+    _pCtMainWin->get_history_panel()->load_entries(entries);
 }
 
 void CtStorageMultiFile::_hier_try_move_existing_node_to_path(const fs::path& dir_path_to)
@@ -640,6 +704,10 @@ bool CtStorageMultiFile::populate_treestore(const fs::path& dir_path, Glib::ustr
             CtNodeData nodeData{};
             ct_tree_store.get_node_data(ctTreeIter, nodeData, false/*loadTextBuffer*/);
             ct_tree_store.update_node_data(ctTreeIter, nodeData);
+        }
+        // load history
+        if (not _isDryRun) {
+            _read_history_from_disk();
         }
         return true;
     }

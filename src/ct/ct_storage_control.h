@@ -81,6 +81,7 @@ public:
     void pending_new_db_node(const gint64 node_id);
     void pending_rm_db_nodes(const std::vector<gint64>& node_ids);
     void pending_edit_db_bookmarks();
+    void pending_edit_db_history();
 
     /**
      * @brief Add the nodes from an external CT file to the current tree

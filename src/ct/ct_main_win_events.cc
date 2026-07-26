@@ -53,6 +53,11 @@ void CtMainWin::_on_treeview_cursor_changed()
         const int cur = pTextBuffer->property_cursor_position();
         _nodesVScrollPos[prevNodeIdDataHolder] = scr;
         _nodesCursorPos[prevNodeIdDataHolder] = cur;
+        if (_nodesEditedSinceLastVisit.erase(prevNodeId) > 0) {
+            auto canvasPos = get_last_canvas_edit_pos(prevNodeId);
+            _uCtHistoryPanel->update_entry(prevNodeId, cur, scr, canvasPos.first, canvasPos.second);
+            _nodesLastCanvasEditPos.erase(prevNodeId);
+        }
         //spdlog::debug("W[{}] scr={}, cur={}", prevNodeIdDataHolder, scr, cur);
     }
 
@@ -521,6 +526,9 @@ void CtMainWin::_on_textview_size_allocate(Gtk::Allocation& allocation)
         _pCtConfig->hpanedPos = _hPaned.property_position();
     }
     _pCtConfig->vpanedPos = _vPaned.property_position();
+    if (_uCtHistoryPanel->get_widget().get_visible()) {
+        _pCtConfig->hpanedRightPos = _hPanedRight.get_allocation().get_width() - _hPanedRight.property_position();
+    }
     if (_prevTextviewWidth == 0) {
         _prevTextviewWidth = allocation.get_width();
     }

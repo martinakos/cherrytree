@@ -457,6 +457,7 @@ bool CtStorageControl::save(bool need_vacuum, Glib::ustring& error)
         }
         _syncPending.fix_db_tables = false;
         _syncPending.bookmarks_to_write = false;
+        _syncPending.history_to_write = false;
         _syncPending.nodes_to_rm_set.clear();
         _syncPending.nodes_to_write_dict.clear();
 
@@ -825,6 +826,11 @@ void CtStorageControl::pending_rm_db_nodes(const std::vector<gint64>& node_ids)
 void CtStorageControl::pending_edit_db_bookmarks()
 {
     _syncPending.bookmarks_to_write = true;
+}
+
+void CtStorageControl::pending_edit_db_history()
+{
+    _syncPending.history_to_write = true;
 }
 
 void CtStorageControl::add_nodes_from_storage(const fs::path& file_path,

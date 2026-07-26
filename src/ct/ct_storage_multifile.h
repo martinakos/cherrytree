@@ -41,6 +41,7 @@ class CtStorageMultiFile : public CtStorageEntity
 public:
     static const std::string SUBNODES_LST;
     static const std::string BOOKMARKS_LST;
+    static const std::string HISTORY_LST;
     static const std::string NODE_XML;
     static const std::string BEFORE_SAVE;
 
@@ -90,6 +91,8 @@ private:
     void _verify_update_hierarchy(const CtTreeIter* ct_tree_iter_parent, const fs::path& dir_path);
     void _hier_try_move_existing_node_to_path(const fs::path& dir_path);
     void _write_bookmarks_to_disk(const std::list<gint64>& bookmarks_list);
+    void _write_history_to_disk();
+    void _read_history_from_disk();
     bool _nodes_to_multifile(const CtTreeIter* ct_tree_iter,
                              const fs::path& parent_dir_path,
                              Glib::ustring& error,

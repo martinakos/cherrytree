@@ -218,8 +218,6 @@ void CtConfig::_populate_keyfile_from_data()
             _uKeyFile->set_string(_currentGroup, _tempKey, filepath.string());
             const CtRecentDocsRestore::iterator mapIt = recentDocsRestore.find(filepath.string());
             if (mapIt != recentDocsRestore.end()) {
-                snprintf(_tempKey, _maxTempKeySize, "visit_%d", i);
-                _uKeyFile->set_string(_currentGroup, _tempKey, mapIt->second.visited_nodes);
                 snprintf(_tempKey, _maxTempKeySize, "expcol_%d", i);
                 _uKeyFile->set_string(_currentGroup, _tempKey, mapIt->second.exp_coll_str);
                 snprintf(_tempKey, _maxTempKeySize, "nodep_%d", i);
@@ -263,6 +261,8 @@ void CtConfig::_populate_keyfile_from_data()
     _uKeyFile->set_boolean(_currentGroup, "tree_visible", treeVisible);
     _uKeyFile->set_boolean(_currentGroup, "vte_visible", vteVisible);
     _uKeyFile->set_boolean(_currentGroup, "menubar_visible", menubarVisible);
+    _uKeyFile->set_boolean(_currentGroup, "history_panel_visible", historyPanelVisible);
+    _uKeyFile->set_integer(_currentGroup, "hpaned_right_pos", hpanedRightPos);
     _uKeyFile->set_string(_currentGroup, "pick_dir_import", pickDirImport);
     _uKeyFile->set_string(_currentGroup, "pick_dir_export", pickDirExport);
     _uKeyFile->set_string(_currentGroup, "pick_dir_file", pickDirFile);
@@ -545,8 +545,6 @@ void CtConfig::_populate_data_from_keyfile()
             CtRecentDocRestore recentDocRestore;
             snprintf(_tempKey, _maxTempKeySize, "nodep_%d", i);
             if (_populate_string_from_keyfile(_tempKey, &recentDocRestore.node_path)) {
-                snprintf(_tempKey, _maxTempKeySize, "visit_%d", i);
-                _populate_string_from_keyfile(_tempKey, &recentDocRestore.visited_nodes);
                 snprintf(_tempKey, _maxTempKeySize, "expcol_%d", i);
                 _populate_string_from_keyfile(_tempKey, &recentDocRestore.exp_coll_str);
                 snprintf(_tempKey, _maxTempKeySize, "curs_%d", i);
@@ -587,6 +585,8 @@ void CtConfig::_populate_data_from_keyfile()
     _populate_bool_from_keyfile("tree_visible", &treeVisible);
     _populate_bool_from_keyfile("vte_visible", &vteVisible);
     _populate_bool_from_keyfile("menubar_visible", &menubarVisible);
+    _populate_bool_from_keyfile("history_panel_visible", &historyPanelVisible);
+    _populate_int_from_keyfile("hpaned_right_pos", &hpanedRightPos);
     if (savedFromPyGtk) {
         CtRecentDocRestore recentDocRestore;
         if (_populate_string_from_keyfile("node_path", &recentDocRestore.node_path)) {
@@ -846,6 +846,9 @@ void CtConfig::_populate_data_from_keyfile()
             pos += std::string("go_node_next,separator,").size();
             toolbarUiList.insert(pos, "act_undo,act_redo,separator,");
         }
+    }
+    if (toolbarUiList.find("toggle_show_history_panel") == std::string::npos) {
+        toolbarUiList += ",separator,toggle_show_history_panel";
     }
     _populate_string_from_keyfile("menubar_top_level_order", &menubarTopLevelOrder);
     _populate_string_from_keyfile("menubar_file_ui_list", &menubarFileUiList);

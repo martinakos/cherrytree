@@ -991,6 +991,9 @@ void CtActions::node_delete()
 
         // Update bookmark menu if needed (execute already removed bookmarks via observer)
         _pCtMainWin->menu_set_bookmark_menu_items();
+        for (gint64 nid : nodeIdsToRemove) {
+            _pCtMainWin->get_history_panel()->remove_entries_for_node(nid);
+        }
     } else {
         // Bridge not active — delete directly from GTK tree
         CtSharedNodesMap shared_nodes_map;
@@ -1048,6 +1051,7 @@ void CtActions::node_delete()
         bool anyBookmark{false};
         for (gint64 nid : nodeIdsToRemove) {
             if (ctTreeStore.bookmarks_remove(nid)) anyBookmark = true;
+            _pCtMainWin->get_history_panel()->remove_entries_for_node(nid);
         }
         if (anyBookmark) {
             _pCtMainWin->menu_set_bookmark_menu_items();

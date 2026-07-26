@@ -383,6 +383,15 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     hbox_find_all_max_in_page->pack_start(*spinbutton_find_all_max_in_page, false, false);
 #endif
 
+    auto button_clear_history = Gtk::manage(new Gtk::Button{_("Clear History Panel")});
+    button_clear_history->set_halign(
+#if GTKMM_MAJOR_VERSION >= 4
+        Gtk::Align::START
+#else
+        Gtk::Align::ALIGN_START
+#endif
+    );
+
 #if GTKMM_MAJOR_VERSION >= 4
     vbox_misc->append(*checkbutton_word_count);
     vbox_misc->append(*checkbutton_node_size);
@@ -403,6 +412,7 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     vbox_misc->append(*hbox_tooltips_enable);
     vbox_misc->append(*hbox_find_all_max_in_page);
     vbox_misc->append(*checkbutton_store_latest_searches);
+    vbox_misc->append(*button_clear_history);
 #else
     vbox_misc->pack_start(*checkbutton_word_count, false, false);
     vbox_misc->pack_start(*checkbutton_node_size, false, false);
@@ -423,6 +433,7 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     vbox_misc->pack_start(*hbox_tooltips_enable, false, false);
     vbox_misc->pack_start(*hbox_find_all_max_in_page, false, false);
     vbox_misc->pack_start(*checkbutton_store_latest_searches, false, false);
+    vbox_misc->pack_start(*button_clear_history, false, false);
 #endif
 
     Gtk::Frame* frame_misc = new_managed_frame_with_align(_("Miscellaneous"), vbox_misc);
@@ -659,6 +670,9 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     });
     checkbutton_store_latest_searches->signal_toggled().connect([this, checkbutton_store_latest_searches](){
         _pConfig->storeLatestSearches = checkbutton_store_latest_searches->get_active();
+    });
+    button_clear_history->signal_clicked().connect([this](){
+        apply_for_each_window([](CtMainWin* win) { win->get_history_panel()->clear(); });
     });
 
     return pMainBox;

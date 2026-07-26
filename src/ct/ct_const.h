@@ -274,7 +274,7 @@ const inline static gchar* TOOLBAR_VEC_DEFAULT {
     "handle_link,handle_anchor,separator,fmt_clone,fmt_latest,fmt_rm,fmt_color_fg,"
     "fmt_color_bg,fmt_bold,fmt_italic,fmt_underline,fmt_strikethrough,"
     "fmt_h1,fmt_h2,fmt_h3,fmt_small,fmt_superscript,fmt_subscript,fmt_monospace,"
-    "separator,new_drawing_canvas,toggle_drawing_mode"
+    "separator,new_drawing_canvas,toggle_drawing_mode,separator,toggle_show_history_panel"
 };
 
 const inline static gchar* MENUBAR_TOP_LEVEL_DEFAULT {
@@ -346,7 +346,7 @@ const inline static gchar* MENUBAR_SEARCH_DEFAULT {
 };
 const inline static gchar* MENUBAR_VIEW_DEFAULT {
     "toggle_show_tree,toggle_show_treelines,toggle_show_menubar,toggle_show_toolbar,"
-    "toggle_show_statusbar,toggle_show_node_name_head,toggle_show_vte,separator,"
+    "toggle_show_statusbar,toggle_show_node_name_head,toggle_show_vte,toggle_show_history_panel,separator,"
     "menubar_in_titlebar,toggle_fullscreen,toggle_always_on_top,separator,"
     "toggle_focus_tree_text,toggle_focus_vte_text,separator,"
     "toolbar_icons_size_p,toolbar_icons_size_m,separator,more_visit_nnh,less_visit_nnh"

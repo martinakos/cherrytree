@@ -155,6 +155,19 @@ const char CtStorageSqlite::TABLE_DRAWING_STROKE_CREATE[]{"CREATE TABLE IF NOT E
 };
 const char CtStorageSqlite::TABLE_DRAWING_STROKE_DELETE[]{"DELETE FROM drawing_stroke WHERE node_id=?"};
 
+const char CtStorageSqlite::TABLE_HISTORY_CREATE[]{"CREATE TABLE IF NOT EXISTS history ("
+"sequence INTEGER PRIMARY KEY,"
+"node_id INTEGER,"
+"timestamp INTEGER,"
+"cursor_pos INTEGER,"
+"scroll_pos INTEGER,"
+"canvas_edit_x INTEGER DEFAULT -1,"
+"canvas_edit_y INTEGER DEFAULT -1"
+")"
+};
+const char CtStorageSqlite::TABLE_HISTORY_INSERT[]{"INSERT INTO history VALUES(?,?,?,?,?,?,?)"};
+const char CtStorageSqlite::TABLE_HISTORY_DELETE[]{"DELETE FROM history"};
+
 /*static*/const std::string CtStorageSqlite::ERR_SQLITE_PREPV2{"!! sqlite3_prepare_v2: "};
 /*static*/const std::string CtStorageSqlite::ERR_SQLITE_STEP{"!! sqlite3_step: "};
 
@@ -315,6 +328,11 @@ bool CtStorageSqlite::populate_treestore(const fs::path& file_path, Glib::ustrin
             f_nodes_from_db(top_id_pair, ++sequence, Gtk::TreeModel::iterator{});
         }
 
+        // load history
+        if (not _isDryRun) {
+            _read_history_from_db();
+        }
+
         // keep db open for lazy node buffer loading
         return true;
     }
@@ -344,6 +362,7 @@ bool CtStorageSqlite::save_treestore(const fs::path& file_path,
                  CtExporting::ALL_TREE == export_type )
             {
                 _write_bookmarks_to_db(_pCtMainWin->get_tree_store().bookmarks_get());
+                _write_history_to_db();
             }
             CtStorageNodeState node_state;
             node_state.is_update_of_existing = false; // no need to delete the prev data
@@ -408,6 +427,10 @@ bool CtStorageSqlite::save_treestore(const fs::path& file_path,
             // update bookmarks
             if (syncPending.bookmarks_to_write) {
                 _write_bookmarks_to_db(_pCtMainWin->get_tree_store().bookmarks_get());
+            }
+            // update history
+            if (syncPending.history_to_write) {
+                _write_history_to_db();
             }
             // update changed nodes
             const std::list<std::pair<CtTreeIter, CtStorageNodeState>> nodes_to_write = CtStorageControl::get_sorted_by_level_nodes_to_write(
@@ -756,6 +779,7 @@ void CtStorageSqlite::_create_all_tables_in_db()
     _exec_no_callback(TABLE_BOOKMARK_CREATE);
     _exec_no_callback(TABLE_DRAWING_CANVAS_CREATE);
     _exec_no_callback(TABLE_DRAWING_STROKE_CREATE);
+    _exec_no_callback(TABLE_HISTORY_CREATE);
 }
 
 void CtStorageSqlite::_write_bookmarks_to_db(const std::list<gint64>& bookmarks)
@@ -775,6 +799,53 @@ void CtStorageSqlite::_write_bookmarks_to_db(const std::list<gint64>& bookmarks)
             throw std::runtime_error(ERR_SQLITE_STEP + sqlite3_errmsg(_pDb));
         sqlite3_reset(stmt);
     }
+}
+
+void CtStorageSqlite::_write_history_to_db()
+{
+    _exec_no_callback(TABLE_HISTORY_CREATE);
+    _exec_no_callback(TABLE_HISTORY_DELETE);
+
+    auto entries = _pCtMainWin->get_history_panel()->get_all_entries();
+    Sqlite3StmtAuto stmt{_pDb, TABLE_HISTORY_INSERT};
+    if (stmt.is_bad())
+        throw std::runtime_error(ERR_SQLITE_PREPV2 + sqlite3_errmsg(_pDb));
+
+    gint64 seq{0};
+    for (const auto& e : entries) {
+        ++seq;
+        sqlite3_bind_int64(stmt, 1, seq);
+        sqlite3_bind_int64(stmt, 2, e.nodeId);
+        sqlite3_bind_int64(stmt, 3, e.timestamp);
+        sqlite3_bind_int(stmt, 4, e.cursorPos);
+        sqlite3_bind_int(stmt, 5, e.scrollPos);
+        sqlite3_bind_int(stmt, 6, e.canvasEditX);
+        sqlite3_bind_int(stmt, 7, e.canvasEditY);
+        if (sqlite3_step(stmt) != SQLITE_DONE)
+            throw std::runtime_error(ERR_SQLITE_STEP + sqlite3_errmsg(_pDb));
+        sqlite3_reset(stmt);
+    }
+}
+
+void CtStorageSqlite::_read_history_from_db()
+{
+    _exec_no_callback(TABLE_HISTORY_CREATE);
+
+    Sqlite3StmtAuto stmt{_pDb, "SELECT node_id, timestamp, cursor_pos, scroll_pos, canvas_edit_x, canvas_edit_y FROM history ORDER BY sequence ASC"};
+    if (stmt.is_bad()) return;
+
+    std::vector<CtHistoryEntry> entries;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        CtHistoryEntry e;
+        e.nodeId = sqlite3_column_int64(stmt, 0);
+        e.timestamp = sqlite3_column_int64(stmt, 1);
+        e.cursorPos = sqlite3_column_int(stmt, 2);
+        e.scrollPos = sqlite3_column_int(stmt, 3);
+        e.canvasEditX = sqlite3_column_int(stmt, 4);
+        e.canvasEditY = sqlite3_column_int(stmt, 5);
+        entries.push_back(e);
+    }
+    _pCtMainWin->get_history_panel()->load_entries(entries);
 }
 
 void CtStorageSqlite::_write_node_to_db(const CtTreeIter* ct_tree_iter,

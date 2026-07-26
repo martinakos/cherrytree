@@ -122,6 +122,9 @@ void CtMainWin::update_window_save_needed(const CtSaveNeededUpdType update_type,
                                           const CtTreeIter* give_tree_iter)
 {
     CtTreeIter treeIter = (nullptr != give_tree_iter ? *give_tree_iter : curr_tree_iter());
+    if (treeIter) {
+        _nodesEditedSinceLastVisit.insert(treeIter.get_node_id());
+    }
     if (treeIter.get_node_is_rich_text()) {
         treeIter.get_node_text_buffer()->set_modified(true); // support possible change inside anchored widget which doesn't toggle modified flag
     }
@@ -432,7 +435,6 @@ void CtMainWin::file_save_as(const std::string& new_filepath,
 
     // remember expanded nodes for new file
     CtRecentDocRestore doc_state_restore;
-    doc_state_restore.visited_nodes = "";
     doc_state_restore.exp_coll_str = _uCtTreestore->treeview_get_tree_expanded_collapsed_string(*_uCtTreeview);
     if (const CtTreeIter curr_iter = curr_tree_iter()) {
         doc_state_restore.node_path = _uCtTreestore->get_path(curr_iter).to_string();
@@ -533,7 +535,6 @@ void CtMainWin::_ensure_curr_doc_in_recent_docs()
     if (not currDocFilePath.empty()) {
         _pCtConfig->recentDocsFilepaths.move_or_push_front(fs::canonical(currDocFilePath));
         CtRecentDocRestore prevDocRestore;
-        prevDocRestore.visited_nodes = "";
         prevDocRestore.exp_coll_str = _uCtTreestore->treeview_get_tree_expanded_collapsed_string(*_uCtTreeview);
         const CtTreeIter prevTreeIter = curr_tree_iter();
         if (prevTreeIter) {

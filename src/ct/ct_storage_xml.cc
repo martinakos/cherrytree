@@ -100,6 +100,27 @@ bool CtStorageXml::populate_treestore(const fs::path& file_path, Glib::ustring& 
             ct_tree_store.get_node_data(ctTreeIter, nodeData, false/*loadTextBuffer*/);
             ct_tree_store.update_node_data(ctTreeIter, nodeData);
         }
+        // load history
+        if (not _isDryRun) {
+            std::vector<CtHistoryEntry> histEntries;
+            for (xmlpp::Node* xml_node : parser->get_document()->get_root_node()->get_children("history_entry")) {
+                auto* el = static_cast<xmlpp::Element*>(xml_node);
+                CtHistoryEntry e;
+                try {
+                    e.nodeId = std::stoll(el->get_attribute_value("node_id"));
+                    e.timestamp = std::stoll(el->get_attribute_value("timestamp"));
+                    e.cursorPos = std::stoi(el->get_attribute_value("cursor_pos"));
+                    e.scrollPos = std::stoi(el->get_attribute_value("scroll_pos"));
+                    auto cex = el->get_attribute_value("canvas_edit_x");
+                    auto cey = el->get_attribute_value("canvas_edit_y");
+                    e.canvasEditX = cex.empty() ? -1 : std::stoi(cex);
+                    e.canvasEditY = cey.empty() ? -1 : std::stoi(cey);
+                }
+                catch (...) { continue; }
+                histEntries.push_back(e);
+            }
+            _pCtMainWin->get_history_panel()->load_entries(histEntries);
+        }
         return true;
     }
     catch (std::exception& e) {
@@ -127,6 +148,17 @@ bool CtStorageXml::save_treestore(const fs::path& file_path,
             // save bookmarks
             xmlpp::Element* p_bookmarks_node = xml_doc.get_root_node()->add_child("bookmarks");
             p_bookmarks_node->set_attribute("list", str::join_numbers(_pCtMainWin->get_tree_store().bookmarks_get(), ","));
+
+            // save history
+            for (const auto& e : _pCtMainWin->get_history_panel()->get_all_entries()) {
+                auto* p_hist = xml_doc.get_root_node()->add_child("history_entry");
+                p_hist->set_attribute("node_id", std::to_string(e.nodeId));
+                p_hist->set_attribute("timestamp", std::to_string(e.timestamp));
+                p_hist->set_attribute("cursor_pos", std::to_string(e.cursorPos));
+                p_hist->set_attribute("scroll_pos", std::to_string(e.scrollPos));
+                p_hist->set_attribute("canvas_edit_x", std::to_string(e.canvasEditX));
+                p_hist->set_attribute("canvas_edit_y", std::to_string(e.canvasEditY));
+            }
         }
 
         CtStorageCache storage_cache;

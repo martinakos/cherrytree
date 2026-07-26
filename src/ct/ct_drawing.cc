@@ -643,6 +643,7 @@ void CtDrawingOverlay::_buildToolbar()
                     canvas.cornerRadius, data.cornerRadius,
                     canvas.showBorderWhenInactive, data.showBorderWhenInactive);
                 bridge->executeCommand(std::move(cmd));
+                _recordCanvasEditPos(-1, -1);
                 _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
             }
         }
@@ -674,6 +675,7 @@ void CtDrawingOverlay::_buildToolbar()
             bridge->getDocumentModel(), treeIter.get_node_id(),
             canvases[ci], ci);
         bridge->executeCommand(std::move(cmd));
+        _recordCanvasEditPos(-1, -1);
         _selectedCanvasIdx = -1;
         _hideToolbar();
         _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
@@ -797,7 +799,7 @@ bool CtDrawingOverlay::_onDraw(const Cairo::RefPtr<Cairo::Context>& cr)
     if (!nodeModel) return false;
 
     const auto& canvases = nodeModel->getDrawingCanvases();
-    if (canvases.empty() && !_drawingMode) return false;
+    if (canvases.empty() && !_drawingMode && !_targetSignActive) return false;
 
     auto hAdj = _pMainWin->getScrolledwindowText().get_hadjustment();
     auto vAdj = _pMainWin->getScrolledwindowText().get_vadjustment();
@@ -958,7 +960,93 @@ bool CtDrawingOverlay::_onDraw(const Cairo::RefPtr<Cairo::Context>& cr)
         }
     }
 
+    if (_targetSignActive) {
+        double cx = _targetSignBufX;
+        double cy = _targetSignBufY;
+        double r = 25.0;
+        double ri = 10.0;
+        double arm = 32.0;
+        double alpha = _targetSignFlashOn ? 0.8 : 0.0;
+
+        if (alpha > 0.0) {
+            cr->set_source_rgba(0.9, 0.1, 0.1, alpha);
+            cr->set_line_width(2.5);
+            cr->arc(cx, cy, r, 0, 2 * M_PI);
+            cr->stroke();
+            cr->arc(cx, cy, ri, 0, 2 * M_PI);
+            cr->stroke();
+            cr->move_to(cx - arm, cy);
+            cr->line_to(cx + arm, cy);
+            cr->stroke();
+            cr->move_to(cx, cy - arm);
+            cr->line_to(cx, cy + arm);
+            cr->stroke();
+        }
+    }
+
     return false;
+}
+
+void CtDrawingOverlay::showTargetSign(int widgetX, int widgetY)
+{
+    cancelTargetSign();
+    _targetSignActive = true;
+    _targetSignFlashOn = true;
+    _targetSignFlashCount = 0;
+    _targetSignBufX = widgetX;
+    _targetSignBufY = widgetY;
+    _drawingArea.queue_draw();
+
+    _targetSignTimeout = Glib::signal_timeout().connect([this]() -> bool {
+        _targetSignFlashCount++;
+        _targetSignFlashOn = !_targetSignFlashOn;
+        _drawingArea.queue_draw();
+        if (_targetSignFlashCount >= 5) {
+            _targetSignActive = false;
+            _drawingArea.queue_draw();
+            return false;
+        }
+        return true;
+    }, 300);
+}
+
+void CtDrawingOverlay::cancelTargetSign()
+{
+    if (_targetSignActive) {
+        _targetSignActive = false;
+        _drawingArea.queue_draw();
+    }
+    if (_targetSignTimeout.connected()) {
+        _targetSignTimeout.disconnect();
+    }
+}
+
+void CtDrawingOverlay::_recordCanvasEditPos(double widgetX, double widgetY)
+{
+    auto treeIter = _pMainWin->curr_tree_iter();
+    if (!treeIter) return;
+    auto hAdj = _pMainWin->getScrolledwindowText().get_hadjustment();
+    auto vAdj = _pMainWin->getScrolledwindowText().get_vadjustment();
+    double hScroll = hAdj ? hAdj->get_value() : 0.0;
+    double vScroll = vAdj ? vAdj->get_value() : 0.0;
+    double zoom = _pMainWin->get_rt_zoom_scale_factor();
+    if (widgetX < 0 && _selectedCanvasIdx >= 0) {
+        auto* bridge = _pMainWin->get_command_bridge();
+        auto nodeModel = bridge ? bridge->getDocumentModel()->getNodeById(treeIter.get_node_id()) : nullptr;
+        if (nodeModel) {
+            const auto& canvases = nodeModel->getDrawingCanvases();
+            size_t ci = static_cast<size_t>(_selectedCanvasIdx);
+            if (ci < canvases.size()) {
+                int bufX = static_cast<int>(canvases[ci].x + canvases[ci].width / 2);
+                int bufY = static_cast<int>(canvases[ci].y + canvases[ci].height / 2);
+                _pMainWin->set_last_canvas_edit_pos(treeIter.get_node_id(), bufX, bufY);
+                return;
+            }
+        }
+    }
+    int bufX = static_cast<int>((widgetX + hScroll) / zoom);
+    int bufY = static_cast<int>((widgetY + vScroll) / zoom);
+    _pMainWin->set_last_canvas_edit_pos(treeIter.get_node_id(), bufX, bufY);
 }
 
 void CtDrawingOverlay::_drawCanvas(const Cairo::RefPtr<Cairo::Context>& cr,
@@ -1667,6 +1755,7 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
                     bridge->getDocumentModel(), treeIter.get_node_id(),
                     static_cast<size_t>(ci), canvas.strokes[si], static_cast<size_t>(si));
                 bridge->executeCommand(std::move(cmd));
+                _recordCanvasEditPos(event->x, event->y);
                 _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
             }
             return true;
@@ -1709,6 +1798,7 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
                             bridge->getDocumentModel(), _pMainWin->curr_tree_iter().get_node_id(), ci,
                             std::move(newStroke));
                         bridge->executeCommand(std::move(cmd));
+                        _recordCanvasEditPos(event->x, event->y);
                         _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
                     }
                     _polylinePoints.clear();
@@ -2006,6 +2096,7 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
                 _selectedCanvasIdx = static_cast<int>(nodeModel->getDrawingCanvases().size()) - 1;
                 _showToolbar();
             }
+            _recordCanvasEditPos(event->x, event->y);
             _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
         }
 
@@ -2039,6 +2130,7 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
                 bridge->getDocumentModel(), treeIter.get_node_id(), ci,
                 _dragCanvasOrigX, _dragCanvasOrigY, newX, newY);
             bridge->executeCommand(std::move(cmd));
+            _recordCanvasEditPos(event->x, event->y);
             _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
         }
     }
@@ -2060,6 +2152,7 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
                     static_cast<size_t>(_moveStrokeIdx),
                     _moveStrokeOrigPoints, std::move(newPoints));
                 bridge->executeCommand(std::move(cmd));
+                _recordCanvasEditPos(event->x, event->y);
                 _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
             }
         }
@@ -2076,6 +2169,7 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
                     static_cast<size_t>(_rotateStrokeIdx),
                     _rotateOrigRotation, newRotation);
                 bridge->executeCommand(std::move(cmd));
+                _recordCanvasEditPos(event->x, event->y);
                 _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
             }
         }
@@ -2095,6 +2189,7 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
                 _dragCanvasOrigX, _dragCanvasOrigY, _dragCanvasOrigW, _dragCanvasOrigH,
                 newX, newY, newW, newH);
             bridge->executeCommand(std::move(cmd));
+            _recordCanvasEditPos(event->x, event->y);
             _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
         }
     }
@@ -2123,6 +2218,7 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
                     bridge->getDocumentModel(), treeIter.get_node_id(), ci,
                     std::move(newStroke));
                 bridge->executeCommand(std::move(cmd));
+                _recordCanvasEditPos(event->x, event->y);
                 _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
             }
         } else if (!canvas.strokes.empty()) {
@@ -2133,6 +2229,7 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
                     bridge->getDocumentModel(), treeIter.get_node_id(), ci,
                     std::move(finishedStroke));
                 bridge->executeCommand(std::move(cmd));
+                _recordCanvasEditPos(event->x, event->y);
                 _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
             }
         }
@@ -2233,6 +2330,7 @@ void CtDrawingOverlay::_showTextDialog(double canvasX, double canvasY, size_t ca
         bridge->getDocumentModel(), treeIter.get_node_id(),
         canvasIdx, std::move(stroke));
     bridge->executeCommand(std::move(cmd));
+    _recordCanvasEditPos(-1, -1);
     _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
 }
 
@@ -2278,6 +2376,7 @@ void CtDrawingOverlay::_showContextMenu(GdkEventButton* event)
                         canvas.cornerRadius, data.cornerRadius,
                         canvas.showBorderWhenInactive, data.showBorderWhenInactive);
                     bridge->executeCommand(std::move(cmd));
+                    _recordCanvasEditPos(-1, -1);
                     _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
                 }
             }
@@ -2306,6 +2405,7 @@ void CtDrawingOverlay::_showContextMenu(GdkEventButton* event)
             bridge->getDocumentModel(), treeIter.get_node_id(),
             canvases[ci], ci);
         bridge->executeCommand(std::move(cmd));
+        _recordCanvasEditPos(-1, -1);
         _selectedCanvasIdx = -1;
         _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
     });
@@ -2353,6 +2453,7 @@ void CtDrawingOverlay::_showContextMenu(GdkEventButton* event)
             bridge->getDocumentModel(), treeIter.get_node_id(),
             std::move(canvas));
         bridge->executeCommand(std::move(cmd));
+        _recordCanvasEditPos(event->x, event->y);
         _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
     });
     menu->append(*pasteItem);
@@ -2381,6 +2482,7 @@ void CtDrawingOverlay::_showContextMenu(GdkEventButton* event)
                 bridge->getDocumentModel(), treeIter.get_node_id(),
                 canvases[ci], ci);
             bridge->executeCommand(std::move(cmd));
+            _recordCanvasEditPos(-1, -1);
             _selectedCanvasIdx = -1;
             _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
         });

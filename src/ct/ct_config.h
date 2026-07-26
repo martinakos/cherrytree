@@ -64,6 +64,8 @@ public:
     bool                                        treeVisible{true};
     bool                                        vteVisible{false};
     bool                                        menubarVisible{true};
+    bool                                        historyPanelVisible{false};
+    int                                         hpanedRightPos{250};
     CtRecentDocsFilepaths                       recentDocsFilepaths;
     CtLatestSearches                            latestSearches;
     CtLatestSearches                            latestReplaces;

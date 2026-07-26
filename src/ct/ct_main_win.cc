@@ -215,6 +215,7 @@ CtMainWin::CtMainWin(bool                            no_gui,
     _pCtCommandBridge->setActive(true);
 
     _pDrawingOverlay.reset(new CtDrawingOverlay{this});
+    _uCtHistoryPanel.reset(new CtHistoryPanel{this});
 
     _scrolledwindowTree.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
     _scrolledwindowTree.get_style_context()->add_class("ct-tree-scroll-panel");
@@ -228,13 +229,15 @@ CtMainWin::CtMainWin(bool                            no_gui,
         _vboxText.append(_init_window_header());
     }
     _vboxText.append(_pDrawingOverlay->getOverlay());
+    _hPanedRight.set_start_child(_vboxText);
+    _hPanedRight.set_end_child(_uCtHistoryPanel->get_widget());
     if (_pCtConfig->treeRightSide) {
-        _hPaned.set_start_child(_vboxText);
+        _hPaned.set_start_child(_hPanedRight);
         _hPaned.set_end_child(_scrolledwindowTree);
     }
     else {
         _hPaned.set_start_child(_scrolledwindowTree);
-        _hPaned.set_end_child(_vboxText);
+        _hPaned.set_end_child(_hPanedRight);
     }
     _vPaned.set_start_child(_hPaned);
 #else
@@ -247,13 +250,15 @@ CtMainWin::CtMainWin(bool                            no_gui,
         _vboxText.pack_start(_init_window_header(), false, false);
     }
     _vboxText.pack_start(_pDrawingOverlay->getOverlay());
+    _hPanedRight.pack1(_vboxText, Gtk::EXPAND);
+    _hPanedRight.pack2(_uCtHistoryPanel->get_widget(), Gtk::FILL);
     if (_pCtConfig->treeRightSide) {
-        _hPaned.pack1(_vboxText, Gtk::EXPAND);
+        _hPaned.pack1(_hPanedRight, Gtk::EXPAND);
         _hPaned.pack2(_scrolledwindowTree, Gtk::FILL);
     }
     else {
         _hPaned.pack1(_scrolledwindowTree, Gtk::FILL);
-        _hPaned.pack2(_vboxText, Gtk::EXPAND);
+        _hPaned.pack2(_hPanedRight, Gtk::EXPAND);
     }
     _vPaned.pack1(_hPaned, Gtk::EXPAND);
 #endif
@@ -454,6 +459,11 @@ CtMainWin::CtMainWin(bool                            no_gui,
                 _hPaned.property_position() = _pCtConfig->hpanedPos;
             } // must be after present() + process events pending (#1534, #1918, #2126)
             _vPaned.property_position() = _pCtConfig->vpanedPos;
+            int hPanedRightW = _hPanedRight.get_allocation().get_width();
+            if (hPanedRightW > _pCtConfig->hpanedRightPos) {
+                _hPanedRight.property_position() = hPanedRightW - _pCtConfig->hpanedRightPos;
+            }
+            _uCtHistoryPanel->get_widget().property_visible() = _pCtConfig->historyPanelVisible;
             #if GTKMM_MAJOR_VERSION < 4
             _ctTextview.mm().signal_size_allocate().connect(sigc::mem_fun(*this, &CtMainWin::_on_textview_size_allocate));
             signal_configure_event().connect(sigc::mem_fun(*this, &CtMainWin::_on_window_configure_event), false);
@@ -1713,30 +1723,30 @@ void CtMainWin::menu_rebuild_menubar()
 void CtMainWin::config_switch_tree_side()
 {
     auto tree_width = _scrolledwindowTree.get_width();
-    auto text_width = _vboxText.get_width();
+    auto text_width = _hPanedRight.get_width();
 
 #if GTKMM_MAJOR_VERSION >= 4
     if (_pCtConfig->treeRightSide) {
-        _hPaned.set_start_child(_vboxText);
+        _hPaned.set_start_child(_hPanedRight);
         _hPaned.set_end_child(_scrolledwindowTree);
         _hPaned.set_position(text_width);
     }
     else {
         _hPaned.set_start_child(_scrolledwindowTree);
-        _hPaned.set_end_child(_vboxText);
+        _hPaned.set_end_child(_hPanedRight);
         _hPaned.set_position(tree_width);
     }
 #else
     _hPaned.remove(_scrolledwindowTree);
-    _hPaned.remove(_vboxText);
+    _hPaned.remove(_hPanedRight);
     if (_pCtConfig->treeRightSide) {
-        _hPaned.pack1(_vboxText, Gtk::EXPAND);
+        _hPaned.pack1(_hPanedRight, Gtk::EXPAND);
         _hPaned.pack2(_scrolledwindowTree, Gtk::FILL);
         _hPaned.property_position() = text_width;
     }
     else {
         _hPaned.pack1(_scrolledwindowTree, Gtk::FILL);
-        _hPaned.pack2(_vboxText, Gtk::EXPAND);
+        _hPaned.pack2(_hPanedRight, Gtk::EXPAND);
         _hPaned.property_position() = tree_width;
     }
 #endif
@@ -1833,6 +1843,7 @@ void CtMainWin::reset()
     _pCtCommandBridge->resetForNewDocument();
 
     _reset_CtTreestore_CtTreeview();
+    _uCtHistoryPanel->clear();
 
     _latestStatusbarUpdateTime.clear();
 #if GTKMM_MAJOR_VERSION < 4

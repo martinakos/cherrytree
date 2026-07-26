@@ -444,6 +444,8 @@ void CtMenu::init_actions(CtActions* pActions)
         _actions.push_back(CtMenuAction{view_cat, "toggle_focus_vte_text", "ct_go-jump", _("Toggle Focus Terminal/Te_xt"), KB_CONTROL+KB_SHIFT+"t",
             _("Toggle Focus Between Terminal and Text"), sigc::mem_fun(*pActions, &CtActions::toggle_focus_vte_text)});
 #endif // HAVE_VTE
+        _actions.push_back(CtMenuAction{view_cat, "toggle_show_history_panel", "ct_timestamp", _("Show/Hide _History Panel"), KB_SHIFT+"F9",
+            _("Toggle Show/Hide History Panel"), sigc::mem_fun(*pActions, &CtActions::toggle_show_hide_history_panel)});
         _actions.push_back(CtMenuAction{view_cat, "toggle_show_menubar", "ct_menubar", _("Show/Hide _Menubar"), "F12",
             _("Toggle Show/Hide Menubar"), sigc::mem_fun(*pActions, &CtActions::toggle_show_hide_menubar)});
         _actions.push_back(CtMenuAction{view_cat, "toggle_show_toolbar", "ct_toolbar", _("Show/Hide Tool_bar"), None,
