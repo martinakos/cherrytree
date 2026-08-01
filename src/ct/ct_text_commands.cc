@@ -837,3 +837,38 @@ std::string RemoveFormatCommand::getDescription() const
     return "[" + std::to_string(_nodeId) + "] Remove format " + _attribute;
 }
 
+// --- appendShifts() implementations ---
+
+void TextEditCommand::appendShifts(std::vector<OffsetShift>& log, bool isUndo) const
+{
+    int oldLen = static_cast<int>(_oldContent.length());
+    int newLen = static_cast<int>(_newContent.length());
+    int delta = newLen - oldLen;
+    if (delta == 0) return;
+    int pos = _newCursorPos >= 0 ? _newCursorPos : 0;
+    if (isUndo) {
+        log.push_back({pos, -delta});
+    } else {
+        log.push_back({pos, delta});
+    }
+}
+
+void InsertTextCommand::appendShifts(std::vector<OffsetShift>& log, bool isUndo) const
+{
+    int len = static_cast<int>(_text.length());
+    if (isUndo) {
+        log.push_back({_offset, -len});
+    } else {
+        log.push_back({_offset, len});
+    }
+}
+
+void DeleteRangeCommand::appendShifts(std::vector<OffsetShift>& log, bool isUndo) const
+{
+    if (isUndo) {
+        log.push_back({_start, _length});
+    } else {
+        log.push_back({_start, -_length});
+    }
+}
+

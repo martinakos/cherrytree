@@ -25,8 +25,10 @@
 
 #include <gtkmm.h>
 #include "ct_types.h"
+#include "ct_command.h"
 
 class CtMainWin;
+class CtAnchoredWidget;
 
 class CtHistoryPanel
 {
@@ -36,7 +38,6 @@ public:
     Gtk::ScrolledWindow& get_widget() { return _scrolledWindow; }
 
     void add_entry(const CtHistoryEntry& entry);
-    void update_entry(gint64 nodeId, int cursorPos, int scrollPos, int canvasEditX = -1, int canvasEditY = -1);
     void remove_entries_for_node(gint64 nodeId);
     void clear();
 
@@ -45,10 +46,26 @@ public:
 
     void refresh_names();
 
+    bool isFlashing() const { return _flashState.timeout.connected(); }
+    bool isFlashingCanvas() const { return _flashState.flashingCanvas; }
+    bool isFlashingTreeRow() const { return _flashState.flashingTreeRow; }
+
+    Gtk::TreeView& getTreeView() { return _treeView; }
+
+    // Offset correction: apply shifts from a new command to all older entries for the same node
+    void adjustOffsetsForNode(gint64 nodeId, const std::vector<CtCommand::OffsetShift>& shifts);
+
+    // Update cursor/scroll on the top-level row for a node (navigate-away path)
+    void updateCursorScroll(gint64 nodeId, int cursorPos, int scrollPos);
+
 private:
     void _on_row_activated(const Gtk::TreeModel::Path& path, Gtk::TreeViewColumn* column);
     void _navigate_to_entry(const CtHistoryEntry& entry);
-    void _show_target_sign(int cursorPos, int canvasEditX, int canvasEditY);
+    void _flashRegion(const CtHistoryEntry& entry);
+    void _stopFlash();
+
+    // Find or create a top-level parent row for a node
+    Gtk::TreeModel::iterator _findOrCreateParent(gint64 nodeId);
 
     CtMainWin* _pCtMainWin;
 
@@ -57,29 +74,55 @@ private:
         ColumnsHistory() {
             add(colIcon);
             add(colName);
+            add(colOperation);
             add(colTimestamp);
             add(colNodeId);
             add(colCursorPos);
             add(colScrollPos);
             add(colTimestampRaw);
-            add(colCanvasEditX);
-            add(colCanvasEditY);
+            add(colActionType);
+            add(colRegionOffset);
+            add(colRegionLength);
+            add(colCanvasIdx);
+            add(colUseDay);
+            add(colIsParent);
         }
         Gtk::TreeModelColumn<Glib::RefPtr<Gdk::Pixbuf>> colIcon;
         Gtk::TreeModelColumn<Glib::ustring>              colName;
+        Gtk::TreeModelColumn<Glib::ustring>              colOperation;
         Gtk::TreeModelColumn<Glib::ustring>              colTimestamp;
         Gtk::TreeModelColumn<gint64>                     colNodeId;
         Gtk::TreeModelColumn<int>                        colCursorPos;
         Gtk::TreeModelColumn<int>                        colScrollPos;
         Gtk::TreeModelColumn<gint64>                     colTimestampRaw;
-        Gtk::TreeModelColumn<int>                        colCanvasEditX;
-        Gtk::TreeModelColumn<int>                        colCanvasEditY;
+        Gtk::TreeModelColumn<Glib::ustring>              colActionType;
+        Gtk::TreeModelColumn<int>                        colRegionOffset;
+        Gtk::TreeModelColumn<int>                        colRegionLength;
+        Gtk::TreeModelColumn<int>                        colCanvasIdx;
+        Gtk::TreeModelColumn<int>                        colUseDay;
+        Gtk::TreeModelColumn<bool>                       colIsParent;
     };
 
     ColumnsHistory               _columns;
-    Glib::RefPtr<Gtk::ListStore> _rListStore;
+    Glib::RefPtr<Gtk::TreeStore> _rTreeStore;
     Gtk::TreeView                _treeView;
     Gtk::ScrolledWindow          _scrolledWindow;
     bool                         _updatingList{false};
 
+    void _flashCanvas(int canvasIdx);
+    void _flashTreeRow(gint64 nodeId);
+
+    // Bounding box flash state
+    struct FlashState {
+        int regionOffset{-1};
+        int regionLength{0};
+        int canvasIdx{-1};
+        Glib::RefPtr<Gtk::TextTag> highlightTag;
+        sigc::connection timeout;
+        int flashCount{0};
+        bool flashingCanvas{false};
+        bool flashingTreeRow{false};
+        CtAnchoredWidget* flashingWidget{nullptr};
+    };
+    FlashState _flashState;
 };

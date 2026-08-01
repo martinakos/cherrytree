@@ -80,6 +80,9 @@ public:
     gint64 getNodeId() const override { return _nodeId; }
     int getOldCursorPos() const override { return _oldCursorPos; }
     int getNewCursorPos() const override { return _newCursorPos; }
+    std::string getActionType() const override { return "TED"; }
+    int getRegionOffset() const override { return _newCursorPos >= 0 ? _newCursorPos : 0; }
+    void appendShifts(std::vector<OffsetShift>& log, bool isUndo) const override;
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
@@ -208,6 +211,10 @@ public:
     gint64 getNodeId() const override { return _nodeId; }
     int getOldCursorPos() const override { return _oldCursorPos; }
     int getNewCursorPos() const override { return _newCursorPos; }
+    std::string getActionType() const override { return "INS"; }
+    int getRegionOffset() const override { return _offset; }
+    int getRegionLength() const override { return static_cast<int>(_text.length()); }
+    void appendShifts(std::vector<OffsetShift>& log, bool isUndo) const override;
     int getOffset() const { return _offset; }
     const Glib::ustring& getText() const { return _text; }
     const std::map<std::string, std::string>& getAttributes() const { return _attributes; }
@@ -249,6 +256,9 @@ public:
     int getNewCursorPos() const override { return _newCursorPos; }
     int getStart() const { return _start; }
     int getLength() const { return _length; }
+    std::string getActionType() const override { return "DEL"; }
+    int getRegionOffset() const override { return _start; }
+    void appendShifts(std::vector<OffsetShift>& log, bool isUndo) const override;
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
@@ -283,6 +293,9 @@ public:
     gint64 getNodeId() const override { return _nodeId; }
     int getOldCursorPos() const override { return _oldCursorPos; }
     int getNewCursorPos() const override { return _newCursorPos; }
+    std::string getActionType() const override { return "FMT"; }
+    int getRegionOffset() const override { return _start; }
+    int getRegionLength() const override { return _length; }
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
@@ -317,6 +330,9 @@ public:
     gint64 getNodeId() const override { return _nodeId; }
     int getOldCursorPos() const override { return _oldCursorPos; }
     int getNewCursorPos() const override { return _newCursorPos; }
+    std::string getActionType() const override { return "RFM"; }
+    int getRegionOffset() const override { return _start; }
+    int getRegionLength() const override { return _length; }
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;

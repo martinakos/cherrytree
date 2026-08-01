@@ -69,6 +69,15 @@ public:
         const gint64 nodeId = getNodeId();
         if (nodeId > 0) rNodeIds.insert(nodeId);
     }
+    // Local history position accessors
+    virtual std::string getActionType() const { return ""; }
+    virtual int getRegionOffset() const { return -1; }
+    virtual int getRegionLength() const { return 0; }
+    virtual int getCanvasIndex() const { return -1; }
+
+    // Offset shift extraction for history offset correction
+    struct OffsetShift { int offset; int delta; };
+    virtual void appendShifts(std::vector<OffsetShift>& /*log*/, bool /*isUndo*/) const {}
 };
 
 // Compound command that groups multiple commands together
@@ -103,6 +112,13 @@ public:
 
     // Document model for notification suppression during delta replay
     void setDocumentModel(std::shared_ptr<CtDocumentModel> model) { _docModel = model; }
+
+    std::string getActionType() const override;
+    int getRegionOffset() const override;
+    int getRegionLength() const override;
+    int getCanvasIndex() const override;
+    void appendShifts(std::vector<OffsetShift>& log, bool isUndo) const override;
+    const std::vector<std::unique_ptr<CtCommand>>& getCommands() const { return _commands; }
 
 private:
     std::vector<std::unique_ptr<CtCommand>> _commands;

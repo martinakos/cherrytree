@@ -57,6 +57,9 @@ public:
 
     void setOldScrollPos(double pos) { _oldScrollPos = pos; }
     void setNewScrollPos(double pos) { _newScrollPos = pos; }
+    std::string getActionType() const override { return "WIns"; }
+    int getRegionOffset() const override { return _charOffset; }
+    int getRegionLength() const override { return 1; }
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
@@ -98,6 +101,9 @@ public:
 
     void setOldScrollPos(double pos) { _oldScrollPos = pos; }
     void setNewScrollPos(double pos) { _newScrollPos = pos; }
+    std::string getActionType() const override { return "WMod"; }
+    int getRegionOffset() const override { return _charOffset; }
+    int getRegionLength() const override { return 1; }
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
@@ -141,6 +147,9 @@ public:
 
     void setOldScrollPos(double pos) { _oldScrollPos = pos; }
     void setNewScrollPos(double pos) { _newScrollPos = pos; }
+    std::string getActionType() const override { return "TCel"; }
+    int getRegionOffset() const override { return _widgetCharOffset; }
+    int getRegionLength() const override { return 1; }
 
 private:
     void _applyText(const Glib::ustring& text, gint64 ts);
@@ -191,6 +200,9 @@ public:
 
     void setOldScrollPos(double pos) { _oldScrollPos = pos; }
     void setNewScrollPos(double pos) { _newScrollPos = pos; }
+    std::string getActionType() const override { return "RCel"; }
+    int getRegionOffset() const override { return _widgetCharOffset; }
+    int getRegionLength() const override { return 1; }
 
 private:
     void _applyContent(const CtCellContent& content, gint64 ts);
@@ -239,6 +251,9 @@ public:
 
     void setOldScrollPos(double pos) { _oldScrollPos = pos; }
     void setNewScrollPos(double pos) { _newScrollPos = pos; }
+    std::string getActionType() const override { return "CBed"; }
+    int getRegionOffset() const override { return _widgetCharOffset; }
+    int getRegionLength() const override { return 1; }
 
 private:
     void _applyContent(const std::string& content, gint64 ts);

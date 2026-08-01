@@ -318,3 +318,4 @@ std::string MoveNodeCommand::getDescription() const
 {
     return "[" + std::to_string(_nodeId) + "] Move node";
 }
+
