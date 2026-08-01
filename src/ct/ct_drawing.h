@@ -166,6 +166,10 @@ public:
 
     int getSelectedCanvasIdx() const { return _selectedCanvasIdx; }
 
+    void setFlashCanvasIdx(int idx) { _flashCanvasIdx = idx; _drawingArea.queue_draw(); }
+    int getFlashCanvasIdx() const { return _flashCanvasIdx; }
+    void setFlashColor(const std::string& color) { _flashColor = color; }
+
 private:
     bool _onDraw(const Cairo::RefPtr<Cairo::Context>& cr);
     bool _onButtonPress(GdkEventButton* event);
@@ -233,6 +237,9 @@ private:
     std::string _currentColor{"#000000"};
     double _currentOpacity{1.0};
     bool _currentFilled{false};
+
+    int _flashCanvasIdx{-1};
+    std::string _flashColor{"#FFFF00"};
 
     Gtk::Box* _pToolbarBox{nullptr};
     Gtk::EventBox* _pToolbarEventBox{nullptr};

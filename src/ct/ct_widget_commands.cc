@@ -324,3 +324,4 @@ std::string EditCodeboxContentCommand::getDescription() const
 {
     return "[" + std::to_string(_nodeId) + "] Edit codebox";
 }
+

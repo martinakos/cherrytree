@@ -141,12 +141,16 @@ struct CtTextRange
 
 struct CtHistoryEntry
 {
-    gint64 nodeId{0};
-    gint64 timestamp{0};
-    int    cursorPos{0};
-    int    scrollPos{0};
-    int    canvasEditX{-1};
-    int    canvasEditY{-1};
+    gint64      nodeId{0};
+    gint64      timestamp{0};
+    int         useDay{0};
+    int         cursorPos{0};
+    int         scrollPos{0};
+    std::string actionDescription;
+    std::string actionType;
+    int         regionOffset{-1};
+    int         regionLength{0};
+    int         canvasIdx{-1};
 };
 
 struct CtRecentDocRestore

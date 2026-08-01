@@ -92,6 +92,8 @@ public:
     bool operator<(const CtAnchoredWidget &other) { return getOffset() < other.getOffset(); }
     bool operator>(const CtAnchoredWidget &other) { return getOffset() > other.getOffset(); }
 
+    void setFlashHighlight(bool on, const Glib::ustring& color = "");
+
 protected:
     void _on_frame_size_allocate(Gtk::Allocation& allocation);
 
@@ -109,6 +111,7 @@ protected:
     Gtk::Allocation _lastAllocation;
     bool _hidden{false};
     sigc::connection _idleConnection;
+    Glib::RefPtr<Gtk::CssProvider> _flashCssProvider;
 };
 
 class CtAnchWidgLink : public CtAnchoredWidget

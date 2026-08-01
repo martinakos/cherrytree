@@ -155,18 +155,22 @@ const char CtStorageSqlite::TABLE_DRAWING_STROKE_CREATE[]{"CREATE TABLE IF NOT E
 };
 const char CtStorageSqlite::TABLE_DRAWING_STROKE_DELETE[]{"DELETE FROM drawing_stroke WHERE node_id=?"};
 
-const char CtStorageSqlite::TABLE_HISTORY_CREATE[]{"CREATE TABLE IF NOT EXISTS history ("
-"sequence INTEGER PRIMARY KEY,"
-"node_id INTEGER,"
-"timestamp INTEGER,"
-"cursor_pos INTEGER,"
-"scroll_pos INTEGER,"
-"canvas_edit_x INTEGER DEFAULT -1,"
-"canvas_edit_y INTEGER DEFAULT -1"
+const char CtStorageSqlite::TABLE_HISTORY_CREATE[]{"CREATE TABLE IF NOT EXISTS local_history ("
+"id INTEGER PRIMARY KEY AUTOINCREMENT,"
+"node_id INTEGER NOT NULL,"
+"timestamp INTEGER NOT NULL,"
+"use_day INTEGER DEFAULT 0,"
+"cursor_pos INTEGER DEFAULT 0,"
+"scroll_pos INTEGER DEFAULT 0,"
+"action_description TEXT DEFAULT '',"
+"action_type TEXT DEFAULT '',"
+"region_offset INTEGER DEFAULT -1,"
+"region_length INTEGER DEFAULT 0,"
+"canvas_idx INTEGER DEFAULT -1"
 ")"
 };
-const char CtStorageSqlite::TABLE_HISTORY_INSERT[]{"INSERT INTO history VALUES(?,?,?,?,?,?,?)"};
-const char CtStorageSqlite::TABLE_HISTORY_DELETE[]{"DELETE FROM history"};
+const char CtStorageSqlite::TABLE_HISTORY_INSERT[]{"INSERT INTO local_history(node_id,timestamp,use_day,cursor_pos,scroll_pos,action_description,action_type,region_offset,region_length,canvas_idx) VALUES(?,?,?,?,?,?,?,?,?,?)"};
+const char CtStorageSqlite::TABLE_HISTORY_DELETE[]{"DELETE FROM local_history"};
 
 /*static*/const std::string CtStorageSqlite::ERR_SQLITE_PREPV2{"!! sqlite3_prepare_v2: "};
 /*static*/const std::string CtStorageSqlite::ERR_SQLITE_STEP{"!! sqlite3_step: "};
@@ -811,16 +815,17 @@ void CtStorageSqlite::_write_history_to_db()
     if (stmt.is_bad())
         throw std::runtime_error(ERR_SQLITE_PREPV2 + sqlite3_errmsg(_pDb));
 
-    gint64 seq{0};
     for (const auto& e : entries) {
-        ++seq;
-        sqlite3_bind_int64(stmt, 1, seq);
-        sqlite3_bind_int64(stmt, 2, e.nodeId);
-        sqlite3_bind_int64(stmt, 3, e.timestamp);
+        sqlite3_bind_int64(stmt, 1, e.nodeId);
+        sqlite3_bind_int64(stmt, 2, e.timestamp);
+        sqlite3_bind_int(stmt, 3, e.useDay);
         sqlite3_bind_int(stmt, 4, e.cursorPos);
         sqlite3_bind_int(stmt, 5, e.scrollPos);
-        sqlite3_bind_int(stmt, 6, e.canvasEditX);
-        sqlite3_bind_int(stmt, 7, e.canvasEditY);
+        sqlite3_bind_text(stmt, 6, e.actionDescription.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 7, e.actionType.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt, 8, e.regionOffset);
+        sqlite3_bind_int(stmt, 9, e.regionLength);
+        sqlite3_bind_int(stmt, 10, e.canvasIdx);
         if (sqlite3_step(stmt) != SQLITE_DONE)
             throw std::runtime_error(ERR_SQLITE_STEP + sqlite3_errmsg(_pDb));
         sqlite3_reset(stmt);
@@ -831,18 +836,29 @@ void CtStorageSqlite::_read_history_from_db()
 {
     _exec_no_callback(TABLE_HISTORY_CREATE);
 
-    Sqlite3StmtAuto stmt{_pDb, "SELECT node_id, timestamp, cursor_pos, scroll_pos, canvas_edit_x, canvas_edit_y FROM history ORDER BY sequence ASC"};
-    if (stmt.is_bad()) return;
+    Sqlite3StmtAuto stmt{_pDb, "SELECT node_id, timestamp, use_day, cursor_pos, scroll_pos, action_description, action_type, region_offset, region_length, canvas_idx FROM local_history ORDER BY id ASC"};
+    if (stmt.is_bad()) {
+        // Try migrating from old history table
+        _exec_no_callback("DROP TABLE IF EXISTS history");
+        _exec_no_callback(TABLE_HISTORY_CREATE);
+        return;
+    }
 
     std::vector<CtHistoryEntry> entries;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         CtHistoryEntry e;
         e.nodeId = sqlite3_column_int64(stmt, 0);
         e.timestamp = sqlite3_column_int64(stmt, 1);
-        e.cursorPos = sqlite3_column_int(stmt, 2);
-        e.scrollPos = sqlite3_column_int(stmt, 3);
-        e.canvasEditX = sqlite3_column_int(stmt, 4);
-        e.canvasEditY = sqlite3_column_int(stmt, 5);
+        e.useDay = sqlite3_column_int(stmt, 2);
+        e.cursorPos = sqlite3_column_int(stmt, 3);
+        e.scrollPos = sqlite3_column_int(stmt, 4);
+        auto col5 = sqlite3_column_text(stmt, 5);
+        if (col5) e.actionDescription = reinterpret_cast<const char*>(col5);
+        auto col6 = sqlite3_column_text(stmt, 6);
+        if (col6) e.actionType = reinterpret_cast<const char*>(col6);
+        e.regionOffset = sqlite3_column_int(stmt, 7);
+        e.regionLength = sqlite3_column_int(stmt, 8);
+        e.canvasIdx = sqlite3_column_int(stmt, 9);
         entries.push_back(e);
     }
     _pCtMainWin->get_history_panel()->load_entries(entries);

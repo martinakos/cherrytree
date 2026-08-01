@@ -27,6 +27,7 @@
 #include "ct_main_win.h"
 #include "ct_logging.h"
 #include <glib/gstdio.h>
+#include <glibmm/base64.h>
 #include <sstream>
 
 /*static*/const std::string CtStorageMultiFile::SUBNODES_LST{"subnodes.lst"};
@@ -326,10 +327,14 @@ void CtStorageMultiFile::_write_history_to_disk()
         if (!content.empty()) content += "\n";
         content += std::to_string(e.nodeId) + ","
                  + std::to_string(e.timestamp) + ","
+                 + std::to_string(e.useDay) + ","
                  + std::to_string(e.cursorPos) + ","
                  + std::to_string(e.scrollPos) + ","
-                 + std::to_string(e.canvasEditX) + ","
-                 + std::to_string(e.canvasEditY);
+                 + e.actionType + ","
+                 + std::to_string(e.regionOffset) + ","
+                 + std::to_string(e.regionLength) + ","
+                 + std::to_string(e.canvasIdx) + ","
+                 + Glib::Base64::encode(e.actionDescription);
     }
     Glib::file_set_contents(history_filepath.string(), content);
 }
@@ -353,17 +358,19 @@ void CtStorageMultiFile::_read_history_from_disk()
             parts.push_back(line.substr(s, p - s));
             s = p + 1;
         }
-        if (parts.size() < 4) continue;
+        if (parts.size() < 10) continue;
         CtHistoryEntry e;
         try {
             e.nodeId = std::stoll(parts[0]);
             e.timestamp = std::stoll(parts[1]);
-            e.cursorPos = std::stoi(parts[2]);
-            e.scrollPos = std::stoi(parts[3]);
-            if (parts.size() >= 6) {
-                e.canvasEditX = std::stoi(parts[4]);
-                e.canvasEditY = std::stoi(parts[5]);
-            }
+            e.useDay = std::stoi(parts[2]);
+            e.cursorPos = std::stoi(parts[3]);
+            e.scrollPos = std::stoi(parts[4]);
+            e.actionType = parts[5];
+            e.regionOffset = std::stoi(parts[6]);
+            e.regionLength = std::stoi(parts[7]);
+            e.canvasIdx = std::stoi(parts[8]);
+            e.actionDescription = Glib::Base64::decode(parts[9]);
         }
         catch (...) { continue; }
         entries.push_back(e);

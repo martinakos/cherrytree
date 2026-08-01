@@ -811,6 +811,21 @@ bool CtDrawingOverlay::_onDraw(const Cairo::RefPtr<Cairo::Context>& cr)
         _drawCanvas(cr, canvases[i], static_cast<int>(i), hScroll, vScroll, zoom);
     }
 
+    if (_flashCanvasIdx >= 0 && _flashCanvasIdx < static_cast<int>(canvases.size())) {
+        const auto& fc = canvases[_flashCanvasIdx];
+        double fx = fc.x * zoom - hScroll;
+        double fy = fc.y * zoom - vScroll;
+        double fw = fc.width * zoom;
+        double fh = fc.height * zoom;
+        double margin = 6.0;
+        double fr, fg, fb;
+        parseColor(_flashColor, fr, fg, fb);
+        cr->set_source_rgba(fr, fg, fb, 0.7);
+        cr->set_line_width(4.0);
+        cr->rectangle(fx - margin, fy - margin, fw + 2 * margin, fh + 2 * margin);
+        cr->stroke();
+    }
+
     if (_dragType == CtDrawingDragType::CreateCanvas) {
         double sx = std::min(_dragStartX, _dragStartX + _dragCanvasOrigW);
         double sy = std::min(_dragStartY, _dragStartY + _dragCanvasOrigH);

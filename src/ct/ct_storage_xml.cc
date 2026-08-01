@@ -103,18 +103,24 @@ bool CtStorageXml::populate_treestore(const fs::path& file_path, Glib::ustring& 
         // load history
         if (not _isDryRun) {
             std::vector<CtHistoryEntry> histEntries;
-            for (xmlpp::Node* xml_node : parser->get_document()->get_root_node()->get_children("history_entry")) {
+            for (xmlpp::Node* xml_node : parser->get_document()->get_root_node()->get_children("local_history_entry")) {
                 auto* el = static_cast<xmlpp::Element*>(xml_node);
                 CtHistoryEntry e;
                 try {
                     e.nodeId = std::stoll(el->get_attribute_value("node_id"));
                     e.timestamp = std::stoll(el->get_attribute_value("timestamp"));
+                    auto ud = el->get_attribute_value("use_day");
+                    e.useDay = ud.empty() ? 0 : std::stoi(ud);
                     e.cursorPos = std::stoi(el->get_attribute_value("cursor_pos"));
                     e.scrollPos = std::stoi(el->get_attribute_value("scroll_pos"));
-                    auto cex = el->get_attribute_value("canvas_edit_x");
-                    auto cey = el->get_attribute_value("canvas_edit_y");
-                    e.canvasEditX = cex.empty() ? -1 : std::stoi(cex);
-                    e.canvasEditY = cey.empty() ? -1 : std::stoi(cey);
+                    e.actionDescription = el->get_attribute_value("action_desc");
+                    e.actionType = el->get_attribute_value("action_type");
+                    auto ro = el->get_attribute_value("region_offset");
+                    e.regionOffset = ro.empty() ? -1 : std::stoi(ro);
+                    auto rl = el->get_attribute_value("region_length");
+                    e.regionLength = rl.empty() ? 0 : std::stoi(rl);
+                    auto ci = el->get_attribute_value("canvas_idx");
+                    e.canvasIdx = ci.empty() ? -1 : std::stoi(ci);
                 }
                 catch (...) { continue; }
                 histEntries.push_back(e);
@@ -151,13 +157,19 @@ bool CtStorageXml::save_treestore(const fs::path& file_path,
 
             // save history
             for (const auto& e : _pCtMainWin->get_history_panel()->get_all_entries()) {
-                auto* p_hist = xml_doc.get_root_node()->add_child("history_entry");
+                auto* p_hist = xml_doc.get_root_node()->add_child("local_history_entry");
                 p_hist->set_attribute("node_id", std::to_string(e.nodeId));
                 p_hist->set_attribute("timestamp", std::to_string(e.timestamp));
+                p_hist->set_attribute("use_day", std::to_string(e.useDay));
                 p_hist->set_attribute("cursor_pos", std::to_string(e.cursorPos));
                 p_hist->set_attribute("scroll_pos", std::to_string(e.scrollPos));
-                p_hist->set_attribute("canvas_edit_x", std::to_string(e.canvasEditX));
-                p_hist->set_attribute("canvas_edit_y", std::to_string(e.canvasEditY));
+                if (!e.actionDescription.empty())
+                    p_hist->set_attribute("action_desc", e.actionDescription);
+                if (!e.actionType.empty())
+                    p_hist->set_attribute("action_type", e.actionType);
+                p_hist->set_attribute("region_offset", std::to_string(e.regionOffset));
+                p_hist->set_attribute("region_length", std::to_string(e.regionLength));
+                p_hist->set_attribute("canvas_idx", std::to_string(e.canvasIdx));
             }
         }
 

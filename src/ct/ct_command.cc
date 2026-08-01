@@ -101,6 +101,43 @@ std::string CompoundCommand::getDescription() const
     return _description;
 }
 
+std::string CompoundCommand::getActionType() const
+{
+    if (_commands.empty()) return "";
+    return _commands.back()->getActionType();
+}
+
+int CompoundCommand::getRegionOffset() const
+{
+    if (_commands.empty()) return -1;
+    return _commands.back()->getRegionOffset();
+}
+
+int CompoundCommand::getRegionLength() const
+{
+    if (_commands.empty()) return 0;
+    return _commands.back()->getRegionLength();
+}
+
+int CompoundCommand::getCanvasIndex() const
+{
+    if (_commands.empty()) return -1;
+    return _commands.back()->getCanvasIndex();
+}
+
+void CompoundCommand::appendShifts(std::vector<OffsetShift>& log, bool isUndo) const
+{
+    if (isUndo) {
+        for (auto it = _commands.rbegin(); it != _commands.rend(); ++it) {
+            (*it)->appendShifts(log, true);
+        }
+    } else {
+        for (const auto& cmd : _commands) {
+            cmd->appendShifts(log, false);
+        }
+    }
+}
+
 // CtCommandManager implementation
 
 CtCommandManager::CtCommandManager()

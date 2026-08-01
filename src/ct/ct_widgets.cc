@@ -99,6 +99,34 @@ CtAnchoredWidget::CtAnchoredWidget(CtMainWin* pCtMainWin, const int charOffset, 
     add(_frame);
 }
 
+void CtAnchoredWidget::setFlashHighlight(bool on, const Glib::ustring& color)
+{
+    if (on) {
+        if (!_flashCssProvider) {
+            _flashCssProvider = Gtk::CssProvider::create();
+            _frame.get_style_context()->add_provider(
+                _flashCssProvider, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
+        }
+        _flashCssProvider->load_from_data(
+            "frame.history-flash > border {"
+            "  border-style: solid;"
+            "  border-width: 4px;"
+            "  border-color: " + color + ";"
+            "  padding: 2px;"
+            "}");
+        _frame.set_shadow_type(Gtk::ShadowType::SHADOW_IN);
+        _frame.get_style_context()->add_class("history-flash");
+    }
+    else {
+        _frame.get_style_context()->remove_class("history-flash");
+        _frame.set_shadow_type(Gtk::ShadowType::SHADOW_NONE);
+        if (_flashCssProvider) {
+            _frame.get_style_context()->remove_provider(_flashCssProvider);
+            _flashCssProvider.reset();
+        }
+    }
+}
+
 void CtAnchoredWidget::updateJustification(const Gtk::TextIter& textIter)
 {
     updateJustification(CtTextIterUtil::get_text_iter_alignment(textIter, _pCtMainWin));

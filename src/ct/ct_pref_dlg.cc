@@ -90,6 +90,7 @@ CtPrefDlg::CtPrefDlg(CtMainWin* parent)
     pNotebook->append_page(*build_tab_context_menus(),      _("Context Menus"));
     pNotebook->append_page(*build_tab_kb_shortcuts(),       _("Keyboard Shortcuts"));
     pNotebook->append_page(*build_tab_misc(),               _("Miscellaneous"));
+    pNotebook->append_page(*build_tab_local_history(),      _("Local History"));
 
 #if GTKMM_MAJOR_VERSION >= 4
     get_content_area()->append(*pNotebook);
@@ -276,7 +277,6 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     checkbutton_nn_header_full_path->set_active(_pConfig->nodeNameHeaderShowFullPath);
     checkbutton_bookmarks_top_menu->set_active(_pConfig->bookmarksInTopMenu);
     checkbutton_menubar_in_titlebar->set_active(_pConfig->menubarInTitlebar);
-
     auto hbox_toolbar_icons_size = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 4/*spacing*/});
     auto label_toolbar_icons_size = Gtk::manage(new Gtk::Label{_("Toolbar Icons Size")});
     Glib::RefPtr<Gtk::Adjustment> adjustment_toolbar_icons_size = Gtk::Adjustment::create(_pConfig->toolbarIconSize, 2, 5, 1);
@@ -383,15 +383,6 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     hbox_find_all_max_in_page->pack_start(*spinbutton_find_all_max_in_page, false, false);
 #endif
 
-    auto button_clear_history = Gtk::manage(new Gtk::Button{_("Clear History Panel")});
-    button_clear_history->set_halign(
-#if GTKMM_MAJOR_VERSION >= 4
-        Gtk::Align::START
-#else
-        Gtk::Align::ALIGN_START
-#endif
-    );
-
 #if GTKMM_MAJOR_VERSION >= 4
     vbox_misc->append(*checkbutton_word_count);
     vbox_misc->append(*checkbutton_node_size);
@@ -412,7 +403,6 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     vbox_misc->append(*hbox_tooltips_enable);
     vbox_misc->append(*hbox_find_all_max_in_page);
     vbox_misc->append(*checkbutton_store_latest_searches);
-    vbox_misc->append(*button_clear_history);
 #else
     vbox_misc->pack_start(*checkbutton_word_count, false, false);
     vbox_misc->pack_start(*checkbutton_node_size, false, false);
@@ -433,7 +423,6 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     vbox_misc->pack_start(*hbox_tooltips_enable, false, false);
     vbox_misc->pack_start(*hbox_find_all_max_in_page, false, false);
     vbox_misc->pack_start(*checkbutton_store_latest_searches, false, false);
-    vbox_misc->pack_start(*button_clear_history, false, false);
 #endif
 
     Gtk::Frame* frame_misc = new_managed_frame_with_align(_("Miscellaneous"), vbox_misc);
@@ -670,6 +659,116 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     });
     checkbutton_store_latest_searches->signal_toggled().connect([this, checkbutton_store_latest_searches](){
         _pConfig->storeLatestSearches = checkbutton_store_latest_searches->get_active();
+    });
+    return pMainBox;
+}
+
+Gtk::Widget* CtPrefDlg::build_tab_local_history()
+{
+    // --- Retention frame ---
+    auto vbox_retention = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_VERTICAL, 4});
+    auto hbox_retention_days = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 4});
+    auto label_retention_days = Gtk::manage(new Gtk::Label{_("Retention (days of use)")});
+    label_retention_days->set_margin_start(2);
+    Glib::RefPtr<Gtk::Adjustment> adj_retention = Gtk::Adjustment::create(_pConfig->localHistoryMaxUseDays, 0, 365, 1);
+    auto spinbutton_retention = Gtk::manage(new Gtk::SpinButton{adj_retention});
+    spinbutton_retention->set_tooltip_text(_("Entries are kept for this many days that CherryTree is actually used, not calendar days. 0 = unlimited."));
+#if GTKMM_MAJOR_VERSION >= 4
+    hbox_retention_days->append(*label_retention_days);
+    hbox_retention_days->append(*spinbutton_retention);
+    vbox_retention->append(*hbox_retention_days);
+#else
+    hbox_retention_days->pack_start(*label_retention_days, false, false);
+    hbox_retention_days->pack_start(*spinbutton_retention, false, false);
+    vbox_retention->pack_start(*hbox_retention_days, false, false);
+#endif
+    Gtk::Frame* frame_retention = new_managed_frame_with_align(_("Retention"), vbox_retention);
+
+    // --- Flash highlight frame ---
+    auto grid_flash = Gtk::manage(new Gtk::Grid{});
+    grid_flash->set_row_spacing(4);
+    grid_flash->set_column_spacing(10);
+    grid_flash->set_row_homogeneous(true);
+
+    auto label_flash_light = Gtk::manage(new Gtk::Label{_("Flash Color (Light Theme)")});
+    auto colorbutton_flash_light = Gtk::manage(new Gtk::ColorButton{Gdk::RGBA(_pConfig->flashColorLight)});
+    auto label_flash_dark = Gtk::manage(new Gtk::Label{_("Flash Color (Dark Theme)")});
+    auto colorbutton_flash_dark = Gtk::manage(new Gtk::ColorButton{Gdk::RGBA(_pConfig->flashColorDark)});
+
+    auto label_pulses = Gtk::manage(new Gtk::Label{_("Flash Pulses")});
+    Glib::RefPtr<Gtk::Adjustment> adj_pulses = Gtk::Adjustment::create(_pConfig->flashPulseCount, 1, 10, 1);
+    auto spinbutton_pulses = Gtk::manage(new Gtk::SpinButton{adj_pulses});
+
+    auto label_interval = Gtk::manage(new Gtk::Label{_("Flash Interval (ms)")});
+    Glib::RefPtr<Gtk::Adjustment> adj_interval = Gtk::Adjustment::create(_pConfig->flashPulseIntervalMs, 100, 1000, 50);
+    auto spinbutton_interval = Gtk::manage(new Gtk::SpinButton{adj_interval});
+
+    auto label_hold = Gtk::manage(new Gtk::Label{_("Flash Hold (ms)")});
+    Glib::RefPtr<Gtk::Adjustment> adj_hold = Gtk::Adjustment::create(_pConfig->flashHoldMs, 200, 3000, 100);
+    auto spinbutton_hold = Gtk::manage(new Gtk::SpinButton{adj_hold});
+
+    grid_flash->attach(*label_flash_light, 0, 0, 1, 1);
+    grid_flash->attach(*colorbutton_flash_light, 1, 0, 1, 1);
+    grid_flash->attach(*label_flash_dark, 0, 1, 1, 1);
+    grid_flash->attach(*colorbutton_flash_dark, 1, 1, 1, 1);
+    grid_flash->attach(*label_pulses, 0, 2, 1, 1);
+    grid_flash->attach(*spinbutton_pulses, 1, 2, 1, 1);
+    grid_flash->attach(*label_interval, 0, 3, 1, 1);
+    grid_flash->attach(*spinbutton_interval, 1, 3, 1, 1);
+    grid_flash->attach(*label_hold, 0, 4, 1, 1);
+    grid_flash->attach(*spinbutton_hold, 1, 4, 1, 1);
+
+    Gtk::Frame* frame_flash = new_managed_frame_with_align(_("Flash Highlight"), grid_flash);
+
+    // --- Actions frame ---
+    auto vbox_actions = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_VERTICAL, 4});
+    auto button_clear_history = Gtk::manage(new Gtk::Button{_("Clear Local History")});
+    button_clear_history->set_halign(
+#if GTKMM_MAJOR_VERSION >= 4
+        Gtk::Align::START
+#else
+        Gtk::Align::ALIGN_START
+#endif
+    );
+#if GTKMM_MAJOR_VERSION >= 4
+    vbox_actions->append(*button_clear_history);
+#else
+    vbox_actions->pack_start(*button_clear_history, false, false);
+#endif
+    Gtk::Frame* frame_actions = new_managed_frame_with_align(_("Actions"), vbox_actions);
+
+    // --- Main box ---
+    auto pMainBox = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_VERTICAL, 3});
+    pMainBox->set_margin_start(6);
+    pMainBox->set_margin_top(6);
+#if GTKMM_MAJOR_VERSION >= 4
+    pMainBox->append(*frame_retention);
+    pMainBox->append(*frame_flash);
+    pMainBox->append(*frame_actions);
+#else
+    pMainBox->pack_start(*frame_retention, false, false);
+    pMainBox->pack_start(*frame_flash, false, false);
+    pMainBox->pack_start(*frame_actions, false, false);
+#endif
+
+    // --- Signal handlers ---
+    spinbutton_retention->signal_value_changed().connect([this, spinbutton_retention](){
+        _pConfig->localHistoryMaxUseDays = spinbutton_retention->get_value_as_int();
+    });
+    colorbutton_flash_light->signal_color_set().connect([this, colorbutton_flash_light](){
+        _pConfig->flashColorLight = CtRgbUtil::rgb_to_string_24(colorbutton_flash_light->get_rgba());
+    });
+    colorbutton_flash_dark->signal_color_set().connect([this, colorbutton_flash_dark](){
+        _pConfig->flashColorDark = CtRgbUtil::rgb_to_string_24(colorbutton_flash_dark->get_rgba());
+    });
+    spinbutton_pulses->signal_value_changed().connect([this, spinbutton_pulses](){
+        _pConfig->flashPulseCount = spinbutton_pulses->get_value_as_int();
+    });
+    spinbutton_interval->signal_value_changed().connect([this, spinbutton_interval](){
+        _pConfig->flashPulseIntervalMs = spinbutton_interval->get_value_as_int();
+    });
+    spinbutton_hold->signal_value_changed().connect([this, spinbutton_hold](){
+        _pConfig->flashHoldMs = spinbutton_hold->get_value_as_int();
     });
     button_clear_history->signal_clicked().connect([this](){
         apply_for_each_window([](CtMainWin* win) { win->get_history_panel()->clear(); });

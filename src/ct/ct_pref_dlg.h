@@ -53,6 +53,7 @@ private:
     Gtk::Widget* build_tab_context_menus();
     Gtk::Widget* build_tab_kb_shortcuts();
     Gtk::Widget* build_tab_misc();
+    Gtk::Widget* build_tab_local_history();
 
 private:
     enum RESTART_REASON{MONOSPACE         = 1 << 0,  EMBFILE_SIZE        = 1 << 1,

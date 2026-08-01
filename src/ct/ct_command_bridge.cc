@@ -23,6 +23,7 @@
 
 #include "ct_command_bridge.h"
 #include "ct_main_win.h"
+#include "ct_history_panel.h"
 #include "ct_storage_xml.h"
 #include "ct_logging.h"
 #include "ct_gtk_compat.h"
@@ -277,10 +278,10 @@ void CtCommandBridge::executeCommand(std::unique_ptr<CtCommand> cmd)
         return;
     }
 
-    // Note: We don't log command descriptions here to avoid expensive XML parsing on every keystroke
-    // Command descriptions are generated on-demand when building undo/redo menus
+    if (!isInUndoRedo()) {
+        createHistoryEntry(cmd.get(), cmd->getNodeId());
+    }
     _commandManager.executeCommand(std::move(cmd));
-    // Note: Menu updates happen on-demand via signal_show_menu() to avoid performance issues
 }
 
 void CtCommandBridge::addCommandToStack(std::unique_ptr<CtCommand> cmd)
@@ -295,10 +296,12 @@ void CtCommandBridge::addCommandToStack(std::unique_ptr<CtCommand> cmd)
         return;
     }
 
-    // Note: We don't log command descriptions here to avoid expensive XML parsing on every keystroke
-    // Command descriptions are generated on-demand when building undo/redo menus
+    // Create local history entry (only for forward commands, not during undo/redo)
+    if (!isInUndoRedo()) {
+        createHistoryEntry(cmd.get(), cmd->getNodeId());
+    }
+
     _commandManager.addCommandToStack(std::move(cmd));
-    // Note: Menu updates happen on-demand via signal_show_menu() to avoid performance issues
 }
 
 void CtCommandBridge::pushNodeCommand(std::unique_ptr<CtCommand> cmd)
@@ -322,8 +325,10 @@ void CtCommandBridge::pushNodeCommand(std::unique_ptr<CtCommand> cmd)
     }
 
     _currentOp = BridgeOp::ExecutingNodeOp;
+    CtCommand* rawCmd = cmd.get();
     _commandManager.executeCommand(std::move(cmd));
     _currentOp = BridgeOp::None;
+    createHistoryEntry(rawCmd, rawCmd->getNodeId());
 
     // Restart an edit session so subsequent keystrokes are captured.
     // Without this, characters typed before the next cursor-change or
@@ -421,6 +426,14 @@ void CtCommandBridge::undo()
         return;
     }
     _inCommandExecution = false;
+
+    // Create local history entry for the undo
+    if (undoSuccess) {
+        auto* undoneCmd = _commandManager.peekRedoCommand();
+        if (undoneCmd) {
+            createHistoryEntry(undoneCmd, affectedNodeId, /*isUndo=*/true);
+        }
+    }
 
     // Clear the in-progress op BEFORE restarting the session so that
     // beginTextEditSession will actually connect signals and re-sync the model.
@@ -568,6 +581,14 @@ void CtCommandBridge::redo()
         return;
     }
     _inCommandExecution = false;
+
+    // Create local history entry for the redo
+    if (redoSuccess) {
+        auto* redoneCmd = _commandManager.peekUndoCommand();
+        if (redoneCmd) {
+            createHistoryEntry(redoneCmd, affectedNodeId);
+        }
+    }
 
     // Clear the in-progress op BEFORE restarting the session so that
     // beginTextEditSession will actually connect signals and re-sync the model.
@@ -920,8 +941,7 @@ void CtCommandBridge::endTextEditSession()
             cc->setNewScrollPos(scrollPosNew);
         }
 
-        // Model was kept in sync during session via signal handlers for all node types
-        // Delta commands provide full undo/redo without needing XML snapshots
+        createHistoryEntry(cmd.get(), nodeId);
         _commandManager.addCommandToStack(std::move(cmd));
     } else {
         spdlog::debug("CtCommandBridge: session ended but no command created (no changes)");
@@ -1198,6 +1218,7 @@ void CtCommandBridge::endWidgetEdit()
                     cmd->setOldScrollPos(_widgetEditOldScrollPos);
                     cmd->setNewScrollPos(scrollPosNew);
                     spdlog::info("CtCommandBridge: endWidgetEdit created delta table cell command");
+                    if (!isInUndoRedo()) createHistoryEntry(cmd.get(), savedNodeId);
                     _commandManager.addCommandToStack(std::move(cmd));
                     clearState();
                     if (!isInUndoRedo()) {
@@ -1252,6 +1273,7 @@ void CtCommandBridge::endWidgetEdit()
                     cmd->setOldScrollPos(_widgetEditOldScrollPos);
                     cmd->setNewScrollPos(scrollPosNew);
                     spdlog::info("CtCommandBridge: endWidgetEdit created delta codebox command");
+                    if (!isInUndoRedo()) createHistoryEntry(cmd.get(), savedNodeId);
                     _commandManager.addCommandToStack(std::move(cmd));
                     clearState();
                     if (!isInUndoRedo()) {
@@ -1446,6 +1468,7 @@ void CtCommandBridge::flushRichCellSession()
     cmd->setNewScrollPos(scrollPosNew);
 
     spdlog::info("CtCommandBridge: flushRichCellSession — EditRichCellCommand added");
+    if (!isInUndoRedo()) createHistoryEntry(cmd.get(), _widgetEditNodeId);
     _commandManager.addCommandToStack(std::move(cmd));
 
     // Update baseline for next flush
@@ -1620,6 +1643,7 @@ void CtCommandBridge::commitRichCellFormatChange(std::string description)
     cmd->setOldScrollPos(_widgetEditOldScrollPos);
     cmd->setNewScrollPos(scrollPosNew);
 
+    if (!isInUndoRedo()) createHistoryEntry(cmd.get(), _widgetEditNodeId);
     _commandManager.addCommandToStack(std::move(cmd));
 
     // Update baseline so subsequent edits in the same cell track from the new state.
@@ -1800,6 +1824,7 @@ void CtCommandBridge::applyFormatV2(
     }
 
     // Add to undo stack
+    if (!isInUndoRedo()) createHistoryEntry(cmd.get(), nodeId);
     _commandManager.addCommandToStack(std::move(cmd));
 
     spdlog::info("CtCommandBridge::applyFormatV2: format command created and executed");
@@ -3091,4 +3116,47 @@ void CtCommandBridge::BridgeObserver::onNodeDrawingChanged(gint64 nodeId)
                                                        false/*new_machine_state*/,
                                                        &treeIter);
     }
+}
+
+void CtCommandBridge::createHistoryEntry(CtCommand* cmd, gint64 nodeId, bool isUndo)
+{
+    if (!_pMainWin) return;
+    auto* panel = _pMainWin->get_history_panel();
+    if (!panel) return;
+
+    // Extract shifts and apply to older entries
+    std::vector<CtCommand::OffsetShift> shifts;
+    cmd->appendShifts(shifts, isUndo);
+    if (!shifts.empty()) {
+        panel->adjustOffsetsForNode(nodeId, shifts);
+    }
+
+    // Build description — strip the "[nodeId] " prefix if present
+    std::string desc = cmd->getDescription();
+    if (auto pos = desc.find("] "); pos != std::string::npos) {
+        desc = desc.substr(pos + 2);
+    }
+
+    // Create entry
+    CtHistoryEntry entry;
+    entry.nodeId = nodeId;
+    entry.timestamp = std::time(nullptr);
+    entry.useDay = _pMainWin->get_ct_config()->localHistoryUseDay;
+    entry.actionDescription = desc;
+    entry.actionType = cmd->getActionType();
+    entry.regionOffset = cmd->getRegionOffset();
+    entry.regionLength = cmd->getRegionLength();
+    entry.canvasIdx = cmd->getCanvasIndex();
+
+    // Capture cursor/scroll
+    auto rBuffer = _pMainWin->curr_buffer();
+    if (rBuffer) {
+        entry.cursorPos = rBuffer->get_insert()->get_iter().get_offset();
+    }
+    auto vAdj = _pMainWin->getScrolledwindowText().get_vadjustment();
+    if (vAdj) {
+        entry.scrollPos = static_cast<int>(vAdj->get_value());
+    }
+
+    panel->add_entry(entry);
 }

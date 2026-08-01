@@ -105,6 +105,17 @@ bool CtConfig::_load_from_file()
             return false;
         }
         _populate_data_from_keyfile();
+        // Increment use-day counter if today is a new calendar day
+        {
+            auto now = std::time(nullptr);
+            char dateBuf[11];
+            std::strftime(dateBuf, sizeof(dateBuf), "%Y-%m-%d", std::localtime(&now));
+            std::string today(dateBuf);
+            if (today != localHistoryLastOpenDate) {
+                localHistoryUseDay++;
+                localHistoryLastOpenDate = today;
+            }
+        }
         // Always start at 100% zoom: restore each font to its reset (default) size
         if (rtResetFontSize > 0)
             rtFont = CtFontUtil::get_font_str(CtFontUtil::get_font_family(rtFont), rtResetFontSize);
@@ -277,6 +288,14 @@ void CtConfig::_populate_keyfile_from_data()
     _uKeyFile->set_boolean(_currentGroup, "nodes_on_node_name_header_auto_size", nodesOnNodeNameHeaderAutoSize);
     _uKeyFile->set_boolean(_currentGroup, "nodes_on_node_name_header_fifo", nodesOnNodeNameHeaderFIFO);
     _uKeyFile->set_boolean(_currentGroup, "node_name_header_full_width", nodeNameHeaderFullWidth);
+    _uKeyFile->set_integer(_currentGroup, "local_history_max_use_days", localHistoryMaxUseDays);
+    _uKeyFile->set_integer(_currentGroup, "local_history_use_day", localHistoryUseDay);
+    _uKeyFile->set_string(_currentGroup, "local_history_last_open_date", localHistoryLastOpenDate);
+    _uKeyFile->set_string(_currentGroup, "flash_color_light", flashColorLight);
+    _uKeyFile->set_string(_currentGroup, "flash_color_dark", flashColorDark);
+    _uKeyFile->set_integer(_currentGroup, "flash_pulse_count", flashPulseCount);
+    _uKeyFile->set_integer(_currentGroup, "flash_pulse_interval_ms", flashPulseIntervalMs);
+    _uKeyFile->set_integer(_currentGroup, "flash_hold_ms", flashHoldMs);
     _uKeyFile->set_integer(_currentGroup, "max_matches_in_page", maxMatchesInPage);
     _uKeyFile->set_integer(_currentGroup, "toolbar_icon_size", toolbarIconSize);
     _uKeyFile->set_integer(_currentGroup, "search_multi_words", multipleWordsSearchType);
@@ -615,6 +634,14 @@ void CtConfig::_populate_data_from_keyfile()
     _populate_bool_from_keyfile("nodes_on_node_name_header_auto_size", &nodesOnNodeNameHeaderAutoSize);
     _populate_bool_from_keyfile("nodes_on_node_name_header_fifo", &nodesOnNodeNameHeaderFIFO);
     _populate_bool_from_keyfile("node_name_header_full_width", &nodeNameHeaderFullWidth);
+    _populate_int_from_keyfile("local_history_max_use_days", &localHistoryMaxUseDays);
+    _populate_int_from_keyfile("local_history_use_day", &localHistoryUseDay);
+    _populate_string_from_keyfile("local_history_last_open_date", &localHistoryLastOpenDate);
+    _populate_string_from_keyfile("flash_color_light", &flashColorLight);
+    _populate_string_from_keyfile("flash_color_dark", &flashColorDark);
+    _populate_int_from_keyfile("flash_pulse_count", &flashPulseCount);
+    _populate_int_from_keyfile("flash_pulse_interval_ms", &flashPulseIntervalMs);
+    _populate_int_from_keyfile("flash_hold_ms", &flashHoldMs);
     _populate_int_from_keyfile("max_matches_in_page", &maxMatchesInPage);
     _populate_int_from_keyfile("toolbar_icon_size", &toolbarIconSize);
     _populate_int_from_keyfile("search_multi_words", &multipleWordsSearchType);

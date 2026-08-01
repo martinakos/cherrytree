@@ -61,6 +61,7 @@ public:
     void undo() override;
     std::string getDescription() const override;
     gint64 getNodeId() const override { return _nodeId; }
+    std::string getActionType() const override { return "NPr"; }
 
 private:
     CtDocumentModel* _model;
@@ -86,6 +87,7 @@ public:
     void undo() override;
     std::string getDescription() const override;
     gint64 getNodeId() const override { return _nodeId; }
+    std::string getActionType() const override { return "NAd"; }
 
 private:
     CtDocumentModel* _model;
@@ -118,6 +120,7 @@ public:
     gint64 getNodeId() const override {
         return _snap.entries.empty() ? -1 : _snap.entries.front().nodeId;
     }
+    std::string getActionType() const override { return "NDe"; }
 
 private:
     CtDocumentModel* _model;
@@ -146,6 +149,7 @@ public:
     void undo() override;
     std::string getDescription() const override;
     gint64 getNodeId() const override { return _nodeId; }
+    std::string getActionType() const override { return "NMv"; }
 
 private:
     CtDocumentModel* _model;

@@ -49,6 +49,7 @@ enum class BridgeOp {
     ExecutingUndo,   // undo() scope
     ExecutingRedo,   // redo() scope
     ExecutingNodeOp, // pushNodeCommand() scope
+    Replay,          // history replay animation
 };
 
 // Bridge class to integrate new command system with existing code
@@ -125,15 +126,24 @@ public:
     bool isSuppressingTextEdits() const {
         return _currentOp == BridgeOp::CapturingPaste
             || _currentOp == BridgeOp::CapturingCut
-            || _currentOp == BridgeOp::CapturingFormat;
+            || _currentOp == BridgeOp::CapturingFormat
+            || _currentOp == BridgeOp::Replay;
     }
 
     // Check if we're inside an undo or redo operation
     bool isInUndoRedo() const {
         return _currentOp == BridgeOp::ExecutingUndo
             || _currentOp == BridgeOp::ExecutingRedo
-            || _currentOp == BridgeOp::ExecutingNodeOp;
+            || _currentOp == BridgeOp::ExecutingNodeOp
+            || _currentOp == BridgeOp::Replay;
     }
+
+    // Flash animation: set/clear the Replay bridge op to suppress signal handling
+    void beginReplay() { _currentOp = BridgeOp::Replay; }
+    void endReplay() { _currentOp = BridgeOp::None; }
+
+    // Create a local history entry from a command and apply offset shifts to older entries
+    void createHistoryEntry(CtCommand* cmd, gint64 nodeId, bool isUndo = false);
 
     // Execute a node-structure command (add/delete/move/properties).
     // Flushes any active text/widget session first, then executes the command

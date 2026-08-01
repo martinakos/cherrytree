@@ -54,8 +54,7 @@ void CtMainWin::_on_treeview_cursor_changed()
         _nodesVScrollPos[prevNodeIdDataHolder] = scr;
         _nodesCursorPos[prevNodeIdDataHolder] = cur;
         if (_nodesEditedSinceLastVisit.erase(prevNodeId) > 0) {
-            auto canvasPos = get_last_canvas_edit_pos(prevNodeId);
-            _uCtHistoryPanel->update_entry(prevNodeId, cur, scr, canvasPos.first, canvasPos.second);
+            _uCtHistoryPanel->updateCursorScroll(prevNodeId, cur, scr);
             _nodesLastCanvasEditPos.erase(prevNodeId);
         }
         //spdlog::debug("W[{}] scr={}, cur={}", prevNodeIdDataHolder, scr, cur);

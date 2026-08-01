@@ -80,6 +80,7 @@ package_add_test(run_tests_no_x
   tests_document_model.cpp
   tests_drawing.cpp
   tests_widget_timestamps.cpp
+  tests_local_history.cpp
 )
 
 package_add_test(run_tests_with_x_1
@@ -94,6 +95,7 @@ package_add_test(run_tests_with_x_2
   tests_command_undo_redo.cpp
   tests_command_gui_simulation.cpp
   tests_all_command_descriptions.cpp
+  tests_local_history_gui.cpp
   ../src/ct/icons.gresource.cc
 )
 
