@@ -99,8 +99,7 @@ private:
 
     void                _create_all_tables_in_db();
     void                _write_bookmarks_to_db(const std::list<gint64>& bookmarks);
-    void                _write_history_to_db();
-    void                _read_history_from_db();
+    std::vector<CtHistoryEntry> _read_history_entries_from_db();
     void                _write_node_to_db(const CtTreeIter* ct_tree_iter,
                                           const gint64 sequence,
                                           const gint64 node_father_id,

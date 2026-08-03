@@ -204,6 +204,8 @@ public:
     // Access to document model (for testing)
     std::shared_ptr<CtDocumentModel> getDocumentModel() const { return _docModel; }
 
+    void setPendingCursorPos(int pos) { _pendingCursorPos = pos; }
+
     // Apply a rich-cell content change to both the model and the live cell widget
     // in-place, bypassing the full buffer/widget rebuild path. Used by
     // EditRichCellCommand undo/redo to avoid the GTK assertion that triggers

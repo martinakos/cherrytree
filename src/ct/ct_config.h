@@ -90,14 +90,11 @@ public:
     bool                                        nodesOnNodeNameHeaderAutoSize{false};
     bool                                        nodesOnNodeNameHeaderFIFO{false};
     bool                                        nodeNameHeaderFullWidth{true};
+    bool                                        localHistoryEnabled{false};
     int                                         localHistoryMaxUseDays{30};
+    int                                         localHistoryReplayCycles{3};
     int                                         localHistoryUseDay{0};
     std::string                                 localHistoryLastOpenDate;
-    Glib::ustring                               flashColorLight{"#FFFF00"};
-    Glib::ustring                               flashColorDark{"#665500"};
-    int                                         flashPulseCount{3};
-    int                                         flashPulseIntervalMs{300};
-    int                                         flashHoldMs{1000};
     int                                         maxMatchesInPage{500};
     int                                         toolbarIconSize{1};
     int                                         multipleWordsSearchType{0}; // 0: exact match, 1: disregard order (AND), 2: match any (OR)

@@ -509,6 +509,30 @@ CtFormatChange CtNodeContent::removeFormat(int start, int length, const std::str
     return change;
 }
 
+CtFormatChange CtNodeContent::captureFormatState(int start, int length, const std::string& attribute) const
+{
+    CtFormatChange change;
+    if (length <= 0 || _elements.empty()) return change;
+
+    int pos = 0;
+    for (const auto& elem : _elements) {
+        int elemLen = static_cast<int>(elem.length());
+        if (pos + elemLen > start && pos < start + length) {
+            if (elem.isTextSpan()) {
+                int overlapStart = std::max(pos, start);
+                int overlapEnd = std::min(pos + elemLen, start + length);
+                int overlapLen = overlapEnd - overlapStart;
+                bool had = elem.textSpan.hasAttribute(attribute);
+                std::string oldVal = elem.textSpan.getAttribute(attribute);
+                change.changes.emplace_back(overlapStart, overlapLen, oldVal, had);
+            }
+        }
+        pos += elemLen;
+        if (pos >= start + length) break;
+    }
+    return change;
+}
+
 // Returns true if any text span in [start, start+length) has the given attribute set
 bool CtNodeContent::hasAttributeInRange(int start, int length, const std::string& attribute) const
 {
@@ -1050,6 +1074,305 @@ CtNodeContent CtNodeContent::fromXml(const Glib::ustring& xml, CtMainWin* /*pCtM
     }
 }
 
+Glib::ustring CtCellContent::toXml() const
+{
+    Glib::ustring xml;
+    for (const auto& span : textSpans) {
+        xml += "<rich_text";
+        for (const auto& attr : span.attributes) {
+            if (!attr.second.empty()) {
+                xml += " " + attr.first + "=\"" + attr.second + "\"";
+            }
+        }
+        xml += ">";
+        xml += str::xml_escape(span.text);
+        xml += "</rich_text>";
+    }
+    for (const auto& wd : embeddedWidgets) {
+        xml += wd.toXml();
+    }
+    return xml;
+}
+
+CtCellContent CtCellContent::fromXml(const Glib::ustring& xml)
+{
+    CtCellContent cell;
+    if (xml.empty()) return cell;
+
+    try {
+        Glib::ustring wrapped = "<cell>" + xml + "</cell>";
+        xmlpp::DomParser parser;
+        parser.parse_memory(wrapped);
+        if (!parser) return cell;
+
+        const xmlpp::Element* root = parser.get_document()->get_root_node();
+        if (!root) return cell;
+
+        for (const xmlpp::Node* node : root->get_children()) {
+            const xmlpp::Element* elem = dynamic_cast<const xmlpp::Element*>(node);
+            if (!elem) continue;
+
+            const std::string name = elem->get_name();
+            if (name == "rich_text") {
+                std::map<std::string, std::string> attrs;
+                for (const auto& attr : elem->get_attributes()) {
+                    attrs[attr->get_name()] = attr->get_value();
+                }
+                Glib::ustring text;
+                const xmlpp::TextNode* tn = elem->get_child_text();
+                if (tn) text = tn->get_content();
+                cell.textSpans.emplace_back(text, attrs);
+            }
+            else if (name == "encoded_png" || name == "codebox") {
+                Glib::ustring childXml;
+                childXml += "<" + name;
+                for (const auto& attr : elem->get_attributes()) {
+                    childXml += " " + attr->get_name() + "=\"" + attr->get_value() + "\"";
+                }
+                const xmlpp::TextNode* tn = elem->get_child_text();
+                if (tn && !tn->get_content().empty()) {
+                    childXml += ">" + tn->get_content() + "</" + name + ">";
+                } else {
+                    childXml += "/>";
+                }
+                cell.embeddedWidgets.push_back(CtWidgetDesc::fromXml(childXml));
+            }
+        }
+
+        if (cell.textSpans.empty() && cell.embeddedWidgets.empty()) {
+            const xmlpp::TextNode* tn = root->get_child_text();
+            cell.textSpans.emplace_back(tn ? tn->get_content() : Glib::ustring(""));
+        }
+    }
+    catch (const std::exception& e) {
+        spdlog::error("CtCellContent::fromXml: {}", e.what());
+    }
+    return cell;
+}
+
+Glib::ustring CtWidgetDesc::toXml(int charOffset) const
+{
+    Glib::ustring xml;
+    const std::string offsetStr = (charOffset >= 0) ? std::to_string(charOffset) : "";
+
+    auto emitProp = [&](const std::pair<std::string, std::string>& prop) {
+        if (prop.first == "char_offset" && !offsetStr.empty()) {
+            xml += " char_offset=\"" + offsetStr + "\"";
+        } else {
+            xml += " " + prop.first + "=\"" + prop.second + "\"";
+        }
+    };
+
+    if (type == CtAnchWidgType::ImagePng ||
+        type == CtAnchWidgType::ImageAnchor ||
+        type == CtAnchWidgType::ImageLatex ||
+        type == CtAnchWidgType::ImageEmbFile) {
+        xml += "<encoded_png";
+        for (const auto& prop : properties) {
+            if (prop.first != "_content") emitProp(prop);
+        }
+        const std::string content = getContent();
+        if (!content.empty()) {
+            xml += ">";
+            xml += content;
+            xml += "</encoded_png>";
+        } else {
+            xml += "/>";
+        }
+    }
+    else if (type == CtAnchWidgType::CodeBox) {
+        xml += "<codebox";
+        for (const auto& prop : properties) {
+            if (prop.first != "_content") emitProp(prop);
+        }
+        const std::string content = getContent();
+        if (!content.empty()) {
+            xml += ">";
+            xml += str::xml_escape(content);
+            xml += "</codebox>";
+        } else {
+            xml += "/>";
+        }
+    }
+    else if (type == CtAnchWidgType::TableLight ||
+             type == CtAnchWidgType::TableHeavy ||
+             type == CtAnchWidgType::TableRich) {
+        xml += "<table";
+        for (const auto& prop : properties) {
+            if (prop.first != "_content" && prop.first != "is_rich") emitProp(prop);
+        }
+
+        if (type == CtAnchWidgType::TableRich && hasRichTableData()) {
+            xml += " is_rich=\"1\">";
+            // Data rows first (skip header at index 0), then header last
+            for (size_t rowIdx = 1; rowIdx < richTableData.size(); ++rowIdx) {
+                xml += "<row>";
+                for (const auto& cell : richTableData[rowIdx]) {
+                    xml += "<cell>";
+                    xml += cell.toXml();
+                    xml += "</cell>";
+                }
+                xml += "</row>";
+            }
+            if (!richTableData.empty()) {
+                xml += "<row>";
+                for (const auto& cell : richTableData[0]) {
+                    xml += "<cell>";
+                    xml += cell.toXml();
+                    xml += "</cell>";
+                }
+                xml += "</row>";
+            }
+            xml += "</table>";
+        } else if (!tableData.empty()) {
+            xml += ">";
+            for (size_t rowIdx = 1; rowIdx < tableData.size(); ++rowIdx) {
+                xml += "<row>";
+                for (const auto& cell : tableData[rowIdx]) {
+                    xml += "<cell>";
+                    xml += str::xml_escape(cell);
+                    xml += "</cell>";
+                }
+                xml += "</row>";
+            }
+            if (!tableData.empty()) {
+                xml += "<row>";
+                for (const auto& cell : tableData[0]) {
+                    xml += "<cell>";
+                    xml += str::xml_escape(cell);
+                    xml += "</cell>";
+                }
+                xml += "</row>";
+            }
+            xml += "</table>";
+        } else {
+            xml += "/>";
+        }
+    }
+    return xml;
+}
+
+CtWidgetDesc CtWidgetDesc::fromXml(const Glib::ustring& xml)
+{
+    CtWidgetDesc widget;
+    if (xml.empty()) return widget;
+
+    try {
+        Glib::ustring wrapped = "<root>" + xml + "</root>";
+        xmlpp::DomParser parser;
+        parser.parse_memory(wrapped);
+        if (!parser) return widget;
+
+        const xmlpp::Element* root = parser.get_document()->get_root_node();
+        if (!root) return widget;
+
+        const xmlpp::Element* element = nullptr;
+        for (const xmlpp::Node* node : root->get_children()) {
+            element = dynamic_cast<const xmlpp::Element*>(node);
+            if (element) break;
+        }
+        if (!element) return widget;
+
+        const std::string nodeName = element->get_name();
+
+        if (nodeName == "encoded_png") {
+            if (!element->get_attribute_value("anchor").empty()) {
+                widget.type = CtAnchWidgType::ImageAnchor;
+            } else if (element->get_attribute_value("filename") == "__ct_special.tex") {
+                widget.type = CtAnchWidgType::ImageLatex;
+            } else if (!element->get_attribute_value("filename").empty()) {
+                widget.type = CtAnchWidgType::ImageEmbFile;
+            } else {
+                widget.type = CtAnchWidgType::ImagePng;
+            }
+        } else if (nodeName == "codebox") {
+            widget.type = CtAnchWidgType::CodeBox;
+        } else if (nodeName == "table") {
+            const Glib::ustring isRichStr = element->get_attribute_value("is_rich");
+            const Glib::ustring isLightStr = element->get_attribute_value("is_light");
+            if (!isRichStr.empty() && isRichStr == "1") {
+                widget.type = CtAnchWidgType::TableRich;
+            } else if (!isLightStr.empty() && isLightStr == "1") {
+                widget.type = CtAnchWidgType::TableLight;
+            } else {
+                widget.type = CtAnchWidgType::TableHeavy;
+            }
+        }
+
+        for (const auto& attr : element->get_attributes()) {
+            widget.setProperty(attr->get_name(), attr->get_value());
+        }
+
+        if (nodeName == "table") {
+            if (widget.type == CtAnchWidgType::TableRich) {
+                for (xmlpp::Node* pNodeRow : element->get_children("row")) {
+                    std::vector<CtCellContent> row;
+                    for (xmlpp::Node* pNodeCell : pNodeRow->get_children("cell")) {
+                        xmlpp::Element* cellElem = dynamic_cast<xmlpp::Element*>(pNodeCell);
+                        if (!cellElem) continue;
+                        Glib::ustring cellXml;
+                        for (const xmlpp::Node* child : cellElem->get_children()) {
+                            const xmlpp::Element* childElem = dynamic_cast<const xmlpp::Element*>(child);
+                            if (!childElem) continue;
+                            // Re-serialize child elements for CtCellContent::fromXml
+                            const std::string cn = childElem->get_name();
+                            cellXml += "<" + cn;
+                            for (const auto& a : childElem->get_attributes()) {
+                                cellXml += " " + a->get_name() + "=\"" + a->get_value() + "\"";
+                            }
+                            const xmlpp::TextNode* tn = childElem->get_child_text();
+                            if (tn && !tn->get_content().empty()) {
+                                cellXml += ">" + Glib::ustring(cn == "codebox" ? str::xml_escape(tn->get_content()) : std::string(tn->get_content().raw())) + "</" + cn + ">";
+                            } else {
+                                cellXml += "/>";
+                            }
+                        }
+                        if (cellXml.empty()) {
+                            const xmlpp::TextNode* tn = cellElem->get_child_text();
+                            CtCellContent c;
+                            c.textSpans.emplace_back(tn ? tn->get_content() : Glib::ustring(""));
+                            row.push_back(std::move(c));
+                        } else {
+                            row.push_back(CtCellContent::fromXml(cellXml));
+                        }
+                    }
+                    if (!row.empty()) widget.richTableData.push_back(std::move(row));
+                }
+                if (!widget.richTableData.empty()) {
+                    widget.richTableData.insert(widget.richTableData.begin(), widget.richTableData.back());
+                    widget.richTableData.pop_back();
+                }
+            } else {
+                for (xmlpp::Node* pNodeRow : element->get_children("row")) {
+                    std::vector<Glib::ustring> row;
+                    for (xmlpp::Node* pNodeCell : pNodeRow->get_children("cell")) {
+                        xmlpp::Element* cellElem = dynamic_cast<xmlpp::Element*>(pNodeCell);
+                        if (cellElem) {
+                            const xmlpp::TextNode* tn = cellElem->get_child_text();
+                            row.push_back(tn ? tn->get_content() : Glib::ustring(""));
+                        }
+                    }
+                    if (!row.empty()) widget.tableData.push_back(row);
+                }
+                if (!widget.tableData.empty()) {
+                    widget.tableData.insert(widget.tableData.begin(), widget.tableData.back());
+                    widget.tableData.pop_back();
+                }
+            }
+        } else {
+            const xmlpp::TextNode* tn = element->get_child_text();
+            if (tn && !tn->get_content().empty()) {
+                widget.contentData = tn->get_content().raw();
+                widget.setProperty("_content", widget.contentData);
+            }
+        }
+    }
+    catch (const std::exception& e) {
+        spdlog::error("CtWidgetDesc::fromXml: {}", e.what());
+    }
+    return widget;
+}
+
 // Serialize content model to XML
 Glib::ustring CtNodeContent::toXml() const
 {
@@ -1083,167 +1406,8 @@ Glib::ustring CtNodeContent::toXml() const
             runningOffset += span.text.size();
         }
         else {
-            // Widget serialization
-            const auto& widget = elem.widget;
-            const std::string computedOffset = std::to_string(runningOffset);
+            xml += elem.widget.toXml(runningOffset);
             runningOffset += 1;
-
-            auto emitProp = [&](const std::pair<std::string, std::string>& prop) {
-                const std::string& val = (prop.first == "char_offset") ? computedOffset : prop.second;
-                xml += " " + prop.first + "=\"" + val + "\"";
-            };
-
-            if (widget.type == CtAnchWidgType::ImagePng ||
-                widget.type == CtAnchWidgType::ImageAnchor ||
-                widget.type == CtAnchWidgType::ImageLatex ||
-                widget.type == CtAnchWidgType::ImageEmbFile) {
-                xml += "<encoded_png";
-                for (const auto& prop : widget.properties) {
-                    if (prop.first != "_content") {
-                        emitProp(prop);
-                    }
-                }
-                // Output text content if present (base64 encoded image data)
-                const std::string content = widget.getContent();
-                if (!content.empty()) {
-                    xml += ">";
-                    xml += content;
-                    xml += "</encoded_png>";
-                } else {
-                    xml += "/>";
-                }
-            }
-            else if (widget.type == CtAnchWidgType::CodeBox) {
-                xml += "<codebox";
-                for (const auto& prop : widget.properties) {
-                    if (prop.first != "_content") {
-                        emitProp(prop);
-                    }
-                }
-                // Output text content if present (codebox source code)
-                const std::string content = widget.getContent();
-                if (!content.empty()) {
-                    xml += ">";
-                    xml += str::xml_escape(content);
-                    xml += "</codebox>";
-                } else {
-                    xml += "/>";
-                }
-            }
-            else if (widget.type == CtAnchWidgType::TableLight ||
-                     widget.type == CtAnchWidgType::TableHeavy ||
-                     widget.type == CtAnchWidgType::TableRich) {
-                xml += "<table";
-                for (const auto& prop : widget.properties) {
-                    if (prop.first != "_content" && prop.first != "is_rich") {
-                        emitProp(prop);
-                    }
-                }
-
-                if (widget.type == CtAnchWidgType::TableRich && widget.hasRichTableData()) {
-                    // Rich table: emit is_rich="1" and <rich_text> children inside each cell
-                    xml += " is_rich=\"1\">";
-
-                    auto emit_rich_row = [&](const std::vector<CtCellContent>& rowCells) {
-                        xml += "<row>";
-                        for (const auto& cell : rowCells) {
-                            xml += "<cell>";
-                            for (const auto& span : cell.textSpans) {
-                                xml += "<rich_text";
-                                for (const auto& attr : span.attributes) {
-                                    xml += " " + attr.first + "=\"" + attr.second + "\"";
-                                }
-                                xml += ">";
-                                xml += str::xml_escape(span.text);
-                                xml += "</rich_text>";
-                            }
-                            // Embedded widgets in the cell (images, anchors, LaTeX, codeboxes)
-                            for (const auto& wd : cell.embeddedWidgets) {
-                                if (wd.type == CtAnchWidgType::ImagePng ||
-                                    wd.type == CtAnchWidgType::ImageAnchor ||
-                                    wd.type == CtAnchWidgType::ImageLatex ||
-                                    wd.type == CtAnchWidgType::ImageEmbFile) {
-                                    xml += "<encoded_png";
-                                    for (const auto& prop : wd.properties) {
-                                        if (prop.first != "_content") {
-                                            xml += " " + prop.first + "=\"" + prop.second + "\"";
-                                        }
-                                    }
-                                    const std::string content = wd.getContent();
-                                    if (!content.empty()) {
-                                        xml += ">";
-                                        xml += content;
-                                        xml += "</encoded_png>";
-                                    } else {
-                                        xml += "/>";
-                                    }
-                                }
-                                else if (wd.type == CtAnchWidgType::CodeBox) {
-                                    xml += "<codebox";
-                                    for (const auto& prop : wd.properties) {
-                                        if (prop.first != "_content") {
-                                            xml += " " + prop.first + "=\"" + prop.second + "\"";
-                                        }
-                                    }
-                                    const std::string content = wd.getContent();
-                                    if (!content.empty()) {
-                                        xml += ">";
-                                        xml += str::xml_escape(content);
-                                        xml += "</codebox>";
-                                    } else {
-                                        xml += "/>";
-                                    }
-                                }
-                            }
-                            xml += "</cell>";
-                        }
-                        xml += "</row>";
-                    };
-
-                    // Data rows first (skip header at index 0), then header last
-                    for (size_t rowIdx = 1; rowIdx < widget.richTableData.size(); ++rowIdx) {
-                        emit_rich_row(widget.richTableData[rowIdx]);
-                    }
-                    if (!widget.richTableData.empty()) {
-                        emit_rich_row(widget.richTableData[0]);
-                    }
-                    xml += "</table>";
-                } else if (!widget.tableData.empty()) {
-                    // Plain table: simple text cells
-                    xml += ">";
-
-                    // Data rows first (skip header at index 0), then header last
-                    for (size_t rowIdx = 1; rowIdx < widget.tableData.size(); ++rowIdx) {
-                        xml += "<row>";
-                        for (const auto& cell : widget.tableData[rowIdx]) {
-                            xml += "<cell>";
-                            xml += str::xml_escape(cell);
-                            xml += "</cell>";
-                        }
-                        xml += "</row>";
-                    }
-                    if (!widget.tableData.empty()) {
-                        xml += "<row>";
-                        for (const auto& cell : widget.tableData[0]) {
-                            xml += "<cell>";
-                            xml += str::xml_escape(cell);
-                            xml += "</cell>";
-                        }
-                        xml += "</row>";
-                    }
-                    xml += "</table>";
-                } else {
-                    // Fallback to _content property for compatibility
-                    auto contentIt = widget.properties.find("_content");
-                    if (contentIt != widget.properties.end() && !contentIt->second.empty()) {
-                        xml += ">";
-                        xml += contentIt->second;
-                        xml += "</table>";
-                    } else {
-                        xml += "/>";
-                    }
-                }
-            }
         }
     }
 

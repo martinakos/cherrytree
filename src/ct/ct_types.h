@@ -151,6 +151,7 @@ struct CtHistoryEntry
     int         regionOffset{-1};
     int         regionLength{0};
     int         canvasIdx{-1};
+    std::string deltaData;
 };
 
 struct CtRecentDocRestore

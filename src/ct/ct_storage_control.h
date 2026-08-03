@@ -25,6 +25,7 @@
 
 #include "ct_types.h"
 #include "ct_widgets.h"
+#include "ct_history_storage.h"
 #include <glibmm/miscutils.h>
 #include <thread>
 
@@ -104,7 +105,8 @@ private:
     time_t                           _mod_time{0};
     Glib::ustring                    _password;
     fs::path                         _extracted_file_path;
-    std::unique_ptr<CtStorageEntity> _storage;
+    std::unique_ptr<CtStorageEntity>  _storage;
+    std::unique_ptr<CtHistoryStorage> _historyStorage;
     CtStorageSyncPending             _syncPending;
 
     std::unique_ptr<std::thread> _pThreadBackupEncrypt;

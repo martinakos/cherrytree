@@ -25,7 +25,9 @@
 
 #include "ct_command.h"
 #include "ct_drawing.h"
+#include "ct_delta_engine.h"
 #include "ct_document_model.h"
+#include <glibmm/base64.h>
 #include <memory>
 
 class DrawStrokeCommand : public CtCommand {
@@ -66,6 +68,10 @@ public:
     gint64 getNodeId() const override { return _nodeId; }
     std::string getActionType() const override { return "DSt"; }
     int getCanvasIndex() const override { return static_cast<int>(_canvasIdx); }
+    std::string serializeDelta() const override {
+        return "DSt|" + std::to_string(_canvasIdx) + "|"
+             + Glib::Base64::encode(CtDeltaEngine::serializeStroke(_stroke));
+    }
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
@@ -120,6 +126,10 @@ public:
     gint64 getNodeId() const override { return _nodeId; }
     std::string getActionType() const override { return "ESt"; }
     int getCanvasIndex() const override { return static_cast<int>(_canvasIdx); }
+    std::string serializeDelta() const override {
+        return "ESt|" + std::to_string(_canvasIdx) + "|" + std::to_string(_strokeIdx) + "|"
+             + Glib::Base64::encode(CtDeltaEngine::serializeStroke(_stroke));
+    }
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
@@ -171,6 +181,10 @@ public:
     gint64 getNodeId() const override { return _nodeId; }
     std::string getActionType() const override { return "RSt"; }
     int getCanvasIndex() const override { return static_cast<int>(_canvasIdx); }
+    std::string serializeDelta() const override {
+        return "RSt|" + std::to_string(_canvasIdx) + "|" + std::to_string(_strokeIdx) + "|"
+             + std::to_string(_oldRotation) + "|" + std::to_string(_newRotation);
+    }
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
@@ -224,6 +238,11 @@ public:
     gint64 getNodeId() const override { return _nodeId; }
     std::string getActionType() const override { return "MSt"; }
     int getCanvasIndex() const override { return static_cast<int>(_canvasIdx); }
+    std::string serializeDelta() const override {
+        return "MSt|" + std::to_string(_canvasIdx) + "|" + std::to_string(_strokeIdx) + "|"
+             + Glib::Base64::encode(CtDeltaEngine::serializePoints(_oldPoints)) + "|"
+             + Glib::Base64::encode(CtDeltaEngine::serializePoints(_newPoints));
+    }
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
@@ -269,6 +288,10 @@ public:
     std::string getActionType() const override { return "ACv"; }
     int getCanvasIndex() const override { return static_cast<int>(_canvasIdx); }
     size_t getCanvasIdx() const { return _canvasIdx; }
+    std::string serializeDelta() const override {
+        return "ACv|" + std::to_string(_canvasIdx) + "|"
+             + Glib::Base64::encode(CtDeltaEngine::serializeCanvas(_canvas));
+    }
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
@@ -313,6 +336,10 @@ public:
     gint64 getNodeId() const override { return _nodeId; }
     std::string getActionType() const override { return "DCv"; }
     int getCanvasIndex() const override { return static_cast<int>(_canvasIdx); }
+    std::string serializeDelta() const override {
+        return "DCv|" + std::to_string(_canvasIdx) + "|"
+             + Glib::Base64::encode(CtDeltaEngine::serializeCanvas(_canvas));
+    }
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
@@ -362,6 +389,11 @@ public:
     gint64 getNodeId() const override { return _nodeId; }
     std::string getActionType() const override { return "MCv"; }
     int getCanvasIndex() const override { return static_cast<int>(_canvasIdx); }
+    std::string serializeDelta() const override {
+        return "MCv|" + std::to_string(_canvasIdx) + "|"
+             + std::to_string(_oldX) + "|" + std::to_string(_oldY) + "|"
+             + std::to_string(_newX) + "|" + std::to_string(_newY);
+    }
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
@@ -418,6 +450,13 @@ public:
     gint64 getNodeId() const override { return _nodeId; }
     std::string getActionType() const override { return "RCv"; }
     int getCanvasIndex() const override { return static_cast<int>(_canvasIdx); }
+    std::string serializeDelta() const override {
+        return "RCv|" + std::to_string(_canvasIdx) + "|"
+             + std::to_string(_oldX) + "|" + std::to_string(_oldY) + "|"
+             + std::to_string(_oldW) + "|" + std::to_string(_oldH) + "|"
+             + std::to_string(_newX) + "|" + std::to_string(_newY) + "|"
+             + std::to_string(_newW) + "|" + std::to_string(_newH);
+    }
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
@@ -483,6 +522,14 @@ public:
     gint64 getNodeId() const override { return _nodeId; }
     std::string getActionType() const override { return "PCv"; }
     int getCanvasIndex() const override { return static_cast<int>(_canvasIdx); }
+    std::string serializeDelta() const override {
+        return "PCv|" + std::to_string(_canvasIdx) + "|"
+             + Glib::Base64::encode(_oldName) + "|" + Glib::Base64::encode(_newName) + "|"
+             + _oldBgColor + "|" + _newBgColor + "|"
+             + std::to_string(_oldBgOpacity) + "|" + std::to_string(_newBgOpacity) + "|"
+             + std::to_string(_oldCornerRadius) + "|" + std::to_string(_newCornerRadius) + "|"
+             + (_oldShowBorder ? "1" : "0") + "|" + (_newShowBorder ? "1" : "0");
+    }
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;

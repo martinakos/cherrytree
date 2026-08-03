@@ -63,6 +63,9 @@ public:
     virtual int getRegionLength() const { return 0; }
     virtual int getCanvasIndex() const { return -1; }
 
+    // Serialize delta data for local history replay
+    virtual std::string serializeDelta() const { return ""; }
+
     // Offset shift extraction for history offset correction
     struct OffsetShift { int offset; int delta; };
     virtual void appendShifts(std::vector<OffsetShift>& /*log*/, bool /*isUndo*/) const {}
@@ -102,6 +105,7 @@ public:
     int getRegionOffset() const override;
     int getRegionLength() const override;
     int getCanvasIndex() const override;
+    std::string serializeDelta() const override;
     void appendShifts(std::vector<OffsetShift>& log, bool isUndo) const override;
     const std::vector<std::unique_ptr<CtCommand>>& getCommands() const { return _commands; }
 

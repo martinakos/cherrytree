@@ -125,6 +125,18 @@ int CompoundCommand::getCanvasIndex() const
     return _commands.back()->getCanvasIndex();
 }
 
+std::string CompoundCommand::serializeDelta() const
+{
+    std::string result;
+    for (const auto& cmd : _commands) {
+        std::string sub = cmd->serializeDelta();
+        if (sub.empty()) continue;
+        if (!result.empty()) result += '\n';
+        result += sub;
+    }
+    return result;
+}
+
 void CompoundCommand::appendShifts(std::vector<OffsetShift>& log, bool isUndo) const
 {
     if (isUndo) {

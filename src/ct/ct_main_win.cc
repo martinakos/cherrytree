@@ -463,7 +463,7 @@ CtMainWin::CtMainWin(bool                            no_gui,
             if (hPanedRightW > _pCtConfig->hpanedRightPos) {
                 _hPanedRight.property_position() = hPanedRightW - _pCtConfig->hpanedRightPos;
             }
-            _uCtHistoryPanel->get_widget().property_visible() = _pCtConfig->historyPanelVisible;
+            _uCtHistoryPanel->get_widget().property_visible() = _pCtConfig->localHistoryEnabled && _pCtConfig->historyPanelVisible;
             #if GTKMM_MAJOR_VERSION < 4
             _ctTextview.mm().signal_size_allocate().connect(sigc::mem_fun(*this, &CtMainWin::_on_textview_size_allocate));
             signal_configure_event().connect(sigc::mem_fun(*this, &CtMainWin::_on_window_configure_event), false);

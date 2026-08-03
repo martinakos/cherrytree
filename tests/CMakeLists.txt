@@ -81,6 +81,7 @@ package_add_test(run_tests_no_x
   tests_drawing.cpp
   tests_widget_timestamps.cpp
   tests_local_history.cpp
+  tests_delta_engine.cpp
 )
 
 package_add_test(run_tests_with_x_1

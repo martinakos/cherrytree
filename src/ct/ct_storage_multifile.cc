@@ -22,6 +22,7 @@
  */
 
 #include "ct_storage_multifile.h"
+#include "ct_history_storage.h"
 #include "ct_storage_xml.h"
 #include "ct_storage_control.h"
 #include "ct_main_win.h"
@@ -64,8 +65,7 @@ bool CtStorageMultiFile::save_treestore(const fs::path& dir_path,
             {
                 // save bookmarks
                 _write_bookmarks_to_disk(ct_tree_store.bookmarks_get());
-                // save history
-                _write_history_to_disk();
+                // history is now written by CtHistoryStorage (separate file)
             }
             CtStorageNodeState node_state;
             node_state.is_update_of_existing = false; // no need to delete the prev data
@@ -132,10 +132,7 @@ bool CtStorageMultiFile::save_treestore(const fs::path& dir_path,
             if (syncPending.bookmarks_to_write) {
                 _write_bookmarks_to_disk(ct_tree_store.bookmarks_get());
             }
-            // update history
-            if (syncPending.history_to_write) {
-                _write_history_to_disk();
-            }
+            // history is now written by CtHistoryStorage (separate file)
             // update changed nodes
             const std::list<std::pair<CtTreeIter, CtStorageNodeState>> nodes_to_write = CtStorageControl::get_sorted_by_level_nodes_to_write(
                 &_pCtMainWin->get_tree_store(), syncPending.nodes_to_write_dict);
@@ -316,36 +313,13 @@ void CtStorageMultiFile::_write_bookmarks_to_disk(const std::list<gint64>& bookm
     }
 }
 
-void CtStorageMultiFile::_write_history_to_disk()
+std::vector<CtHistoryEntry> CtStorageMultiFile::_read_history_entries_from_disk()
 {
-    const fs::path history_filepath = _dir_path / HISTORY_LST;
-    (void)fs::remove(history_filepath);
-    auto entries = _pCtMainWin->get_history_panel()->get_all_entries();
-    if (entries.empty()) return;
-    std::string content;
-    for (const auto& e : entries) {
-        if (!content.empty()) content += "\n";
-        content += std::to_string(e.nodeId) + ","
-                 + std::to_string(e.timestamp) + ","
-                 + std::to_string(e.useDay) + ","
-                 + std::to_string(e.cursorPos) + ","
-                 + std::to_string(e.scrollPos) + ","
-                 + e.actionType + ","
-                 + std::to_string(e.regionOffset) + ","
-                 + std::to_string(e.regionLength) + ","
-                 + std::to_string(e.canvasIdx) + ","
-                 + Glib::Base64::encode(e.actionDescription);
-    }
-    Glib::file_set_contents(history_filepath.string(), content);
-}
-
-void CtStorageMultiFile::_read_history_from_disk()
-{
-    const fs::path history_filepath = _dir_path / HISTORY_LST;
-    if (!fs::is_regular_file(history_filepath)) return;
-    std::string content = Glib::file_get_contents(history_filepath.string());
-    if (content.empty()) return;
     std::vector<CtHistoryEntry> entries;
+    const fs::path history_filepath = _dir_path / HISTORY_LST;
+    if (!fs::is_regular_file(history_filepath)) return entries;
+    std::string content = Glib::file_get_contents(history_filepath.string());
+    if (content.empty()) return entries;
     std::istringstream iss(content);
     std::string line;
     while (std::getline(iss, line)) {
@@ -375,7 +349,7 @@ void CtStorageMultiFile::_read_history_from_disk()
         catch (...) { continue; }
         entries.push_back(e);
     }
-    _pCtMainWin->get_history_panel()->load_entries(entries);
+    return entries;
 }
 
 void CtStorageMultiFile::_hier_try_move_existing_node_to_path(const fs::path& dir_path_to)
@@ -712,9 +686,19 @@ bool CtStorageMultiFile::populate_treestore(const fs::path& dir_path, Glib::ustr
             ct_tree_store.get_node_data(ctTreeIter, nodeData, false/*loadTextBuffer*/);
             ct_tree_store.update_node_data(ctTreeIter, nodeData);
         }
-        // load history
-        if (not _isDryRun) {
-            _read_history_from_disk();
+        // migrate history from old CSV format to separate SQLite DB if needed
+        if (not _isDryRun and _pCtMainWin->get_ct_config()->localHistoryEnabled) {
+            fs::path histDb = CtHistoryStorage::get_history_file_path(_dir_path, CtDocType::MultiFile);
+            if (!fs::is_regular_file(histDb)) {
+                auto oldEntries = _read_history_entries_from_disk();
+                if (!oldEntries.empty()) {
+                    auto histStorage = CtHistoryStorage::open(_dir_path, CtDocType::MultiFile);
+                    if (histStorage) {
+                        histStorage->migrateFrom(oldEntries);
+                    }
+                    (void)fs::remove(_dir_path / HISTORY_LST);
+                }
+            }
         }
         return true;
     }

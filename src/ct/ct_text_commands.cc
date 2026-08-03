@@ -26,6 +26,7 @@
 #include "ct_node_content.h"
 #include "ct_logging.h"
 #include "ct_const.h"
+#include <glibmm/base64.h>
 
 // TextEditCommand implementation
 
@@ -870,5 +871,80 @@ void DeleteRangeCommand::appendShifts(std::vector<OffsetShift>& log, bool isUndo
     } else {
         log.push_back({_start, -_length});
     }
+}
+
+static std::string _serialize_attrs(const std::map<std::string, std::string>& attrs)
+{
+    std::string result;
+    for (const auto& [k, v] : attrs) {
+        if (!result.empty()) result += ';';
+        result += k + '=' + v;
+    }
+    return result;
+}
+
+std::string InsertTextCommand::serializeDelta() const
+{
+    std::string textB64 = Glib::Base64::encode(_text);
+    return "INS|" + std::to_string(_offset) + "|" + textB64 + "|" + _serialize_attrs(_attributes);
+}
+
+std::string DeleteRangeCommand::serializeDelta() const
+{
+    std::string result = "DEL|" + std::to_string(_start);
+    for (const auto& elem : _deletedContent.elements) {
+        if (elem.isTextSpan()) {
+            result += "|T" + Glib::Base64::encode(elem.textSpan.text) + "|" + _serialize_attrs(elem.textSpan.attributes);
+        } else if (elem.isWidget()) {
+            std::string widgetXml = elem.widget.toXml().raw();
+            result += "|W" + Glib::Base64::encode(widgetXml);
+        }
+    }
+    return result;
+}
+
+void ApplyFormatCommand::captureOldValues()
+{
+    if (!_formatChange.changes.empty()) return;
+    auto node = _docModel->getNodeById(_nodeId);
+    if (!node) return;
+    _formatChange = node->getContent().captureFormatState(_start, _length, _attribute);
+}
+
+std::string ApplyFormatCommand::serializeDelta() const
+{
+    std::string result = "FMT|" + std::to_string(_start) + "|" + std::to_string(_length)
+                       + "|" + _attribute + "|" + _value;
+    for (const auto& sc : _formatChange.changes) {
+        result += "|" + std::to_string(sc.spanOffset) + "," + std::to_string(sc.spanLength)
+                + "," + (sc.hadAttribute ? sc.oldValue : "");
+    }
+    return result;
+}
+
+void RemoveFormatCommand::captureOldValues()
+{
+    if (!_formatChange.changes.empty()) return;
+    auto node = _docModel->getNodeById(_nodeId);
+    if (!node) return;
+    _formatChange = node->getContent().captureFormatState(_start, _length, _attribute);
+}
+
+std::string RemoveFormatCommand::serializeDelta() const
+{
+    std::string result = "RFM|" + std::to_string(_start) + "|" + std::to_string(_length)
+                       + "|" + _attribute + "|";
+    for (const auto& sc : _formatChange.changes) {
+        result += "|" + std::to_string(sc.spanOffset) + "," + std::to_string(sc.spanLength)
+                + "," + (sc.hadAttribute ? sc.oldValue : "");
+    }
+    return result;
+}
+
+std::string TextEditCommand::serializeDelta() const
+{
+    std::string oldXml = _oldContent.toXml().raw();
+    std::string newXml = _newContent.toXml().raw();
+    return "TED|" + Glib::Base64::encode(oldXml) + "|" + Glib::Base64::encode(newXml);
 }
 

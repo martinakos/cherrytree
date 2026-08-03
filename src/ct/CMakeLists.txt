@@ -30,6 +30,7 @@ set(CT_SHARED_FILES
   ct_actions_draw.cc
   ct_drawing.cc
   ct_history_panel.cc
+  ct_delta_engine.cc
   ct_app.cc
   ct_clipboard.cc
   ct_codebox.cc
@@ -78,6 +79,7 @@ set(CT_SHARED_FILES
   ct_pref_dlg_theme.cc
   ct_pref_dlg_toolbar.cc
   ct_pref_dlg_tree.cc
+  ct_history_storage.cc
   ct_storage_control.cc
   ct_storage_sqlite.cc
   ct_storage_xml.cc

@@ -23,6 +23,7 @@
 
 #include "ct_dialogs.h"
 #include "ct_storage_control.h"
+#include "ct_history_storage.h"
 #include "ct_storage_xml.h"
 #include "ct_storage_sqlite.h"
 #include "ct_storage_multifile.h"
@@ -147,6 +148,18 @@ static bool _move_dir_with_fallback(const fs::path& dir_from, const fs::path& di
         doc->_password = password;
         doc->_extracted_file_path = extracted_file_path;
         doc->_storage.swap(pStorage);
+
+        // Open separate history storage if enabled and not encrypted
+        if (doc->_pCtConfig->localHistoryEnabled and doc->_password.empty()) {
+            doc->_historyStorage = CtHistoryStorage::open(extracted_file_path, doc_type);
+            if (doc->_historyStorage) {
+                auto entries = doc->_historyStorage->readEntries();
+                if (!entries.empty()) {
+                    pCtMainWin->get_history_panel()->load_entries(entries);
+                }
+            }
+        }
+
         return doc;
     }
     catch (std::exception& e) {
@@ -318,6 +331,18 @@ static bool _move_dir_with_fallback(const fs::path& dir_from, const fs::path& di
         doc->_password = password;
         doc->_extracted_file_path = extracted_file_path;
         doc->_storage.swap(storage);
+
+        // Open separate history storage if enabled and not encrypted
+        if (doc->_pCtConfig->localHistoryEnabled and password.empty()) {
+            doc->_historyStorage = CtHistoryStorage::open(extracted_file_path, doc_type);
+            if (doc->_historyStorage) {
+                auto entries = pCtMainWin->get_history_panel()->get_all_entries();
+                if (!entries.empty()) {
+                    doc->_historyStorage->writeEntries(entries);
+                }
+            }
+        }
+
         return doc;
     }
     catch (std::exception& e) {
@@ -419,6 +444,12 @@ bool CtStorageControl::save(bool need_vacuum, Glib::ustring& error)
                 spdlog::debug("{} -> {}", _file_path.string(), main_backup.string());
 #endif // DEBUG_BACKUP_ENCRYPT
             }
+        }
+        // write history to separate storage if available
+        if (_historyStorage and _syncPending.history_to_write) {
+            auto entries = _pCtMainWin->get_history_panel()->get_all_entries();
+            _historyStorage->writeEntries(entries);
+            _syncPending.history_to_write = false;
         }
         // save changes
         if (not _storage->save_treestore(_extracted_file_path,

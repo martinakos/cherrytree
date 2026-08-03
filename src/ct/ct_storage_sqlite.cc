@@ -22,6 +22,7 @@
  */
 
 #include "ct_storage_sqlite.h"
+#include "ct_history_storage.h"
 #include "ct_storage_xml.h"
 #include "ct_storage_control.h"
 #include "ct_main_win.h"
@@ -332,9 +333,19 @@ bool CtStorageSqlite::populate_treestore(const fs::path& file_path, Glib::ustrin
             f_nodes_from_db(top_id_pair, ++sequence, Gtk::TreeModel::iterator{});
         }
 
-        // load history
-        if (not _isDryRun) {
-            _read_history_from_db();
+        // migrate embedded history to separate storage if present
+        if (not _isDryRun and _pCtMainWin->get_ct_config()->localHistoryEnabled) {
+            fs::path histFile = CtHistoryStorage::get_history_file_path(file_path, CtDocType::SQLite);
+            if (!fs::is_regular_file(histFile)) {
+                auto oldEntries = _read_history_entries_from_db();
+                if (!oldEntries.empty()) {
+                    auto histStorage = CtHistoryStorage::open(file_path, CtDocType::SQLite);
+                    if (histStorage) {
+                        histStorage->migrateFrom(oldEntries);
+                    }
+                    _exec_no_callback("DROP TABLE IF EXISTS local_history");
+                }
+            }
         }
 
         // keep db open for lazy node buffer loading
@@ -366,7 +377,7 @@ bool CtStorageSqlite::save_treestore(const fs::path& file_path,
                  CtExporting::ALL_TREE == export_type )
             {
                 _write_bookmarks_to_db(_pCtMainWin->get_tree_store().bookmarks_get());
-                _write_history_to_db();
+                // history is now written by CtHistoryStorage (separate file)
             }
             CtStorageNodeState node_state;
             node_state.is_update_of_existing = false; // no need to delete the prev data
@@ -432,10 +443,7 @@ bool CtStorageSqlite::save_treestore(const fs::path& file_path,
             if (syncPending.bookmarks_to_write) {
                 _write_bookmarks_to_db(_pCtMainWin->get_tree_store().bookmarks_get());
             }
-            // update history
-            if (syncPending.history_to_write) {
-                _write_history_to_db();
-            }
+            // history is now written by CtHistoryStorage (separate file)
             // update changed nodes
             const std::list<std::pair<CtTreeIter, CtStorageNodeState>> nodes_to_write = CtStorageControl::get_sorted_by_level_nodes_to_write(
                 &_pCtMainWin->get_tree_store(), syncPending.nodes_to_write_dict);
@@ -805,46 +813,15 @@ void CtStorageSqlite::_write_bookmarks_to_db(const std::list<gint64>& bookmarks)
     }
 }
 
-void CtStorageSqlite::_write_history_to_db()
+std::vector<CtHistoryEntry> CtStorageSqlite::_read_history_entries_from_db()
 {
-    _exec_no_callback(TABLE_HISTORY_CREATE);
-    _exec_no_callback(TABLE_HISTORY_DELETE);
-
-    auto entries = _pCtMainWin->get_history_panel()->get_all_entries();
-    Sqlite3StmtAuto stmt{_pDb, TABLE_HISTORY_INSERT};
-    if (stmt.is_bad())
-        throw std::runtime_error(ERR_SQLITE_PREPV2 + sqlite3_errmsg(_pDb));
-
-    for (const auto& e : entries) {
-        sqlite3_bind_int64(stmt, 1, e.nodeId);
-        sqlite3_bind_int64(stmt, 2, e.timestamp);
-        sqlite3_bind_int(stmt, 3, e.useDay);
-        sqlite3_bind_int(stmt, 4, e.cursorPos);
-        sqlite3_bind_int(stmt, 5, e.scrollPos);
-        sqlite3_bind_text(stmt, 6, e.actionDescription.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 7, e.actionType.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int(stmt, 8, e.regionOffset);
-        sqlite3_bind_int(stmt, 9, e.regionLength);
-        sqlite3_bind_int(stmt, 10, e.canvasIdx);
-        if (sqlite3_step(stmt) != SQLITE_DONE)
-            throw std::runtime_error(ERR_SQLITE_STEP + sqlite3_errmsg(_pDb));
-        sqlite3_reset(stmt);
-    }
-}
-
-void CtStorageSqlite::_read_history_from_db()
-{
-    _exec_no_callback(TABLE_HISTORY_CREATE);
+    std::vector<CtHistoryEntry> entries;
 
     Sqlite3StmtAuto stmt{_pDb, "SELECT node_id, timestamp, use_day, cursor_pos, scroll_pos, action_description, action_type, region_offset, region_length, canvas_idx FROM local_history ORDER BY id ASC"};
     if (stmt.is_bad()) {
-        // Try migrating from old history table
-        _exec_no_callback("DROP TABLE IF EXISTS history");
-        _exec_no_callback(TABLE_HISTORY_CREATE);
-        return;
+        return entries;
     }
 
-    std::vector<CtHistoryEntry> entries;
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         CtHistoryEntry e;
         e.nodeId = sqlite3_column_int64(stmt, 0);
@@ -861,7 +838,7 @@ void CtStorageSqlite::_read_history_from_db()
         e.canvasIdx = sqlite3_column_int(stmt, 9);
         entries.push_back(e);
     }
-    _pCtMainWin->get_history_panel()->load_entries(entries);
+    return entries;
 }
 
 void CtStorageSqlite::_write_node_to_db(const CtTreeIter* ct_tree_iter,
