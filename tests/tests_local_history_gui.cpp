@@ -12,7 +12,10 @@
 #include "ct_command_bridge.h"
 #include "ct_history_panel.h"
 #include "ct_text_commands.h"
+#include "ct_widget_commands.h"
 #include "ct_actions.h"
+#include "ct_codebox.h"
+#include "ct_table.h"
 #include <gtest/gtest.h>
 #include <set>
 
@@ -57,6 +60,9 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
 
     auto* panel = pWin->get_history_panel();
     ASSERT_TRUE(panel);
+
+    // Enable local history for all tests (disabled by default)
+    pWin->get_ct_config()->localHistoryEnabled = true;
 
     spdlog::info("=== Local History Panel Tests ===");
 
@@ -450,7 +456,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
 
         // Test flash: activate the entry and verify flash is active
         activateFirstEntry(panel);
-        EXPECT_TRUE(panel->isFlashing()) << "Clicking INS entry should trigger flash";
+        EXPECT_TRUE(panel->isReplaying()) << "Clicking INS entry should trigger replay";
         panel->clear();
 
         // Undo the typing
@@ -499,7 +505,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
         EXPECT_TRUE(foundDEL) << "Deleting text should create a DEL entry";
 
         activateFirstEntry(panel);
-        EXPECT_TRUE(panel->isFlashing()) << "Clicking DEL entry should trigger flash";
+        EXPECT_TRUE(panel->isReplaying()) << "Clicking DEL entry should trigger replay";
         panel->clear();
 
         // Undo both operations
@@ -550,7 +556,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
         EXPECT_TRUE(foundFMT) << "Bold formatting should create a FMT/RFM entry";
 
         activateFirstEntry(panel);
-        EXPECT_TRUE(panel->isFlashing()) << "Clicking FMT entry should trigger flash";
+        EXPECT_TRUE(panel->isReplaying()) << "Clicking FMT entry should trigger replay";
         panel->clear();
 
         while (pBridge->canUndo()) pActions->requested_step_back();
@@ -706,53 +712,21 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
         drainEvents();
     }
 
-    // --- Flash fires for each text-operation entry type ---
+    // --- Model replay requires valid deltaData ---
     {
-        spdlog::info("CrossCompare: FlashFiresForTextOps");
+        spdlog::info("CrossCompare: ReplayRequiresDeltaData");
         panel->clear();
         drainEvents();
 
         auto treeIter = pWin->curr_tree_iter();
         gint64 nodeId = treeIter.get_node_id();
 
-        // Manually add entries of each text-op type and verify flash
-        std::vector<std::pair<std::string, int>> textOpTypes = {
-            {"INS", 5}, {"DEL", 3}, {"FMT", 4}, {"RFM", 2}, {"TED", 1}
+        // Entries without deltaData should trigger fallback highlight (not model-based replay)
+        std::vector<std::string> contentTypes = {
+            "INS", "DEL", "FMT", "RFM", "TED", "WIns", "WMod", "TCel", "RCel", "CBed"
         };
 
-        for (const auto& [aType, rLen] : textOpTypes) {
-            panel->clear();
-            drainEvents();
-
-            CtHistoryEntry e;
-            e.nodeId = nodeId;
-            e.timestamp = std::time(nullptr);
-            e.actionDescription = "Test " + aType;
-            e.actionType = aType;
-            e.regionOffset = 0;
-            e.regionLength = rLen;
-            e.useDay = 1;
-            panel->add_entry(e);
-            drainEvents();
-
-            activateFirstEntry(panel);
-            EXPECT_TRUE(panel->isFlashing())
-                << "Flash should fire for actionType=" << aType;
-        }
-        panel->clear();
-        drainEvents();
-    }
-
-    // --- Flash fires for widget-operation entry types ---
-    {
-        spdlog::info("CrossCompare: FlashFiresForWidgetOps");
-
-        auto treeIter = pWin->curr_tree_iter();
-        gint64 nodeId = treeIter.get_node_id();
-
-        std::vector<std::string> widgetOpTypes = {"WIns", "WMod", "TCel", "RCel", "CBed"};
-
-        for (const auto& aType : widgetOpTypes) {
+        for (const auto& aType : contentTypes) {
             panel->clear();
             drainEvents();
 
@@ -768,8 +742,9 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
             drainEvents();
 
             activateFirstEntry(panel);
-            EXPECT_TRUE(panel->isFlashing())
-                << "Flash should fire for widget actionType=" << aType;
+            // Fallback highlight fires (timeout connected) but no model replay
+            EXPECT_TRUE(panel->isReplaying())
+                << "Fallback highlight should fire for " << aType << " without deltaData";
         }
         panel->clear();
         drainEvents();
@@ -801,9 +776,505 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
 
             // Click should not crash and should trigger tree row flash
             activateFirstEntry(panel);
-            EXPECT_TRUE(panel->isFlashing())
+            EXPECT_TRUE(panel->isReplaying())
                 << "Flash should fire for node actionType=" << aType;
         }
+        panel->clear();
+        drainEvents();
+    }
+
+    // --- DeltaData_PopulatedForINS ---
+    {
+        spdlog::info("DeltaData_PopulatedForINS");
+        auto* config = pWin->get_ct_config();
+        bool savedEnabled = config->localHistoryEnabled;
+        config->localHistoryEnabled = true;
+        panel->clear();
+        drainEvents();
+
+        auto rBuffer = pWin->curr_buffer();
+        ASSERT_TRUE(rBuffer);
+
+        rBuffer->place_cursor(rBuffer->end());
+        rBuffer->insert_at_cursor("DELTATEST");
+        drainEvents();
+        pBridge->onCursorMoved();
+        drainEvents();
+
+        auto entries = panel->get_all_entries();
+        bool foundINS = false;
+        for (const auto& e : entries) {
+            if (e.actionType == "INS" && !e.deltaData.empty()) {
+                EXPECT_TRUE(e.deltaData.find("INS|") == 0)
+                    << "INS deltaData should start with 'INS|', got: " << e.deltaData.substr(0, 20);
+                foundINS = true;
+                break;
+            }
+        }
+        EXPECT_TRUE(foundINS) << "Should find an INS entry with deltaData";
+
+        // Undo the typing
+        pActions->requested_step_back();
+        drainEvents();
+        config->localHistoryEnabled = savedEnabled;
+        panel->clear();
+        drainEvents();
+    }
+
+    // --- DeltaData_PopulatedForDEL ---
+    {
+        spdlog::info("DeltaData_PopulatedForDEL");
+        auto* config = pWin->get_ct_config();
+        bool savedEnabled = config->localHistoryEnabled;
+        config->localHistoryEnabled = true;
+        panel->clear();
+        drainEvents();
+
+        auto rBuffer = pWin->curr_buffer();
+        ASSERT_TRUE(rBuffer);
+
+        // First insert some text
+        rBuffer->place_cursor(rBuffer->end());
+        rBuffer->insert_at_cursor("DELME");
+        drainEvents();
+        pBridge->onCursorMoved();
+        drainEvents();
+
+        // Now delete it
+        int len = rBuffer->get_char_count();
+        auto iterS = rBuffer->get_iter_at_offset(len - 5);
+        auto iterE = rBuffer->end();
+        rBuffer->place_cursor(iterS);
+        rBuffer->erase(iterS, iterE);
+        drainEvents();
+        pBridge->onCursorMoved();
+        drainEvents();
+
+        auto entries = panel->get_all_entries();
+        bool foundDEL = false;
+        for (const auto& e : entries) {
+            if (e.actionType == "DEL" && !e.deltaData.empty()) {
+                EXPECT_TRUE(e.deltaData.find("DEL|") == 0)
+                    << "DEL deltaData should start with 'DEL|'";
+                foundDEL = true;
+                break;
+            }
+        }
+        EXPECT_TRUE(foundDEL) << "Should find a DEL entry with deltaData";
+
+        // Undo the delete and insert
+        pActions->requested_step_back();
+        pActions->requested_step_back();
+        drainEvents();
+        config->localHistoryEnabled = savedEnabled;
+        panel->clear();
+        drainEvents();
+    }
+
+    // --- DeltaData_LargeDeltas ---
+    {
+        spdlog::info("DeltaData_LargeDeltas");
+        auto* config = pWin->get_ct_config();
+        bool savedEnabled = config->localHistoryEnabled;
+        config->localHistoryEnabled = true;
+        panel->clear();
+        drainEvents();
+
+        auto rBuffer = pWin->curr_buffer();
+        ASSERT_TRUE(rBuffer);
+
+        // Insert a very large string (>64KB) — delta should still be populated
+        Glib::ustring bigText(70000, 'X');
+        rBuffer->place_cursor(rBuffer->end());
+        rBuffer->insert_at_cursor(bigText);
+        drainEvents();
+        pBridge->onCursorMoved();
+        drainEvents();
+
+        auto entries = panel->get_all_entries();
+        for (const auto& e : entries) {
+            if (e.actionType == "INS") {
+                EXPECT_FALSE(e.deltaData.empty())
+                    << "Large delta should still be serialized for replay";
+            }
+        }
+
+        // Undo
+        pActions->requested_step_back();
+        drainEvents();
+        config->localHistoryEnabled = savedEnabled;
+        panel->clear();
+        drainEvents();
+    }
+
+    // --- EnableDisable_ControlsHistoryCreation ---
+    {
+        spdlog::info("EnableDisable_ControlsHistoryCreation");
+        auto* config = pWin->get_ct_config();
+        bool savedEnabled = config->localHistoryEnabled;
+        config->localHistoryEnabled = false;
+        panel->clear();
+        drainEvents();
+
+        auto rBuffer = pWin->curr_buffer();
+        ASSERT_TRUE(rBuffer);
+
+        // Edit with history disabled — no entries should be created via bridge
+        rBuffer->place_cursor(rBuffer->end());
+        rBuffer->insert_at_cursor("disabled");
+        drainEvents();
+        pBridge->onCursorMoved();
+        drainEvents();
+
+        auto entries = panel->get_all_entries();
+        EXPECT_EQ(entries.size(), 0u) << "No entries should be created when history is disabled";
+
+        // Undo
+        pActions->requested_step_back();
+        drainEvents();
+
+        // Enable and edit — entries should appear
+        config->localHistoryEnabled = true;
+        rBuffer->place_cursor(rBuffer->end());
+        rBuffer->insert_at_cursor("enabled");
+        drainEvents();
+        pBridge->onCursorMoved();
+        drainEvents();
+
+        entries = panel->get_all_entries();
+        EXPECT_GT(entries.size(), 0u) << "Entries should be created when history is enabled";
+
+        // Disable again — no new entries
+        size_t countBefore = entries.size();
+        config->localHistoryEnabled = false;
+        rBuffer->place_cursor(rBuffer->end());
+        rBuffer->insert_at_cursor("disabled2");
+        drainEvents();
+        pBridge->onCursorMoved();
+        drainEvents();
+
+        entries = panel->get_all_entries();
+        EXPECT_EQ(entries.size(), countBefore)
+            << "No new entries should appear after disabling";
+
+        // Undo both inserts
+        config->localHistoryEnabled = true;
+        pActions->requested_step_back();
+        pActions->requested_step_back();
+        drainEvents();
+        config->localHistoryEnabled = savedEnabled;
+        panel->clear();
+        drainEvents();
+    }
+
+    // --- DeltaData_StoredAndRetrievedFromPanel ---
+    {
+        spdlog::info("DeltaData_StoredAndRetrievedFromPanel");
+        panel->clear();
+        drainEvents();
+
+        auto treeIter = pWin->curr_tree_iter();
+        ASSERT_TRUE(treeIter);
+        gint64 nodeId = treeIter.get_node_id();
+
+        CtHistoryEntry e;
+        e.nodeId = nodeId;
+        e.timestamp = 9000;
+        e.actionDescription = "Test delta storage";
+        e.actionType = "INS";
+        e.regionOffset = 0;
+        e.regionLength = 4;
+        e.deltaData = "INS|0|dGVzdA==|";
+        panel->add_entry(e);
+        drainEvents();
+
+        auto entries = panel->get_all_entries();
+        ASSERT_EQ(entries.size(), 1u);
+        EXPECT_EQ(entries[0].deltaData, "INS|0|dGVzdA==|")
+            << "deltaData should round-trip through the panel";
+
+        panel->clear();
+        drainEvents();
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Section A: Delta serialization completeness — every document model
+    // operation produces a history entry with correctly-prefixed deltaData.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    // --- DeltaData_PopulatedForFMT ---
+    {
+        spdlog::info("DeltaData_PopulatedForFMT");
+        auto* config = pWin->get_ct_config();
+        bool savedEnabled = config->localHistoryEnabled;
+        config->localHistoryEnabled = true;
+        panel->clear();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        drainEvents();
+        panel->clear();
+        drainEvents();
+
+        auto rBuffer = pWin->curr_buffer();
+        ASSERT_TRUE(rBuffer);
+
+        rBuffer->place_cursor(rBuffer->begin());
+        rBuffer->insert_at_cursor("FORMAT");
+        drainEvents();
+        pBridge->onCursorMoved();
+        drainEvents();
+        panel->clear();
+        drainEvents();
+
+        auto iterS = rBuffer->begin();
+        auto iterE = rBuffer->get_iter_at_offset(6);
+        rBuffer->select_range(iterS, iterE);
+        drainEvents();
+        pActions->apply_tag_bold();
+        drainEvents();
+
+        auto entries = panel->get_all_entries();
+        bool found = false;
+        for (const auto& e : entries) {
+            if ((e.actionType == "FMT" || e.actionType == "RFM") && !e.deltaData.empty()) {
+                EXPECT_TRUE(e.deltaData.find("FMT|") == 0 || e.deltaData.find("RFM|") == 0)
+                    << "Format deltaData should start with FMT| or RFM|";
+                found = true;
+                break;
+            }
+        }
+        EXPECT_TRUE(found) << "Bold format should produce FMT/RFM entry with deltaData";
+
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        drainEvents();
+        config->localHistoryEnabled = savedEnabled;
+        panel->clear();
+        drainEvents();
+    }
+
+    // --- DeltaData_PopulatedForTED ---
+    {
+        spdlog::info("DeltaData_PopulatedForTED");
+        auto* config = pWin->get_ct_config();
+        bool savedEnabled = config->localHistoryEnabled;
+        config->localHistoryEnabled = true;
+        panel->clear();
+        drainEvents();
+
+        auto treeIter = pWin->curr_tree_iter();
+        gint64 nodeId = treeIter.get_node_id();
+        auto rBuffer = pWin->curr_buffer();
+        ASSERT_TRUE(rBuffer);
+
+        pBridge->endTextEditSession();
+        pBridge->beginPaste(nodeId);
+        rBuffer->place_cursor(rBuffer->begin());
+        rBuffer->insert_at_cursor("PASTED");
+        drainEvents();
+        pBridge->endPaste();
+        drainEvents();
+
+        auto entries = panel->get_all_entries();
+        bool found = false;
+        for (const auto& e : entries) {
+            if (e.actionType == "TED" && !e.deltaData.empty()) {
+                EXPECT_TRUE(e.deltaData.find("TED|") == 0)
+                    << "Paste deltaData should start with 'TED|'";
+                found = true;
+                break;
+            }
+        }
+        EXPECT_TRUE(found) << "Paste should produce TED entry with deltaData";
+
+        pActions->requested_step_back();
+        drainEvents();
+        config->localHistoryEnabled = savedEnabled;
+        panel->clear();
+        drainEvents();
+    }
+
+    // --- DeltaData_PopulatedForWIns ---
+    {
+        spdlog::info("DeltaData_PopulatedForWIns");
+        auto* config = pWin->get_ct_config();
+        bool savedEnabled = config->localHistoryEnabled;
+        config->localHistoryEnabled = true;
+        panel->clear();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        drainEvents();
+        panel->clear();
+        drainEvents();
+
+        auto treeIter = pWin->curr_tree_iter();
+        gint64 nodeId = treeIter.get_node_id();
+        auto rBuffer = pWin->curr_buffer();
+        ASSERT_TRUE(rBuffer);
+
+        pBridge->endTextEditSession();
+        rBuffer->place_cursor(rBuffer->end());
+        int cbOffset = rBuffer->get_insert()->get_iter().get_offset();
+
+        CtCodebox* pCtCodebox = new CtCodebox{
+            pWin, "test code", "python3", 200, 80,
+            cbOffset, "", true, false, true
+        };
+        pCtCodebox->insertInTextBuffer(rBuffer);
+        pWin->get_tree_store().addAnchoredWidgets(
+            pWin->curr_tree_iter(), {pCtCodebox}, &pWin->get_text_view().mm());
+        auto desc = extractWidgetDesc(pCtCodebox, cbOffset);
+        auto cmd = std::make_unique<InsertWidgetDeltaCommand>(
+            pBridge->getDocumentModel(), nodeId, cbOffset, desc, "Insert codebox");
+        pBridge->addCommandToStack(std::move(cmd));
+        auto n = pBridge->getDocumentModel()->getNodeById(nodeId);
+        if (n) n->getContent().insertWidget(cbOffset, desc);
+        drainEvents();
+
+        auto entries = panel->get_all_entries();
+        bool found = false;
+        for (const auto& e : entries) {
+            if (e.actionType == "WIns" && !e.deltaData.empty()) {
+                EXPECT_TRUE(e.deltaData.find("WIns|") == 0)
+                    << "Widget insert deltaData should start with 'WIns|'";
+                found = true;
+                break;
+            }
+        }
+        EXPECT_TRUE(found) << "Insert codebox should produce WIns entry with deltaData";
+
+        pActions->requested_step_back();
+        drainEvents();
+        config->localHistoryEnabled = savedEnabled;
+        panel->clear();
+        drainEvents();
+    }
+
+    // --- DeltaData_PopulatedForCBed ---
+    {
+        spdlog::info("DeltaData_PopulatedForCBed");
+        auto* config = pWin->get_ct_config();
+        bool savedEnabled = config->localHistoryEnabled;
+        config->localHistoryEnabled = true;
+        panel->clear();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        drainEvents();
+        panel->clear();
+        drainEvents();
+
+        auto treeIter = pWin->curr_tree_iter();
+        gint64 nodeId = treeIter.get_node_id();
+        auto rBuffer = pWin->curr_buffer();
+        ASSERT_TRUE(rBuffer);
+
+        pBridge->endTextEditSession();
+        rBuffer->place_cursor(rBuffer->end());
+        int cbOffset = rBuffer->get_insert()->get_iter().get_offset();
+
+        CtCodebox* pCtCodebox = new CtCodebox{
+            pWin, "original code", "python3", 200, 80,
+            cbOffset, "", true, false, true
+        };
+        pCtCodebox->insertInTextBuffer(rBuffer);
+        pWin->get_tree_store().addAnchoredWidgets(
+            pWin->curr_tree_iter(), {pCtCodebox}, &pWin->get_text_view().mm());
+        auto desc = extractWidgetDesc(pCtCodebox, cbOffset);
+        auto insertCmd = std::make_unique<InsertWidgetDeltaCommand>(
+            pBridge->getDocumentModel(), nodeId, cbOffset, desc, "Insert codebox");
+        pBridge->addCommandToStack(std::move(insertCmd));
+        auto n = pBridge->getDocumentModel()->getNodeById(nodeId);
+        if (n) n->getContent().insertWidget(cbOffset, desc);
+        drainEvents();
+        panel->clear();
+        drainEvents();
+
+        // Edit the codebox content via widget edit tracking
+        pBridge->beginWidgetEdit(nodeId, pCtCodebox);
+        pCtCodebox->get_buffer()->set_text("modified code");
+        drainEvents();
+        pBridge->endWidgetEdit();
+        drainEvents();
+
+        auto entries = panel->get_all_entries();
+        bool found = false;
+        for (const auto& e : entries) {
+            if (e.actionType == "CBed" && !e.deltaData.empty()) {
+                EXPECT_TRUE(e.deltaData.find("CBed|") == 0)
+                    << "Codebox edit deltaData should start with 'CBed|'";
+                found = true;
+                break;
+            }
+        }
+        EXPECT_TRUE(found) << "Codebox edit should produce CBed entry with deltaData";
+
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        drainEvents();
+        config->localHistoryEnabled = savedEnabled;
+        panel->clear();
+        drainEvents();
+    }
+
+    // --- DeltaData_PopulatedForTCel ---
+    {
+        spdlog::info("DeltaData_PopulatedForTCel");
+        auto* config = pWin->get_ct_config();
+        bool savedEnabled = config->localHistoryEnabled;
+        config->localHistoryEnabled = true;
+        panel->clear();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        drainEvents();
+        panel->clear();
+        drainEvents();
+
+        auto treeIter = pWin->curr_tree_iter();
+        gint64 nodeId = treeIter.get_node_id();
+        auto rBuffer = pWin->curr_buffer();
+        ASSERT_TRUE(rBuffer);
+
+        pBridge->endTextEditSession();
+        rBuffer->place_cursor(rBuffer->end());
+        int charOffset = rBuffer->get_insert()->get_iter().get_offset();
+
+        CtTableMatrix tbl;
+        for (int r = 0; r < 2; r++) {
+            tbl.push_back(CtTableRow{});
+            for (int c = 0; c < 2; c++) {
+                tbl.back().push_back(new Glib::ustring{"c" + std::to_string(r) + std::to_string(c)});
+            }
+        }
+        CtTableLight* pCtTable = new CtTableLight{pWin, tbl, 60, charOffset, "", CtTableColWidths{}};
+        pCtTable->insertInTextBuffer(rBuffer);
+        pWin->get_tree_store().addAnchoredWidgets(
+            pWin->curr_tree_iter(), {pCtTable}, &pWin->get_text_view().mm());
+        auto desc = extractWidgetDesc(pCtTable, charOffset);
+        auto insertCmd = std::make_unique<InsertWidgetDeltaCommand>(
+            pBridge->getDocumentModel(), nodeId, charOffset, desc, "Insert table");
+        pBridge->addCommandToStack(std::move(insertCmd));
+        auto n = pBridge->getDocumentModel()->getNodeById(nodeId);
+        if (n) n->getContent().insertWidget(charOffset, desc);
+        drainEvents();
+        panel->clear();
+        drainEvents();
+
+        // Edit a table cell
+        pBridge->beginWidgetEdit(nodeId, pCtTable, 0, 1);
+        pCtTable->set_cell_text(0, 1, "edited");
+        drainEvents();
+        pBridge->endWidgetEdit();
+        drainEvents();
+
+        auto entries = panel->get_all_entries();
+        bool found = false;
+        for (const auto& e : entries) {
+            if (e.actionType == "TCel" && !e.deltaData.empty()) {
+                EXPECT_TRUE(e.deltaData.find("TCel|") == 0)
+                    << "Table cell edit deltaData should start with 'TCel|'";
+                found = true;
+                break;
+            }
+        }
+        EXPECT_TRUE(found) << "Table cell edit should produce TCel entry with deltaData";
+
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        drainEvents();
+        config->localHistoryEnabled = savedEnabled;
         panel->clear();
         drainEvents();
     }

@@ -802,11 +802,15 @@ void CtCommandBridge::endTextEditSession()
             }
             int len = tc.end - tc.start;
             if (tc.isApply) {
-                cc->addCommand(std::make_unique<ApplyFormatCommand>(
-                    _docModel, nodeId, tc.start, len, attr, val, -1, -1));
+                auto fmtCmd = std::make_unique<ApplyFormatCommand>(
+                    _docModel, nodeId, tc.start, len, attr, val, -1, -1);
+                fmtCmd->captureOldValues();
+                cc->addCommand(std::move(fmtCmd));
             } else {
-                cc->addCommand(std::make_unique<RemoveFormatCommand>(
-                    _docModel, nodeId, tc.start, len, attr, -1, -1));
+                auto rfmCmd = std::make_unique<RemoveFormatCommand>(
+                    _docModel, nodeId, tc.start, len, attr, -1, -1);
+                rfmCmd->captureOldValues();
+                cc->addCommand(std::move(rfmCmd));
             }
         }
     }
@@ -1651,11 +1655,15 @@ void CtCommandBridge::endFormatChange()
         }
         int len = tc.end - tc.start;
         if (tc.isApply) {
-            compound->addCommand(std::make_unique<ApplyFormatCommand>(
-                _docModel, _formatChangeNodeId, tc.start, len, attr, val, -1, -1));
+            auto fmtCmd = std::make_unique<ApplyFormatCommand>(
+                _docModel, _formatChangeNodeId, tc.start, len, attr, val, -1, -1);
+            fmtCmd->captureOldValues();
+            compound->addCommand(std::move(fmtCmd));
         } else {
-            compound->addCommand(std::make_unique<RemoveFormatCommand>(
-                _docModel, _formatChangeNodeId, tc.start, len, attr, -1, -1));
+            auto rfmCmd = std::make_unique<RemoveFormatCommand>(
+                _docModel, _formatChangeNodeId, tc.start, len, attr, -1, -1);
+            rfmCmd->captureOldValues();
+            compound->addCommand(std::move(rfmCmd));
         }
     }
 
@@ -2995,6 +3003,7 @@ void CtCommandBridge::BridgeObserver::onNodeDrawingChanged(gint64 nodeId)
     if (overlay) {
         overlay->refresh();
     }
+    if (_bridge->_currentOp == BridgeOp::Replay) return;
     auto& treeStore = _bridge->_pMainWin->get_tree_store();
     CtTreeIter treeIter = treeStore.get_node_from_node_id(nodeId);
     if (treeIter) {
@@ -3012,6 +3021,7 @@ void CtCommandBridge::BridgeObserver::onNodeDrawingChanged(gint64 nodeId)
 void CtCommandBridge::createHistoryEntry(CtCommand* cmd, gint64 nodeId, bool isUndo)
 {
     if (!_pMainWin) return;
+    if (!_pMainWin->get_ct_config()->localHistoryEnabled) return;
     auto* panel = _pMainWin->get_history_panel();
     if (!panel) return;
 
@@ -3038,6 +3048,9 @@ void CtCommandBridge::createHistoryEntry(CtCommand* cmd, gint64 nodeId, bool isU
     entry.regionOffset = cmd->getRegionOffset();
     entry.regionLength = cmd->getRegionLength();
     entry.canvasIdx = cmd->getCanvasIndex();
+
+    // Serialize delta data for replay
+    entry.deltaData = cmd->serializeDelta();
 
     // Capture cursor/scroll
     auto rBuffer = _pMainWin->curr_buffer();

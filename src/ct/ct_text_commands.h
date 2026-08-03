@@ -82,6 +82,7 @@ public:
     int getNewCursorPos() const override { return _newCursorPos; }
     std::string getActionType() const override { return "TED"; }
     int getRegionOffset() const override { return _newCursorPos >= 0 ? _newCursorPos : 0; }
+    std::string serializeDelta() const override;
     void appendShifts(std::vector<OffsetShift>& log, bool isUndo) const override;
 
 private:
@@ -214,6 +215,7 @@ public:
     std::string getActionType() const override { return "INS"; }
     int getRegionOffset() const override { return _offset; }
     int getRegionLength() const override { return static_cast<int>(_text.length()); }
+    std::string serializeDelta() const override;
     void appendShifts(std::vector<OffsetShift>& log, bool isUndo) const override;
     int getOffset() const { return _offset; }
     const Glib::ustring& getText() const { return _text; }
@@ -258,6 +260,7 @@ public:
     int getLength() const { return _length; }
     std::string getActionType() const override { return "DEL"; }
     int getRegionOffset() const override { return _start; }
+    std::string serializeDelta() const override;
     void appendShifts(std::vector<OffsetShift>& log, bool isUndo) const override;
 
 private:
@@ -296,6 +299,11 @@ public:
     std::string getActionType() const override { return "FMT"; }
     int getRegionOffset() const override { return _start; }
     int getRegionLength() const override { return _length; }
+    std::string serializeDelta() const override;
+
+    // Populate _formatChange from current model state without modifying the model.
+    // Used when the command is created after the buffer changed but before the model is updated.
+    void captureOldValues();
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
@@ -306,7 +314,7 @@ private:
     std::string _value;
     int _oldCursorPos;
     int _newCursorPos;
-    CtFormatChange _formatChange;  // Captured during execute for undo
+    CtFormatChange _formatChange;
 };
 
 // Remove formatting attribute from a range
@@ -333,6 +341,9 @@ public:
     std::string getActionType() const override { return "RFM"; }
     int getRegionOffset() const override { return _start; }
     int getRegionLength() const override { return _length; }
+    std::string serializeDelta() const override;
+
+    void captureOldValues();
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;

@@ -83,6 +83,7 @@ package_add_test(run_tests_no_x
   tests_widget_timestamps.cpp
   tests_ocr.cpp
   tests_local_history.cpp
+  tests_delta_engine.cpp
 )
 
 if(USE_NCNN)

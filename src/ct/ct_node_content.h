@@ -82,6 +82,9 @@ struct CtCellContent {
 
     bool operator==(const CtCellContent& other) const;
     bool operator!=(const CtCellContent& other) const { return !(*this == other); }
+
+    Glib::ustring toXml() const;
+    static CtCellContent fromXml(const Glib::ustring& xml);
 };
 
 // Represents a run of text with uniform formatting attributes
@@ -170,6 +173,9 @@ struct CtWidgetDesc {
                tableData == other.tableData &&
                richTableData == other.richTableData;
     }
+
+    Glib::ustring toXml(int charOffset = -1) const;
+    static CtWidgetDesc fromXml(const Glib::ustring& xml);
 };
 
 // Content element - either a text span or a widget
@@ -284,6 +290,9 @@ public:
 
     // Restore previous format state (for undo)
     void restoreFormat(int start, int length, const std::string& attribute, const CtFormatChange& change);
+
+    // Read current format values in a range without modifying content
+    CtFormatChange captureFormatState(int start, int length, const std::string& attribute) const;
 
     // Toggle detection helpers for lightweight format commands
     bool hasAttributeInRange(int start, int length, const std::string& attribute) const;

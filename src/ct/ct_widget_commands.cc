@@ -24,6 +24,7 @@
 #include "ct_widget_commands.h"
 #include "ct_command_bridge.h"
 #include "ct_logging.h"
+#include <glibmm/base64.h>
 
 // InsertWidgetDeltaCommand implementation
 
@@ -323,5 +324,41 @@ void EditCodeboxContentCommand::redo()
 std::string EditCodeboxContentCommand::getDescription() const
 {
     return "[" + std::to_string(_nodeId) + "] Edit codebox";
+}
+
+std::string EditTableCellCommand::serializeDelta() const
+{
+    std::string oldB64 = Glib::Base64::encode(_oldText);
+    std::string newB64 = Glib::Base64::encode(_newText);
+    return "TCel|" + std::to_string(_widgetCharOffset) + "|" + std::to_string(_row)
+         + "|" + std::to_string(_col) + "|" + oldB64 + "|" + newB64;
+}
+
+std::string EditCodeboxContentCommand::serializeDelta() const
+{
+    std::string oldB64 = Glib::Base64::encode(_oldContent);
+    std::string newB64 = Glib::Base64::encode(_newContent);
+    return "CBed|" + std::to_string(_widgetCharOffset) + "|" + oldB64 + "|" + newB64;
+}
+
+std::string InsertWidgetDeltaCommand::serializeDelta() const
+{
+    std::string widgetXml = _widgetDesc.toXml(_charOffset).raw();
+    return "WIns|" + std::to_string(_charOffset) + "|" + Glib::Base64::encode(widgetXml);
+}
+
+std::string ModifyWidgetDeltaCommand::serializeDelta() const
+{
+    std::string oldXml = _oldWidgetDesc.toXml(_charOffset).raw();
+    std::string newXml = _newWidgetDesc.toXml(_charOffset).raw();
+    return "WMod|" + std::to_string(_charOffset) + "|" + Glib::Base64::encode(oldXml) + "|" + Glib::Base64::encode(newXml);
+}
+
+std::string EditRichCellCommand::serializeDelta() const
+{
+    std::string oldXml = _oldContent.toXml().raw();
+    std::string newXml = _newContent.toXml().raw();
+    return "RCel|" + std::to_string(_widgetCharOffset) + "|" + std::to_string(_row)
+         + "|" + std::to_string(_col) + "|" + Glib::Base64::encode(oldXml) + "|" + Glib::Base64::encode(newXml);
 }
 

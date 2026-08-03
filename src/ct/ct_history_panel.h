@@ -26,6 +26,8 @@
 #include <gtkmm.h>
 #include "ct_types.h"
 #include "ct_command.h"
+#include "ct_node_content.h"
+#include "ct_drawing.h"
 
 class CtMainWin;
 class CtAnchoredWidget;
@@ -46,9 +48,9 @@ public:
 
     void refresh_names();
 
-    bool isFlashing() const { return _flashState.timeout.connected(); }
-    bool isFlashingCanvas() const { return _flashState.flashingCanvas; }
-    bool isFlashingTreeRow() const { return _flashState.flashingTreeRow; }
+    bool isReplaying() const { return _replayState.timeout.connected(); }
+    bool isReplayingCanvas() const { return _replayState.replayingCanvas; }
+    bool isReplayingTreeRow() const { return _replayState.replayingTreeRow; }
 
     Gtk::TreeView& getTreeView() { return _treeView; }
 
@@ -61,8 +63,8 @@ public:
 private:
     void _on_row_activated(const Gtk::TreeModel::Path& path, Gtk::TreeViewColumn* column);
     void _navigate_to_entry(const CtHistoryEntry& entry);
-    void _flashRegion(const CtHistoryEntry& entry);
-    void _stopFlash();
+    void _replayEntry(const CtHistoryEntry& entry);
+    void _stopReplay();
 
     // Find or create a top-level parent row for a node
     Gtk::TreeModel::iterator _findOrCreateParent(gint64 nodeId);
@@ -86,6 +88,7 @@ private:
             add(colCanvasIdx);
             add(colUseDay);
             add(colIsParent);
+            add(colDeltaData);
         }
         Gtk::TreeModelColumn<Glib::RefPtr<Gdk::Pixbuf>> colIcon;
         Gtk::TreeModelColumn<Glib::ustring>              colName;
@@ -101,6 +104,7 @@ private:
         Gtk::TreeModelColumn<int>                        colCanvasIdx;
         Gtk::TreeModelColumn<int>                        colUseDay;
         Gtk::TreeModelColumn<bool>                       colIsParent;
+        Gtk::TreeModelColumn<std::string>                colDeltaData;
     };
 
     ColumnsHistory               _columns;
@@ -109,20 +113,34 @@ private:
     Gtk::ScrolledWindow          _scrolledWindow;
     bool                         _updatingList{false};
 
-    void _flashCanvas(int canvasIdx);
-    void _flashTreeRow(gint64 nodeId);
+    void _replayViaModel(const CtHistoryEntry& entry);
+    void _replayViaDrawingModel(const CtHistoryEntry& entry);
+    void _replayFallbackHighlight(const CtHistoryEntry& entry);
+    void _replayCanvas(int canvasIdx);
+    void _replayTreeRow(gint64 nodeId);
 
-    // Bounding box flash state
-    struct FlashState {
-        int regionOffset{-1};
-        int regionLength{0};
-        int canvasIdx{-1};
-        Glib::RefPtr<Gtk::TextTag> highlightTag;
+    struct ReplayState {
         sigc::connection timeout;
-        int flashCount{0};
-        bool flashingCanvas{false};
-        bool flashingTreeRow{false};
-        CtAnchoredWidget* flashingWidget{nullptr};
+        int canvasIdx{-1};
+        bool replayingCanvas{false};
+        bool replayingTreeRow{false};
+        // Model-based replay (text content)
+        CtNodeContent restoreContent;
+        CtNodeContent beforeContent;
+        CtNodeContent afterContent;
+        gint64 replayNodeId{-1};
+        int cycleCount{0};
+        int maxCycles{3};
+        bool showingBefore{true};
+        int cursorPos{0};
+        int scrollPos{0};
+        // Drawing model replay
+        std::vector<CtDrawingCanvas> restoreCanvases;
+        std::vector<CtDrawingCanvas> beforeCanvases;
+        std::vector<CtDrawingCanvas> afterCanvases;
+        bool replayingDrawing{false};
+        // Fallback highlight
+        Glib::RefPtr<Gtk::TextTag> highlightTag;
     };
-    FlashState _flashState;
+    ReplayState _replayState;
 };

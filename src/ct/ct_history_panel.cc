@@ -24,12 +24,15 @@
 #include "ct_history_panel.h"
 #include "ct_main_win.h"
 #include "ct_command_bridge.h"
+#include "ct_delta_engine.h"
 #include "ct_storage_control.h"
 #include "ct_misc_utils.h"
 #include "ct_const.h"
 #include "ct_drawing.h"
 #include "ct_widgets.h"
+#include <unordered_set>
 #include <spdlog/spdlog.h>
+#include <glibmm/base64.h>
 
 CtHistoryPanel::CtHistoryPanel(CtMainWin* pCtMainWin)
     : _pCtMainWin{pCtMainWin}
@@ -127,6 +130,7 @@ void CtHistoryPanel::add_entry(const CtHistoryEntry& entry)
         prevRow[_columns.colUseDay]       = static_cast<int>((*parentIter)[_columns.colUseDay]);
         prevRow[_columns.colIsParent]     = false;
         prevRow[_columns.colTimestamp]    = static_cast<Glib::ustring>((*parentIter)[_columns.colTimestamp]);
+        prevRow[_columns.colDeltaData]   = static_cast<std::string>((*parentIter)[_columns.colDeltaData]);
     }
 
     // Update parent row to show the new (latest) action
@@ -142,6 +146,7 @@ void CtHistoryPanel::add_entry(const CtHistoryEntry& entry)
     (*parentIter)[_columns.colRegionLength] = entry.regionLength;
     (*parentIter)[_columns.colCanvasIdx]    = entry.canvasIdx;
     (*parentIter)[_columns.colUseDay]       = entry.useDay;
+    (*parentIter)[_columns.colDeltaData]   = entry.deltaData;
 
     // Re-sort: move this parent to top if it's not already there
     auto firstIter = _rTreeStore->children().begin();
@@ -187,7 +192,7 @@ void CtHistoryPanel::remove_entries_for_node(gint64 nodeId)
 void CtHistoryPanel::clear()
 {
     _updatingList = true;
-    _stopFlash();
+    _stopReplay();
     _rTreeStore->clear();
     _updatingList = false;
     if (auto* pStorage = _pCtMainWin->get_ct_storage()) {
@@ -213,6 +218,7 @@ std::vector<CtHistoryEntry> CtHistoryPanel::get_all_entries() const
             e.regionLength = parentRow[_columns.colRegionLength];
             e.canvasIdx = parentRow[_columns.colCanvasIdx];
             e.useDay = parentRow[_columns.colUseDay];
+            e.deltaData = static_cast<std::string>(parentRow[_columns.colDeltaData]);
             entries.push_back(e);
         }
         // Then the older sub-entries
@@ -228,6 +234,7 @@ std::vector<CtHistoryEntry> CtHistoryPanel::get_all_entries() const
             e.regionLength = childRow[_columns.colRegionLength];
             e.canvasIdx = childRow[_columns.colCanvasIdx];
             e.useDay = childRow[_columns.colUseDay];
+            e.deltaData = static_cast<std::string>(childRow[_columns.colDeltaData]);
             entries.push_back(e);
         }
     }
@@ -264,6 +271,7 @@ void CtHistoryPanel::load_entries(const std::vector<CtHistoryEntry>& entries)
             (*parentIter)[_columns.colRegionLength] = it->regionLength;
             (*parentIter)[_columns.colCanvasIdx]    = it->canvasIdx;
             (*parentIter)[_columns.colUseDay]       = it->useDay;
+            (*parentIter)[_columns.colDeltaData]   = it->deltaData;
         }
         else {
             // Demote current parent data to a sub-entry, then update parent
@@ -280,6 +288,7 @@ void CtHistoryPanel::load_entries(const std::vector<CtHistoryEntry>& entries)
             prevRow[_columns.colUseDay]       = static_cast<int>((*parentIter)[_columns.colUseDay]);
             prevRow[_columns.colIsParent]     = false;
             prevRow[_columns.colTimestamp]    = static_cast<Glib::ustring>((*parentIter)[_columns.colTimestamp]);
+            prevRow[_columns.colDeltaData]   = static_cast<std::string>((*parentIter)[_columns.colDeltaData]);
 
             (*parentIter)[_columns.colOperation]    = Glib::ustring(it->actionDescription);
             (*parentIter)[_columns.colTimestamp]     = tsStr;
@@ -291,6 +300,7 @@ void CtHistoryPanel::load_entries(const std::vector<CtHistoryEntry>& entries)
             (*parentIter)[_columns.colRegionLength] = it->regionLength;
             (*parentIter)[_columns.colCanvasIdx]    = it->canvasIdx;
             (*parentIter)[_columns.colUseDay]       = it->useDay;
+            (*parentIter)[_columns.colDeltaData]   = it->deltaData;
         }
     }
 
@@ -370,24 +380,18 @@ void CtHistoryPanel::_on_row_activated(const Gtk::TreeModel::Path& path, Gtk::Tr
     // We navigate on click for both parent and child rows.
 
     CtHistoryEntry entry;
-    if (isParent) {
-        // Navigate using parent's data (reflects latest action)
-        entry.nodeId = (*iter)[_columns.colNodeId];
-        entry.cursorPos = (*iter)[_columns.colCursorPos];
-        entry.scrollPos = (*iter)[_columns.colScrollPos];
-        entry.actionType = static_cast<Glib::ustring>((*iter)[_columns.colActionType]);
-        entry.regionOffset = (*iter)[_columns.colRegionOffset];
-        entry.regionLength = (*iter)[_columns.colRegionLength];
-        entry.canvasIdx = (*iter)[_columns.colCanvasIdx];
-    } else {
-        entry.nodeId = (*iter)[_columns.colNodeId];
-        entry.cursorPos = (*iter)[_columns.colCursorPos];
-        entry.scrollPos = (*iter)[_columns.colScrollPos];
-        entry.actionType = static_cast<Glib::ustring>((*iter)[_columns.colActionType]);
-        entry.regionOffset = (*iter)[_columns.colRegionOffset];
-        entry.regionLength = (*iter)[_columns.colRegionLength];
-        entry.canvasIdx = (*iter)[_columns.colCanvasIdx];
-    }
+    auto readEntryFromRow = [&](const Gtk::TreeModel::iterator& rowIter) {
+        entry.nodeId = (*rowIter)[_columns.colNodeId];
+        entry.timestamp = (*rowIter)[_columns.colTimestampRaw];
+        entry.cursorPos = (*rowIter)[_columns.colCursorPos];
+        entry.scrollPos = (*rowIter)[_columns.colScrollPos];
+        entry.actionType = static_cast<Glib::ustring>((*rowIter)[_columns.colActionType]);
+        entry.regionOffset = (*rowIter)[_columns.colRegionOffset];
+        entry.regionLength = (*rowIter)[_columns.colRegionLength];
+        entry.canvasIdx = (*rowIter)[_columns.colCanvasIdx];
+        entry.deltaData = static_cast<std::string>((*rowIter)[_columns.colDeltaData]);
+    };
+    readEntryFromRow(iter);
     _navigate_to_entry(entry);
 }
 
@@ -409,348 +413,440 @@ void CtHistoryPanel::_navigate_to_entry(const CtHistoryEntry& entry)
     CtHistoryEntry entryCopy = entry;
     Glib::signal_idle().connect_once([this, entryCopy]() {
         auto rBuffer = _pCtMainWin->curr_buffer();
-        if (!rBuffer) return;
+        if (rBuffer) {
+            int charCount = rBuffer->get_char_count();
+            int cursorPos = std::min(entryCopy.cursorPos, charCount);
+            auto iterCursor = rBuffer->get_iter_at_offset(cursorPos);
+            rBuffer->place_cursor(iterCursor);
 
-        int charCount = rBuffer->get_char_count();
-        int cursorPos = std::min(entryCopy.cursorPos, charCount);
-        auto iterCursor = rBuffer->get_iter_at_offset(cursorPos);
-        rBuffer->place_cursor(iterCursor);
-
-        auto vAdj = _pCtMainWin->getScrolledwindowText().get_vadjustment();
-        if (vAdj) {
-            double scrollVal = std::min(static_cast<double>(entryCopy.scrollPos),
-                                        vAdj->get_upper() - vAdj->get_page_size());
-            vAdj->set_value(scrollVal);
+            auto vAdj = _pCtMainWin->getScrolledwindowText().get_vadjustment();
+            if (vAdj) {
+                double scrollVal = std::min(static_cast<double>(entryCopy.scrollPos),
+                                            vAdj->get_upper() - vAdj->get_page_size());
+                vAdj->set_value(scrollVal);
+            }
         }
 
         Glib::signal_idle().connect_once([this, entryCopy]() {
-            _flashRegion(entryCopy);
+            _replayEntry(entryCopy);
         });
     });
 }
 
-void CtHistoryPanel::_flashRegion(const CtHistoryEntry& entry)
+void CtHistoryPanel::_replayEntry(const CtHistoryEntry& entry)
 {
-    _stopFlash();
-
-    auto& textView = _pCtMainWin->get_text_view().mm();
-    auto rBuffer = textView.get_buffer();
-    if (!rBuffer) return;
+    _stopReplay();
 
     std::string actionType = entry.actionType;
-    int regionOffset = entry.regionOffset;
-    int regionLength = entry.regionLength;
     int canvasIdx = entry.canvasIdx;
 
-    // Text operations: flash highlight on the affected region
-    if ((actionType == "INS" || actionType == "DEL" || actionType == "FMT" ||
-         actionType == "RFM" || actionType == "TED") && regionOffset >= 0)
+    if (actionType == "INS" || actionType == "DEL" || actionType == "FMT" ||
+        actionType == "RFM" || actionType == "TED" || actionType == "WIns" ||
+        actionType == "WMod" || actionType == "TCel" || actionType == "RCel" ||
+        actionType == "CBed")
     {
-        int charCount = rBuffer->get_char_count();
-        int start = std::min(regionOffset, charCount);
-        int end;
-        if (regionLength > 0) {
-            end = std::min(regionOffset + regionLength, charCount);
-        } else {
-            // Point ops (deletion, paste): highlight a narrow band
-            end = std::min(start + 2, charCount);
-            start = std::max(0, start - 2);
-        }
-
-        // Scroll to make region visible
-        auto iterStart = rBuffer->get_iter_at_offset(start);
-        textView.scroll_to(iterStart, 0.1);
-
-        // Create highlight tag
-        auto* bridge = _pCtMainWin->get_command_bridge();
-        bridge->beginReplay();
-
-        auto tag = rBuffer->create_tag();
-        auto* config = _pCtMainWin->get_ct_config();
-        bool isDark = false;
-        if (auto settings = Gtk::Settings::get_default()) {
-            isDark = settings->property_gtk_application_prefer_dark_theme();
-        }
-        tag->property_background() = isDark ? config->flashColorDark : config->flashColorLight;
-        tag->property_background_set() = true;
-
-        auto iterEnd = rBuffer->get_iter_at_offset(end);
-        rBuffer->apply_tag(tag, iterStart, iterEnd);
-
-        bridge->endReplay();
-
-        _flashState.highlightTag = tag;
-        _flashState.regionOffset = start;
-        _flashState.regionLength = end - start;
-        _flashState.flashCount = 0;
-
-        int pulseCount = config->flashPulseCount;
-        int intervalMs = config->flashPulseIntervalMs;
-        int holdMs = config->flashHoldMs;
-
-        _flashState.timeout = Glib::signal_timeout().connect([this, pulseCount, intervalMs, holdMs]() -> bool {
-            _flashState.flashCount++;
-            auto rBuf = _pCtMainWin->curr_buffer();
-            if (!rBuf || !_flashState.highlightTag) {
-                _stopFlash();
-                return false;
-            }
-
-            auto* bridge = _pCtMainWin->get_command_bridge();
-            bridge->beginReplay();
-
-            int totalTransitions = pulseCount * 2;
-            if (_flashState.flashCount <= totalTransitions) {
-                if (_flashState.flashCount % 2 == 1) {
-                    // OFF
-                    rBuf->remove_tag(_flashState.highlightTag, rBuf->begin(), rBuf->end());
-                } else {
-                    // ON
-                    int s = std::min(_flashState.regionOffset, rBuf->get_char_count());
-                    int e = std::min(_flashState.regionOffset + _flashState.regionLength, rBuf->get_char_count());
-                    rBuf->apply_tag(_flashState.highlightTag,
-                                    rBuf->get_iter_at_offset(s),
-                                    rBuf->get_iter_at_offset(e));
-                }
-                bridge->endReplay();
-                return true;
-            }
-
-            // Final hold phase done — clean up
-            rBuf->remove_tag(_flashState.highlightTag, rBuf->begin(), rBuf->end());
-            auto tagTable = rBuf->get_tag_table();
-            if (tagTable) tagTable->remove(_flashState.highlightTag);
-            _flashState.highlightTag.reset();
-            bridge->endReplay();
-            return false;
-        }, intervalMs);
+        _replayViaModel(entry);
     }
-    else if ((actionType == "WIns" || actionType == "WMod" || actionType == "TCel" ||
-              actionType == "RCel" || actionType == "CBed") && regionOffset >= 0)
+    else if (actionType == "DSt" || actionType == "ESt" || actionType == "RSt" ||
+             actionType == "MSt" || actionType == "ACv" || actionType == "DCv" ||
+             actionType == "MCv" || actionType == "RCv" || actionType == "PCv")
     {
-        // Widget operations: find the actual widget and flash its border
-        int charCount = rBuffer->get_char_count();
-        int clampedOffset = std::min(regionOffset, charCount);
-        auto iterAt = rBuffer->get_iter_at_offset(clampedOffset);
-        textView.scroll_to(iterAt, 0.1);
-
-        auto* config = _pCtMainWin->get_ct_config();
-        bool isDark = false;
-        if (auto settings = Gtk::Settings::get_default()) {
-            isDark = settings->property_gtk_application_prefer_dark_theme();
-        }
-
-        Gtk::Widget* pWidget = nullptr;
-        auto treeIter = _pCtMainWin->curr_tree_iter();
-        if (treeIter) {
-            auto widgets = treeIter.get_anchored_widgets(clampedOffset, clampedOffset + 1);
-            if (!widgets.empty()) {
-                pWidget = widgets.front();
-            }
-        }
-
-        if (pWidget) {
-            auto* pAnchoredWidget = dynamic_cast<CtAnchoredWidget*>(pWidget);
-            if (!pAnchoredWidget) return;
-
-            Glib::ustring flashColor = isDark ? config->flashColorDark : config->flashColorLight;
-            pAnchoredWidget->setFlashHighlight(true, flashColor);
-
-            _flashState.flashingWidget = pAnchoredWidget;
-            _flashState.flashCount = 0;
-
-            int intervalMs = config->flashPulseIntervalMs;
-            int pulseCount = config->flashPulseCount;
-
-            _flashState.timeout = Glib::signal_timeout().connect(
-                [this, pAnchoredWidget, flashColor, pulseCount]() -> bool {
-                _flashState.flashCount++;
-                int totalTransitions = pulseCount * 2;
-                if (_flashState.flashCount <= totalTransitions) {
-                    pAnchoredWidget->setFlashHighlight(_flashState.flashCount % 2 == 0, flashColor);
-                    return true;
-                }
-                pAnchoredWidget->setFlashHighlight(false);
-                _flashState.flashingWidget = nullptr;
-                return false;
-            }, intervalMs);
-        }
-        else {
-            // Fallback: widget not found (e.g. after undo), flash text region
-            auto* bridge = _pCtMainWin->get_command_bridge();
-            bridge->beginReplay();
-
-            int start = std::max(0, clampedOffset - 1);
-            int end = std::min(clampedOffset + 2, charCount);
-            auto tag = rBuffer->create_tag();
-            tag->property_background() = isDark ? config->flashColorDark : config->flashColorLight;
-            tag->property_background_set() = true;
-            rBuffer->apply_tag(tag, rBuffer->get_iter_at_offset(start), rBuffer->get_iter_at_offset(end));
-            bridge->endReplay();
-
-            _flashState.highlightTag = tag;
-            _flashState.regionOffset = start;
-            _flashState.regionLength = end - start;
-            _flashState.flashCount = 0;
-
-            int intervalMs = config->flashPulseIntervalMs;
-            int pulseCount = config->flashPulseCount;
-
-            _flashState.timeout = Glib::signal_timeout().connect([this, pulseCount, intervalMs]() -> bool {
-                _flashState.flashCount++;
-                auto rBuf = _pCtMainWin->curr_buffer();
-                if (!rBuf || !_flashState.highlightTag) { _stopFlash(); return false; }
-
-                auto* bridge = _pCtMainWin->get_command_bridge();
-                bridge->beginReplay();
-
-                int totalTransitions = pulseCount * 2;
-                if (_flashState.flashCount <= totalTransitions) {
-                    if (_flashState.flashCount % 2 == 1) {
-                        rBuf->remove_tag(_flashState.highlightTag, rBuf->begin(), rBuf->end());
-                    } else {
-                        int s = std::min(_flashState.regionOffset, rBuf->get_char_count());
-                        int e = std::min(_flashState.regionOffset + _flashState.regionLength, rBuf->get_char_count());
-                        rBuf->apply_tag(_flashState.highlightTag,
-                                        rBuf->get_iter_at_offset(s),
-                                        rBuf->get_iter_at_offset(e));
-                    }
-                    bridge->endReplay();
-                    return true;
-                }
-                rBuf->remove_tag(_flashState.highlightTag, rBuf->begin(), rBuf->end());
-                auto tagTable = rBuf->get_tag_table();
-                if (tagTable) tagTable->remove(_flashState.highlightTag);
-                _flashState.highlightTag.reset();
-                bridge->endReplay();
-                return false;
-            }, intervalMs);
-        }
-    }
-    else if ((actionType == "DSt" || actionType == "ESt" || actionType == "RSt" ||
-              actionType == "MSt" || actionType == "ACv" || actionType == "DCv" ||
-              actionType == "MCv" || actionType == "RCv" || actionType == "PCv") &&
-             canvasIdx >= 0)
-    {
-        _flashCanvas(canvasIdx);
+        _replayViaDrawingModel(entry);
     }
     else if (actionType == "NPr" || actionType == "NAd" || actionType == "NMv")
     {
-        _flashTreeRow(entry.nodeId);
+        _replayTreeRow(entry.nodeId);
     }
 }
 
-void CtHistoryPanel::_flashCanvas(int canvasIdx)
+void CtHistoryPanel::_replayViaModel(const CtHistoryEntry& entry)
 {
+    auto* bridge = _pCtMainWin->get_command_bridge();
+    auto docModel = bridge->getDocumentModel();
+    if (!docModel) return;
+
+    auto node = docModel->getNodeById(entry.nodeId);
+    if (!node) return;
+
+    static const std::unordered_set<std::string> kContentModifyingTypes{
+        "INS", "DEL", "FMT", "RFM", "TED", "WIns", "WMod", "TCel", "RCel", "CBed"
+    };
+
+    // Collect content-modifying entries for this node, newest-first.
+    // Skip drawing and node-level entries — they don't produce deltas
+    // and would break the delta chain.
+    std::vector<CtHistoryEntry> nodeEntries;
+    for (const auto& parentRow : _rTreeStore->children()) {
+        gint64 parentNodeId = parentRow[_columns.colNodeId];
+        if (parentNodeId != entry.nodeId) continue;
+
+        gint64 parentTs = parentRow[_columns.colTimestampRaw];
+        if (parentTs > 0) {
+            std::string at = static_cast<Glib::ustring>(parentRow[_columns.colActionType]);
+            if (kContentModifyingTypes.count(at)) {
+                CtHistoryEntry e;
+                e.timestamp = parentTs;
+                e.deltaData = static_cast<std::string>(parentRow[_columns.colDeltaData]);
+                nodeEntries.push_back(e);
+            }
+        }
+        for (const auto& childRow : parentRow.children()) {
+            std::string at = static_cast<Glib::ustring>(childRow[_columns.colActionType]);
+            if (kContentModifyingTypes.count(at)) {
+                CtHistoryEntry e;
+                e.timestamp = childRow[_columns.colTimestampRaw];
+                e.deltaData = static_cast<std::string>(childRow[_columns.colDeltaData]);
+                nodeEntries.push_back(e);
+            }
+        }
+        break;
+    }
+
+    // Find the target entry by timestamp
+    int targetIdx = -1;
+    for (int i = 0; i < static_cast<int>(nodeEntries.size()); ++i) {
+        if (nodeEntries[i].timestamp == entry.timestamp) {
+            targetIdx = i;
+            break;
+        }
+    }
+    if (targetIdx < 0) {
+        _replayFallbackHighlight(entry);
+        return;
+    }
+
+    // The target entry itself must have a valid delta
+    if (!CtDeltaEngine::isReplayable(nodeEntries[targetIdx].deltaData)) {
+        spdlog::info("Local history: target entry has no delta, fallback highlight");
+        _replayFallbackHighlight(entry);
+        return;
+    }
+
+    // Off-screen delta reversal on a copy of the current content.
+    // Entries with empty deltas (e.g. oversized widget edits) are skipped —
+    // their effect on text content is nil, so the text state is still accurate.
+    CtNodeContent workingCopy = node->getContent();
+
+    // Rewind from newest (index 0) to target+1
+    for (int i = 0; i < targetIdx; ++i) {
+        if (!CtDeltaEngine::isReplayable(nodeEntries[i].deltaData)) {
+            spdlog::debug("Local history: skipping non-replayable entry at index {}", i);
+            continue;
+        }
+        if (!CtDeltaEngine::applyReverse(workingCopy, nodeEntries[i].deltaData)) {
+            spdlog::warn("Local history: applyReverse failed at index {}", i);
+            _replayFallbackHighlight(entry);
+            return;
+        }
+    }
+    CtNodeContent afterState = workingCopy;
+
+    // Apply reverse of the target entry to get beforeState
+    if (!CtDeltaEngine::applyReverse(workingCopy, nodeEntries[targetIdx].deltaData)) {
+        spdlog::warn("Local history: applyReverse failed for target entry");
+        _replayFallbackHighlight(entry);
+        return;
+    }
+    CtNodeContent beforeState = workingCopy;
+
+    // Start visual replay
+    _replayState.restoreContent = node->getContent();
+    _replayState.beforeContent = std::move(beforeState);
+    _replayState.afterContent = std::move(afterState);
+    _replayState.replayNodeId = entry.nodeId;
+    _replayState.cycleCount = 0;
+    _replayState.maxCycles = _pCtMainWin->get_ct_config()->localHistoryReplayCycles;
+    _replayState.showingBefore = true;
+    _replayState.cursorPos = entry.cursorPos;
+    _replayState.scrollPos = entry.scrollPos;
+
+    bridge->endTextEditSession();
+    bridge->beginReplay();
+
+    // Show "before" state first
+    bridge->setPendingCursorPos(_replayState.cursorPos);
+    docModel->setNodeContent(entry.nodeId, _replayState.beforeContent, true);
+
+    constexpr int kCycleMs = 700;
+    _replayState.timeout = Glib::signal_timeout().connect([this]() -> bool {
+        auto* br = _pCtMainWin->get_command_bridge();
+        auto dm = br->getDocumentModel();
+        if (!dm || !dm->getNodeById(_replayState.replayNodeId)) {
+            _stopReplay();
+            return false;
+        }
+
+        if (_replayState.showingBefore) {
+            // Switch to "after"
+            br->setPendingCursorPos(_replayState.cursorPos);
+            dm->setNodeContent(_replayState.replayNodeId, _replayState.afterContent, true);
+            _replayState.showingBefore = false;
+        } else {
+            // Switch to "before" and increment cycle
+            _replayState.cycleCount++;
+            if (_replayState.cycleCount >= _replayState.maxCycles) {
+                // Done cycling — restore original
+                br->setPendingCursorPos(_replayState.cursorPos);
+                dm->setNodeContent(_replayState.replayNodeId, _replayState.restoreContent, true);
+                br->endReplay();
+                _replayState.replayNodeId = -1;
+                _replayState.timeout.disconnect();
+                return false;
+            }
+            br->setPendingCursorPos(_replayState.cursorPos);
+            dm->setNodeContent(_replayState.replayNodeId, _replayState.beforeContent, true);
+            _replayState.showingBefore = true;
+        }
+        return true;
+    }, kCycleMs);
+}
+
+void CtHistoryPanel::_replayViaDrawingModel(const CtHistoryEntry& entry)
+{
+    auto* bridge = _pCtMainWin->get_command_bridge();
+    auto docModel = bridge->getDocumentModel();
+    if (!docModel) return;
+
+    auto node = docModel->getNodeById(entry.nodeId);
+    if (!node) return;
+
+    static const std::unordered_set<std::string> kDrawingTypes{
+        "DSt", "ESt", "RSt", "MSt", "ACv", "DCv", "MCv", "RCv", "PCv"
+    };
+
+    std::vector<CtHistoryEntry> drawingEntries;
+    for (const auto& parentRow : _rTreeStore->children()) {
+        gint64 parentNodeId = parentRow[_columns.colNodeId];
+        if (parentNodeId != entry.nodeId) continue;
+
+        gint64 parentTs = parentRow[_columns.colTimestampRaw];
+        if (parentTs > 0) {
+            std::string at = static_cast<Glib::ustring>(parentRow[_columns.colActionType]);
+            if (kDrawingTypes.count(at)) {
+                CtHistoryEntry e;
+                e.timestamp = parentTs;
+                e.deltaData = static_cast<std::string>(parentRow[_columns.colDeltaData]);
+                drawingEntries.push_back(e);
+            }
+        }
+        for (const auto& childRow : parentRow.children()) {
+            std::string at = static_cast<Glib::ustring>(childRow[_columns.colActionType]);
+            if (kDrawingTypes.count(at)) {
+                CtHistoryEntry e;
+                e.timestamp = childRow[_columns.colTimestampRaw];
+                e.deltaData = static_cast<std::string>(childRow[_columns.colDeltaData]);
+                drawingEntries.push_back(e);
+            }
+        }
+        break;
+    }
+
+    int targetIdx = -1;
+    for (int i = 0; i < static_cast<int>(drawingEntries.size()); ++i) {
+        if (drawingEntries[i].timestamp == entry.timestamp) {
+            targetIdx = i;
+            break;
+        }
+    }
+    if (targetIdx < 0) {
+        if (entry.canvasIdx >= 0) _replayCanvas(entry.canvasIdx);
+        return;
+    }
+
+    if (!CtDeltaEngine::isDrawingDelta(drawingEntries[targetIdx].deltaData)) {
+        spdlog::info("Local history: target drawing entry has no delta, fallback canvas highlight");
+        if (entry.canvasIdx >= 0) _replayCanvas(entry.canvasIdx);
+        return;
+    }
+
+    auto canvasesCopy = node->getDrawingCanvases();
+
+    for (int i = 0; i < targetIdx; ++i) {
+        if (!CtDeltaEngine::isDrawingDelta(drawingEntries[i].deltaData)) continue;
+        if (!CtDeltaEngine::applyReverseDrawing(canvasesCopy, drawingEntries[i].deltaData)) {
+            spdlog::warn("Local history: applyReverseDrawing failed at index {}", i);
+            if (entry.canvasIdx >= 0) _replayCanvas(entry.canvasIdx);
+            return;
+        }
+    }
+    auto afterCanvases = canvasesCopy;
+
+    if (!CtDeltaEngine::applyReverseDrawing(canvasesCopy, drawingEntries[targetIdx].deltaData)) {
+        spdlog::warn("Local history: applyReverseDrawing failed for target drawing entry");
+        if (entry.canvasIdx >= 0) _replayCanvas(entry.canvasIdx);
+        return;
+    }
+    auto beforeCanvases = canvasesCopy;
+
+    _replayState.restoreCanvases = node->getDrawingCanvases();
+    _replayState.beforeCanvases = std::move(beforeCanvases);
+    _replayState.afterCanvases = std::move(afterCanvases);
+    _replayState.replayNodeId = entry.nodeId;
+    _replayState.replayingDrawing = true;
+    _replayState.cycleCount = 0;
+    _replayState.maxCycles = _pCtMainWin->get_ct_config()->localHistoryReplayCycles;
+    _replayState.showingBefore = true;
+
+    bridge->beginReplay();
+
+    node->getDrawingCanvasesMut() = _replayState.beforeCanvases;
+    docModel->notifyNodeDrawingChanged(entry.nodeId);
+
+    constexpr int kCycleMs = 700;
+    _replayState.timeout = Glib::signal_timeout().connect([this]() -> bool {
+        auto* br = _pCtMainWin->get_command_bridge();
+        auto dm = br->getDocumentModel();
+        if (!dm) { _stopReplay(); return false; }
+        auto nd = dm->getNodeById(_replayState.replayNodeId);
+        if (!nd) { _stopReplay(); return false; }
+
+        if (_replayState.showingBefore) {
+            nd->getDrawingCanvasesMut() = _replayState.afterCanvases;
+            dm->notifyNodeDrawingChanged(_replayState.replayNodeId);
+            _replayState.showingBefore = false;
+        } else {
+            _replayState.cycleCount++;
+            if (_replayState.cycleCount >= _replayState.maxCycles) {
+                nd->getDrawingCanvasesMut() = _replayState.restoreCanvases;
+                dm->notifyNodeDrawingChanged(_replayState.replayNodeId);
+                br->endReplay();
+                _replayState.replayNodeId = -1;
+                _replayState.replayingDrawing = false;
+                _replayState.timeout.disconnect();
+                return false;
+            }
+            nd->getDrawingCanvasesMut() = _replayState.beforeCanvases;
+            dm->notifyNodeDrawingChanged(_replayState.replayNodeId);
+            _replayState.showingBefore = true;
+        }
+        return true;
+    }, kCycleMs);
+}
+
+void CtHistoryPanel::_replayFallbackHighlight(const CtHistoryEntry& entry)
+{
+    auto rBuffer = _pCtMainWin->curr_buffer();
+    if (!rBuffer) return;
+    if (entry.regionLength <= 0) return;
+
+    int charCount = rBuffer->get_char_count();
+    int start = std::min(entry.regionOffset, charCount);
+    int end = std::min(entry.regionOffset + entry.regionLength, charCount);
+    if (start >= end) return;
+
+    auto tag = rBuffer->create_tag();
+    bool isDark = false;
+    if (auto settings = Gtk::Settings::get_default()) {
+        isDark = settings->property_gtk_application_prefer_dark_theme();
+    }
+    tag->property_background() = isDark ? "#554400" : "#FFFFAA";
+
+    auto iterStart = rBuffer->get_iter_at_offset(start);
+    auto iterEnd = rBuffer->get_iter_at_offset(end);
+    rBuffer->apply_tag(tag, iterStart, iterEnd);
+    rBuffer->place_cursor(iterStart);
+    _pCtMainWin->get_text_view().mm().scroll_to(rBuffer->get_insert());
+
+    _replayState.highlightTag = tag;
+    constexpr int kHoldMs = 2000;
+    _replayState.timeout = Glib::signal_timeout().connect(
+        [this, tag, rBuffer]() -> bool {
+            rBuffer->get_tag_table()->remove(tag);
+            _replayState.highlightTag.reset();
+            return false;
+        }, kHoldMs);
+}
+
+void CtHistoryPanel::_replayCanvas(int canvasIdx)
+{
+    constexpr int kHoldMs = 2000;
     auto* overlay = _pCtMainWin->get_drawing_overlay();
     if (!overlay) return;
 
-    auto* config = _pCtMainWin->get_ct_config();
-
     bool isDark = false;
     if (auto settings = Gtk::Settings::get_default()) {
         isDark = settings->property_gtk_application_prefer_dark_theme();
     }
-    std::string flashColor = isDark ? config->flashColorDark.raw() : config->flashColorLight.raw();
+    std::string highlightColor = isDark ? "#554400" : "#FFFFAA";
 
-    overlay->setFlashColor(flashColor);
+    overlay->setFlashColor(highlightColor);
     overlay->setFlashCanvasIdx(canvasIdx);
 
-    _flashState.flashingCanvas = true;
-    _flashState.canvasIdx = canvasIdx;
-    _flashState.flashCount = 0;
+    _replayState.replayingCanvas = true;
+    _replayState.canvasIdx = canvasIdx;
 
-    int pulseCount = config->flashPulseCount;
-    int intervalMs = config->flashPulseIntervalMs;
-
-    _flashState.timeout = Glib::signal_timeout().connect(
-        [this, overlay, pulseCount]() -> bool {
-            _flashState.flashCount++;
-            int totalTransitions = pulseCount * 2;
-            if (_flashState.flashCount <= totalTransitions) {
-                if (_flashState.flashCount % 2 == 1) {
-                    overlay->setFlashCanvasIdx(-1);
-                } else {
-                    overlay->setFlashCanvasIdx(_flashState.canvasIdx);
-                }
-                return true;
-            }
+    _replayState.timeout = Glib::signal_timeout().connect(
+        [this, overlay]() -> bool {
             overlay->setFlashCanvasIdx(-1);
-            _flashState.flashingCanvas = false;
+            _replayState.replayingCanvas = false;
             return false;
-        }, intervalMs);
+        }, kHoldMs);
 }
 
-void CtHistoryPanel::_flashTreeRow(gint64 nodeId)
+void CtHistoryPanel::_replayTreeRow(gint64 /*nodeId*/)
 {
+    constexpr int kHoldMs = 2000;
     auto& treeView = _pCtMainWin->get_tree_view();
-    auto* config = _pCtMainWin->get_ct_config();
 
     bool isDark = false;
     if (auto settings = Gtk::Settings::get_default()) {
         isDark = settings->property_gtk_application_prefer_dark_theme();
     }
-    Glib::ustring flashColor = isDark ? config->flashColorDark : config->flashColorLight;
+    Glib::ustring highlightColor = isDark ? "#554400" : "#FFFFAA";
 
     auto css = Gtk::CssProvider::create();
     css->load_from_data("treeview.history-flash row:selected { background-color: " +
-                        flashColor + "; }");
+                        highlightColor + "; }");
     treeView.get_style_context()->add_provider(css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
     treeView.get_style_context()->add_class("history-flash");
 
-    _flashState.flashingTreeRow = true;
-    _flashState.flashCount = 0;
+    _replayState.replayingTreeRow = true;
 
-    int pulseCount = config->flashPulseCount;
-    int intervalMs = config->flashPulseIntervalMs;
-
-    _flashState.timeout = Glib::signal_timeout().connect(
-        [this, pulseCount, css, &treeView]() -> bool {
-            _flashState.flashCount++;
-            int totalTransitions = pulseCount * 2;
-            if (_flashState.flashCount <= totalTransitions) {
-                if (_flashState.flashCount % 2 == 1) {
-                    treeView.get_style_context()->remove_class("history-flash");
-                } else {
-                    treeView.get_style_context()->add_class("history-flash");
-                }
-                return true;
-            }
+    _replayState.timeout = Glib::signal_timeout().connect(
+        [this, css, &treeView]() -> bool {
             treeView.get_style_context()->remove_class("history-flash");
             treeView.get_style_context()->remove_provider(css);
-            _flashState.flashingTreeRow = false;
+            _replayState.replayingTreeRow = false;
             return false;
-        }, intervalMs);
+        }, kHoldMs);
 }
 
-void CtHistoryPanel::_stopFlash()
+void CtHistoryPanel::_stopReplay()
 {
-    if (_flashState.timeout.connected()) {
-        _flashState.timeout.disconnect();
+    if (_replayState.timeout.connected()) {
+        _replayState.timeout.disconnect();
     }
-    if (_flashState.highlightTag) {
-        auto rBuf = _pCtMainWin->curr_buffer();
-        if (rBuf) {
-            auto* bridge = _pCtMainWin->get_command_bridge();
-            bridge->beginReplay();
-            rBuf->remove_tag(_flashState.highlightTag, rBuf->begin(), rBuf->end());
-            auto tagTable = rBuf->get_tag_table();
-            if (tagTable) tagTable->remove(_flashState.highlightTag);
-            bridge->endReplay();
+    if (_replayState.replayNodeId >= 0) {
+        auto* bridge = _pCtMainWin->get_command_bridge();
+        auto docModel = bridge->getDocumentModel();
+        if (docModel) {
+            auto nd = docModel->getNodeById(_replayState.replayNodeId);
+            if (nd) {
+                if (_replayState.replayingDrawing) {
+                    nd->getDrawingCanvasesMut() = _replayState.restoreCanvases;
+                    docModel->notifyNodeDrawingChanged(_replayState.replayNodeId);
+                } else {
+                    bridge->setPendingCursorPos(_replayState.cursorPos);
+                    docModel->setNodeContent(_replayState.replayNodeId, _replayState.restoreContent, true);
+                }
+            }
         }
-        _flashState.highlightTag.reset();
+        bridge->endReplay();
     }
-    if (_flashState.flashingCanvas) {
+    if (_replayState.replayingCanvas) {
         if (auto* overlay = _pCtMainWin->get_drawing_overlay()) {
             overlay->setFlashCanvasIdx(-1);
         }
     }
-    if (_flashState.flashingWidget) {
-        _flashState.flashingWidget->setFlashHighlight(false);
-        _flashState.flashingWidget = nullptr;
-    }
-    if (_flashState.flashingTreeRow) {
+    if (_replayState.replayingTreeRow) {
         _pCtMainWin->get_tree_view().get_style_context()->remove_class("history-flash");
     }
-    _flashState = FlashState{};
+    if (_replayState.highlightTag) {
+        auto rBuffer = _pCtMainWin->curr_buffer();
+        if (rBuffer) {
+            rBuffer->get_tag_table()->remove(_replayState.highlightTag);
+        }
+        _replayState.highlightTag.reset();
+    }
+    _replayState = ReplayState{};
 }

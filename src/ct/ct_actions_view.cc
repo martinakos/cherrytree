@@ -96,6 +96,7 @@ void CtActions::toggle_show_hide_tree_lines()
 
 void CtActions::toggle_show_hide_history_panel()
 {
+    if (!_pCtConfig->localHistoryEnabled) return;
     _pCtConfig->historyPanelVisible = not _pCtConfig->historyPanelVisible;
     _pCtMainWin->show_hide_history_panel(_pCtConfig->historyPanelVisible);
     if (_pCtConfig->historyPanelVisible) {
