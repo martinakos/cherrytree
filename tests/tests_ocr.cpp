@@ -34,10 +34,10 @@
 #ifdef HAVE_NCNN
 #include "ct_ocr.h"
 #include "ocr_engine.h"
-#include "common.h"
 #include <opencv2/core/mat.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <unistd.h>
 #include <fcntl.h>
@@ -240,33 +240,22 @@ protected:
             s_skip = true;
             return;
         }
-        OCR::Config config;
-        config.is_save = false;
-        config.det_config.infer_threads = 1;
-        config.det_config.model_path = modelDir + "/PP_OCRv6_tiny_det";
-        config.det_config.padding = 0;
-        config.det_config.max_side_len = 768;
-        config.det_config.box_thres = 0.45f;
-        config.det_config.bitmap_thres = 0.2f;
-        config.det_config.unclip_ratio = 1.4f;
-        config.det_config.is_fp16 = false;
-        config.cls_config.infer_threads = 1;
-        config.cls_config.reco_threads = 1;
-        config.cls_config.model_path = modelDir + "/PP_LCNet_x0_25_textline_ori";
-        config.cls_config.enable = true;
-        config.cls_config.most_angle = true;
-        config.cls_config.is_fp16 = false;
-        config.rec_config.infer_threads = 1;
-        config.rec_config.reco_threads = 1;
-        config.rec_config.model_path = modelDir + "/PP_OCRv6_tiny_rec";
-        config.rec_config.keys_path = modelDir + "/ppocr_keys_v6_tiny.txt";
-        config.rec_config.is_fp16 = false;
+        const std::string configPath = modelDir + "/ct_ocr_test_config.json";
+        if (not std::filesystem::exists(configPath)) {
+            std::ofstream f(configPath);
+            f << "{\n"
+              << R"(  "save": false,)" << "\n"
+              << R"(  "det": { "infer_threads": 1, "model_path": ")" << modelDir << R"(/PP_OCRv6_tiny_det", "padding": 0, "max_side_len": 768, "box_thres": 0.45, "bitmap_thres": 0.2, "unclip_ratio": 1.4, "fp16": false },)" << "\n"
+              << R"(  "cls": { "infer_threads": 1, "reco_threads": 1, "model_path": ")" << modelDir << R"(/PP_LCNet_x0_25_textline_ori", "enable": true, "most_angle": true, "fp16": false },)" << "\n"
+              << R"(  "rec": { "infer_threads": 1, "reco_threads": 1, "model_path": ")" << modelDir << R"(/PP_OCRv6_tiny_rec", "keys_path": ")" << modelDir << R"(/ppocr_keys_v6_tiny.txt", "fp16": false })" << "\n"
+              << "}\n";
+        }
 
         s_engine = std::make_unique<OCR::OCREngine>();
         int saved = dup(STDERR_FILENO);
         int devNull = open("/dev/null", O_WRONLY);
         if (devNull >= 0) { dup2(devNull, STDERR_FILENO); close(devNull); }
-        bool ok = s_engine->Initialize(config);
+        bool ok = s_engine->Initialize(configPath);
         if (saved >= 0) { dup2(saved, STDERR_FILENO); close(saved); }
         if (not ok) {
             s_engine.reset();

@@ -31,7 +31,6 @@
 #include "config.h"
 
 #include "ocr_engine.h"
-#include "common.h"
 
 #include <opencv2/core/mat.hpp>
 #include <opencv2/imgcodecs.hpp>
@@ -146,38 +145,45 @@ void CtOcrManager::_worker_func()
         pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
     }
 
-    OCR::Config config;
-    config.is_save = false;
-
-    config.det_config.infer_threads = 1;
-    config.det_config.model_path = _modelDir + "/PP_OCRv6_tiny_det";
-    config.det_config.padding = 0;
-    config.det_config.max_side_len = 768;
-    config.det_config.box_thres = 0.45f;
-    config.det_config.bitmap_thres = 0.2f;
-    config.det_config.unclip_ratio = 1.4f;
-    config.det_config.is_fp16 = false;
-
-    config.cls_config.infer_threads = 1;
-    config.cls_config.reco_threads = 1;
-    config.cls_config.model_path = _modelDir + "/PP_LCNet_x0_25_textline_ori";
-    config.cls_config.enable = true;
-    config.cls_config.most_angle = true;
-    config.cls_config.is_fp16 = false;
-
-    config.rec_config.infer_threads = 1;
-    config.rec_config.reco_threads = 1;
-    config.rec_config.model_path = _modelDir + "/PP_OCRv6_tiny_rec";
-    config.rec_config.keys_path = _modelDir + "/ppocr_keys_v6_tiny.txt";
-    config.rec_config.is_fp16 = false;
+    const std::string configPath = _modelDir + "/ct_ocr_config.json";
+    if (not std::filesystem::exists(configPath)) {
+        std::ofstream f(configPath);
+        f << "{\n"
+          << R"(  "save": false,)" << "\n"
+          << R"(  "det": {)" << "\n"
+          << R"(    "infer_threads": 1,)" << "\n"
+          << R"(    "model_path": ")" << _modelDir << R"(/PP_OCRv6_tiny_det",)" << "\n"
+          << R"(    "padding": 0,)" << "\n"
+          << R"(    "max_side_len": 768,)" << "\n"
+          << R"(    "box_thres": 0.45,)" << "\n"
+          << R"(    "bitmap_thres": 0.2,)" << "\n"
+          << R"(    "unclip_ratio": 1.4,)" << "\n"
+          << R"(    "fp16": false)" << "\n"
+          << "  },\n"
+          << R"(  "cls": {)" << "\n"
+          << R"(    "infer_threads": 1,)" << "\n"
+          << R"(    "reco_threads": 1,)" << "\n"
+          << R"(    "model_path": ")" << _modelDir << R"(/PP_LCNet_x0_25_textline_ori",)" << "\n"
+          << R"(    "enable": true,)" << "\n"
+          << R"(    "most_angle": true,)" << "\n"
+          << R"(    "fp16": false)" << "\n"
+          << "  },\n"
+          << R"(  "rec": {)" << "\n"
+          << R"(    "infer_threads": 1,)" << "\n"
+          << R"(    "reco_threads": 1,)" << "\n"
+          << R"(    "model_path": ")" << _modelDir << R"(/PP_OCRv6_tiny_rec",)" << "\n"
+          << R"(    "keys_path": ")" << _modelDir << R"(/ppocr_keys_v6_tiny.txt",)" << "\n"
+          << R"(    "fp16": false)" << "\n"
+          << "  }\n"
+          << "}\n";
+    }
 
     _pOcrEngine = std::make_unique<OCR::OCREngine>();
     {
-        // Suppress ncnn's stderr deprecation warnings during model loading
         int savedStderr = dup(STDERR_FILENO);
         int devNull = open("/dev/null", O_WRONLY);
         if (devNull >= 0) { dup2(devNull, STDERR_FILENO); close(devNull); }
-        bool ok = _pOcrEngine->Initialize(config);
+        bool ok = _pOcrEngine->Initialize(configPath);
         if (savedStderr >= 0) { dup2(savedStderr, STDERR_FILENO); close(savedStderr); }
         if (not ok) {
             spdlog::error("CtOcrManager: failed to initialize OCR engine from {}", _modelDir);
