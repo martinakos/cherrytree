@@ -269,6 +269,10 @@ std::list<CtAnchoredWidget*> buildBufferFromContent(
                             const int dh = std::stoi(dispH);
                             if (dw > 0 && dh > 0) pImage->set_display_size(dw, dh);
                         }
+                        const std::string ocrText = widgetDesc.getProperty("ocr_text");
+                        if (!ocrText.empty()) pImage->set_ocr_text(ocrText);
+                        const std::string ocrBoxes = widgetDesc.getProperty("ocr_boxes");
+                        if (!ocrBoxes.empty()) pImage->set_ocr_boxes(ocrBoxes);
                         widget = pImage;
                     }
                 }

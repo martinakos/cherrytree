@@ -70,7 +70,7 @@ enum class CtDuplicateShared { None, Duplicate, Shared };
 
 enum class CtRestoreExpColl : int { FROM_STR=0, ALL_EXP=1, ALL_COLL=2 };
 
-enum class CtMatchType { None, Content, NameNTags, DrawingCanvases };
+enum class CtMatchType { None, Content, NameNTags, DrawingCanvases, TextInImages };
 
 class CtCodebox;
 class CtMainWin;
@@ -370,6 +370,13 @@ public:
             c.notify_one();
         }
     }
+    void push_front(T t) {
+        std::lock_guard<std::mutex> lock(m);
+        if (q.size() < MAX) {
+            q.push_front(t);
+            c.notify_one();
+        }
+    }
     T pop_front() {
         std::unique_lock<std::mutex> lock(m);
         while (q.empty()) {
@@ -432,6 +439,7 @@ struct CtSearchOptions {
     bool        node_content{true};
     bool        node_name_n_tags{true};
     bool        drawing_canvases{true};
+    bool        text_in_images{false};
     bool        replace_in_link_targets{false};
 };
 
@@ -529,6 +537,7 @@ struct CtSearchState {
     bool           from_find_iterated{false};
     gint64         find_iterated_last_name_n_tags_id{0};
     gint64         find_iterated_last_drawing_canvases_id{0};
+    gint64         find_iterated_last_text_in_images_id{0};
     bool           from_find_back{false};
     bool           find_back_exclude_obj_offs_zero{false};
     size_t         find_iter_anchlist_idx{0u};

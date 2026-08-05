@@ -19,6 +19,7 @@ Build-Depends:
  libvte-2.91-dev,
  libfmt-dev,
  libspdlog-dev,
+ libopencv-dev,
  file,
  libxml2-utils
 Standards-Version: 3.9.5

@@ -216,6 +216,10 @@ CtMainWin::CtMainWin(bool                            no_gui,
 
     _pDrawingOverlay.reset(new CtDrawingOverlay{this});
 
+#ifdef HAVE_NCNN
+    _ocrAvailable = not _no_gui and CtOcrManager::is_available();
+#endif
+
     _scrolledwindowTree.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
     _scrolledwindowTree.get_style_context()->add_class("ct-tree-scroll-panel");
     _scrolledwindowText.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
@@ -950,6 +954,11 @@ Gtk::Box& CtMainWin::_init_status_bar()
     _ctStatusBar.canvasEditLabel.set_markup(" <b><span foreground='red'>Canvas Editing</span></b> ");
     _ctStatusBar.canvasEditLabel.set_no_show_all(true);
     _ctStatusBar.canvasEditLabel.hide();
+    _ctStatusBar.ocrLabel.set_xalign(1.0f);
+    _ctStatusBar.ocrLabel.set_margin_top(4);
+    _ctStatusBar.ocrLabel.set_margin_bottom(4);
+    _ctStatusBar.ocrLabel.set_no_show_all(true);
+    _ctStatusBar.ocrLabel.hide();
     _ctStatusBar.zoomLabel.set_size_request(100, -1);
     _ctStatusBar.zoomLabel.set_xalign(1.0f);
     _ctStatusBar.zoomLabel.set_margin_end(4);
@@ -972,6 +981,7 @@ Gtk::Box& CtMainWin::_init_status_bar()
     _ctStatusBar.hbox.append(_ctStatusBar.messageLabel);
     _ctStatusBar.canvasEditLabel.set_hexpand(true);
     _ctStatusBar.hbox.append(_ctStatusBar.canvasEditLabel);
+    _ctStatusBar.hbox.append(_ctStatusBar.ocrLabel);
     _ctStatusBar.hbox.append(_ctStatusBar.zoomLabel);
     _ctStatusBar.hbox.append(_ctStatusBar.frame);
     _ctStatusBar.hbox.append(_ctStatusBar.stopButton);
@@ -988,6 +998,7 @@ Gtk::Box& CtMainWin::_init_status_bar()
     _ctStatusBar.hbox.pack_end(_ctStatusBar.stopButton, false, true);
     _ctStatusBar.hbox.pack_end(_ctStatusBar.frame, false, true);
     _ctStatusBar.hbox.pack_end(_ctStatusBar.zoomLabel, false, false);
+    _ctStatusBar.hbox.pack_end(_ctStatusBar.ocrLabel, false, false);
     _ctStatusBar.hbox.pack_end(_ctStatusBar.canvasEditLabel, true, true);
     #endif
 
@@ -2039,3 +2050,98 @@ void CtMainWin::tree_node_paste_from_other_window(CtMainWin* pWinToCopyFrom, gin
     }
     _uCtActions->node_subnodes_paste2(other_ct_tree_iter, pWinToCopyFrom);
 }
+
+#ifdef HAVE_NCNN
+void CtMainWin::_init_ocr_manager()
+{
+    if (_pOcrManager or not _ocrAvailable) return;
+    const std::string modelDir = fs::get_cherrytree_datadir().string() + "/data/ocr_models";
+    _pOcrManager.reset(new CtOcrManager{modelDir});
+    _pOcrManager->dispatcherOcrResult.connect(sigc::mem_fun(*this, &CtMainWin::_on_ocr_result_ready));
+}
+
+void CtMainWin::_ocr_enqueue_incremental()
+{
+    _ocrNodeIds.clear();
+    _ocrNodeIdx = 0;
+    get_tree_store().get_store()->foreach_iter([this](const Gtk::TreeModel::iterator& iter) -> bool {
+        CtTreeIter ctIter = get_tree_store().to_ct_tree_iter(iter);
+        _ocrNodeIds.push_back(ctIter.get_node_id());
+        return false;
+    });
+    if (not _ocrNodeIds.empty()) {
+        Glib::signal_idle().connect_once(sigc::mem_fun(*this, &CtMainWin::_ocr_enqueue_next_node));
+    }
+}
+
+void CtMainWin::_ocr_enqueue_next_node()
+{
+    if (_ocrNodeIdx >= _ocrNodeIds.size() or not _pOcrManager) return;
+    const gint64 nodeId = _ocrNodeIds[_ocrNodeIdx++];
+    CtTreeIter ctIter = get_tree_store().get_node_from_node_id(nodeId);
+    if (ctIter) {
+        for (auto* pWidget : ctIter.get_anchored_widgets_fast()) {
+            if (pWidget->get_type() != CtAnchWidgType::ImagePng) continue;
+            auto* pImagePng = dynamic_cast<CtImagePng*>(pWidget);
+            if (not pImagePng or not pImagePng->get_ocr_text().empty()) continue;
+            _pOcrManager->enqueue(pImagePng->get_raw_blob(), nodeId, pWidget->getOffset());
+        }
+    }
+    if (_ocrNodeIdx < _ocrNodeIds.size()) {
+        Glib::signal_idle().connect_once(sigc::mem_fun(*this, &CtMainWin::_ocr_enqueue_next_node));
+    }
+    else {
+        _ocrNodeIds.clear();
+        spdlog::info("CtOcrManager: incremental enqueue complete, {} images queued", _pOcrManager->total_enqueued());
+    }
+}
+
+void CtMainWin::_on_ocr_result_ready()
+{
+    _process_one_ocr_result();
+}
+
+void CtMainWin::_process_one_ocr_result()
+{
+    if (not _pOcrManager or _pOcrManager->resultQueue.empty()) return;
+
+    auto optResult = _pOcrManager->resultQueue.peek();
+    if (not optResult.has_value()) return;
+    CtOcrResult result = _pOcrManager->resultQueue.pop_front();
+
+    if (not result.ocrText.empty()) {
+        CtTreeIter nodeIter = get_tree_store().get_node_from_node_id(result.nodeId);
+        if (nodeIter) {
+            for (auto* pWidget : nodeIter.get_anchored_widgets_fast()) {
+                if (pWidget->get_type() != CtAnchWidgType::ImagePng) continue;
+                if (pWidget->getOffset() != result.charOffset) continue;
+                auto* pImagePng = dynamic_cast<CtImagePng*>(pWidget);
+                if (not pImagePng) continue;
+                pImagePng->set_ocr_text(result.ocrText);
+                pImagePng->set_ocr_boxes(result.ocrBoxes);
+                update_window_save_needed(CtSaveNeededUpdType::nbuf);
+                break;
+            }
+        }
+    }
+
+    const size_t remaining = _pOcrManager->pending_count();
+    const size_t total = _pOcrManager->total_enqueued();
+    if (remaining > 0) {
+        _ctStatusBar.ocrLabel.set_markup(
+            Glib::ustring::compose(" <small>OCR: %1/%2</small> ", total - remaining, total));
+        _ctStatusBar.ocrLabel.show();
+    }
+    else {
+        _ctStatusBar.ocrLabel.set_markup(
+            Glib::ustring::compose(" <small>OCR: %1/%2</small> ", total, total));
+        Glib::signal_timeout().connect_once([this](){
+            _ctStatusBar.ocrLabel.hide();
+        }, 3000);
+    }
+
+    if (not _pOcrManager->resultQueue.empty()) {
+        Glib::signal_idle().connect_once(sigc::mem_fun(*this, &CtMainWin::_process_one_ocr_result));
+    }
+}
+#endif

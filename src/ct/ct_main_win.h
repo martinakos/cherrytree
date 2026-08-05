@@ -45,6 +45,11 @@
 #include "ct_image.h"
 #include "ct_export2pdf.h"
 #include "ct_drawing.h"
+#ifdef HAVE_NCNN
+#include "ct_ocr.h"
+#else
+class CtOcrManager;
+#endif
 
 struct CtStatusBar
 {
@@ -62,6 +67,7 @@ struct CtStatusBar
     Gtk::Label       messageLabel;
     Gtk::Label       canvasEditLabel;
     Gtk::Label       zoomLabel;
+    Gtk::Label       ocrLabel;
     Gtk::ProgressBar progressBar;
     Gtk::Button      stopButton;
     Gtk::Frame       frame;
@@ -185,6 +191,11 @@ public:
     Glib::RefPtr<Gtk::TextTagTable>&  get_text_tag_table() { return _rGtkTextTagTable; }
     Glib::RefPtr<Gtk::CssProvider>&   get_css_provider()   { return _rGtkCssProvider; }
     GtkSourceLanguageManager*         get_language_manager() { return _pGtkSourceLanguageManager; }
+#ifdef HAVE_NCNN
+    CtOcrManager*                     get_ocr_manager() { _init_ocr_manager(); return _pOcrManager.get(); }
+#else
+    CtOcrManager*                     get_ocr_manager() { return nullptr; }
+#endif
 
 #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     Gtk::StatusIcon*                  get_status_icon() { return _pCtStatusIcon->get(); }
@@ -423,6 +434,17 @@ private:
     std::unique_ptr<class CtCommandBridge> _pCtCommandBridge;
     std::unique_ptr<CtPairCodeboxMainWin> _uCtPairCodeboxMainWin;
     std::unique_ptr<CtDrawingOverlay> _pDrawingOverlay;
+#ifdef HAVE_NCNN
+    std::unique_ptr<CtOcrManager> _pOcrManager;
+    bool _ocrAvailable{false};
+    std::vector<gint64> _ocrNodeIds;
+    size_t _ocrNodeIdx{0};
+    void _init_ocr_manager();
+    void _ocr_enqueue_incremental();
+    void _ocr_enqueue_next_node();
+    void _on_ocr_result_ready();
+    void _process_one_ocr_result();
+#endif
 
     Glib::RefPtr<Gtk::CssProvider> _css_provider_theme;
 

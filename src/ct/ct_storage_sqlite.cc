@@ -95,10 +95,12 @@ const char CtStorageSqlite::TABLE_IMAGE_CREATE[]{"CREATE TABLE image ("
 "display_width INTEGER,"
 "display_height INTEGER,"
 "ts_creation INTEGER,"
-"ts_lastsave INTEGER"
+"ts_lastsave INTEGER,"
+"ocr_text TEXT,"
+"ocr_boxes TEXT"
 ")"
 };
-const char CtStorageSqlite::TABLE_IMAGE_INSERT[]{"INSERT INTO image VALUES(?,?,?,?,?,?,?,?,?,?,?,?)"};
+const char CtStorageSqlite::TABLE_IMAGE_INSERT[]{"INSERT INTO image VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)"};
 const char CtStorageSqlite::TABLE_IMAGE_DELETE[]{"DELETE FROM image WHERE node_id=?"};
 
 const char CtStorageSqlite::TABLE_CHILDREN_CREATE[]{"CREATE TABLE children ("
@@ -634,6 +636,14 @@ void CtStorageSqlite::_image_from_db(const gint64& nodeId, std::list<CtAnchoredW
                 if (displayWidth > 0 and displayHeight > 0) {
                     pImage->set_display_size(displayWidth, displayHeight);
                 }
+                const Glib::ustring ocrText = safe_sqlite3_column_text(stmt, 12);
+                if (not ocrText.empty()) {
+                    pImage->set_ocr_text(ocrText);
+                }
+                const std::string ocrBoxes = safe_sqlite3_column_text(stmt, 13);
+                if (not ocrBoxes.empty()) {
+                    pImage->set_ocr_boxes(ocrBoxes);
+                }
                 anchoredWidgets.push_back(pImage);
             }
         }
@@ -1101,7 +1111,7 @@ void CtStorageSqlite::_fix_db_tables()
 {
     const static std::vector<std::vector<std::string>> tables = {
         {"node", "ts_creation", "INTEGER", "ts_lastsave", "INTEGER"},
-        {"image", "filename", "TEXT", "link", "TEXT", "time", "TEXT", "display_width", "INTEGER", "display_height", "INTEGER", "ts_creation", "INTEGER", "ts_lastsave", "INTEGER"},
+        {"image", "filename", "TEXT", "link", "TEXT", "time", "TEXT", "display_width", "INTEGER", "display_height", "INTEGER", "ts_creation", "INTEGER", "ts_lastsave", "INTEGER", "ocr_text", "TEXT", "ocr_boxes", "TEXT"},
         {"codebox", "ts_creation", "INTEGER", "ts_lastsave", "INTEGER"},
         {"grid", "ts_creation", "INTEGER", "ts_lastsave", "INTEGER"},
         {"children", "master_id", "INTEGER"},

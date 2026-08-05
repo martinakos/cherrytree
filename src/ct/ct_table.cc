@@ -1254,6 +1254,10 @@ CtAnchoredWidget* CtRichCell::_createWidgetFromDesc(const CtWidgetDesc& desc, in
                     pImage->set_display_size(displayWidth, displayHeight);
                 }
             }
+            const std::string ocrText = desc.getProperty("ocr_text");
+            if (!ocrText.empty()) pImage->set_ocr_text(ocrText);
+            const std::string ocrBoxes = desc.getProperty("ocr_boxes");
+            if (!ocrBoxes.empty()) pImage->set_ocr_boxes(ocrBoxes);
             return pImage;
         }
         if (desc.type == CtAnchWidgType::ImageAnchor) {

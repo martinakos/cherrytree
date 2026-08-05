@@ -226,6 +226,9 @@ private:
     bool _parse_node_drawing_canvases_iter(CtTreeIter& tree_iter,
                                            Glib::RefPtr<Glib::Regex> re_pattern,
                                            const bool all_matches);
+    bool _parse_node_image_ocr_text_iter(CtTreeIter& tree_iter,
+                                          Glib::RefPtr<Glib::Regex> re_pattern,
+                                          const bool all_matches);
     Gtk::TextIter _get_inner_start_iter(Glib::RefPtr<Gtk::TextBuffer> text_buffer,
                                         const bool forward,
                                         const bool all_matches);
@@ -482,6 +485,11 @@ public:
     void image_delete();
     void image_link_edit();
     void image_link_dismiss();
+#ifdef HAVE_NCNN
+    void image_ocr();
+    void ocr_all_images();
+    void reocr_all_images();
+#endif
     void toggle_show_hide_main_window();
 
     void link_clicked(const Glib::ustring& tag_property_value, bool from_wheel);

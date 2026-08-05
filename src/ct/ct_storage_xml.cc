@@ -742,6 +742,14 @@ CtAnchoredWidget* CtStorageXmlHelper::_create_image_from_xml(xmlpp::Element* xml
             pImage->set_display_size(displayWidth, displayHeight);
         }
     }
+    const Glib::ustring ocrText = xml_element->get_attribute_value("ocr_text");
+    if (not ocrText.empty()) {
+        pImage->set_ocr_text(ocrText);
+    }
+    const std::string ocrBoxes = xml_element->get_attribute_value("ocr_boxes");
+    if (not ocrBoxes.empty()) {
+        pImage->set_ocr_boxes(ocrBoxes);
+    }
     return pImage;
 }
 
