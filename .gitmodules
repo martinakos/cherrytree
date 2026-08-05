@@ -4,3 +4,9 @@
 [submodule "src/spdlog"]
 	path = src/spdlog
 	url = https://github.com/gabime/spdlog.git
+[submodule "src/ncnn"]
+	path = src/ncnn
+	url = https://github.com/Tencent/ncnn.git
+[submodule "src/paddleocr_ncnn"]
+	path = src/paddleocr_ncnn
+	url = https://github.com/Avafly/PaddleOCR-ncnn-CPP.git

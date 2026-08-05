@@ -80,7 +80,17 @@ package_add_test(run_tests_no_x
   tests_document_model.cpp
   tests_drawing.cpp
   tests_widget_timestamps.cpp
+  tests_ocr.cpp
 )
+
+if(USE_NCNN)
+  target_include_directories(run_tests_no_x SYSTEM PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/paddleocr_ncnn/src
+    ${CMAKE_SOURCE_DIR}/src/paddleocr_ncnn/src/3rdparty
+    ${CMAKE_SOURCE_DIR}/src/ncnn/src
+    ${OpenCV_INCLUDE_DIRS}
+  )
+endif()
 
 package_add_test(run_tests_with_x_1
   tests_main.cpp

@@ -325,7 +325,8 @@ const inline static gchar* MENUBAR_FORMAT_DEFAULT {
 };
 const inline static gchar* MENUBAR_TOOLS_DEFAULT {
     "spellcheck_toggle,separator,exec_code_los,exec_code_all,"
-    "strip_trail_spaces,repl_tabs_spaces,separator,command_palette"
+    "strip_trail_spaces,repl_tabs_spaces,separator,command_palette,"
+    "separator,ocr_all_images,reocr_all_images"
 };
 const inline static gchar* MENUBAR_TREE_DEFAULT {
     "go_node_next,go_node_prev,separator,"
@@ -379,7 +380,7 @@ const inline static gchar* POPUP_CODE_DEFAULT {
     "{ReplaceSubMenu,replace_in_node,replace_in_allnodes,replace_iter_fw,}"
 };
 const inline static gchar* POPUP_IMAGE_DEFAULT {
-    "img_cut,img_copy,img_del,separator,img_edit,img_save,separator,img_link_edit,img_link_dismiss"
+    "img_cut,img_copy,img_del,separator,img_edit,img_save,separator,img_link_edit,img_link_dismiss,separator,img_ocr"
 };
 const inline static gchar* POPUP_LATEX_DEFAULT {
     "tex_cut,tex_copy,tex_del,separator,tex_edit,tex_save"

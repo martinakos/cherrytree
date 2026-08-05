@@ -93,18 +93,30 @@ public:
     void update_label_widget();
     const Glib::ustring& get_link() const { return _link; }
     void set_link(const Glib::ustring& link) { _link = link; }
+    const Glib::ustring& get_ocr_text() const { return _ocrText; }
+    void set_ocr_text(const Glib::ustring& ocrText) { _ocrText = ocrText; }
+    const std::string& get_ocr_boxes() const { return _ocrBoxes; }
+    void set_ocr_boxes(const std::string& ocrBoxes) { _ocrBoxes = ocrBoxes; }
+    void highlight_ocr_match(int matchStart, int matchEnd);
+    void clear_ocr_highlight();
 
 private:
+    void _setup_overlay();
 #if GTKMM_MAJOR_VERSION < 4
     bool _on_button_press_event(GdkEventButton* event);
+    bool _on_overlay_draw(const Cairo::RefPtr<Cairo::Context>& cr);
 #endif
 
 protected:
     Glib::ustring _link;
-    // Cached PNG-encoded blob. Recomputing from the pixbuf costs a full PNG
-    // re-encode per call, which snapshot-heavy paths (buildContentFromBuffer
-    // → CtWidgetDesc for undo) hit twice per edit.
     std::string _rawBlobCache;
+    Glib::ustring _ocrText;
+    std::string _ocrBoxes;
+    Gtk::Overlay _overlay;
+    Gtk::DrawingArea _highlightArea;
+    std::vector<std::array<double, 8>> _highlightRects;
+    int _ocrImgW{0};
+    int _ocrImgH{0};
 };
 
 class CtImageAnchor : public CtImage
