@@ -296,17 +296,16 @@ void CtClipboard::_paste_clipboard(Gtk::TextView* pTextView, CtCodebox* pCodebox
         if (vec::exists(targets, CtConst::TARGET_URI_LIST)) {
             return std::make_tuple(CtConst::TARGET_URI_LIST, received_uri, false);
         }
-        for (auto& target : CtConst::TARGETS_PLAIN_TEXT) {
-            if (vec::exists(targets, target)) {
-                return std::make_tuple(target, received_plain_text, not is_rich_text/*force_plain_text*/);
-            }
-        }
         if (is_rich_text) {
-            // images at very last because of mac os target of mime type icon
             for (auto& target : CtConst::TARGETS_IMAGES) {
                 if (vec::exists(targets, target)) {
                     return std::make_tuple(target, received_image, false);
                 }
+            }
+        }
+        for (auto& target : CtConst::TARGETS_PLAIN_TEXT) {
+            if (vec::exists(targets, target)) {
+                return std::make_tuple(target, received_plain_text, not is_rich_text/*force_plain_text*/);
             }
         }
         return std::make_tuple(Glib::ustring(), received_plain_text, false);
@@ -317,6 +316,7 @@ void CtClipboard::_paste_clipboard(Gtk::TextView* pTextView, CtCodebox* pCodebox
         spdlog::warn("targets not handled {}", str::join(targets, ", "));
         return;
     };
+    spdlog::debug("paste: selected target '{}' from available [{}]", target.raw(), str::join(targets, ", "));
     auto receive_fun = sigc::bind(target_fun, _pCtMainWin, pTextView, force_plain_text);
     pClipboard->request_contents(target, receive_fun);
 }
