@@ -334,6 +334,12 @@ void CtMenu::init_actions(CtActions* pActions)
             _("Replace Tabs with Spaces"), sigc::mem_fun(*pActions, &CtActions::replace_tabs_with_spaces)});
         _actions.push_back(CtMenuAction{tools_cat, "command_palette", "ct_execute", _("_Command Palette..."), KB_CONTROL+KB_SHIFT+"p",
             _("Command Palette"), sigc::mem_fun(*pActions, &CtActions::command_palette)});
+#ifdef HAVE_NCNN
+        _actions.push_back(CtMenuAction{tools_cat, "ocr_all_images", "ct_find", _("OCR All _Images"), None,
+            _("Run OCR on All Images Without OCR Text"), sigc::mem_fun(*pActions, &CtActions::ocr_all_images)});
+        _actions.push_back(CtMenuAction{tools_cat, "reocr_all_images", "ct_find", _("_Re-OCR All Images"), None,
+            _("Re-run OCR on All Images"), sigc::mem_fun(*pActions, &CtActions::reocr_all_images)});
+#endif
         _actions.push_back(CtMenuAction{tools_cat, "exec_code_all", "ct_play", _("_Execute Code All"), "F5",
             _("Execute All Code in CodeBox or Node"), sigc::mem_fun(*pActions, &CtActions::exec_code_all)});
         _actions.push_back(CtMenuAction{tools_cat, "exec_code_los", "ct_play", _("E_xecute Code Line or Selection"), KB_CONTROL+"F5",
@@ -610,6 +616,10 @@ void CtMenu::init_actions(CtActions* pActions)
             _("Edit the Link Associated to the Image"), sigc::mem_fun(*pActions, &CtActions::image_link_edit)});
         _actions.push_back(CtMenuAction{others_cat, "img_link_dismiss", "ct_clear", _("D_ismiss Link"), None,
             _("Dismiss the Link Associated to the Image"), sigc::mem_fun(*pActions, &CtActions::image_link_dismiss)});
+#ifdef HAVE_NCNN
+        _actions.push_back(CtMenuAction{others_cat, "img_ocr", "ct_find", _("_OCR This Image"), None,
+            _("Run OCR on This Image"), sigc::mem_fun(*pActions, &CtActions::image_ocr)});
+#endif
         _actions.push_back(CtMenuAction{others_cat, "toggle_show_mainwin", CtConst::APP_BIN_NAME, _("Show/Hide _CherryTree"), None,
             _("Toggle Show/Hide CherryTree"), sigc::mem_fun(*pActions, &CtActions::toggle_show_hide_main_window)});
     }

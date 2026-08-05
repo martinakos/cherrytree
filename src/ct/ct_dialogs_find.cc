@@ -268,10 +268,13 @@ void CtDialogs::dialog_search(CtMainWin* pCtMainWin,
     node_name_n_tags_checkbutton->set_active(s_options.node_name_n_tags);
     auto drawing_canvases_checkbutton = Gtk::manage(new Gtk::CheckButton{_("Drawing Canvases")});
     drawing_canvases_checkbutton->set_active(s_options.drawing_canvases);
+    auto text_in_images_checkbutton = Gtk::manage(new Gtk::CheckButton{_("Text in Images")});
+    text_in_images_checkbutton->set_active(s_options.text_in_images);
     auto hbox_node_content_name_n_tags = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 3/*spacing*/});
     hbox_node_content_name_n_tags->pack_start(*node_content_checkbutton);
     hbox_node_content_name_n_tags->pack_start(*node_name_n_tags_checkbutton);
     hbox_node_content_name_n_tags->pack_start(*drawing_canvases_checkbutton);
+    hbox_node_content_name_n_tags->pack_start(*text_in_images_checkbutton);
     auto only_sel_n_subnodes_checkbutton = Gtk::manage(new Gtk::CheckButton{_("Only Selected Node and Subnodes")});
     only_sel_n_subnodes_checkbutton->set_active(s_options.only_sel_n_subnodes);
     auto iter_dialog_checkbutton = Gtk::manage(new Gtk::CheckButton{_("Show Iterated Find/Replace Dialog")});
@@ -380,6 +383,7 @@ void CtDialogs::dialog_search(CtMainWin* pCtMainWin,
                                          node_content_checkbutton,
                                          node_name_n_tags_checkbutton,
                                          drawing_canvases_checkbutton,
+                                         text_in_images_checkbutton,
                                          only_sel_n_subnodes_checkbutton,
                                          iter_dialog_checkbutton,
                                          replace_in_link_targets_checkbutton,
@@ -429,6 +433,7 @@ void CtDialogs::dialog_search(CtMainWin* pCtMainWin,
         s_options.node_content = node_content_checkbutton->get_active();
         s_options.node_name_n_tags = node_name_n_tags_checkbutton->get_active();
         s_options.drawing_canvases = drawing_canvases_checkbutton->get_active();
+        s_options.text_in_images = text_in_images_checkbutton->get_active();
         s_options.only_sel_n_subnodes = only_sel_n_subnodes_checkbutton->get_active();
         s_options.iterative_dialog = iter_dialog_checkbutton->get_active();
         s_options.replace_in_link_targets = replace_in_link_targets_checkbutton ? replace_in_link_targets_checkbutton->get_active() : false;

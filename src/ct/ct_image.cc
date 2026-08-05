@@ -29,6 +29,7 @@
 #include "ct_storage_control.h"
 #include "ct_storage_multifile.h"
 #include <regex>
+#include <sstream>
 
 CtImage::CtImage(CtMainWin* pCtMainWin,
                  const std::string& rawBlob,
@@ -126,6 +127,24 @@ void CtImage::apply_zoom(double scaleFactor)
     _image.set(_rPixbuf);
 }
 
+void CtImagePng::_setup_overlay()
+{
+#if GTKMM_MAJOR_VERSION < 4
+    _frame.remove();
+    _overlay.add(_image);
+    _highlightArea.set_halign(Gtk::ALIGN_FILL);
+    _highlightArea.set_valign(Gtk::ALIGN_FILL);
+    _overlay.add_overlay(_highlightArea);
+    _overlay.set_overlay_pass_through(_highlightArea, true);
+    _highlightArea.signal_draw().connect(sigc::mem_fun(*this, &CtImagePng::_on_overlay_draw));
+    _highlightArea.set_no_show_all(true);
+    _highlightArea.hide();
+    _frame.add(_overlay);
+    _overlay.show_all();
+    _highlightArea.hide();
+#endif
+}
+
 CtImagePng::CtImagePng(CtMainWin* pCtMainWin,
                        const std::string& rawBlob,
                        const Glib::ustring& link,
@@ -138,6 +157,7 @@ CtImagePng::CtImagePng(CtMainWin* pCtMainWin,
 #if GTKMM_MAJOR_VERSION < 4
     signal_button_press_event().connect(sigc::mem_fun(*this, &CtImagePng::_on_button_press_event), false);
 #endif
+    _setup_overlay();
     update_label_widget();
 }
 
@@ -152,6 +172,7 @@ CtImagePng::CtImagePng(CtMainWin* pCtMainWin,
 #if GTKMM_MAJOR_VERSION < 4
     signal_button_press_event().connect(sigc::mem_fun(*this, &CtImagePng::_on_button_press_event), false);
 #endif
+    _setup_overlay();
     update_label_widget();
 }
 
@@ -178,6 +199,8 @@ void CtImagePng::to_xml(xmlpp::Element* p_node_parent,
     p_image_node->set_attribute("link", _link);
     if (_tsCreation != 0) p_image_node->set_attribute("ts_creation", std::to_string(_tsCreation));
     if (_tsLastSave != 0) p_image_node->set_attribute("ts_lastsave", std::to_string(_tsLastSave));
+    if (not _ocrText.empty()) p_image_node->set_attribute("ocr_text", _ocrText);
+    if (not _ocrBoxes.empty()) p_image_node->set_attribute("ocr_boxes", _ocrBoxes);
     if (_rZoomBasePixbuf and _rOrigPixbuf and
         (_rZoomBasePixbuf->get_width() != _rOrigPixbuf->get_width() or
          _rZoomBasePixbuf->get_height() != _rOrigPixbuf->get_height()))
@@ -217,6 +240,8 @@ CtWidgetDesc CtImagePng::to_widget_desc(int charOffset)
         desc.setProperty("display_width", std::to_string(_rZoomBasePixbuf->get_width()));
         desc.setProperty("display_height", std::to_string(_rZoomBasePixbuf->get_height()));
     }
+    if (not _ocrText.empty()) desc.setProperty("ocr_text", _ocrText);
+    if (not _ocrBoxes.empty()) desc.setProperty("ocr_boxes", _ocrBoxes);
     desc.contentData = Glib::Base64::encode(get_raw_blob());
     desc.setProperty("_content", desc.contentData);
     return desc;
@@ -258,6 +283,8 @@ bool CtImagePng::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offset_
         }
         sqlite3_bind_int64(p_stmt, 11, _tsCreation);
         sqlite3_bind_int64(p_stmt, 12, _tsLastSave);
+        sqlite3_bind_text(p_stmt, 13, _ocrText.c_str(), _ocrText.bytes(), SQLITE_STATIC);
+        sqlite3_bind_text(p_stmt, 14, _ocrBoxes.c_str(), _ocrBoxes.size(), SQLITE_STATIC);
         if (sqlite3_step(p_stmt) != SQLITE_DONE) {
             spdlog::error("{}: {}", CtStorageSqlite::ERR_SQLITE_STEP, sqlite3_errmsg(pDb));
             retVal = false;
@@ -309,7 +336,69 @@ bool CtImagePng::_on_button_press_event(GdkEventButton* event)
     }
     return true; // do not propagate the event
 }
+
+bool CtImagePng::_on_overlay_draw(const Cairo::RefPtr<Cairo::Context>& cr)
+{
+    if (_highlightRects.empty() or _ocrImgW <= 0 or _ocrImgH <= 0) return false;
+    const int dispW = _image.get_allocated_width();
+    const int dispH = _image.get_allocated_height();
+    const double scaleX = static_cast<double>(dispW) / _ocrImgW;
+    const double scaleY = static_cast<double>(dispH) / _ocrImgH;
+    cr->set_source_rgba(1.0, 0.8, 0.0, 0.35);
+    for (const auto& pts : _highlightRects) {
+        cr->move_to(pts[0] * scaleX, pts[1] * scaleY);
+        cr->line_to(pts[2] * scaleX, pts[3] * scaleY);
+        cr->line_to(pts[4] * scaleX, pts[5] * scaleY);
+        cr->line_to(pts[6] * scaleX, pts[7] * scaleY);
+        cr->close_path();
+        cr->fill();
+    }
+    return false;
+}
 #endif
+
+void CtImagePng::highlight_ocr_match(int matchStart, int matchEnd)
+{
+    _highlightRects.clear();
+    if (_ocrBoxes.empty()) return;
+    std::istringstream ss(_ocrBoxes);
+    std::string token;
+    std::getline(ss, token, ';');
+    {
+        auto commaPos = token.find(',');
+        if (commaPos == std::string::npos) return;
+        _ocrImgW = std::stoi(token.substr(0, commaPos));
+        _ocrImgH = std::stoi(token.substr(commaPos + 1));
+    }
+    while (std::getline(ss, token, ';')) {
+        std::istringstream ts(token);
+        std::string val;
+        std::vector<int> nums;
+        while (std::getline(ts, val, ',')) {
+            nums.push_back(std::stoi(val));
+        }
+        if (nums.size() != 10) continue;
+        int lineStart = nums[0], lineEnd = nums[1];
+        if (matchStart < lineEnd and matchEnd > lineStart) {
+            _highlightRects.push_back({
+                static_cast<double>(nums[2]), static_cast<double>(nums[3]),
+                static_cast<double>(nums[4]), static_cast<double>(nums[5]),
+                static_cast<double>(nums[6]), static_cast<double>(nums[7]),
+                static_cast<double>(nums[8]), static_cast<double>(nums[9])
+            });
+        }
+    }
+    if (not _highlightRects.empty()) {
+        _highlightArea.show();
+        _highlightArea.queue_draw();
+    }
+}
+
+void CtImagePng::clear_ocr_highlight()
+{
+    _highlightRects.clear();
+    _highlightArea.hide();
+}
 
 CtImageAnchor::CtImageAnchor(CtMainWin* pCtMainWin,
                              const Glib::ustring& anchorName,
@@ -404,6 +493,8 @@ bool CtImageAnchor::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offs
         sqlite3_bind_int64(p_stmt, 10, 0); // display_height
         sqlite3_bind_int64(p_stmt, 11, _tsCreation);
         sqlite3_bind_int64(p_stmt, 12, _tsLastSave);
+        sqlite3_bind_text(p_stmt, 13, "", -1, SQLITE_STATIC);
+        sqlite3_bind_text(p_stmt, 14, "", -1, SQLITE_STATIC);
         if (sqlite3_step(p_stmt) != SQLITE_DONE) {
             spdlog::error("{}: {}", CtStorageSqlite::ERR_SQLITE_STEP, sqlite3_errmsg(pDb));
             retVal = false;
@@ -574,6 +665,8 @@ bool CtImageLatex::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offse
         sqlite3_bind_int64(p_stmt, 10, 0); // display_height
         sqlite3_bind_int64(p_stmt, 11, _tsCreation);
         sqlite3_bind_int64(p_stmt, 12, _tsLastSave);
+        sqlite3_bind_text(p_stmt, 13, "", -1, SQLITE_STATIC);
+        sqlite3_bind_text(p_stmt, 14, "", -1, SQLITE_STATIC);
         if (sqlite3_step(p_stmt) != SQLITE_DONE) {
             spdlog::error("{}: {}", CtStorageSqlite::ERR_SQLITE_STEP, sqlite3_errmsg(pDb));
             retVal = false;
@@ -1023,6 +1116,8 @@ bool CtImageEmbFile::to_sqlite(sqlite3* pDb, const gint64 node_id, const int off
         sqlite3_bind_int64(p_stmt, 10, 0); // display_height
         sqlite3_bind_int64(p_stmt, 11, _tsCreation);
         sqlite3_bind_int64(p_stmt, 12, _tsLastSave);
+        sqlite3_bind_text(p_stmt, 13, "", -1, SQLITE_STATIC);
+        sqlite3_bind_text(p_stmt, 14, "", -1, SQLITE_STATIC);
         if (sqlite3_step(p_stmt) != SQLITE_DONE) {
             spdlog::error("{}: {}", CtStorageSqlite::ERR_SQLITE_STEP, sqlite3_errmsg(pDb));
             retVal = false;
@@ -1202,6 +1297,8 @@ bool CtHorizLine::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offset
         sqlite3_bind_int64(p_stmt, 10, 0); // display_height
         sqlite3_bind_int64(p_stmt, 11, _tsCreation);
         sqlite3_bind_int64(p_stmt, 12, _tsLastSave);
+        sqlite3_bind_text(p_stmt, 13, "", -1, SQLITE_STATIC);
+        sqlite3_bind_text(p_stmt, 14, "", -1, SQLITE_STATIC);
         if (sqlite3_step(p_stmt) != SQLITE_DONE) {
             spdlog::error("{}: {}", CtStorageSqlite::ERR_SQLITE_STEP, sqlite3_errmsg(pDb));
             retVal = false;

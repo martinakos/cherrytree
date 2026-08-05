@@ -92,6 +92,7 @@ set(CT_SHARED_FILES
   ct_parser.cc
   ct_filesystem.cc
   ct_column_edit.cc
+  ct_ocr.cc
 )
 
 add_library(cherrytree_shared STATIC ${CT_SHARED_FILES})
@@ -123,6 +124,57 @@ endif()
 if(USE_VTE)
   target_link_libraries(cherrytree_shared
     ${VTE_LIBRARIES}
+  )
+endif()
+if(USE_NCNN)
+  # ncnn — build as static lib, disable extras
+  set(NCNN_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+  set(NCNN_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
+  set(NCNN_BUILD_BENCHMARK OFF CACHE BOOL "" FORCE)
+  set(NCNN_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+  set(NCNN_INSTALL_SDK OFF CACHE BOOL "" FORCE)
+  add_subdirectory(${CMAKE_SOURCE_DIR}/src/ncnn ${CMAKE_BINARY_DIR}/ncnn EXCLUDE_FROM_ALL)
+
+  # OpenCV and OpenMP — system libraries
+  find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
+  find_package(OpenMP REQUIRED)
+
+  # PaddleOCR-ncnn-CPP sources as a separate static lib
+  set(PADDLEOCR_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/paddleocr_ncnn/src/db_net.cpp
+    ${CMAKE_SOURCE_DIR}/src/paddleocr_ncnn/src/angle_net.cpp
+    ${CMAKE_SOURCE_DIR}/src/paddleocr_ncnn/src/crnn_net.cpp
+    ${CMAKE_SOURCE_DIR}/src/paddleocr_ncnn/src/ocr_engine.cpp
+    ${CMAKE_SOURCE_DIR}/src/paddleocr_ncnn/src/utils.cpp
+    ${CMAKE_SOURCE_DIR}/src/paddleocr_ncnn/src/3rdparty/clipper2/clipper.engine.cpp
+    ${CMAKE_SOURCE_DIR}/src/paddleocr_ncnn/src/3rdparty/clipper2/clipper.offset.cpp
+    ${CMAKE_SOURCE_DIR}/src/paddleocr_ncnn/src/3rdparty/clipper2/clipper.rectclip.cpp
+  )
+  add_library(paddleocr_ncnn_lib STATIC ${PADDLEOCR_SOURCES})
+  target_include_directories(paddleocr_ncnn_lib PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/paddleocr_ncnn/src
+    ${CMAKE_SOURCE_DIR}/src/paddleocr_ncnn/src/3rdparty
+    ${CMAKE_SOURCE_DIR}/src/ncnn/src
+    ${ncnn_BINARY_DIR}/src
+  )
+  target_link_libraries(paddleocr_ncnn_lib PRIVATE
+    ncnn
+    ${OpenCV_LIBS}
+    OpenMP::OpenMP_CXX
+  )
+
+  target_include_directories(cherrytree_shared SYSTEM PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/paddleocr_ncnn/src
+    ${CMAKE_SOURCE_DIR}/src/paddleocr_ncnn/src/3rdparty
+    ${CMAKE_SOURCE_DIR}/src/ncnn/src
+    ${ncnn_BINARY_DIR}/src
+    ${OpenCV_INCLUDE_DIRS}
+  )
+  target_link_libraries(cherrytree_shared
+    paddleocr_ncnn_lib
+    ncnn
+    ${OpenCV_LIBS}
+    OpenMP::OpenMP_CXX
   )
 endif()
 

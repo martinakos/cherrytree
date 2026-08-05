@@ -175,6 +175,9 @@ void CtActions::find_replace_in_multiple_nodes()
         if (_s_state.find_iterated_last_drawing_canvases_id > 0) {
             _s_state.find_iterated_last_drawing_canvases_id = 0;
         }
+        if (_s_state.find_iterated_last_text_in_images_id > 0) {
+            _s_state.find_iterated_last_text_in_images_id = 0;
+        }
         text_view_n_buffer_codebox_proof proof = _get_text_view_n_buffer_codebox_proof();
         Glib::ustring entry_predefined_text = CtTextIterUtil::get_selected_text(proof.text_view->get_buffer());
         if (not entry_predefined_text.empty()) {
@@ -472,6 +475,21 @@ CtMatchType CtActions::_parse_given_node_content(CtTreeIter node_iter,
         if (_s_state.find_iterated_last_drawing_canvases_id > 0) {
             _s_state.find_iterated_last_drawing_canvases_id = 0;
         }
+        if (_s_options.text_in_images and
+            (not all_matches or CtMatchType::TextInImages != thisNodeLastMatchType))
+        {
+            if (_parse_node_image_ocr_text_iter(node_iter, re_pattern, all_matches)) {
+                if (_s_state.find_iterated_last_text_in_images_id <= 0 or
+                    _s_state.find_iterated_last_text_in_images_id != argNodeId)
+                {
+                    _s_state.find_iterated_last_text_in_images_id = argNodeId;
+                    return CtMatchType::TextInImages;
+                }
+            }
+        }
+        if (_s_state.find_iterated_last_text_in_images_id > 0) {
+            _s_state.find_iterated_last_text_in_images_id = 0;
+        }
     }
 
     CtTreeStore& ctTreeStore = _pCtMainWin->get_tree_store();
@@ -622,6 +640,68 @@ bool CtActions::_parse_node_drawing_canvases_iter(CtTreeIter& node_iter,
         }
     }
 
+    if (found and not all_matches) {
+        _pCtMainWin->get_tree_view().set_cursor_safe(node_iter);
+        _pCtMainWin->get_text_view().mm().grab_focus();
+    }
+    return found;
+}
+
+bool CtActions::_parse_node_image_ocr_text_iter(CtTreeIter& node_iter,
+                                                 Glib::RefPtr<Glib::Regex> re_pattern,
+                                                 const bool all_matches)
+{
+    if (not _is_node_within_time_filter(node_iter)) {
+        return false;
+    }
+
+    std::list<CtAnchoredWidget*> anchWidgets = node_iter.get_anchored_widgets_fast();
+    bool found = false;
+    for (auto* pWidget : anchWidgets) {
+        if (pWidget->get_type() != CtAnchWidgType::ImagePng) continue;
+        auto* pImagePng = dynamic_cast<CtImagePng*>(pWidget);
+        if (not pImagePng) continue;
+        Glib::ustring ocrText = pImagePng->get_ocr_text();
+        if (ocrText.empty()) continue;
+        if (_s_options.accent_insensitive) {
+            ocrText = str::diacritical_to_ascii(ocrText);
+        }
+        Glib::MatchInfo match_info;
+        if (not re_pattern->match(ocrText, match_info)) continue;
+        found = true;
+        if (all_matches) {
+            gint64 node_id = node_iter.get_node_id();
+            Glib::ustring node_hier_name = CtMiscUtil::get_node_hierarchical_name(node_iter, "  /  ", false, true);
+            Glib::ustring node_name = node_iter.get_node_name();
+            const Glib::ustring& fullOcrText = pImagePng->get_ocr_text();
+            do {
+                int match_start_byte{0}, match_end_byte{0};
+                match_info.fetch_pos(0, match_start_byte, match_end_byte);
+                int match_start = str::byte_pos_to_symb_pos(ocrText, match_start_byte);
+                int match_end = str::byte_pos_to_symb_pos(ocrText, match_end_byte);
+                const int ctx = 20;
+                int snipStart = std::max(0, match_start - ctx);
+                int snipEnd = std::min(static_cast<int>(fullOcrText.size()), match_end + ctx);
+                Glib::ustring snippet;
+                if (snipStart > 0) snippet += "...";
+                snippet += fullOcrText.substr(snipStart, snipEnd - snipStart);
+                if (snipEnd < static_cast<int>(fullOcrText.size())) snippet += "...";
+                _s_state.match_store->add_row(node_id,
+                                              node_name,
+                                              str::xml_escape(node_hier_name),
+                                              pWidget->getOffset(), pWidget->getOffset() + 1, 0,
+                                              Glib::ustring{"[Image OCR] "} + snippet,
+                                              CtAnchWidgType::ImagePng, 0, match_start, match_end);
+            } while (match_info.next());
+        }
+        else {
+            int match_start_byte{0}, match_end_byte{0};
+            match_info.fetch_pos(0, match_start_byte, match_end_byte);
+            int match_start = str::byte_pos_to_symb_pos(ocrText, match_start_byte);
+            int match_end = str::byte_pos_to_symb_pos(ocrText, match_end_byte);
+            pImagePng->highlight_ocr_match(match_start, match_end);
+        }
+    }
     if (found and not all_matches) {
         _pCtMainWin->get_tree_view().set_cursor_safe(node_iter);
         _pCtMainWin->get_text_view().mm().grab_focus();
@@ -1285,6 +1365,13 @@ bool CtActions::_find_pattern(CtTreeIter tree_iter,
                                                   const int anch_offs_end)
 {
     //spdlog::debug("{} obj={} cell={} {}->{}", __FUNCTION__, obj_offset, anch_cell_idx, anch_offs_start, anch_offs_end);
+    for (auto* pWidget : tree_iter.get_anchored_widgets_fast()) {
+        if (pWidget->get_type() == CtAnchWidgType::ImagePng) {
+            if (auto* pImg = dynamic_cast<CtImagePng*>(pWidget)) {
+                pImg->clear_ocr_highlight();
+            }
+        }
+    }
     Gtk::TextIter anchor_iter = pTextBuffer->get_iter_at_offset(obj_offset);
     if (CtAnchWidgType::Link == anch_type) {
         std::optional<Glib::ustring> tag_name = CtTextIterUtil::iter_get_tag_startingwith(anchor_iter, CtConst::TAG_LINK_PREFIX);
@@ -1330,6 +1417,11 @@ bool CtActions::_find_pattern(CtTreeIter tree_iter,
                     }
                     else {
                         spdlog::debug("? {} !pTable", __FUNCTION__);
+                    }
+                } break;
+                case CtAnchWidgType::ImagePng: {
+                    if (auto pImagePng = dynamic_cast<CtImagePng*>(pCtAnchoredWidget)) {
+                        pImagePng->highlight_ocr_match(anch_offs_start, anch_offs_end);
                     }
                 } break;
                 default: break;

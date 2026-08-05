@@ -35,6 +35,10 @@ if(WIN32)
 else()
   option(USE_VTE "Add virtual terminal support" ON)
 endif()
+option(USE_NCNN "Add OCR support via PaddleOCR-ncnn" OFF)
+if(USE_NCNN)
+  add_definitions(-DHAVE_NCNN)
+endif()
 
 # used to install locale, packagers might overwrite this
 if(USE_NLS)
@@ -278,6 +282,11 @@ if(${CMAKE_SYSTEM_NAME} MATCHES Linux|.*BSD|DragonFly|Darwin)
           "${CMAKE_SOURCE_DIR}/data/styles4.css"
           "${CMAKE_SOURCE_DIR}/data/user-style.xml"
           DESTINATION "${CHERRYTREE_SHARE_INSTALL}/data")
+  # share/cherrytree ocr_models
+  if(USE_NCNN)
+    install(DIRECTORY ${CMAKE_SOURCE_DIR}/data/ocr_models
+            DESTINATION ${CHERRYTREE_SHARE_INSTALL}/data)
+  endif()
   # share/cherrytree icons
   install(FILES
           "${CMAKE_SOURCE_DIR}/icons/ct_home.svg"

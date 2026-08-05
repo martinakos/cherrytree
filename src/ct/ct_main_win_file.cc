@@ -348,6 +348,16 @@ bool CtMainWin::file_open(const fs::path& filepath,
         _pDrawingOverlay->refresh();
     }
 
+#ifdef HAVE_NCNN
+    if (_ocrAvailable) {
+        Glib::signal_timeout().connect_once([this](){
+            _init_ocr_manager();
+            if (not _pOcrManager) return;
+            _ocr_enqueue_incremental();
+        }, 3000);
+    }
+#endif
+
     return true;
 }
 

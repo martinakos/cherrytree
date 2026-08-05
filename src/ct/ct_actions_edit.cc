@@ -1649,6 +1649,18 @@ void CtActions::image_insert_png(Gtk::TextIter iter_insert,
             static_cast<CtImage*>(pAnchoredWidget)->apply_zoom(sf);
         }
     }
+#ifdef HAVE_NCNN
+    if (auto* pOcr = _pCtMainWin->get_ocr_manager()) {
+        auto* pImagePng = dynamic_cast<CtImagePng*>(
+            _pCtMainWin->curr_tree_iter().get_anchored_widgets_fast().back());
+        if (pImagePng) {
+            pOcr->enqueue(pImagePng->get_raw_blob(),
+                          _pCtMainWin->curr_tree_iter().get_node_id(),
+                          pImagePng->getOffset(),
+                          true/*priority*/);
+        }
+    }
+#endif
 }
 
 void CtActions::image_insert_anchor(Gtk::TextIter iter_insert,

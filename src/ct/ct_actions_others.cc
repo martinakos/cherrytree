@@ -612,6 +612,52 @@ void CtActions::image_link_dismiss()
     _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, true/*new_machine_state*/);
 }
 
+#ifdef HAVE_NCNN
+void CtActions::image_ocr()
+{
+    if (not curr_image_anchor) return;
+    auto* pOcr = _pCtMainWin->get_ocr_manager();
+    if (not pOcr) return;
+    pOcr->enqueue(curr_image_anchor->get_raw_blob(),
+                  _pCtMainWin->curr_tree_iter().get_node_id(),
+                  curr_image_anchor->getOffset(),
+                  true/*priority*/);
+    const size_t total = pOcr->total_enqueued();
+    _pCtMainWin->get_status_bar().ocrLabel.set_markup(
+        Glib::ustring::compose(" <small>OCR: %1/%2</small> ",
+                               total - pOcr->pending_count(), total));
+    _pCtMainWin->get_status_bar().ocrLabel.show();
+}
+
+void CtActions::ocr_all_images()
+{
+    auto* pOcr = _pCtMainWin->get_ocr_manager();
+    if (not pOcr) return;
+    pOcr->enqueue_all_missing(_pCtMainWin->get_tree_store());
+    const size_t total = pOcr->total_enqueued();
+    if (pOcr->pending_count() > 0) {
+        _pCtMainWin->get_status_bar().ocrLabel.set_markup(
+            Glib::ustring::compose(" <small>OCR: %1/%2</small> ",
+                                   total - pOcr->pending_count(), total));
+        _pCtMainWin->get_status_bar().ocrLabel.show();
+    }
+}
+
+void CtActions::reocr_all_images()
+{
+    auto* pOcr = _pCtMainWin->get_ocr_manager();
+    if (not pOcr) return;
+    pOcr->enqueue_all(_pCtMainWin->get_tree_store());
+    const size_t total = pOcr->total_enqueued();
+    if (pOcr->pending_count() > 0) {
+        _pCtMainWin->get_status_bar().ocrLabel.set_markup(
+            Glib::ustring::compose(" <small>OCR: %1/%2</small> ",
+                                   total - pOcr->pending_count(), total));
+        _pCtMainWin->get_status_bar().ocrLabel.show();
+    }
+}
+#endif
+
 void CtActions::toggle_show_hide_main_window()
 {
 #if GTKMM_MAJOR_VERSION >= 4
