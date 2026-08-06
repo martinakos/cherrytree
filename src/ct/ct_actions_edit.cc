@@ -1656,7 +1656,7 @@ void CtActions::image_insert_png(Gtk::TextIter iter_insert,
         if (pImagePng) {
             pOcr->enqueue(pImagePng->get_raw_blob(),
                           _pCtMainWin->curr_tree_iter().get_node_id(),
-                          pImagePng->getOffset(),
+                          pImagePng,
                           true/*priority*/);
         }
     }
