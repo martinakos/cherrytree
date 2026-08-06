@@ -1150,6 +1150,7 @@ bool CtActions::_find_pattern(CtTreeIter tree_iter,
                      ( CtAnchWidgType::CodeBox == pAnchMatch->anch_type or
                        CtAnchWidgType::TableHeavy == pAnchMatch->anch_type or
                        CtAnchWidgType::TableLight == pAnchMatch->anch_type or
+                       CtAnchWidgType::TableRich == pAnchMatch->anch_type or
                        CtAnchWidgType::ImagePng == pAnchMatch->anch_type or
                        CtAnchWidgType::Link == pAnchMatch->anch_type ) )
                 {
@@ -1210,6 +1211,22 @@ bool CtActions::_find_pattern(CtTreeIter tree_iter,
                         }
                         else {
                             spdlog::warn("!! {} unexp no CtTableLight", __FUNCTION__);
+                        }
+                    }
+                    else if (CtAnchWidgType::TableRich == pAnchMatch->anch_type) {
+                        if (auto pTable = dynamic_cast<CtTableRich*>(pAnchMatch->pAnchWidg)) {
+                            const std::pair<size_t, size_t> rowIdxColIdx = pTable->get_row_idx_col_idx(pAnchMatch->anch_cell_idx);
+                            const int prev_anch_offs_end = pAnchMatch->anch_offs_end;
+                            if (not f_match_replace_text_buffer(pTable->get_buffer(rowIdxColIdx.first, rowIdxColIdx.second),
+                                                                pAnchMatch->anch_offs_start,
+                                                                pAnchMatch->anch_offs_end))
+                            {
+                                return false;
+                            }
+                            accumulated_delta_offs += (pAnchMatch->anch_offs_end - prev_anch_offs_end);
+                        }
+                        else {
+                            spdlog::warn("!! {} unexp no CtTableRich", __FUNCTION__);
                         }
                     }
                     else if (CtAnchWidgType::ImagePng == pAnchMatch->anch_type) {
@@ -1306,6 +1323,20 @@ bool CtActions::_find_pattern(CtTreeIter tree_iter,
                     }
                     else {
                         spdlog::warn("!! {} unexp no CtTableLight", __FUNCTION__);
+                    }
+                }
+                else if (CtAnchWidgType::TableRich == pAnchMatch->anch_type) {
+                    if (auto pTable = dynamic_cast<CtTableRich*>(pAnchMatch->pAnchWidg)) {
+                        const std::pair<size_t, size_t> rowIdxColIdx = pTable->get_row_idx_col_idx(pAnchMatch->anch_cell_idx);
+                        if (not f_match_replace_text_buffer(pTable->get_buffer(rowIdxColIdx.first, rowIdxColIdx.second),
+                                                            pAnchMatch->anch_offs_start,
+                                                            pAnchMatch->anch_offs_end))
+                        {
+                            return false;
+                        }
+                    }
+                    else {
+                        spdlog::warn("!! {} unexp no CtTableRich", __FUNCTION__);
                     }
                 }
                 else if (CtAnchWidgType::ImagePng == pAnchMatch->anch_type) {
@@ -1405,7 +1436,8 @@ bool CtActions::_find_pattern(CtTreeIter tree_iter,
                     }
                 } break;
                 case CtAnchWidgType::TableHeavy: [[fallthrough]];
-                case CtAnchWidgType::TableLight: {
+                case CtAnchWidgType::TableLight: [[fallthrough]];
+                case CtAnchWidgType::TableRich: {
                     if (auto pTable = dynamic_cast<CtTableCommon*>(pCtAnchoredWidget)) {
                         const size_t num_columns = pTable->get_num_columns();
                         const size_t rowIdx = anch_cell_idx / num_columns;
