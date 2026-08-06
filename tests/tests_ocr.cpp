@@ -240,9 +240,9 @@ protected:
             s_skip = true;
             return;
         }
-        const std::string configPath = modelDir + "/ct_ocr_test_config.json";
-        if (not std::filesystem::exists(configPath)) {
-            std::ofstream f(configPath);
+        s_configPath = modelDir + "/ct_ocr_test_config.json";
+        {
+            std::ofstream f(s_configPath);
             f << "{\n"
               << R"(  "save": false,)" << "\n"
               << R"(  "det": { "infer_threads": 1, "model_path": ")" << modelDir << R"(/PP_OCRv6_tiny_det", "padding": 0, "max_side_len": 768, "box_thres": 0.45, "bitmap_thres": 0.2, "unclip_ratio": 1.4, "fp16": false },)" << "\n"
@@ -255,7 +255,7 @@ protected:
         int saved = dup(STDERR_FILENO);
         int devNull = open("/dev/null", O_WRONLY);
         if (devNull >= 0) { dup2(devNull, STDERR_FILENO); close(devNull); }
-        bool ok = s_engine->Initialize(configPath);
+        bool ok = s_engine->Initialize(s_configPath);
         if (saved >= 0) { dup2(saved, STDERR_FILENO); close(saved); }
         if (not ok) {
             s_engine.reset();
@@ -290,12 +290,22 @@ protected:
         return results.size();
     }
 
+    static void TearDownTestSuite() {
+        s_engine.reset();
+        if (not s_configPath.empty()) {
+            std::filesystem::remove(s_configPath);
+            s_configPath.clear();
+        }
+    }
+
     static std::unique_ptr<OCR::OCREngine> s_engine;
     static bool s_skip;
+    static std::string s_configPath;
 };
 
 std::unique_ptr<OCR::OCREngine> OcrEngineTest::s_engine;
 bool OcrEngineTest::s_skip = false;
+std::string OcrEngineTest::s_configPath;
 
 static bool ocrContains(const std::string& text, const std::string& word) {
     return text.find(word) != std::string::npos;
