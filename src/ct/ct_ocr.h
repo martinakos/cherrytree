@@ -56,7 +56,7 @@ public:
     CtOcrManager(const std::string& modelDir);
     ~CtOcrManager();
 
-    void enqueue(const std::string& pngBlob, gint64 nodeId, int charOffset, bool priority = false);
+    bool enqueue(const std::string& pngBlob, gint64 nodeId, int charOffset, bool priority = false);
     void enqueue_all_missing(CtTreeStore& treeStore);
     void enqueue_all(CtTreeStore& treeStore);
 

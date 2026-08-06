@@ -99,6 +99,7 @@ public:
     void set_ocr_boxes(const std::string& ocrBoxes) { _ocrBoxes = ocrBoxes; }
     void highlight_ocr_match(int matchStart, int matchEnd);
     void clear_ocr_highlight();
+    int get_highlight_display_y() const;
 
 private:
     void _setup_overlay();
