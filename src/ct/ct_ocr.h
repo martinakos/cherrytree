@@ -33,19 +33,20 @@
 #include "ct_types.h"
 
 class CtTreeStore;
+class CtImagePng;
 
 namespace OCR { class OCREngine; }
 
 struct CtOcrWorkItem {
     std::string pngBlob;
     gint64      nodeId;
-    int         charOffset;
+    CtImagePng* pImagePng;
     bool        priority{false};
 };
 
 struct CtOcrResult {
     gint64         nodeId;
-    int            charOffset;
+    CtImagePng*    pImagePng;
     Glib::ustring  ocrText;
     std::string    ocrBoxes;
 };
@@ -56,7 +57,7 @@ public:
     CtOcrManager(const std::string& modelDir);
     ~CtOcrManager();
 
-    bool enqueue(const std::string& pngBlob, gint64 nodeId, int charOffset, bool priority = false);
+    bool enqueue(const std::string& pngBlob, gint64 nodeId, CtImagePng* pImagePng, bool priority = false);
     void enqueue_all_missing(CtTreeStore& treeStore);
     void enqueue_all(CtTreeStore& treeStore);
 
