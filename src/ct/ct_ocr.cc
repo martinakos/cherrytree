@@ -61,9 +61,9 @@ CtOcrManager::~CtOcrManager()
     }
 }
 
-bool CtOcrManager::enqueue(const std::string& pngBlob, gint64 nodeId, int charOffset, bool priority)
+bool CtOcrManager::enqueue(const std::string& pngBlob, gint64 nodeId, CtImagePng* pImagePng, bool priority)
 {
-    auto* pItem = new CtOcrWorkItem{pngBlob, nodeId, charOffset, priority};
+    auto* pItem = new CtOcrWorkItem{pngBlob, nodeId, pImagePng, priority};
     const bool pushed = priority ? _workQueue.push_front(pItem) : _workQueue.push_back(pItem);
     if (pushed) {
         _pendingCount++;
@@ -83,8 +83,8 @@ void CtOcrManager::enqueue_all_missing(CtTreeStore& treeStore)
         for (auto* pWidget : widgets) {
             if (pWidget->get_type() != CtAnchWidgType::ImagePng) continue;
             auto* pImagePng = dynamic_cast<CtImagePng*>(pWidget);
-            if (not pImagePng or not pImagePng->get_ocr_text().empty()) continue;
-            enqueue(pImagePng->get_raw_blob(), ctIter.get_node_id(), pWidget->getOffset());
+            if (not pImagePng or not pImagePng->get_ocr_boxes().empty()) continue;
+            enqueue(pImagePng->get_raw_blob(), ctIter.get_node_id(), pImagePng);
             ++count;
         }
         return false; // continue iteration
@@ -102,7 +102,7 @@ void CtOcrManager::enqueue_all(CtTreeStore& treeStore)
             if (pWidget->get_type() != CtAnchWidgType::ImagePng) continue;
             auto* pImagePng = dynamic_cast<CtImagePng*>(pWidget);
             if (not pImagePng) continue;
-            enqueue(pImagePng->get_raw_blob(), ctIter.get_node_id(), pWidget->getOffset());
+            enqueue(pImagePng->get_raw_blob(), ctIter.get_node_id(), pImagePng);
             ++count;
         }
         return false;
@@ -202,7 +202,7 @@ void CtOcrManager::_worker_func()
         OcrData ocrData = _run_ocr(pItem->pngBlob);
         CtOcrResult result;
         result.nodeId = pItem->nodeId;
-        result.charOffset = pItem->charOffset;
+        result.pImagePng = pItem->pImagePng;
         result.ocrText = ocrData.text;
         result.ocrBoxes = ocrData.boxes;
         resultQueue.push_back(result);

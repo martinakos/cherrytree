@@ -2078,9 +2078,9 @@ void CtMainWin::_ocr_enqueue_next_node()
         for (auto* pWidget : ctIter.get_anchored_widgets_fast()) {
             if (pWidget->get_type() != CtAnchWidgType::ImagePng) continue;
             auto* pImagePng = dynamic_cast<CtImagePng*>(pWidget);
-            if (not pImagePng or not pImagePng->get_ocr_text().empty()) continue;
+            if (not pImagePng or not pImagePng->get_ocr_boxes().empty()) continue;
             if (imgIdx++ < _ocrImgSkip) continue;
-            if (not _pOcrManager->enqueue(pImagePng->get_raw_blob(), nodeId, pWidget->getOffset())) {
+            if (not _pOcrManager->enqueue(pImagePng->get_raw_blob(), nodeId, pImagePng)) {
                 queueFull = true;
                 break;
             }
@@ -2116,19 +2116,14 @@ void CtMainWin::_process_one_ocr_result()
     if (not optResult.has_value()) return;
     CtOcrResult result = _pOcrManager->resultQueue.pop_front();
 
-    if (not result.ocrText.empty()) {
-        CtTreeIter nodeIter = get_tree_store().get_node_from_node_id(result.nodeId);
-        if (nodeIter) {
-            for (auto* pWidget : nodeIter.get_anchored_widgets_fast()) {
-                if (pWidget->get_type() != CtAnchWidgType::ImagePng) continue;
-                if (pWidget->getOffset() != result.charOffset) continue;
-                auto* pImagePng = dynamic_cast<CtImagePng*>(pWidget);
-                if (not pImagePng) continue;
-                pImagePng->set_ocr_text(result.ocrText);
-                pImagePng->set_ocr_boxes(result.ocrBoxes);
-                update_window_save_needed(CtSaveNeededUpdType::nbuf, false, &nodeIter);
-                break;
-            }
+    CtTreeIter nodeIter = get_tree_store().get_node_from_node_id(result.nodeId);
+    if (nodeIter) {
+        for (auto* pWidget : nodeIter.get_anchored_widgets_fast()) {
+            if (pWidget != result.pImagePng) continue;
+            result.pImagePng->set_ocr_text(result.ocrText);
+            result.pImagePng->set_ocr_boxes(result.ocrBoxes);
+            update_window_save_needed(CtSaveNeededUpdType::nbuf, false, &nodeIter);
+            break;
         }
     }
 

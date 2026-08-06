@@ -620,7 +620,7 @@ void CtActions::image_ocr()
     if (not pOcr) return;
     pOcr->enqueue(curr_image_anchor->get_raw_blob(),
                   _pCtMainWin->curr_tree_iter().get_node_id(),
-                  curr_image_anchor->getOffset(),
+                  curr_image_anchor,
                   true/*priority*/);
     const size_t total = pOcr->total_enqueued();
     _pCtMainWin->get_status_bar().ocrLabel.set_markup(
