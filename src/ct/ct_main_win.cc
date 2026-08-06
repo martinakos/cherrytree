@@ -2064,6 +2064,7 @@ void CtMainWin::_ocr_enqueue_incremental()
 {
     _ocrNodeIds.clear();
     _ocrNodeIdx = 0;
+    _ocrImgSkip = 0;
     get_tree_store().get_store()->foreach_iter([this](const Gtk::TreeModel::iterator& iter) -> bool {
         CtTreeIter ctIter = get_tree_store().to_ct_tree_iter(iter);
         _ocrNodeIds.push_back(ctIter.get_node_id());
@@ -2077,16 +2078,30 @@ void CtMainWin::_ocr_enqueue_incremental()
 void CtMainWin::_ocr_enqueue_next_node()
 {
     if (_ocrNodeIdx >= _ocrNodeIds.size() or not _pOcrManager) return;
-    const gint64 nodeId = _ocrNodeIds[_ocrNodeIdx++];
+    const gint64 nodeId = _ocrNodeIds[_ocrNodeIdx];
     CtTreeIter ctIter = get_tree_store().get_node_from_node_id(nodeId);
+    bool queueFull = false;
     if (ctIter) {
+        int imgIdx = 0;
         for (auto* pWidget : ctIter.get_anchored_widgets_fast()) {
             if (pWidget->get_type() != CtAnchWidgType::ImagePng) continue;
             auto* pImagePng = dynamic_cast<CtImagePng*>(pWidget);
             if (not pImagePng or not pImagePng->get_ocr_text().empty()) continue;
-            _pOcrManager->enqueue(pImagePng->get_raw_blob(), nodeId, pWidget->getOffset());
+            if (imgIdx++ < _ocrImgSkip) continue;
+            if (not _pOcrManager->enqueue(pImagePng->get_raw_blob(), nodeId, pWidget->getOffset())) {
+                queueFull = true;
+                break;
+            }
+            _ocrImgSkip++;
         }
     }
+    if (queueFull) {
+        Glib::signal_timeout().connect_once(
+            sigc::mem_fun(*this, &CtMainWin::_ocr_enqueue_next_node), 500);
+        return;
+    }
+    _ocrNodeIdx++;
+    _ocrImgSkip = 0;
     if (_ocrNodeIdx < _ocrNodeIds.size()) {
         Glib::signal_idle().connect_once(sigc::mem_fun(*this, &CtMainWin::_ocr_enqueue_next_node));
     }
@@ -2119,7 +2134,7 @@ void CtMainWin::_process_one_ocr_result()
                 if (not pImagePng) continue;
                 pImagePng->set_ocr_text(result.ocrText);
                 pImagePng->set_ocr_boxes(result.ocrBoxes);
-                update_window_save_needed(CtSaveNeededUpdType::nbuf);
+                update_window_save_needed(CtSaveNeededUpdType::nbuf, false, &nodeIter);
                 break;
             }
         }

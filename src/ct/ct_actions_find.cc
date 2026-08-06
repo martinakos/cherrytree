@@ -659,6 +659,8 @@ bool CtActions::_parse_node_image_ocr_text_iter(CtTreeIter& node_iter,
 
     std::list<CtAnchoredWidget*> anchWidgets = node_iter.get_anchored_widgets_fast();
     bool found = false;
+    CtImagePng* pMatchedImage{nullptr};
+    int matchedOffset{0};
     for (auto* pWidget : anchWidgets) {
         if (pWidget->get_type() != CtAnchWidgType::ImagePng) continue;
         auto* pImagePng = dynamic_cast<CtImagePng*>(pWidget);
@@ -702,11 +704,26 @@ bool CtActions::_parse_node_image_ocr_text_iter(CtTreeIter& node_iter,
             int match_start = str::byte_pos_to_symb_pos(ocrText, match_start_byte);
             int match_end = str::byte_pos_to_symb_pos(ocrText, match_end_byte);
             pImagePng->highlight_ocr_match(match_start, match_end);
+            pMatchedImage = pImagePng;
+            matchedOffset = pWidget->getOffset();
         }
     }
     if (found and not all_matches) {
         _pCtMainWin->get_tree_view().set_cursor_safe(node_iter);
         _pCtMainWin->get_text_view().mm().grab_focus();
+        if (pMatchedImage) {
+            auto pTextBuffer = _pCtMainWin->get_text_view().get_buffer();
+            Gtk::TextIter anchorIt = pTextBuffer->get_iter_at_offset(matchedOffset);
+            const int highlightY = pMatchedImage->get_highlight_display_y();
+            Gdk::Rectangle iterRect;
+            _pCtMainWin->get_text_view().mm().get_iter_location(anchorIt, iterRect);
+            const int targetBufY = iterRect.get_y() + (highlightY >= 0 ? highlightY : iterRect.get_height() / 2);
+            auto vadj = _pCtMainWin->get_text_view().mm().get_vadjustment();
+            if (vadj) {
+                const double viewH = vadj->get_page_size();
+                vadj->set_value(std::max(0.0, targetBufY - viewH / 2.0));
+            }
+        }
     }
     return found;
 }
@@ -1282,7 +1299,15 @@ bool CtActions::_find_pattern(CtTreeIter tree_iter,
         }
         CtTextView& ct_text_view = _pCtMainWin->get_text_view();
         ct_text_view.set_selection_at_offset_n_delta(_s_state.latest_match_offsets.first, match_offsets.second - match_offsets.first);
-        ct_text_view.mm().scroll_to(text_buffer->get_insert(), CtTextView::TEXT_SCROLL_MARGIN);
+        if (anchMatchList.size() > 0u) {
+            auto& pAnchMatch = anchMatchList[_s_state.find_iter_anchlist_idx];
+            if (pAnchMatch->anch_type != CtAnchWidgType::ImagePng) {
+                ct_text_view.mm().scroll_to(text_buffer->get_insert(), CtTextView::TEXT_SCROLL_MARGIN);
+            }
+        }
+        else {
+            ct_text_view.mm().scroll_to(text_buffer->get_insert(), CtTextView::TEXT_SCROLL_MARGIN);
+        }
         if (anchMatchList.size() > 0u) {
             auto& pAnchMatch = anchMatchList[_s_state.find_iter_anchlist_idx];
             if (_s_state.replace_active) {
@@ -1456,6 +1481,15 @@ bool CtActions::_find_pattern(CtTreeIter tree_iter,
                 case CtAnchWidgType::ImagePng: {
                     if (auto pImagePng = dynamic_cast<CtImagePng*>(pCtAnchoredWidget)) {
                         pImagePng->highlight_ocr_match(anch_offs_start, anch_offs_end);
+                        const int highlightY = pImagePng->get_highlight_display_y();
+                        Gdk::Rectangle iterRect;
+                        pCtMainWin->get_text_view().mm().get_iter_location(anchor_iter, iterRect);
+                        const int targetBufY = iterRect.get_y() + (highlightY >= 0 ? highlightY : iterRect.get_height() / 2);
+                        auto vadj = pCtMainWin->get_text_view().mm().get_vadjustment();
+                        if (vadj) {
+                            const double viewH = vadj->get_page_size();
+                            vadj->set_value(std::max(0.0, targetBufY - viewH / 2.0));
+                        }
                     }
                 } break;
                 default: break;
