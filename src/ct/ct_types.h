@@ -363,19 +363,23 @@ template<class F> auto scope_guard(F&& f) {
 template <class T, size_t MAX> class ThreadSafeDEQueue
 {
 public:
-    void push_back(T t) {
+    bool push_back(T t) {
         std::lock_guard<std::mutex> lock(m);
         if (q.size() < MAX) {
             q.push_back(t);
             c.notify_one();
+            return true;
         }
+        return false;
     }
-    void push_front(T t) {
+    bool push_front(T t) {
         std::lock_guard<std::mutex> lock(m);
         if (q.size() < MAX) {
             q.push_front(t);
             c.notify_one();
+            return true;
         }
+        return false;
     }
     T pop_front() {
         std::unique_lock<std::mutex> lock(m);

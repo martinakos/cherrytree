@@ -439,6 +439,7 @@ private:
     bool _ocrAvailable{false};
     std::vector<gint64> _ocrNodeIds;
     size_t _ocrNodeIdx{0};
+    int _ocrImgSkip{0};
     void _init_ocr_manager();
     void _ocr_enqueue_incremental();
     void _ocr_enqueue_next_node();

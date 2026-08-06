@@ -758,10 +758,11 @@ void CtDialogs::match_dialog(const std::string& str_find,
 
         const int start_offset = list_iter->get_value(s_state.match_store->columns.start_offset);
         const int end_offset = list_iter->get_value(s_state.match_store->columns.end_offset);
-        ct_text_view.set_selection_at_offset_n_delta(start_offset, end_offset - start_offset, rCurrBuffer);
-        ct_text_view.mm().scroll_to(rCurrBuffer->get_insert(), CtTextView::TEXT_SCROLL_MARGIN);
-
         const CtAnchWidgType anch_type = list_iter->get_value(s_state.match_store->columns.anch_type);
+        ct_text_view.set_selection_at_offset_n_delta(start_offset, end_offset - start_offset, rCurrBuffer);
+        if (anch_type != CtAnchWidgType::ImagePng) {
+            ct_text_view.mm().scroll_to(rCurrBuffer->get_insert(), CtTextView::TEXT_SCROLL_MARGIN);
+        }
         //spdlog::debug("anch_type={}", static_cast<int>(anch_type));
         if (CtAnchWidgType::None != anch_type) {
             const size_t anch_cell_idx = list_iter->get_value(s_state.match_store->columns.anch_cell_idx);

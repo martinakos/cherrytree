@@ -344,14 +344,17 @@ bool CtImagePng::_on_overlay_draw(const Cairo::RefPtr<Cairo::Context>& cr)
     const int dispH = _image.get_allocated_height();
     const double scaleX = static_cast<double>(dispW) / _ocrImgW;
     const double scaleY = static_cast<double>(dispH) / _ocrImgH;
-    cr->set_source_rgba(1.0, 0.8, 0.0, 0.35);
     for (const auto& pts : _highlightRects) {
         cr->move_to(pts[0] * scaleX, pts[1] * scaleY);
         cr->line_to(pts[2] * scaleX, pts[3] * scaleY);
         cr->line_to(pts[4] * scaleX, pts[5] * scaleY);
         cr->line_to(pts[6] * scaleX, pts[7] * scaleY);
         cr->close_path();
-        cr->fill();
+        cr->set_source_rgba(1.0, 0.8, 0.0, 0.35);
+        cr->fill_preserve();
+        cr->set_source_rgba(1.0, 0.0, 0.0, 0.8);
+        cr->set_line_width(2.0);
+        cr->stroke();
     }
     return false;
 }
@@ -392,6 +395,16 @@ void CtImagePng::highlight_ocr_match(int matchStart, int matchEnd)
         _highlightArea.show();
         _highlightArea.queue_draw();
     }
+}
+
+int CtImagePng::get_highlight_display_y() const
+{
+    if (_highlightRects.empty() or _ocrImgH <= 0) return -1;
+    const int dispH = _image.get_allocated_height();
+    if (dispH <= 0) return -1;
+    const double scaleY = static_cast<double>(dispH) / _ocrImgH;
+    const auto& pts = _highlightRects.front();
+    return static_cast<int>((pts[1] + pts[3] + pts[5] + pts[7]) / 4.0 * scaleY);
 }
 
 void CtImagePng::clear_ocr_highlight()

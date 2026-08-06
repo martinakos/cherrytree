@@ -61,17 +61,17 @@ CtOcrManager::~CtOcrManager()
     }
 }
 
-void CtOcrManager::enqueue(const std::string& pngBlob, gint64 nodeId, int charOffset, bool priority)
+bool CtOcrManager::enqueue(const std::string& pngBlob, gint64 nodeId, int charOffset, bool priority)
 {
     auto* pItem = new CtOcrWorkItem{pngBlob, nodeId, charOffset, priority};
-    _pendingCount++;
-    _totalEnqueued++;
-    if (priority) {
-        _workQueue.push_front(pItem);
+    const bool pushed = priority ? _workQueue.push_front(pItem) : _workQueue.push_back(pItem);
+    if (pushed) {
+        _pendingCount++;
+        _totalEnqueued++;
+        return true;
     }
-    else {
-        _workQueue.push_back(pItem);
-    }
+    delete pItem;
+    return false;
 }
 
 void CtOcrManager::enqueue_all_missing(CtTreeStore& treeStore)
