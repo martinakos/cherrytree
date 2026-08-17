@@ -1627,6 +1627,18 @@ void CtClipboard::on_received_to_image(const Gtk::SelectionData& selection_data,
         rPixbuf = Gtk::Clipboard::get()->wait_for_image();
     }
     if (rPixbuf) {
+        // On HiDPI setups (e.g. GNOME X11 fractional scaling at Xft.dpi 192),
+        // screenshots are captured at device-pixel resolution (2× logical).
+        // Scale down by the window scale factor so pasted images match the
+        // captured area's on-screen size.
+        Glib::RefPtr<Gdk::Pixbuf> pastePixbuf = rPixbuf->copy();
+        const int windowScale = pTextView->get_scale_factor();
+        if (windowScale > 1) {
+            const int w = std::max(1, rPixbuf->get_width() / windowScale);
+            const int h = std::max(1, rPixbuf->get_height() / windowScale);
+            pastePixbuf = rPixbuf->scale_simple(w, h, Gdk::INTERP_BILINEAR);
+        }
+
         auto pBridge = _pCtMainWin->get_command_bridge();
 
         // Rich cell: image_insert_png handles undo tracking internally via
@@ -1635,7 +1647,7 @@ void CtClipboard::on_received_to_image(const Gtk::SelectionData& selection_data,
         if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
             Glib::ustring link = "";
             _pCtMainWin->get_ct_actions()->image_insert_png(
-                pTextView->get_buffer()->get_insert()->get_iter(), rPixbuf->copy(), link, "");
+                pTextView->get_buffer()->get_insert()->get_iter(), pastePixbuf, link, "");
             pTextView->scroll_to(pTextView->get_buffer()->get_insert());
             return;
         }
@@ -1647,7 +1659,7 @@ void CtClipboard::on_received_to_image(const Gtk::SelectionData& selection_data,
         }
 
         Glib::ustring link = "";
-        _pCtMainWin->get_ct_actions()->image_insert_png(pTextView->get_buffer()->get_insert()->get_iter(), rPixbuf->copy(), link, "");
+        _pCtMainWin->get_ct_actions()->image_insert_png(pTextView->get_buffer()->get_insert()->get_iter(), pastePixbuf, link, "");
 
         // End paste operation for command tracking
         if (pBridge && pBridge->isActive()) {
