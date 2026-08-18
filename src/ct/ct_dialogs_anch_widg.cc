@@ -25,6 +25,10 @@
 #include "ct_main_win.h"
 #include "ct_text_view.h"
 #include "ct_table.h"
+#include "ct_image.h"
+#ifdef HAVE_NCNN
+#include "ct_ocr.h"
+#endif
 
 void CtDialogs::append_widget_timestamps(Gtk::Box& vbox, gint64 tsCreation, gint64 tsLastSave, const Glib::ustring& timestampFormat)
 {
@@ -272,265 +276,341 @@ private:
 
 };
 
-Glib::RefPtr<Gdk::Pixbuf> CtDialogs::image_handle_dialog(Gtk::Window& parent_win,
-                                                         Glib::RefPtr<Gdk::Pixbuf> rOriginalPixbuf,
-                                                         Glib::RefPtr<Gdk::Pixbuf> rHighResPixbuf,
-                                                         const Glib::ustring& timestampFormat,
-                                                         gint64 tsCreation,
-                                                         gint64 tsLastSave)
+void CtDialogs::image_handle_dialog(Gtk::Window& parent_win,
+                                    Glib::RefPtr<Gdk::Pixbuf> rOriginalPixbuf,
+                                    std::function<void(Glib::RefPtr<Gdk::Pixbuf>)> onAccept,
+                                    Glib::RefPtr<Gdk::Pixbuf> rHighResPixbuf,
+                                    const Glib::ustring& timestampFormat,
+                                    gint64 tsCreation,
+                                    gint64 tsLastSave,
+                                    CtImagePng* pImagePng)
 {
-    // In headless/test mode, simulate "accept without size change using the high-res source"
-    // — same logic as the real no-crop path below. This lets automated tests exercise the
-    // rHighResPixbuf code path without a real display or user interaction.
     if (rHighResPixbuf) {
         if (auto* pCtMainWin = dynamic_cast<CtMainWin*>(&parent_win)) {
             if (pCtMainWin->no_gui()) {
-                return rHighResPixbuf->scale_simple(
-                    rOriginalPixbuf->get_width(), rOriginalPixbuf->get_height(), Gdk::INTERP_BILINEAR);
+                if (onAccept) onAccept(rHighResPixbuf->scale_simple(
+                    rOriginalPixbuf->get_width(), rOriginalPixbuf->get_height(), Gdk::INTERP_BILINEAR));
+                return;
             }
         }
     }
 
-    int width = rOriginalPixbuf->get_width();
-    int height = rOriginalPixbuf->get_height();
-    double image_w_h_ration = static_cast<double>(width)/height;
-    int orig_width = rHighResPixbuf ? rHighResPixbuf->get_width() : width;
-    int orig_height = rHighResPixbuf ? rHighResPixbuf->get_height() : height;
-    bool lock_aspect = true;
-    bool is_percentage = false;
-    CtConfig* pConfig = nullptr;
+    struct State {
+        int width, height, orig_width, orig_height;
+        double image_w_h_ration;
+        bool lock_aspect{true}, is_percentage{false}, stop_update{false};
+        Glib::RefPtr<Gdk::Pixbuf> rOriginalPixbuf;
+        Glib::RefPtr<Gdk::Pixbuf> rHighResPixbuf;
+        CtConfig* pConfig{nullptr};
+        CropImage* pCropImage{nullptr};
+        Gtk::SpinButton* pSpinW{nullptr};
+        Gtk::SpinButton* pSpinH{nullptr};
+        sigc::connection ocrPollTimer;
+    };
+    auto s = std::make_shared<State>();
+    s->width = rOriginalPixbuf->get_width();
+    s->height = rOriginalPixbuf->get_height();
+    s->image_w_h_ration = static_cast<double>(s->width) / s->height;
+    s->orig_width = rHighResPixbuf ? rHighResPixbuf->get_width() : s->width;
+    s->orig_height = rHighResPixbuf ? rHighResPixbuf->get_height() : s->height;
+    s->rOriginalPixbuf = rOriginalPixbuf;
+    s->rHighResPixbuf = rHighResPixbuf;
     if (auto* pCtMainWin = dynamic_cast<CtMainWin*>(&parent_win)) {
-        pConfig = pCtMainWin->get_ct_config();
+        s->pConfig = pCtMainWin->get_ct_config();
     }
 
-    Gtk::Dialog dialog{_("Image Properties"),
-                       parent_win,
-                       Gtk::DialogFlags::DIALOG_MODAL | Gtk::DialogFlags::DIALOG_DESTROY_WITH_PARENT};
+    auto* pDialog = new Gtk::Dialog{_("Image Properties"),
+                                    parent_win,
+                                    Gtk::DialogFlags::DIALOG_DESTROY_WITH_PARENT};
 
-    (void)CtMiscUtil::dialog_add_button(&dialog, _("Cancel"), Gtk::RESPONSE_REJECT, "ct_cancel");
-    (void)CtMiscUtil::dialog_add_button(&dialog, _("OK"), Gtk::RESPONSE_ACCEPT, "ct_done", true/*isDefault*/);
+    (void)CtMiscUtil::dialog_add_button(pDialog, _("Cancel"), Gtk::RESPONSE_REJECT, "ct_cancel");
+    (void)CtMiscUtil::dialog_add_button(pDialog, _("OK"), Gtk::RESPONSE_ACCEPT, "ct_done", true/*isDefault*/);
 
-    dialog.set_position(Gtk::WindowPosition::WIN_POS_CENTER_ON_PARENT);
-    dialog.set_default_size(600, 500);
-    Gtk::Button button_rotate_90_ccw;
-    button_rotate_90_ccw.set_image_from_icon_name("ct_rotate-left", Gtk::ICON_SIZE_DND);
-    button_rotate_90_ccw.set_tooltip_text(_("Rotate Left"));
-    Gtk::Button button_rotate_90_cw;
-    button_rotate_90_cw.set_image_from_icon_name("ct_rotate-right", Gtk::ICON_SIZE_DND);
-    button_rotate_90_cw.set_tooltip_text(_("Rotate Right"));
-    Gtk::ScrolledWindow scrolledwindow;
-    scrolledwindow.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
-    Glib::RefPtr<Gtk::Adjustment> rHAdj = Gtk::Adjustment::create(width, 1, height, 1);
-    Glib::RefPtr<Gtk::Adjustment> rVAdj = Gtk::Adjustment::create(width, 1, width, 1);
-    Gtk::Viewport viewport(rHAdj, rVAdj);
-    CropImage image{rOriginalPixbuf};
-    scrolledwindow.add(viewport);
-    viewport.add(image);
-    Gtk::Box hbox_1{Gtk::ORIENTATION_HORIZONTAL, 2/*spacing*/};
-    hbox_1.pack_start(button_rotate_90_ccw, false, false);
-    hbox_1.pack_start(scrolledwindow);
-    hbox_1.pack_start(button_rotate_90_cw, false, false);
-    Gtk::Button button_crop;
-    button_crop.set_image_from_icon_name("ct_edit_cut", Gtk::ICON_SIZE_DND);
-    button_crop.set_tooltip_text(_("In order to crop the image, select the area with the mouse before clicking OK"));
-    Gtk::Button button_flip_horizontal;
-    button_flip_horizontal.set_image_from_icon_name("ct_flip-horizontal", Gtk::ICON_SIZE_DND);
-    button_flip_horizontal.set_tooltip_text(_("Flip Horizontally"));
-    Gtk::Button button_flip_vertical;
-    button_flip_vertical.set_image_from_icon_name("ct_flip-vertical", Gtk::ICON_SIZE_DND);
-    button_flip_vertical.set_tooltip_text(_("Flip Vertically"));
-    Gtk::Box hbox_2{Gtk::ORIENTATION_HORIZONTAL, 2/*spacing*/};
-    hbox_2.pack_start(button_flip_horizontal, true, true);
-    hbox_2.pack_start(button_crop, true, true);
-    hbox_2.pack_start(button_flip_vertical, true, true);
-    Gtk::Label label_width{_("Width")};
-    Glib::RefPtr<Gtk::Adjustment> rAdj_width = Gtk::Adjustment::create(width, 1, 10000, 1);
-    Gtk::SpinButton spinbutton_width{rAdj_width};
-    Gtk::Label label_height{_("Height")};
-    Glib::RefPtr<Gtk::Adjustment> rAdj_height = Gtk::Adjustment::create(height, 1, 10000, 1);
-    Gtk::SpinButton spinbutton_height{rAdj_height};
-    Gtk::Box hbox_3{Gtk::ORIENTATION_HORIZONTAL, 4/*spacing*/};
-    hbox_3.pack_start(label_width, false, false);
-    hbox_3.pack_start(spinbutton_width, false, false);
-    hbox_3.pack_start(label_height, false, false);
-    hbox_3.pack_start(spinbutton_height, false, false);
-    Gtk::ComboBoxText combobox_unit;
-    combobox_unit.append(_("Pixels"));
-    combobox_unit.append(_("Percentage"));
-    if (pConfig && !pConfig->imageSizeUnitPixels) {
-        is_percentage = true;
-        combobox_unit.set_active(1);
+    pDialog->set_position(Gtk::WindowPosition::WIN_POS_CENTER_ON_PARENT);
+    pDialog->set_default_size(600, 500);
+
+    auto* pBtnRotCCW = Gtk::manage(new Gtk::Button{});
+    pBtnRotCCW->set_image_from_icon_name("ct_rotate-left", Gtk::ICON_SIZE_DND);
+    pBtnRotCCW->set_tooltip_text(_("Rotate Left"));
+    auto* pBtnRotCW = Gtk::manage(new Gtk::Button{});
+    pBtnRotCW->set_image_from_icon_name("ct_rotate-right", Gtk::ICON_SIZE_DND);
+    pBtnRotCW->set_tooltip_text(_("Rotate Right"));
+    auto* pScrolled = Gtk::manage(new Gtk::ScrolledWindow{});
+    pScrolled->set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
+    Glib::RefPtr<Gtk::Adjustment> rHAdj = Gtk::Adjustment::create(s->width, 1, s->height, 1);
+    Glib::RefPtr<Gtk::Adjustment> rVAdj = Gtk::Adjustment::create(s->width, 1, s->width, 1);
+    auto* pViewport = Gtk::manage(new Gtk::Viewport{rHAdj, rVAdj});
+    s->pCropImage = Gtk::manage(new CropImage{rOriginalPixbuf});
+    pScrolled->add(*pViewport);
+    pViewport->add(*s->pCropImage);
+    auto* pHbox1 = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 2});
+    pHbox1->pack_start(*pBtnRotCCW, false, false);
+    pHbox1->pack_start(*pScrolled);
+    pHbox1->pack_start(*pBtnRotCW, false, false);
+
+    auto* pBtnCrop = Gtk::manage(new Gtk::Button{});
+    pBtnCrop->set_image_from_icon_name("ct_edit_cut", Gtk::ICON_SIZE_DND);
+    pBtnCrop->set_tooltip_text(_("In order to crop the image, select the area with the mouse before clicking OK"));
+    auto* pBtnFlipH = Gtk::manage(new Gtk::Button{});
+    pBtnFlipH->set_image_from_icon_name("ct_flip-horizontal", Gtk::ICON_SIZE_DND);
+    pBtnFlipH->set_tooltip_text(_("Flip Horizontally"));
+    auto* pBtnFlipV = Gtk::manage(new Gtk::Button{});
+    pBtnFlipV->set_image_from_icon_name("ct_flip-vertical", Gtk::ICON_SIZE_DND);
+    pBtnFlipV->set_tooltip_text(_("Flip Vertically"));
+    auto* pHbox2 = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 2});
+    pHbox2->pack_start(*pBtnFlipH, true, true);
+    pHbox2->pack_start(*pBtnCrop, true, true);
+    pHbox2->pack_start(*pBtnFlipV, true, true);
+
+    Glib::RefPtr<Gtk::Adjustment> rAdj_width = Gtk::Adjustment::create(s->width, 1, 10000, 1);
+    Glib::RefPtr<Gtk::Adjustment> rAdj_height = Gtk::Adjustment::create(s->height, 1, 10000, 1);
+    s->pSpinW = Gtk::manage(new Gtk::SpinButton{rAdj_width});
+    s->pSpinH = Gtk::manage(new Gtk::SpinButton{rAdj_height});
+    auto* pComboUnit = Gtk::manage(new Gtk::ComboBoxText{});
+    pComboUnit->append(_("Pixels"));
+    pComboUnit->append(_("Percentage"));
+    if (s->pConfig && !s->pConfig->imageSizeUnitPixels) {
+        s->is_percentage = true;
+        pComboUnit->set_active(1);
         rAdj_width->set_upper(1000);
         rAdj_height->set_upper(1000);
     } else {
-        combobox_unit.set_active(0);
+        pComboUnit->set_active(0);
     }
-    Gtk::CheckButton checkbutton_lock_ratio{_("Lock aspect ratio")};
-    checkbutton_lock_ratio.set_active(true);
-    hbox_3.pack_start(combobox_unit, false, false);
-    hbox_3.pack_start(checkbutton_lock_ratio, false, false);
-    Gtk::Box* pContentArea = dialog.get_content_area();
-    pContentArea->pack_start(hbox_1);
-    pContentArea->pack_start(hbox_2, false, false);
-    pContentArea->pack_start(hbox_3, false, false);
+    auto* pCheckLock = Gtk::manage(new Gtk::CheckButton{_("Lock aspect ratio")});
+    pCheckLock->set_active(true);
+    auto* pHbox3 = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 4});
+    pHbox3->pack_start(*Gtk::manage(new Gtk::Label{_("Width")}), false, false);
+    pHbox3->pack_start(*s->pSpinW, false, false);
+    pHbox3->pack_start(*Gtk::manage(new Gtk::Label{_("Height")}), false, false);
+    pHbox3->pack_start(*s->pSpinH, false, false);
+    pHbox3->pack_start(*pComboUnit, false, false);
+    pHbox3->pack_start(*pCheckLock, false, false);
+
+    Gtk::Box* pContentArea = pDialog->get_content_area();
+    pContentArea->pack_start(*pHbox1);
+    pContentArea->pack_start(*pHbox2, false, false);
+    pContentArea->pack_start(*pHbox3, false, false);
+
+    if (pImagePng) {
+        const bool hasOcr = not pImagePng->get_ocr_text().empty();
+        auto* pHboxOcr = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 6});
+        auto* pLabelOcrStatus = Gtk::manage(new Gtk::Label{});
+        pLabelOcrStatus->set_markup(
+            Glib::ustring::compose("<b>%1:</b> %2", _("OCR"), hasOcr ? _("Scanned") : _("Not scanned")));
+        pHboxOcr->pack_start(*pLabelOcrStatus, false, false);
+
+        auto* pButtonOcrShow = Gtk::manage(new Gtk::ToggleButton{_("Show OCR Text")});
+        pButtonOcrShow->set_sensitive(hasOcr);
+        pButtonOcrShow->signal_toggled().connect([pButtonOcrShow, pImagePng](){
+            if (pButtonOcrShow->get_active()) {
+                const auto& ocrText = pImagePng->get_ocr_text();
+                pImagePng->highlight_ocr_match(0, static_cast<int>(ocrText.bytes()));
+            } else {
+                pImagePng->clear_ocr_highlight();
+            }
+        });
+        pHboxOcr->pack_start(*pButtonOcrShow, false, false);
+
+#ifdef HAVE_NCNN
+        auto* pButtonOcrRescan = Gtk::manage(new Gtk::Button{_("Rescan OCR")});
+        auto* pCtMainWin = dynamic_cast<CtMainWin*>(&parent_win);
+        const gint64 imageNodeId = pCtMainWin ? pCtMainWin->curr_tree_iter().get_node_id() : 0;
+        pButtonOcrRescan->signal_clicked().connect([s, pCtMainWin, imageNodeId, pImagePng, pLabelOcrStatus, pButtonOcrShow](){
+            if (not pCtMainWin) return;
+            auto* pOcr = pCtMainWin->get_ocr_manager();
+            if (not pOcr) return;
+            if (not pOcr->enqueue(pImagePng->get_raw_blob(),
+                                  imageNodeId,
+                                  pImagePng,
+                                  true/*priority*/))
+            {
+                pLabelOcrStatus->set_markup(
+                    Glib::ustring::compose("<b>%1:</b> %2", _("OCR"), _("Queue full, try later")));
+                return;
+            }
+            pImagePng->set_ocr_text("");
+            pImagePng->set_ocr_boxes("");
+            const size_t total = pOcr->total_enqueued();
+            pCtMainWin->get_status_bar().ocrLabel.set_markup(
+                Glib::ustring::compose(" <small>OCR: %1/%2</small> ",
+                                       total - pOcr->pending_count(), total));
+            pCtMainWin->get_status_bar().ocrLabel.show();
+            pLabelOcrStatus->set_markup(
+                Glib::ustring::compose("<b>%1:</b> %2", _("OCR"), _("Scanning...")));
+            pButtonOcrShow->set_sensitive(false);
+            s->ocrPollTimer.disconnect();
+            s->ocrPollTimer = Glib::signal_timeout().connect([pImagePng, pLabelOcrStatus, pButtonOcrShow](){
+                if (pImagePng->get_ocr_boxes().empty()) return true;
+                pLabelOcrStatus->set_markup(
+                    Glib::ustring::compose("<b>%1:</b> %2", _("OCR"), _("Scanned")));
+                pButtonOcrShow->set_sensitive(true);
+                return false;
+            }, 200);
+        });
+        pHboxOcr->pack_start(*pButtonOcrRescan, false, false);
+#endif
+
+        pContentArea->pack_start(*pHboxOcr, false, false);
+    }
+
     pContentArea->set_spacing(6);
 
-    bool stop_update = false;
-    auto image_load_into_dialog = [&]() {
-        stop_update = true;
-        if (is_percentage) {
-            spinbutton_width.set_value(100.0 * width / orig_width);
-            spinbutton_height.set_value(100.0 * height / orig_height);
+    auto image_load_into_dialog = [s]() {
+        s->stop_update = true;
+        if (s->is_percentage) {
+            s->pSpinW->set_value(100.0 * s->width / s->orig_width);
+            s->pSpinH->set_value(100.0 * s->height / s->orig_height);
         } else {
-            spinbutton_width.set_value(width);
-            spinbutton_height.set_value(height);
+            s->pSpinW->set_value(s->width);
+            s->pSpinH->set_value(s->height);
         }
         Glib::RefPtr<Gdk::Pixbuf> rPixbuf;
-        if (width <= 900 && height <= 600) {
-            // original size into the dialog
-            rPixbuf = rOriginalPixbuf->scale_simple(width, height, Gdk::INTERP_BILINEAR);
+        if (s->width <= 900 && s->height <= 600) {
+            rPixbuf = s->rOriginalPixbuf->scale_simple(s->width, s->height, Gdk::INTERP_BILINEAR);
+        }
+        else if (s->width > 900) {
+            int img_parms_width = 900;
+            int img_parms_height = (int)(img_parms_width * s->height / (double)s->width);
+            rPixbuf = s->rOriginalPixbuf->scale_simple(img_parms_width, img_parms_height, Gdk::INTERP_BILINEAR);
         }
         else {
-            // reduced size visible into the dialog
-            if (width > 900) {
-                int img_parms_width = 900;
-                int img_parms_height = (int)(img_parms_width * height / (double)width);
-                rPixbuf = rOriginalPixbuf->scale_simple(img_parms_width, img_parms_height, Gdk::INTERP_BILINEAR);
-            }
-            else {
-                int img_parms_height = 600;
-                int img_parms_width = (int)(img_parms_height * width / (double)height);
-                rPixbuf = rOriginalPixbuf->scale_simple(img_parms_width, img_parms_height, Gdk::INTERP_BILINEAR);
-            }
+            int img_parms_height = 600;
+            int img_parms_width = (int)(img_parms_height * s->width / (double)s->height);
+            rPixbuf = s->rOriginalPixbuf->scale_simple(img_parms_width, img_parms_height, Gdk::INTERP_BILINEAR);
         }
-        image.set(rPixbuf);
-        stop_update = false;
+        s->pCropImage->set(rPixbuf);
+        s->stop_update = false;
     };
-    button_rotate_90_cw.signal_clicked().connect([&](){
-        rOriginalPixbuf = rOriginalPixbuf->rotate_simple(Gdk::PixbufRotation::PIXBUF_ROTATE_CLOCKWISE);
-        image_w_h_ration = 1./image_w_h_ration;
-        std::swap(width, height);
-        std::swap(orig_width, orig_height);
+    pBtnRotCW->signal_clicked().connect([s, image_load_into_dialog](){
+        s->rOriginalPixbuf = s->rOriginalPixbuf->rotate_simple(Gdk::PixbufRotation::PIXBUF_ROTATE_CLOCKWISE);
+        s->image_w_h_ration = 1. / s->image_w_h_ration;
+        std::swap(s->width, s->height);
+        std::swap(s->orig_width, s->orig_height);
         image_load_into_dialog();
     });
-    button_rotate_90_ccw.signal_clicked().connect([&](){
-        rOriginalPixbuf = rOriginalPixbuf->rotate_simple(Gdk::PixbufRotation::PIXBUF_ROTATE_COUNTERCLOCKWISE);
-        image_w_h_ration = 1./image_w_h_ration;
-        std::swap(width, height);
-        std::swap(orig_width, orig_height);
+    pBtnRotCCW->signal_clicked().connect([s, image_load_into_dialog](){
+        s->rOriginalPixbuf = s->rOriginalPixbuf->rotate_simple(Gdk::PixbufRotation::PIXBUF_ROTATE_COUNTERCLOCKWISE);
+        s->image_w_h_ration = 1. / s->image_w_h_ration;
+        std::swap(s->width, s->height);
+        std::swap(s->orig_width, s->orig_height);
         image_load_into_dialog();
     });
-    button_flip_horizontal.signal_clicked().connect([&](){
-        rOriginalPixbuf = rOriginalPixbuf->flip(true);
+    pBtnFlipH->signal_clicked().connect([s, image_load_into_dialog](){
+        s->rOriginalPixbuf = s->rOriginalPixbuf->flip(true);
         image_load_into_dialog();
     });
-    button_crop.signal_clicked().connect([&](){
-        CtDialogs::info_dialog(_("In order to crop the image, select the area with the mouse before clicking OK"), dialog);
+    pBtnCrop->signal_clicked().connect([pDialog](){
+        CtDialogs::info_dialog(_("In order to crop the image, select the area with the mouse before clicking OK"), *pDialog);
     });
-    button_flip_vertical.signal_clicked().connect([&](){
-        rOriginalPixbuf = rOriginalPixbuf->flip(false);
+    pBtnFlipV->signal_clicked().connect([s, image_load_into_dialog](){
+        s->rOriginalPixbuf = s->rOriginalPixbuf->flip(false);
         image_load_into_dialog();
     });
-    spinbutton_width.signal_value_changed().connect([&](){
-        if (stop_update) return;
-        if (is_percentage) {
-            double pct = spinbutton_width.get_value();
-            width = std::max(1, static_cast<int>(orig_width * pct / 100.0));
-            if (lock_aspect) {
-                height = std::max(1, static_cast<int>(orig_height * pct / 100.0));
+    s->pSpinW->signal_value_changed().connect([s, image_load_into_dialog](){
+        if (s->stop_update) return;
+        if (s->is_percentage) {
+            double pct = s->pSpinW->get_value();
+            s->width = std::max(1, static_cast<int>(s->orig_width * pct / 100.0));
+            if (s->lock_aspect) {
+                s->height = std::max(1, static_cast<int>(s->orig_height * pct / 100.0));
             }
         } else {
-            width = spinbutton_width.get_value_as_int();
-            if (lock_aspect) {
-                height = static_cast<int>(width / image_w_h_ration);
+            s->width = s->pSpinW->get_value_as_int();
+            if (s->lock_aspect) {
+                s->height = static_cast<int>(s->width / s->image_w_h_ration);
             }
         }
         image_load_into_dialog();
     });
-    spinbutton_height.signal_value_changed().connect([&](){
-        if (stop_update) return;
-        if (is_percentage) {
-            double pct = spinbutton_height.get_value();
-            height = std::max(1, static_cast<int>(orig_height * pct / 100.0));
-            if (lock_aspect) {
-                width = std::max(1, static_cast<int>(orig_width * pct / 100.0));
+    s->pSpinH->signal_value_changed().connect([s, image_load_into_dialog](){
+        if (s->stop_update) return;
+        if (s->is_percentage) {
+            double pct = s->pSpinH->get_value();
+            s->height = std::max(1, static_cast<int>(s->orig_height * pct / 100.0));
+            if (s->lock_aspect) {
+                s->width = std::max(1, static_cast<int>(s->orig_width * pct / 100.0));
             }
         } else {
-            height = spinbutton_height.get_value_as_int();
-            if (lock_aspect) {
-                width = static_cast<int>(height * image_w_h_ration);
+            s->height = s->pSpinH->get_value_as_int();
+            if (s->lock_aspect) {
+                s->width = static_cast<int>(s->height * s->image_w_h_ration);
             }
         }
         image_load_into_dialog();
     });
-    combobox_unit.signal_changed().connect([&](){
-        stop_update = true;
-        is_percentage = (combobox_unit.get_active_row_number() == 1);
-        if (pConfig) {
-            pConfig->imageSizeUnitPixels = !is_percentage;
+    pComboUnit->signal_changed().connect([s, rAdj_width, rAdj_height, pComboUnit](){
+        s->stop_update = true;
+        s->is_percentage = (pComboUnit->get_active_row_number() == 1);
+        if (s->pConfig) {
+            s->pConfig->imageSizeUnitPixels = !s->is_percentage;
         }
-        if (is_percentage) {
+        if (s->is_percentage) {
             rAdj_width->set_upper(1000);
             rAdj_height->set_upper(1000);
-            spinbutton_width.set_value(100.0 * width / orig_width);
-            spinbutton_height.set_value(100.0 * height / orig_height);
+            s->pSpinW->set_value(100.0 * s->width / s->orig_width);
+            s->pSpinH->set_value(100.0 * s->height / s->orig_height);
         } else {
             rAdj_width->set_upper(10000);
             rAdj_height->set_upper(10000);
-            spinbutton_width.set_value(width);
-            spinbutton_height.set_value(height);
+            s->pSpinW->set_value(s->width);
+            s->pSpinH->set_value(s->height);
         }
-        stop_update = false;
+        s->stop_update = false;
     });
-    checkbutton_lock_ratio.signal_toggled().connect([&](){
-        lock_aspect = checkbutton_lock_ratio.get_active();
-        if (lock_aspect) {
-            image_w_h_ration = static_cast<double>(width) / height;
+    pCheckLock->signal_toggled().connect([s, pCheckLock](){
+        s->lock_aspect = pCheckLock->get_active();
+        if (s->lock_aspect) {
+            s->image_w_h_ration = static_cast<double>(s->width) / s->height;
         }
     });
-    auto on_key_press_dialog = [&](GdkEventKey* pEventKey)->bool{
+    pDialog->signal_key_press_event().connect([pDialog](GdkEventKey* pEventKey)->bool{
         if (GDK_KEY_Return == pEventKey->keyval or GDK_KEY_KP_Enter == pEventKey->keyval) {
-            Gtk::Button* pButton = static_cast<Gtk::Button*>(dialog.get_widget_for_response(Gtk::RESPONSE_ACCEPT));
+            auto* pButton = static_cast<Gtk::Button*>(pDialog->get_widget_for_response(Gtk::RESPONSE_ACCEPT));
             pButton->grab_focus();
             pButton->clicked();
             return true;
         }
         if (GDK_KEY_Escape == pEventKey->keyval) {
-            Gtk::Button* pButton = static_cast<Gtk::Button*>(dialog.get_widget_for_response(Gtk::RESPONSE_REJECT));
+            auto* pButton = static_cast<Gtk::Button*>(pDialog->get_widget_for_response(Gtk::RESPONSE_REJECT));
             pButton->grab_focus();
             pButton->clicked();
             return true;
         }
         return false;
-    };
-    dialog.signal_key_press_event().connect(on_key_press_dialog, false/*call me before other*/);
+    }, false);
     image_load_into_dialog();
     append_widget_timestamps(*pContentArea, tsCreation, tsLastSave, timestampFormat);
-    pContentArea->show_all();
-    if ( Gtk::RESPONSE_ACCEPT == dialog.run() ) {
-        double x, y, w, h;
-        image.get_crop( width, height, &x, &y, &w, &h );
-        // If a high-res original is available and no crop was applied, scale from it for better quality
-        const bool noCrop = (x < 0.5 && y < 0.5 && std::abs(w - width) < 0.5 && std::abs(h - height) < 0.5);
-        if (rHighResPixbuf && noCrop) {
-            return rHighResPixbuf->scale_simple(width, height, Gdk::INTERP_BILINEAR);
+
+    pDialog->signal_response().connect([pDialog, s, pImagePng, onAccept](int response) {
+        s->ocrPollTimer.disconnect();
+        if (pImagePng) pImagePng->clear_ocr_highlight();
+        if (Gtk::RESPONSE_ACCEPT == response && onAccept) {
+            double x, y, w, h;
+            s->pCropImage->get_crop(s->width, s->height, &x, &y, &w, &h);
+            const bool noCrop = (x < 0.5 && y < 0.5 && std::abs(w - s->width) < 0.5 && std::abs(h - s->height) < 0.5);
+            if (s->rHighResPixbuf && noCrop) {
+                onAccept(s->rHighResPixbuf->scale_simple(s->width, s->height, Gdk::INTERP_BILINEAR));
+            } else {
+                Glib::RefPtr<Gdk::Pixbuf> rPixbuf = Gdk::Pixbuf::create(
+                    s->rOriginalPixbuf->get_colorspace(),
+                    s->rOriginalPixbuf->get_has_alpha(),
+                    s->rOriginalPixbuf->get_bits_per_sample(),
+                    w, h);
+                s->rOriginalPixbuf->scale(rPixbuf,
+                    0, 0, w, h, -x, -y,
+                    (double)s->width / s->rOriginalPixbuf->get_width(),
+                    (double)s->height / s->rOriginalPixbuf->get_height(),
+                    Gdk::INTERP_BILINEAR);
+                onAccept(rPixbuf);
+            }
         }
-        Glib::RefPtr<Gdk::Pixbuf> rPixbuf = Gdk::Pixbuf::create(
-            rOriginalPixbuf->get_colorspace(),
-            rOriginalPixbuf->get_has_alpha(),
-            rOriginalPixbuf->get_bits_per_sample(),
-            w, h );
-        rOriginalPixbuf->scale( rPixbuf,
-            0, 0, /* Top left X & Y on dest pixbuf */
-            w, h, /* Width & height of destination image */
-            - x, - y, /* Top left on src, after scaling */
-            (double) width / rOriginalPixbuf->get_width(), /* Scale */
-            (double) height / rOriginalPixbuf->get_height(),
-            Gdk::INTERP_BILINEAR );
-        return rPixbuf;
-    } else {
-        return Glib::RefPtr<Gdk::Pixbuf>{};
-    }
+        pDialog->hide();
+        Glib::signal_idle().connect_once([pDialog](){ delete pDialog; });
+    });
+
+    pContentArea->show_all();
+    pDialog->show();
 }
 
 bool CtDialogs::codeboxhandle_dialog(CtMainWin* pCtMainWin,
@@ -1538,16 +1618,19 @@ Glib::ustring CtDialogs::latex_handle_dialog(CtMainWin* pCtMainWin,
     return latex_text;
 }
 
-Glib::RefPtr<Gdk::Pixbuf> CtDialogs::image_handle_dialog(Gtk::Window& parent_win,
-                                                         Glib::RefPtr<Gdk::Pixbuf> rOriginalPixbuf,
-                                                         Glib::RefPtr<Gdk::Pixbuf> rHighResPixbuf,
-                                                         const Glib::ustring& timestampFormat,
-                                                         gint64 tsCreation,
-                                                         gint64 tsLastSave)
+void CtDialogs::image_handle_dialog(Gtk::Window& parent_win,
+                                    Glib::RefPtr<Gdk::Pixbuf> rOriginalPixbuf,
+                                    std::function<void(Glib::RefPtr<Gdk::Pixbuf>)> onAccept,
+                                    Glib::RefPtr<Gdk::Pixbuf> rHighResPixbuf,
+                                    const Glib::ustring& timestampFormat,
+                                    gint64 tsCreation,
+                                    gint64 tsLastSave,
+                                    CtImagePng* pImagePng)
 {
     (void)parent_win; (void)rHighResPixbuf;
     (void)timestampFormat; (void)tsCreation; (void)tsLastSave;
-    return rOriginalPixbuf;
+    (void)pImagePng;
+    if (onAccept) onAccept(rOriginalPixbuf);
 }
 
 bool CtDialogs::codeboxhandle_dialog(CtMainWin* pCtMainWin,
