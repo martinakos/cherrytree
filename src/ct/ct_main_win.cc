@@ -2117,14 +2117,19 @@ void CtMainWin::_process_one_ocr_result()
     CtOcrResult result = _pOcrManager->resultQueue.pop_front();
 
     CtTreeIter nodeIter = get_tree_store().get_node_from_node_id(result.nodeId);
+    bool matched = false;
     if (nodeIter) {
         for (auto* pWidget : nodeIter.get_anchored_widgets_fast()) {
             if (pWidget != result.pImagePng) continue;
             result.pImagePng->set_ocr_text(result.ocrText);
             result.pImagePng->set_ocr_boxes(result.ocrBoxes);
             update_window_save_needed(CtSaveNeededUpdType::nbuf, false, &nodeIter);
+            matched = true;
             break;
         }
+    }
+    if (not matched) {
+        spdlog::warn("CtOcrManager: result for node {} dropped — image widget not found", result.nodeId);
     }
 
     const size_t remaining = _pOcrManager->pending_count();

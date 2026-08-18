@@ -1479,107 +1479,104 @@ void CtActions::_image_edit_dialog(Glib::RefPtr<Gdk::Pixbuf> rPixbuf,
 {
     const gint64 origTsCr = pIterBound && curr_image_anchor ? curr_image_anchor->getTsCreation() : 0;
     const gint64 origTsLs = pIterBound && curr_image_anchor ? curr_image_anchor->getTsLastSave() : 0;
-    Glib::RefPtr<Gdk::Pixbuf> ret_pixbuf = CtDialogs::image_handle_dialog(
-        *_pCtMainWin, rPixbuf, rOrigPixbuf, _pCtConfig->timestampFormat, origTsCr, origTsLs);
-    if (not ret_pixbuf) return;
-    Glib::ustring image_justification;
+    const bool isModify = (pIterBound != nullptr);
+    const int imageOffset = insert_iter.get_offset();
+    CtImagePng* pEditImage = isModify ? curr_image_anchor : nullptr;
 
-    // Apply current text zoom to a newly created image widget
-    auto applyCurrentZoom = [this](CtImage* pImage) {
-        const int resetSize = _pCtMainWin->get_ct_config()->rtResetFontSize;
-        if (resetSize > 0) {
-            const Pango::FontDescription fontDesc(_pCtMainWin->get_ct_config()->rtFont);
-            const int currSize = fontDesc.get_size() / Pango::SCALE;
-            if (currSize != resetSize) {
-                pImage->apply_zoom((double)currSize / resetSize);
+    CtDialogs::image_handle_dialog(
+        *_pCtMainWin, rPixbuf,
+        [this, rOrigPixbuf, isModify, imageOffset, pRichCell, origTsCr, origTsLs, pEditImage]
+        (Glib::RefPtr<Gdk::Pixbuf> ret_pixbuf)
+    {
+        if (not ret_pixbuf) return;
+
+        auto applyCurrentZoom = [this](CtImage* pImage) {
+            const int resetSize = _pCtMainWin->get_ct_config()->rtResetFontSize;
+            if (resetSize > 0) {
+                const Pango::FontDescription fontDesc(_pCtMainWin->get_ct_config()->rtFont);
+                const int currSize = fontDesc.get_size() / Pango::SCALE;
+                if (currSize != resetSize) {
+                    pImage->apply_zoom((double)currSize / resetSize);
+                }
             }
-        }
-    };
+        };
 
-    // For image edits, use ModifyWidgetDeltaCommand (old desc → new desc)
-    if (pIterBound) { // only in case of modify
+        if (isModify) {
+            if (pRichCell) {
+                auto cellBuffer = pRichCell->get_buffer();
 
-        // Rich table cell: the image lives in the cell buffer, not the main buffer.
-        // pRichCell is passed from image_edit() which detects the cell structurally
-        // (via widget hierarchy), independent of bridge tracking state.
-        if (pRichCell) {
-            auto cellBuffer = pRichCell->get_buffer();
-            const int image_offset = insert_iter.get_offset();
+                auto pBridge = _pCtMainWin->get_command_bridge();
+                if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+                    pBridge->cancelRichCellSession();
+                }
 
-            // Cancel signal capture so the erase/insert aren't recorded separately.
+                Gtk::TextIter iter_start = cellBuffer->get_iter_at_child_anchor(pEditImage->getTextChildAnchor());
+                Gtk::TextIter iter_end = iter_start;
+                iter_end.forward_char();
+                CtAnchoredWidget* pOldWidget = pEditImage;
+                cellBuffer->erase(iter_start, iter_end);
+                pRichCell->removeEmbeddedWidget(pOldWidget);
+                delete pOldWidget;
+                curr_image_anchor = nullptr;
+
+                Gtk::TextIter insert_iter = cellBuffer->get_iter_at_offset(imageOffset);
+                auto* pWidget = new CtImagePng{_pCtMainWin, ret_pixbuf, ""/*link*/, imageOffset, ""};
+                if (rOrigPixbuf) pWidget->set_orig_pixbuf(rOrigPixbuf);
+                pWidget->setTsCreation(origTsCr);
+                pWidget->setTsLastSave(std::time(nullptr));
+                applyCurrentZoom(pWidget);
+                pWidget->insertInTextBuffer(cellBuffer);
+                pRichCell->addEmbeddedWidget(pWidget);
+                curr_image_anchor = pWidget;
+
+                if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
+                    pBridge->commitRichCellFormatChange("Edit image");
+                }
+                return;
+            }
+
             auto pBridge = _pCtMainWin->get_command_bridge();
-            if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
-                pBridge->cancelRichCellSession();
+            if (pBridge && pBridge->isActive()) {
+                pBridge->endTextEditSession();
+
+                Gtk::TextIter iter_start = _curr_buffer()->get_iter_at_child_anchor(pEditImage->getTextChildAnchor());
+                Glib::ustring image_justification = CtTextIterUtil::get_text_iter_alignment(iter_start, _pCtMainWin);
+                Gtk::TextIter iter_end = iter_start;
+                iter_end.forward_char();
+
+                gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
+                auto oldDesc = pBridge->getDocumentModel()->getNodeById(nodeId)
+                    ->getContent().getWidgetDescAt(iter_start.get_offset());
+
+                _curr_buffer()->erase(iter_start, iter_end);
+                Gtk::TextIter insert_iter = _curr_buffer()->get_iter_at_offset(imageOffset);
+                CtAnchoredWidget* pAnchoredWidget = new CtImagePng{_pCtMainWin, ret_pixbuf, ""/*link*/, imageOffset, image_justification};
+                if (rOrigPixbuf) static_cast<CtImage*>(pAnchoredWidget)->set_orig_pixbuf(rOrigPixbuf);
+                pAnchoredWidget->setTsCreation(origTsCr);
+                pAnchoredWidget->setTsLastSave(std::time(nullptr));
+                applyCurrentZoom(static_cast<CtImage*>(pAnchoredWidget));
+                pAnchoredWidget->insertInTextBuffer(_curr_buffer());
+                _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
+                                                                 {pAnchoredWidget},
+                                                                 &_pCtMainWin->get_text_view().mm());
+
+                auto newDesc = extractWidgetDesc(pAnchoredWidget, imageOffset);
+                pBridge->commitWidgetModification(nodeId, imageOffset, oldDesc, newDesc, "Edit image");
+            } else {
+                Gtk::TextIter iter_start = _curr_buffer()->get_iter_at_child_anchor(pEditImage->getTextChildAnchor());
+                Glib::ustring image_justification = CtTextIterUtil::get_text_iter_alignment(iter_start, _pCtMainWin);
+                Gtk::TextIter iter_end = iter_start;
+                iter_end.forward_char();
+                _curr_buffer()->erase(iter_start, iter_end);
+                Gtk::TextIter insert_iter = _curr_buffer()->get_iter_at_offset(imageOffset);
+                image_insert_png(insert_iter, ret_pixbuf, ""/*link*/, image_justification);
             }
-
-            // Replace the image in the cell buffer.
-            // Capture the old widget pointer before erasing so we can clean it up.
-            CtAnchoredWidget* pOldWidget = curr_image_anchor;
-            cellBuffer->erase(insert_iter, *pIterBound);
-            // Remove old widget from the cell's tracked list and delete it.
-            // Its TextChildAnchor is now deleted from the buffer; leaving it in the
-            // list would cause get_iter_at_child_anchor to assert on any subsequent
-            // image action that iterates getEmbeddedWidgets() and matches pOldWidget.
-            pRichCell->removeEmbeddedWidget(pOldWidget);
-            delete pOldWidget;
-            curr_image_anchor = nullptr;
-
-            insert_iter = cellBuffer->get_iter_at_offset(image_offset);
-            auto* pWidget = new CtImagePng{_pCtMainWin, ret_pixbuf, ""/*link*/, image_offset, ""};
-            if (rOrigPixbuf) pWidget->set_orig_pixbuf(rOrigPixbuf);
-            pWidget->setTsCreation(origTsCr);
-            pWidget->setTsLastSave(std::time(nullptr));
-            applyCurrentZoom(pWidget);
-            pWidget->insertInTextBuffer(cellBuffer);
-            pRichCell->addEmbeddedWidget(pWidget);
-            curr_image_anchor = pWidget;  // keep curr_image_anchor current
-
-            // Record as a single undo step.
-            if (pBridge && pBridge->isActive() && pBridge->isTrackingRichCell()) {
-                pBridge->commitRichCellFormatChange("Edit image");
-            }
-            return;
-        }
-
-        auto pBridge = _pCtMainWin->get_command_bridge();
-        if (pBridge && pBridge->isActive()) {
-            pBridge->endTextEditSession();
-
-            image_justification = CtTextIterUtil::get_text_iter_alignment(insert_iter, _pCtMainWin);
-            const int image_offset = insert_iter.get_offset();
-
-            // Capture old descriptor from model before modifying anything
-            gint64 nodeId = _pCtMainWin->curr_tree_iter().get_node_id();
-            auto oldDesc = pBridge->getDocumentModel()->getNodeById(nodeId)
-                ->getContent().getWidgetDescAt(image_offset);
-
-            // Delete old image and insert new one in the buffer
-            _curr_buffer()->erase(insert_iter, *pIterBound);
-            insert_iter = _curr_buffer()->get_iter_at_offset(image_offset);
-            CtAnchoredWidget* pAnchoredWidget = new CtImagePng{_pCtMainWin, ret_pixbuf, ""/*link*/, image_offset, image_justification};
-            if (rOrigPixbuf) static_cast<CtImage*>(pAnchoredWidget)->set_orig_pixbuf(rOrigPixbuf);
-            pAnchoredWidget->setTsCreation(origTsCr);
-            pAnchoredWidget->setTsLastSave(std::time(nullptr));
-            applyCurrentZoom(static_cast<CtImage*>(pAnchoredWidget));
-            pAnchoredWidget->insertInTextBuffer(_curr_buffer());
-            _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
-                                                             {pAnchoredWidget},
-                                                             &_pCtMainWin->get_text_view().mm());
-
-            auto newDesc = extractWidgetDesc(pAnchoredWidget, image_offset);
-            pBridge->commitWidgetModification(nodeId, image_offset, oldDesc, newDesc, "Edit image");
         } else {
-            // Fallback: command bridge not active
-            image_justification = CtTextIterUtil::get_text_iter_alignment(insert_iter, _pCtMainWin);
-            int image_offset = insert_iter.get_offset();
-            _curr_buffer()->erase(insert_iter, *pIterBound);
-            insert_iter = _curr_buffer()->get_iter_at_offset(image_offset);
-            image_insert_png(insert_iter, ret_pixbuf, ""/*link*/, image_justification);
+            Gtk::TextIter insert_iter = _curr_buffer()->get_iter_at_offset(imageOffset);
+            image_insert_png(insert_iter, ret_pixbuf, ""/*link*/, "");
         }
-    } else {
-        // New image insertion - use the normal path
-        image_insert_png(insert_iter, ret_pixbuf, ""/*link*/, image_justification);
-    }
+    },
+    rOrigPixbuf, _pCtConfig->timestampFormat, origTsCr, origTsLs, pEditImage);
 }
 
 void CtActions::image_insert_png(Gtk::TextIter iter_insert,

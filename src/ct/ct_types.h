@@ -372,20 +372,27 @@ public:
         }
         return false;
     }
-    bool push_front(T t) {
+    bool push_front(T t, bool force = false) {
         std::lock_guard<std::mutex> lock(m);
-        if (q.size() < MAX) {
-            q.push_front(t);
-            c.notify_one();
-            return true;
+        if (not force and q.size() >= MAX) {
+            return false;
         }
-        return false;
+        q.push_front(t);
+        c.notify_one();
+        return true;
     }
     T pop_front() {
         std::unique_lock<std::mutex> lock(m);
         while (q.empty()) {
             c.wait(lock);
         }
+        T val = q.front();
+        q.pop_front();
+        return val;
+    }
+    std::optional<T> try_pop_front() {
+        std::lock_guard<std::mutex> lock(m);
+        if (q.empty()) return std::nullopt;
         T val = q.front();
         q.pop_front();
         return val;

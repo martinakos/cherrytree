@@ -7564,7 +7564,9 @@ static void _test_rich_cell_image_resize_uses_original(CtMainWin* pWin)
     // Without the fix the third argument was not passed and the dialog would use the degraded
     // zoom_base (blue) as the scaling source; with the fix it scales from orig (red).
     {
-        auto dialogResult = CtDialogs::image_handle_dialog(*pWin, degradedZoomBase, origPixbuf);
+        Glib::RefPtr<Gdk::Pixbuf> dialogResult;
+        CtDialogs::image_handle_dialog(*pWin, degradedZoomBase,
+            [&](Glib::RefPtr<Gdk::Pixbuf> px){ dialogResult = px; }, origPixbuf);
         ASSERT_TRUE(dialogResult) << "image_handle_dialog must return a pixbuf in no_gui mode";
         EXPECT_EQ(10, dialogResult->get_width())  << "output must match zoom_base dimensions";
         EXPECT_EQ(10, dialogResult->get_height()) << "output must match zoom_base dimensions";
@@ -7668,7 +7670,9 @@ static void _test_rich_cell_image_resize_uses_original(CtMainWin* pWin)
         auto halfZoom = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB, false, 8, 50, 40);
         halfZoom->fill(0x0000FFFF);
 
-        auto result50 = CtDialogs::image_handle_dialog(*pWin, halfZoom, origPx);
+        Glib::RefPtr<Gdk::Pixbuf> result50;
+        CtDialogs::image_handle_dialog(*pWin, halfZoom,
+            [&](Glib::RefPtr<Gdk::Pixbuf> px){ result50 = px; }, origPx);
         ASSERT_TRUE(result50);
         EXPECT_EQ(50, result50->get_width())  << "50% zoom_base dimensions preserved";
         EXPECT_EQ(40, result50->get_height()) << "50% zoom_base dimensions preserved";
@@ -7678,7 +7682,9 @@ static void _test_rich_cell_image_resize_uses_original(CtMainWin* pWin)
 
         auto fullZoom = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB, false, 8, 100, 80);
         fullZoom->fill(0x0000FFFF);
-        auto result100 = CtDialogs::image_handle_dialog(*pWin, fullZoom, origPx);
+        Glib::RefPtr<Gdk::Pixbuf> result100;
+        CtDialogs::image_handle_dialog(*pWin, fullZoom,
+            [&](Glib::RefPtr<Gdk::Pixbuf> px){ result100 = px; }, origPx);
         ASSERT_TRUE(result100);
         EXPECT_EQ(100, result100->get_width())  << "100% restores original width";
         EXPECT_EQ(80, result100->get_height()) << "100% restores original height";
