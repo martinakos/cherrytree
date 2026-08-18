@@ -604,8 +604,8 @@ void CtMenu::init_actions(CtActions* pActions)
             _("Delete the Selected LatexBox"), sigc::mem_fun(*pActions, &CtActions::latex_delete)});
         _actions.push_back(CtMenuAction{others_cat, "img_save", "ct_image_save", _("_Save Image as PNG..."), None,
             _("Save the Selected Image as a PNG file"), sigc::mem_fun(*pActions, &CtActions::image_save)});
-        _actions.push_back(CtMenuAction{others_cat, "img_edit", "ct_image_edit", _("_Edit Image..."), None,
-            _("Edit the Selected Image"), sigc::mem_fun(*pActions, &CtActions::image_edit)});
+        _actions.push_back(CtMenuAction{others_cat, "img_edit", "ct_image_edit", _("Image _Properties..."), None,
+            _("Image Properties"), sigc::mem_fun(*pActions, &CtActions::image_edit)});
         _actions.push_back(CtMenuAction{others_cat, "img_cut", "ct_edit_cut", _("C_ut Image"), None,
             _("Cut the Selected Image"), sigc::mem_fun(*pActions, &CtActions::image_cut)});
         _actions.push_back(CtMenuAction{others_cat, "img_copy", "ct_edit_copy", _("_Copy Image"), None,

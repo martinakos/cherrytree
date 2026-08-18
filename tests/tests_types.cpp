@@ -127,6 +127,60 @@ TEST(TestTypesGroup, ThreadSafeDEQueue_MaxElements)
     ASSERT_EQ(3, threadSafeDEQueue.size());
 }
 
+TEST(TestTypesGroup, ThreadSafeDEQueue_TryPopFront)
+{
+    ThreadSafeDEQueue<int,5> q;
+    ASSERT_FALSE(q.try_pop_front().has_value());
+    q.push_back(10);
+    q.push_back(20);
+    auto val = q.try_pop_front();
+    ASSERT_TRUE(val.has_value());
+    ASSERT_EQ(10, val.value());
+    val = q.try_pop_front();
+    ASSERT_TRUE(val.has_value());
+    ASSERT_EQ(20, val.value());
+    ASSERT_FALSE(q.try_pop_front().has_value());
+}
+
+TEST(TestTypesGroup, ThreadSafeDEQueue_PushFrontRespectsMax)
+{
+    ThreadSafeDEQueue<int,3> q;
+    ASSERT_TRUE(q.push_front(1));
+    ASSERT_TRUE(q.push_front(2));
+    ASSERT_TRUE(q.push_front(3));
+    ASSERT_FALSE(q.push_front(4));
+    ASSERT_EQ(3u, q.size());
+    ASSERT_EQ(3, q.pop_front());
+}
+
+TEST(TestTypesGroup, ThreadSafeDEQueue_PushFrontForce)
+{
+    ThreadSafeDEQueue<int,3> q;
+    q.push_back(1);
+    q.push_back(2);
+    q.push_back(3);
+    ASSERT_FALSE(q.push_front(99));
+    ASSERT_TRUE(q.push_front(99, true/*force*/));
+    ASSERT_EQ(4u, q.size());
+    ASSERT_EQ(99, q.pop_front());
+}
+
+TEST(TestTypesGroup, ThreadSafeDEQueue_ForcedItemIsFirst)
+{
+    ThreadSafeDEQueue<int,2> q;
+    q.push_back(10);
+    q.push_back(20);
+    ASSERT_TRUE(q.push_front(99, true/*force*/));
+    auto val = q.try_pop_front();
+    ASSERT_TRUE(val.has_value());
+    ASSERT_EQ(99, val.value());
+    val = q.try_pop_front();
+    ASSERT_EQ(10, val.value());
+    val = q.try_pop_front();
+    ASSERT_EQ(20, val.value());
+    ASSERT_FALSE(q.try_pop_front().has_value());
+}
+
 TEST(TestTypesGroup, ctScalableTag)
 {
     {

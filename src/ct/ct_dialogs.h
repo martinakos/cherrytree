@@ -30,9 +30,11 @@
 #include <gtkmm.h>
 #include <array>
 #include <set>
+#include <functional>
 
 class CtMainWin;
 class CtTreeStore;
+class CtImagePng;
 struct CtNodeData;
 
 class CtDialogTextEntry : public Gtk::Dialog
@@ -204,13 +206,15 @@ std::string file_save_as_dialog(Gtk::Window* pParentWin, const CtFileSelectArgs&
 
 std::string folder_save_as_dialog(Gtk::Window* pParentWin, const CtFileSelectArgs& args);
 
-// Insert/Edit Image
-Glib::RefPtr<Gdk::Pixbuf> image_handle_dialog(Gtk::Window& father_win,
-                                              Glib::RefPtr<Gdk::Pixbuf> rOriginalPixbuf,
-                                              Glib::RefPtr<Gdk::Pixbuf> rHighResPixbuf = {},
-                                              const Glib::ustring& timestampFormat = "",
-                                              gint64 tsCreation = 0,
-                                              gint64 tsLastSave = 0);
+// Insert/Edit Image (non-modal; calls onAccept with the resulting pixbuf on OK)
+void image_handle_dialog(Gtk::Window& parent_win,
+                         Glib::RefPtr<Gdk::Pixbuf> rOriginalPixbuf,
+                         std::function<void(Glib::RefPtr<Gdk::Pixbuf>)> onAccept,
+                         Glib::RefPtr<Gdk::Pixbuf> rHighResPixbuf = {},
+                         const Glib::ustring& timestampFormat = "",
+                         gint64 tsCreation = 0,
+                         gint64 tsLastSave = 0,
+                         CtImagePng* pImagePng = nullptr);
 // Insert/Edit Latex
 Glib::ustring latex_handle_dialog(CtMainWin* pCtMainWin,
                                   const Glib::ustring& latex_text,

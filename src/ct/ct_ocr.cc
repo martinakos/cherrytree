@@ -39,7 +39,6 @@
 #include <fstream>
 #include <algorithm>
 #include <thread>
-#include <chrono>
 #include <pthread.h>
 #include <sched.h>
 #include <unistd.h>
@@ -55,23 +54,35 @@ CtOcrManager::CtOcrManager(const std::string& modelDir)
 CtOcrManager::~CtOcrManager()
 {
     _shutDown = true;
-    _workQueue.push_back(nullptr);
+    {
+        std::lock_guard<std::mutex> lock(_workerMutex);
+        _hasWork = true;
+    }
+    _workerCv.notify_one();
     if (_workerThread.joinable()) {
         _workerThread.join();
+    }
+    while (auto optItem = _workQueue.try_pop_front()) {
+        delete *optItem;
     }
 }
 
 bool CtOcrManager::enqueue(const std::string& pngBlob, gint64 nodeId, CtImagePng* pImagePng, bool priority)
 {
-    auto* pItem = new CtOcrWorkItem{pngBlob, nodeId, pImagePng, priority};
-    const bool pushed = priority ? _workQueue.push_front(pItem) : _workQueue.push_back(pItem);
-    if (pushed) {
-        _pendingCount++;
-        _totalEnqueued++;
-        return true;
+    auto* pItem = new CtOcrWorkItem{pngBlob, nodeId, pImagePng, pImagePng->getOffset(), priority};
+    const bool pushed = priority ? _workQueue.push_front(pItem, true/*force*/) : _workQueue.push_back(pItem);
+    if (not pushed) {
+        delete pItem;
+        return false;
     }
-    delete pItem;
-    return false;
+    _pendingCount++;
+    _totalEnqueued++;
+    {
+        std::lock_guard<std::mutex> lock(_workerMutex);
+        _hasWork = true;
+    }
+    _workerCv.notify_one();
+    return true;
 }
 
 void CtOcrManager::enqueue_all_missing(CtTreeStore& treeStore)
@@ -136,7 +147,6 @@ size_t CtOcrManager::total_enqueued() const
 
 void CtOcrManager::_worker_func()
 {
-    // Pin this thread to the last CPU core to avoid contention with the UI thread
     unsigned numCpus = std::thread::hardware_concurrency();
     if (numCpus > 1) {
         cpu_set_t cpuset;
@@ -144,6 +154,9 @@ void CtOcrManager::_worker_func()
         CPU_SET(numCpus - 1, &cpuset);
         pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
     }
+    struct sched_param sp = {};
+    sp.sched_priority = 0;
+    pthread_setschedparam(pthread_self(), SCHED_BATCH, &sp);
 
     const std::string configPath = _modelDir + "/ct_ocr_config.json";
     if (not std::filesystem::exists(configPath)) {
@@ -194,24 +207,29 @@ void CtOcrManager::_worker_func()
     }
 
     while (not _shutDown) {
-        CtOcrWorkItem* pItem = _workQueue.pop_front();
-        if (not pItem) {
-            break; // nullptr sentinel → shut down
+        auto optItem = _workQueue.try_pop_front();
+        if (not optItem) {
+            std::unique_lock<std::mutex> lock(_workerMutex);
+            _workerCv.wait(lock, [this]{ return _hasWork.load() or _shutDown.load(); });
+            _hasWork = false;
+            continue;
         }
-        const bool isPriority = pItem->priority;
+        CtOcrWorkItem* pItem = *optItem;
+        if (pItem->priority) {
+            spdlog::info("CtOcrManager: processing PRIORITY rescan for image at offset {} in node {}", pItem->charOffset, pItem->nodeId);
+        }
         OcrData ocrData = _run_ocr(pItem->pngBlob);
+
         CtOcrResult result;
         result.nodeId = pItem->nodeId;
         result.pImagePng = pItem->pImagePng;
-        result.ocrText = ocrData.text;
-        result.ocrBoxes = ocrData.boxes;
+        result.ocrText = std::move(ocrData.text);
+        result.ocrBoxes = std::move(ocrData.boxes);
         resultQueue.push_back(result);
         _pendingCount--;
         delete pItem;
+
         dispatcherOcrResult.emit();
-        if (not isPriority and not _shutDown) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        }
     }
     spdlog::info("CtOcrManager: worker thread stopped");
 }

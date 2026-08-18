@@ -28,6 +28,8 @@
 #include <memory>
 #include <thread>
 #include <atomic>
+#include <mutex>
+#include <condition_variable>
 #include <glibmm/ustring.h>
 #include <glibmm/dispatcher.h>
 #include "ct_types.h"
@@ -41,6 +43,7 @@ struct CtOcrWorkItem {
     std::string pngBlob;
     gint64      nodeId;
     CtImagePng* pImagePng;
+    int         charOffset{0};
     bool        priority{false};
 };
 
@@ -80,6 +83,9 @@ private:
     ThreadSafeDEQueue<CtOcrWorkItem*, 1024> _workQueue;
     std::thread _workerThread;
     std::atomic<bool> _shutDown{false};
+    std::atomic<bool> _hasWork{false};
+    std::mutex _workerMutex;
+    std::condition_variable _workerCv;
     std::atomic<size_t> _pendingCount{0};
     std::atomic<size_t> _totalEnqueued{0};
     std::string _modelDir;
