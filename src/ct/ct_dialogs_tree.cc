@@ -24,6 +24,7 @@
 #include "ct_dialogs.h"
 #include "ct_main_win.h"
 #include "ct_treestore.h"
+#include "ct_image.h"
 
 namespace {
 
@@ -94,6 +95,33 @@ Glib::ustring _format_size(size_t bytes)
         char buf[32];
         snprintf(buf, sizeof(buf), "%.1f MB", bytes / (1024.0 * 1024.0));
         return buf;
+    }
+}
+
+struct ImageStats {
+    int total{0};
+    int scanned{0};
+};
+
+void _calc_node_image_stats(CtTreeIter treeIter, ImageStats& stats)
+{
+    for (auto* pWidget : treeIter.get_anchored_widgets_fast()) {
+        if (pWidget->get_type() == CtAnchWidgType::ImagePng) {
+            ++stats.total;
+            if (not dynamic_cast<CtImagePng*>(pWidget)->get_ocr_boxes().empty()) {
+                ++stats.scanned;
+            }
+        }
+    }
+}
+
+void _calc_subtree_image_stats(CtTreeIter treeIter, ImageStats& stats)
+{
+    _calc_node_image_stats(treeIter, stats);
+    CtTreeIter child = treeIter.first_child();
+    while (child) {
+        _calc_subtree_image_stats(child, stats);
+        ++child;
     }
 }
 
@@ -224,17 +252,20 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
     excl_hbox->pack_start(*excl_me_checkbutton);
     excl_hbox->pack_start(*excl_ch_checkbutton);
 
+    auto ro_wrap_hbox = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 5});
     auto ro_checkbutton = Gtk::manage(new Gtk::CheckButton{_("Read Only")});
     ro_checkbutton->set_active(nodeData.isReadOnly);
-
     auto wrap_checkbutton = Gtk::manage(new Gtk::CheckButton{_("Wrap Lines")});
     wrap_checkbutton->set_active(nodeData.lineWrap);
+    ro_wrap_hbox->pack_start(*ro_checkbutton, false, false);
+    ro_wrap_hbox->pack_start(*wrap_checkbutton, false, false);
 
     Glib::ustring id_str = Glib::ustring{_("Unique Id")} + ": " + std::to_string(nodeData.nodeId);
     CtTreeIter currIter = pCtMainWin->get_tree_store().get_node_from_node_id(nodeData.nodeId);
     bool hasCurrIter = static_cast<bool>(currIter);
     if (hasCurrIter) {
         id_str += Glib::ustring{"  —  "} + _("Total Size") + _(": ") + _("…");
+        id_str += CtConst::CHAR_NEWLINE + _("Images") + _(": ") + _("…");
     }
     CtSharedNodesMap shared_nodes_map;
     if (pCtMainWin->get_tree_store().populate_shared_nodes_map(shared_nodes_map) > 0u) {
@@ -261,8 +292,7 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
     pContentArea->pack_start(*type_frame);
     pContentArea->pack_start(*tags_frame);
     pContentArea->pack_start(*excl_hbox);
-    pContentArea->pack_start(*ro_checkbutton);
-    pContentArea->pack_start(*wrap_checkbutton);
+    pContentArea->pack_start(*ro_wrap_hbox);
     pContentArea->pack_start(*id_label);
     pContentArea->show_all();
     name_entry->grab_focus();
@@ -270,12 +300,30 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
     if (hasCurrIter) {
         Glib::signal_timeout().connect_once([id_label, currIter, &nodeData](){
             size_t subtreeSize = _calc_subtree_size(currIter);
+            ImageStats imgStats;
+            _calc_subtree_image_stats(currIter, imgStats);
+
             Glib::ustring updated = Glib::ustring{_("Unique Id")} + ": " + std::to_string(nodeData.nodeId);
             updated += Glib::ustring{"  —  "} + _("Total Size") + _(": ") + _format_size(subtreeSize);
+
+            if (imgStats.total > 0) {
+                updated += CtConst::CHAR_NEWLINE + _("Images") + _(": ") + std::to_string(imgStats.total);
+                updated += Glib::ustring{"  —  "} + _("OCR Scanned") + _(": ")
+                    + std::to_string(imgStats.scanned) + "/" + std::to_string(imgStats.total);
+            }
+            else {
+                updated += CtConst::CHAR_NEWLINE + _("Images") + _(": ") + _("None");
+            }
+
             Glib::ustring current = id_label->get_text();
-            Glib::ustring firstLine = current.substr(0, current.find('\n'));
-            if (current.size() > firstLine.size()) {
-                updated += current.substr(firstLine.size());
+            auto firstNewline = current.find('\n');
+            if (firstNewline != Glib::ustring::npos) {
+                auto secondNewline = current.find('\n', firstNewline + 1);
+                Glib::ustring tail;
+                if (secondNewline != Glib::ustring::npos) {
+                    tail = current.substr(secondNewline);
+                }
+                updated += tail;
             }
             id_label->set_text(updated);
         }, 50);
