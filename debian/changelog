@@ -1,3 +1,18 @@
+cherrytree-docmodel (1.7.1+docmodel15-1) plucky; urgency=low
+
+  * add OCR text recognition for images using PaddleOCR-ncnn (chosen over
+    Tesseract for better recognition accuracy and performance, requires ncnn
+    and OpenCV as additional dependencies) — background worker thread,
+    auto-enqueue on document open, search integration with "Text in Images"
+    checkbox, visual highlight overlay on matched bounding boxes, persistence
+    across SQLite/XML/MultiFile storage. Optional build via -DUSE_NCNN=ON.
+  * show image count and OCR scan status in node properties dialog
+  * fix clipboard images pasting at 2x size on HiDPI X11 setups
+  * fix search highlight and replace not working in rich table cells
+  * fix screenshot paste preferring stale text over image data
+
+ -- Martin Tosas <martin.tosas@gmail.com>  Tue, 19 Aug 2026 12:00:00 +0000
+
 cherrytree-docmodel (1.7.1+docmodel14-1) plucky; urgency=low
 
   * rebased onto upstream v1.7.1
