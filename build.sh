@@ -12,6 +12,7 @@ BUNDLED_SPDLOG_FMT=""
 NO_TESTS=""
 NO_DEPRECATED=""
 WITH_GTK4=""
+USE_NCNN=""
 RET_VAL=""
 [ -d ${BUILD_DIR} ] || mkdir ${BUILD_DIR}
 
@@ -33,12 +34,15 @@ f_any_argument_matches () {
 f_any_argument_matches "help" "--help" "-h"
 if [ -n "${RET_VAL}" ]
 then
-  echo "$0 [dbg|debug|rel|release] [notest|notests] [bundledspdfmt] [deb|debian] [rpm] [appimage]"
+  echo "$0 [dbg|debug|rel|release] [notest|notests] [bundledspdfmt] [deb|debian] [rpm] [appimage] [ncnn|ocr]"
   exit 0
 fi
 
 f_any_argument_matches "notests" "notest"
 [ -n "${RET_VAL}" ] && NO_TESTS="Y"
+
+f_any_argument_matches "ncnn" "ocr"
+[ -n "${RET_VAL}" ] && USE_NCNN="Y"
 
 f_any_argument_matches "nodeprecated" "nodeprec"
 [ -n "${RET_VAL}" ] && NO_DEPRECATED="Y"
@@ -127,6 +131,11 @@ fi
 if [ -n "${WITH_GTK4}" ]
 then
   EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DWITH_GTK4='ON'"
+fi
+
+if [ -n "${USE_NCNN}" ]
+then
+  EXTRA_CMAKE_FLAGS="${EXTRA_CMAKE_FLAGS} -DUSE_NCNN='ON'"
 fi
 
 git submodule update --init --recursive
