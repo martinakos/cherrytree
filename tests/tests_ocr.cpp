@@ -30,6 +30,8 @@
 #include "gtest/gtest.h"
 #include <glibmm/regex.h>
 #include <sqlite3.h>
+#include <sstream>
+#include <thread>
 
 #ifdef HAVE_NCNN
 #include "ct_ocr.h"
@@ -38,7 +40,6 @@
 #include <opencv2/imgcodecs.hpp>
 #include <filesystem>
 #include <fstream>
-#include <sstream>
 #include <unistd.h>
 #include <fcntl.h>
 #endif
@@ -223,6 +224,548 @@ TEST(OcrSearchTest, SearchOptionsDefaultTextInImagesFalse)
 {
     CtSearchOptions opts;
     EXPECT_FALSE(opts.text_in_images);
+}
+
+// --- ThreadSafeDEQueue tests ---
+
+TEST(ThreadSafeDEQueueTest, EmptyOnConstruction)
+{
+    ThreadSafeDEQueue<int, 4> q;
+    EXPECT_TRUE(q.empty());
+    EXPECT_EQ(0u, q.size());
+}
+
+TEST(ThreadSafeDEQueueTest, PushBackAndTryPopFront)
+{
+    ThreadSafeDEQueue<int, 4> q;
+    EXPECT_TRUE(q.push_back(10));
+    EXPECT_TRUE(q.push_back(20));
+    EXPECT_EQ(2u, q.size());
+
+    auto v1 = q.try_pop_front();
+    ASSERT_TRUE(v1.has_value());
+    EXPECT_EQ(10, *v1);
+
+    auto v2 = q.try_pop_front();
+    ASSERT_TRUE(v2.has_value());
+    EXPECT_EQ(20, *v2);
+
+    EXPECT_TRUE(q.empty());
+}
+
+TEST(ThreadSafeDEQueueTest, TryPopFrontOnEmptyReturnsNullopt)
+{
+    ThreadSafeDEQueue<int, 4> q;
+    EXPECT_FALSE(q.try_pop_front().has_value());
+}
+
+TEST(ThreadSafeDEQueueTest, PushBackRejectsAtCapacity)
+{
+    ThreadSafeDEQueue<int, 3> q;
+    EXPECT_TRUE(q.push_back(1));
+    EXPECT_TRUE(q.push_back(2));
+    EXPECT_TRUE(q.push_back(3));
+    EXPECT_FALSE(q.push_back(4));
+    EXPECT_EQ(3u, q.size());
+}
+
+TEST(ThreadSafeDEQueueTest, PushFrontRejectsAtCapacity)
+{
+    ThreadSafeDEQueue<int, 2> q;
+    EXPECT_TRUE(q.push_front(1));
+    EXPECT_TRUE(q.push_front(2));
+    EXPECT_FALSE(q.push_front(3));
+    EXPECT_EQ(2u, q.size());
+}
+
+TEST(ThreadSafeDEQueueTest, PushFrontForceBypassesCapacity)
+{
+    ThreadSafeDEQueue<int, 2> q;
+    EXPECT_TRUE(q.push_back(1));
+    EXPECT_TRUE(q.push_back(2));
+    EXPECT_TRUE(q.push_front(99, true/*force*/));
+    EXPECT_EQ(3u, q.size());
+
+    auto v = q.try_pop_front();
+    ASSERT_TRUE(v.has_value());
+    EXPECT_EQ(99, *v);
+}
+
+TEST(ThreadSafeDEQueueTest, PushFrontOrderIsFILO)
+{
+    ThreadSafeDEQueue<int, 4> q;
+    q.push_back(1);
+    q.push_front(2);
+    q.push_front(3);
+
+    EXPECT_EQ(3, *q.try_pop_front());
+    EXPECT_EQ(2, *q.try_pop_front());
+    EXPECT_EQ(1, *q.try_pop_front());
+}
+
+TEST(ThreadSafeDEQueueTest, PeekReturnsWithoutRemoving)
+{
+    ThreadSafeDEQueue<int, 4> q;
+    EXPECT_FALSE(q.peek().has_value());
+
+    q.push_back(42);
+    auto peeked = q.peek();
+    ASSERT_TRUE(peeked.has_value());
+    EXPECT_EQ(42, *peeked);
+    EXPECT_EQ(1u, q.size());
+}
+
+TEST(ThreadSafeDEQueueTest, ClearEmptiesQueue)
+{
+    ThreadSafeDEQueue<int, 4> q;
+    q.push_back(1);
+    q.push_back(2);
+    q.clear();
+    EXPECT_TRUE(q.empty());
+    EXPECT_EQ(0u, q.size());
+}
+
+TEST(ThreadSafeDEQueueTest, PopFrontBlocksUntilPush)
+{
+    ThreadSafeDEQueue<int, 4> q;
+    int result = 0;
+    std::thread consumer([&] { result = q.pop_front(); });
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    q.push_back(77);
+    consumer.join();
+    EXPECT_EQ(77, result);
+}
+
+TEST(ThreadSafeDEQueueTest, ConcurrentProducerConsumer)
+{
+    ThreadSafeDEQueue<int, 64> q;
+    const int N = 200;
+    std::vector<int> consumed;
+    consumed.reserve(N);
+
+    std::thread producer([&] {
+        for (int i = 0; i < N; ++i) {
+            while (not q.push_back(i)) {
+                std::this_thread::yield();
+            }
+        }
+    });
+
+    std::thread consumer([&] {
+        for (int i = 0; i < N; ++i) {
+            consumed.push_back(q.pop_front());
+        }
+    });
+
+    producer.join();
+    consumer.join();
+
+    ASSERT_EQ(N, static_cast<int>(consumed.size()));
+    for (int i = 0; i < N; ++i) {
+        EXPECT_EQ(i, consumed[i]);
+    }
+}
+
+// --- CtWidgetDesc OCR property tests ---
+
+TEST(WidgetDescOcrTest, OcrPropertiesAffectEquality)
+{
+    CtWidgetDesc a(CtAnchWidgType::ImagePng);
+    CtWidgetDesc b(CtAnchWidgType::ImagePng);
+    EXPECT_EQ(a, b);
+
+    a.setProperty("ocr_text", "hello");
+    EXPECT_FALSE(a == b);
+
+    b.setProperty("ocr_text", "hello");
+    EXPECT_EQ(a, b);
+}
+
+TEST(WidgetDescOcrTest, OcrBoxesPropertyRoundTrip)
+{
+    CtWidgetDesc desc(CtAnchWidgType::ImagePng);
+    const std::string boxes = "300,200;0,5,10,10,290,10,290,50,10,50;5,12,10,60,290,60,290,100,10,100";
+    desc.setProperty("ocr_boxes", boxes);
+    EXPECT_EQ(boxes, desc.getProperty("ocr_boxes"));
+}
+
+TEST(WidgetDescOcrTest, MultipleOcrPropertiesCoexist)
+{
+    CtWidgetDesc desc(CtAnchWidgType::ImagePng);
+    desc.setProperty("ocr_text", "Hello World");
+    desc.setProperty("ocr_boxes", "100,50;0,11,0,0,100,0,100,50,0,50");
+    desc.setProperty("link", "webs https://example.com");
+    EXPECT_EQ("Hello World", desc.getProperty("ocr_text"));
+    EXPECT_EQ("100,50;0,11,0,0,100,0,100,50,0,50", desc.getProperty("ocr_boxes"));
+    EXPECT_EQ("webs https://example.com", desc.getProperty("link"));
+}
+
+TEST(WidgetDescOcrTest, OverwriteOcrText)
+{
+    CtWidgetDesc desc(CtAnchWidgType::ImagePng);
+    desc.setProperty("ocr_text", "old text");
+    desc.setProperty("ocr_text", "new text");
+    EXPECT_EQ("new text", desc.getProperty("ocr_text"));
+}
+
+// --- SQLite OCR persistence tests ---
+
+TEST(OcrSqlitePersistenceTest, InsertAndReadBackOcrFields)
+{
+    sqlite3* pDb = nullptr;
+    ASSERT_EQ(SQLITE_OK, sqlite3_open(":memory:", &pDb));
+    ASSERT_EQ(SQLITE_OK, sqlite3_exec(pDb, CtStorageSqlite::TABLE_IMAGE_CREATE,
+                                        nullptr, nullptr, nullptr));
+
+    const char* ocrText = "Invoice #12345 Total: $42.50";
+    const char* ocrBoxes = "400,300;0,7,10,10,200,10,200,40,10,40;8,28,10,50,390,50,390,80,10,80";
+
+    sqlite3_stmt* pStmt;
+    ASSERT_EQ(SQLITE_OK, sqlite3_prepare_v2(pDb, CtStorageSqlite::TABLE_IMAGE_INSERT,
+                                             -1, &pStmt, nullptr));
+    sqlite3_bind_int64(pStmt, 1, 1);    // node_id
+    sqlite3_bind_int64(pStmt, 2, 0);    // offset
+    sqlite3_bind_text(pStmt, 3, "left", -1, SQLITE_STATIC);
+    sqlite3_bind_text(pStmt, 4, "", -1, SQLITE_STATIC);     // anchor
+    sqlite3_bind_blob(pStmt, 5, "\x89PNG", 4, SQLITE_STATIC); // png stub
+    sqlite3_bind_text(pStmt, 6, "", -1, SQLITE_STATIC);     // filename
+    sqlite3_bind_text(pStmt, 7, "", -1, SQLITE_STATIC);     // link
+    sqlite3_bind_int64(pStmt, 8, 0);    // time
+    sqlite3_bind_int64(pStmt, 9, 0);    // display_width
+    sqlite3_bind_int64(pStmt, 10, 0);   // display_height
+    sqlite3_bind_int64(pStmt, 11, 1000);// ts_creation
+    sqlite3_bind_int64(pStmt, 12, 2000);// ts_lastsave
+    sqlite3_bind_text(pStmt, 13, ocrText, -1, SQLITE_STATIC);
+    sqlite3_bind_text(pStmt, 14, ocrBoxes, -1, SQLITE_STATIC);
+    ASSERT_EQ(SQLITE_DONE, sqlite3_step(pStmt));
+    sqlite3_finalize(pStmt);
+
+    ASSERT_EQ(SQLITE_OK, sqlite3_prepare_v2(pDb,
+        "SELECT ocr_text, ocr_boxes FROM image WHERE node_id=1", -1, &pStmt, nullptr));
+    ASSERT_EQ(SQLITE_ROW, sqlite3_step(pStmt));
+    EXPECT_STREQ(ocrText, reinterpret_cast<const char*>(sqlite3_column_text(pStmt, 0)));
+    EXPECT_STREQ(ocrBoxes, reinterpret_cast<const char*>(sqlite3_column_text(pStmt, 1)));
+    sqlite3_finalize(pStmt);
+    sqlite3_close(pDb);
+}
+
+TEST(OcrSqlitePersistenceTest, NullOcrFieldsReadAsNull)
+{
+    sqlite3* pDb = nullptr;
+    ASSERT_EQ(SQLITE_OK, sqlite3_open(":memory:", &pDb));
+    ASSERT_EQ(SQLITE_OK, sqlite3_exec(pDb, CtStorageSqlite::TABLE_IMAGE_CREATE,
+                                        nullptr, nullptr, nullptr));
+
+    sqlite3_stmt* pStmt;
+    ASSERT_EQ(SQLITE_OK, sqlite3_prepare_v2(pDb, CtStorageSqlite::TABLE_IMAGE_INSERT,
+                                             -1, &pStmt, nullptr));
+    sqlite3_bind_int64(pStmt, 1, 1);
+    sqlite3_bind_int64(pStmt, 2, 0);
+    sqlite3_bind_text(pStmt, 3, "left", -1, SQLITE_STATIC);
+    sqlite3_bind_text(pStmt, 4, "", -1, SQLITE_STATIC);
+    sqlite3_bind_blob(pStmt, 5, "\x89PNG", 4, SQLITE_STATIC);
+    sqlite3_bind_text(pStmt, 6, "", -1, SQLITE_STATIC);
+    sqlite3_bind_text(pStmt, 7, "", -1, SQLITE_STATIC);
+    sqlite3_bind_int64(pStmt, 8, 0);
+    sqlite3_bind_int64(pStmt, 9, 0);
+    sqlite3_bind_int64(pStmt, 10, 0);
+    sqlite3_bind_int64(pStmt, 11, 0);
+    sqlite3_bind_int64(pStmt, 12, 0);
+    sqlite3_bind_null(pStmt, 13);
+    sqlite3_bind_null(pStmt, 14);
+    ASSERT_EQ(SQLITE_DONE, sqlite3_step(pStmt));
+    sqlite3_finalize(pStmt);
+
+    ASSERT_EQ(SQLITE_OK, sqlite3_prepare_v2(pDb,
+        "SELECT ocr_text, ocr_boxes FROM image WHERE node_id=1", -1, &pStmt, nullptr));
+    ASSERT_EQ(SQLITE_ROW, sqlite3_step(pStmt));
+    EXPECT_EQ(SQLITE_NULL, sqlite3_column_type(pStmt, 0));
+    EXPECT_EQ(SQLITE_NULL, sqlite3_column_type(pStmt, 1));
+    sqlite3_finalize(pStmt);
+    sqlite3_close(pDb);
+}
+
+TEST(OcrSqlitePersistenceTest, EmptyOcrFieldsRoundTrip)
+{
+    sqlite3* pDb = nullptr;
+    ASSERT_EQ(SQLITE_OK, sqlite3_open(":memory:", &pDb));
+    ASSERT_EQ(SQLITE_OK, sqlite3_exec(pDb, CtStorageSqlite::TABLE_IMAGE_CREATE,
+                                        nullptr, nullptr, nullptr));
+
+    sqlite3_stmt* pStmt;
+    ASSERT_EQ(SQLITE_OK, sqlite3_prepare_v2(pDb, CtStorageSqlite::TABLE_IMAGE_INSERT,
+                                             -1, &pStmt, nullptr));
+    sqlite3_bind_int64(pStmt, 1, 1);
+    sqlite3_bind_int64(pStmt, 2, 0);
+    sqlite3_bind_text(pStmt, 3, "left", -1, SQLITE_STATIC);
+    sqlite3_bind_text(pStmt, 4, "", -1, SQLITE_STATIC);
+    sqlite3_bind_blob(pStmt, 5, "\x89PNG", 4, SQLITE_STATIC);
+    sqlite3_bind_text(pStmt, 6, "", -1, SQLITE_STATIC);
+    sqlite3_bind_text(pStmt, 7, "", -1, SQLITE_STATIC);
+    sqlite3_bind_int64(pStmt, 8, 0);
+    sqlite3_bind_int64(pStmt, 9, 0);
+    sqlite3_bind_int64(pStmt, 10, 0);
+    sqlite3_bind_int64(pStmt, 11, 0);
+    sqlite3_bind_int64(pStmt, 12, 0);
+    sqlite3_bind_text(pStmt, 13, "", -1, SQLITE_STATIC);
+    sqlite3_bind_text(pStmt, 14, "", -1, SQLITE_STATIC);
+    ASSERT_EQ(SQLITE_DONE, sqlite3_step(pStmt));
+    sqlite3_finalize(pStmt);
+
+    ASSERT_EQ(SQLITE_OK, sqlite3_prepare_v2(pDb,
+        "SELECT ocr_text, ocr_boxes FROM image WHERE node_id=1", -1, &pStmt, nullptr));
+    ASSERT_EQ(SQLITE_ROW, sqlite3_step(pStmt));
+    EXPECT_STREQ("", reinterpret_cast<const char*>(sqlite3_column_text(pStmt, 0)));
+    EXPECT_STREQ("", reinterpret_cast<const char*>(sqlite3_column_text(pStmt, 1)));
+    sqlite3_finalize(pStmt);
+    sqlite3_close(pDb);
+}
+
+TEST(OcrSqlitePersistenceTest, UnicodeOcrTextRoundTrip)
+{
+    sqlite3* pDb = nullptr;
+    ASSERT_EQ(SQLITE_OK, sqlite3_open(":memory:", &pDb));
+    ASSERT_EQ(SQLITE_OK, sqlite3_exec(pDb, CtStorageSqlite::TABLE_IMAGE_CREATE,
+                                        nullptr, nullptr, nullptr));
+
+    const char* unicodeText = "\xc3\x89" "l\xc3\xa8" "ve R\xc3\xa9" "sum\xc3\xa9";
+
+    sqlite3_stmt* pStmt;
+    ASSERT_EQ(SQLITE_OK, sqlite3_prepare_v2(pDb, CtStorageSqlite::TABLE_IMAGE_INSERT,
+                                             -1, &pStmt, nullptr));
+    sqlite3_bind_int64(pStmt, 1, 1);
+    sqlite3_bind_int64(pStmt, 2, 0);
+    sqlite3_bind_text(pStmt, 3, "left", -1, SQLITE_STATIC);
+    sqlite3_bind_text(pStmt, 4, "", -1, SQLITE_STATIC);
+    sqlite3_bind_blob(pStmt, 5, "\x89PNG", 4, SQLITE_STATIC);
+    sqlite3_bind_text(pStmt, 6, "", -1, SQLITE_STATIC);
+    sqlite3_bind_text(pStmt, 7, "", -1, SQLITE_STATIC);
+    sqlite3_bind_int64(pStmt, 8, 0);
+    sqlite3_bind_int64(pStmt, 9, 0);
+    sqlite3_bind_int64(pStmt, 10, 0);
+    sqlite3_bind_int64(pStmt, 11, 0);
+    sqlite3_bind_int64(pStmt, 12, 0);
+    sqlite3_bind_text(pStmt, 13, unicodeText, -1, SQLITE_STATIC);
+    sqlite3_bind_text(pStmt, 14, "", -1, SQLITE_STATIC);
+    ASSERT_EQ(SQLITE_DONE, sqlite3_step(pStmt));
+    sqlite3_finalize(pStmt);
+
+    ASSERT_EQ(SQLITE_OK, sqlite3_prepare_v2(pDb,
+        "SELECT ocr_text FROM image WHERE node_id=1", -1, &pStmt, nullptr));
+    ASSERT_EQ(SQLITE_ROW, sqlite3_step(pStmt));
+    EXPECT_STREQ(unicodeText, reinterpret_cast<const char*>(sqlite3_column_text(pStmt, 0)));
+    sqlite3_finalize(pStmt);
+    sqlite3_close(pDb);
+}
+
+TEST(OcrSqlitePersistenceTest, MultipleImagesPerNode)
+{
+    sqlite3* pDb = nullptr;
+    ASSERT_EQ(SQLITE_OK, sqlite3_open(":memory:", &pDb));
+    ASSERT_EQ(SQLITE_OK, sqlite3_exec(pDb, CtStorageSqlite::TABLE_IMAGE_CREATE,
+                                        nullptr, nullptr, nullptr));
+
+    const char* texts[] = {"first image text", "second image text", "third image text"};
+    for (int i = 0; i < 3; ++i) {
+        sqlite3_stmt* pStmt;
+        ASSERT_EQ(SQLITE_OK, sqlite3_prepare_v2(pDb, CtStorageSqlite::TABLE_IMAGE_INSERT,
+                                                 -1, &pStmt, nullptr));
+        sqlite3_bind_int64(pStmt, 1, 1);
+        sqlite3_bind_int64(pStmt, 2, i * 10);
+        sqlite3_bind_text(pStmt, 3, "left", -1, SQLITE_STATIC);
+        sqlite3_bind_text(pStmt, 4, "", -1, SQLITE_STATIC);
+        sqlite3_bind_blob(pStmt, 5, "\x89PNG", 4, SQLITE_STATIC);
+        sqlite3_bind_text(pStmt, 6, "", -1, SQLITE_STATIC);
+        sqlite3_bind_text(pStmt, 7, "", -1, SQLITE_STATIC);
+        sqlite3_bind_int64(pStmt, 8, 0);
+        sqlite3_bind_int64(pStmt, 9, 0);
+        sqlite3_bind_int64(pStmt, 10, 0);
+        sqlite3_bind_int64(pStmt, 11, 0);
+        sqlite3_bind_int64(pStmt, 12, 0);
+        sqlite3_bind_text(pStmt, 13, texts[i], -1, SQLITE_STATIC);
+        sqlite3_bind_text(pStmt, 14, "", -1, SQLITE_STATIC);
+        ASSERT_EQ(SQLITE_DONE, sqlite3_step(pStmt));
+        sqlite3_finalize(pStmt);
+    }
+
+    sqlite3_stmt* pStmt;
+    ASSERT_EQ(SQLITE_OK, sqlite3_prepare_v2(pDb,
+        "SELECT ocr_text FROM image WHERE node_id=1 ORDER BY offset", -1, &pStmt, nullptr));
+    for (int i = 0; i < 3; ++i) {
+        ASSERT_EQ(SQLITE_ROW, sqlite3_step(pStmt));
+        EXPECT_STREQ(texts[i], reinterpret_cast<const char*>(sqlite3_column_text(pStmt, 0)));
+    }
+    EXPECT_EQ(SQLITE_DONE, sqlite3_step(pStmt));
+    sqlite3_finalize(pStmt);
+    sqlite3_close(pDb);
+}
+
+// --- OCR boxes format parsing tests ---
+
+static bool parseOcrBoxes(const std::string& boxes, int& imgW, int& imgH,
+                           std::vector<std::array<int, 10>>& parsed)
+{
+    parsed.clear();
+    std::istringstream ss(boxes);
+    std::string token;
+    if (not std::getline(ss, token, ';')) return false;
+    auto commaPos = token.find(',');
+    if (commaPos == std::string::npos) return false;
+    imgW = std::stoi(token.substr(0, commaPos));
+    imgH = std::stoi(token.substr(commaPos + 1));
+
+    while (std::getline(ss, token, ';')) {
+        std::istringstream ts(token);
+        std::string val;
+        std::array<int, 10> nums{};
+        int i = 0;
+        while (std::getline(ts, val, ',') and i < 10) {
+            nums[i++] = std::stoi(val);
+        }
+        if (i != 10) return false;
+        parsed.push_back(nums);
+    }
+    return true;
+}
+
+TEST(OcrBoxesFormatTest, SingleBoxParsesCorrectly)
+{
+    int w, h;
+    std::vector<std::array<int, 10>> boxes;
+    ASSERT_TRUE(parseOcrBoxes("300,200;0,5,10,10,290,10,290,50,10,50", w, h, boxes));
+    EXPECT_EQ(300, w);
+    EXPECT_EQ(200, h);
+    ASSERT_EQ(1u, boxes.size());
+    EXPECT_EQ(0, boxes[0][0]);   // startPos
+    EXPECT_EQ(5, boxes[0][1]);   // endPos
+    EXPECT_EQ(10, boxes[0][2]);  // x0
+    EXPECT_EQ(10, boxes[0][3]);  // y0
+}
+
+TEST(OcrBoxesFormatTest, MultipleBoxes)
+{
+    int w, h;
+    std::vector<std::array<int, 10>> boxes;
+    std::string input = "400,300;0,7,10,10,200,10,200,40,10,40;8,20,10,50,390,50,390,80,10,80";
+    ASSERT_TRUE(parseOcrBoxes(input, w, h, boxes));
+    EXPECT_EQ(400, w);
+    EXPECT_EQ(300, h);
+    ASSERT_EQ(2u, boxes.size());
+    EXPECT_EQ(0, boxes[0][0]);
+    EXPECT_EQ(7, boxes[0][1]);
+    EXPECT_EQ(8, boxes[1][0]);
+    EXPECT_EQ(20, boxes[1][1]);
+}
+
+TEST(OcrBoxesFormatTest, ImageDimensionsOnly)
+{
+    int w, h;
+    std::vector<std::array<int, 10>> boxes;
+    ASSERT_TRUE(parseOcrBoxes("640,480", w, h, boxes));
+    EXPECT_EQ(640, w);
+    EXPECT_EQ(480, h);
+    EXPECT_TRUE(boxes.empty());
+}
+
+TEST(OcrBoxesFormatTest, MalformedHeaderFails)
+{
+    int w, h;
+    std::vector<std::array<int, 10>> boxes;
+    EXPECT_FALSE(parseOcrBoxes("nocomma", w, h, boxes));
+}
+
+TEST(OcrBoxesFormatTest, IncompleteBoxFails)
+{
+    int w, h;
+    std::vector<std::array<int, 10>> boxes;
+    EXPECT_FALSE(parseOcrBoxes("100,100;0,5,10,10", w, h, boxes));
+}
+
+TEST(OcrBoxesFormatTest, MatchRangeOverlap)
+{
+    // Replicates the overlap logic from highlight_ocr_match:
+    // a match [matchStart, matchEnd) overlaps a box [lineStart, lineEnd)
+    // when matchStart < lineEnd AND matchEnd > lineStart
+    struct Box { int lineStart; int lineEnd; };
+    std::vector<Box> boxes = {{0, 5}, {6, 15}, {16, 30}};
+
+    auto overlaps = [](int matchStart, int matchEnd, const Box& b) {
+        return matchStart < b.lineEnd and matchEnd > b.lineStart;
+    };
+
+    // Match "Hello" at [0,5) overlaps only box 0
+    EXPECT_TRUE(overlaps(0, 5, boxes[0]));
+    EXPECT_FALSE(overlaps(0, 5, boxes[1]));
+    EXPECT_FALSE(overlaps(0, 5, boxes[2]));
+
+    // Match spanning boxes 0-1 at [3,10)
+    EXPECT_TRUE(overlaps(3, 10, boxes[0]));
+    EXPECT_TRUE(overlaps(3, 10, boxes[1]));
+    EXPECT_FALSE(overlaps(3, 10, boxes[2]));
+
+    // Match fully inside box 2 at [20,25)
+    EXPECT_FALSE(overlaps(20, 25, boxes[0]));
+    EXPECT_FALSE(overlaps(20, 25, boxes[1]));
+    EXPECT_TRUE(overlaps(20, 25, boxes[2]));
+
+    // Empty match [5,5) touches no box
+    EXPECT_FALSE(overlaps(5, 5, boxes[0]));
+    EXPECT_FALSE(overlaps(5, 5, boxes[1]));
+}
+
+// --- Search option integration tests ---
+
+TEST(OcrSearchIntegrationTest, TextInImagesDefaultsOff)
+{
+    CtSearchOptions opts;
+    EXPECT_FALSE(opts.text_in_images);
+    EXPECT_TRUE(opts.node_content);
+    EXPECT_TRUE(opts.node_name_n_tags);
+}
+
+TEST(OcrSearchIntegrationTest, MultiWordSearchOnOcrText)
+{
+    Glib::ustring ocrText{"Invoice Number 12345 Date January 2025 Total 42.50"};
+
+    auto reExact = Glib::Regex::create("Invoice.*Total",
+                                        Glib::RegexCompileFlags::REGEX_CASELESS);
+    Glib::MatchInfo mi;
+    EXPECT_TRUE(reExact->match(ocrText, mi));
+
+    auto reWord = Glib::Regex::create("\\b12345\\b",
+                                       static_cast<Glib::RegexCompileFlags>(0));
+    EXPECT_TRUE(reWord->match(ocrText, mi));
+}
+
+TEST(OcrSearchIntegrationTest, AccentInsensitiveSearchOnOcrText)
+{
+    // OCR might produce accented characters; search should still find them
+    // with case-insensitive matching
+    Glib::ustring ocrText{"\xc3\x89" "l\xc3\xa8" "ve R\xc3\xa9" "sum\xc3\xa9"};
+    auto re = Glib::Regex::create("r\xc3\xa9" "sum\xc3\xa9",
+                                   Glib::RegexCompileFlags::REGEX_CASELESS);
+    Glib::MatchInfo mi;
+    EXPECT_TRUE(re->match(ocrText, mi));
+}
+
+TEST(OcrSearchIntegrationTest, SearchSnippetContext)
+{
+    // Replicate the snippet-building logic from _parse_node_image_ocr_text_iter
+    Glib::ustring ocrText{"This is a long OCR text with the word Invoice somewhere in the middle of it all"};
+    auto re = Glib::Regex::create("Invoice", static_cast<Glib::RegexCompileFlags>(0));
+    Glib::MatchInfo mi;
+    ASSERT_TRUE(re->match(ocrText, mi));
+
+    int matchStart, matchEnd;
+    ASSERT_TRUE(mi.fetch_pos(0, matchStart, matchEnd));
+
+    const int snippetPad = 20;
+    int snipStart = std::max(0, matchStart - snippetPad);
+    int snipEnd = std::min(static_cast<int>(ocrText.bytes()), matchEnd + snippetPad);
+    Glib::ustring snippet = ocrText.substr(snipStart, snipEnd - snipStart);
+
+    EXPECT_TRUE(snippet.find("Invoice") != std::string::npos);
+    EXPECT_LE(snippet.size(), ocrText.size());
 }
 
 // --- OCR engine integration tests ---
