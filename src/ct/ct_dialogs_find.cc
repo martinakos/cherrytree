@@ -24,6 +24,20 @@
 #include "ct_dialogs.h"
 #include "ct_main_win.h"
 #include "ct_actions.h"
+#include "ct_image.h"
+
+static void s_clear_ocr_highlights(CtMainWin* pCtMainWin)
+{
+    CtTreeIter tree_iter = pCtMainWin->curr_tree_iter();
+    if (not tree_iter) return;
+    for (auto* pWidget : tree_iter.get_anchored_widgets_fast()) {
+        if (pWidget->get_type() == CtAnchWidgType::ImagePng) {
+            if (auto* pImg = dynamic_cast<CtImagePng*>(pWidget)) {
+                pImg->clear_ocr_highlight();
+            }
+        }
+    }
+}
 
 void CtDialogs::dialog_search(CtMainWin* pCtMainWin,
                               const Glib::ustring& title,
@@ -354,8 +368,9 @@ void CtDialogs::dialog_search(CtMainWin* pCtMainWin,
         replace_entry->signal_key_press_event().connect(press_enter, false);
     }
 
-    button_cancel->signal_clicked().connect([pDialog, &s_state](){
+    button_cancel->signal_clicked().connect([pDialog, &s_state, pCtMainWin](){
         pDialog->get_position(s_state.searchDialogPos[0], s_state.searchDialogPos[1]);
+        s_clear_ocr_highlights(pCtMainWin);
         pDialog->hide();
     });
 
@@ -481,6 +496,7 @@ void CtDialogs::dialog_search(CtMainWin* pCtMainWin,
                 pCtMainWin->get_ct_actions()->find_in_selected_node_ok_clicked();
             }
         }
+        s_clear_ocr_highlights(pCtMainWin);
         pDialog->close();
     });
 
@@ -797,12 +813,13 @@ void CtDialogs::match_dialog(const std::string& str_find,
 
     pTreeview->signal_cursor_changed().connect(select_found_line);
 
-    auto on_allmatchesdialog_delete_event = [pMatchesDialog, rModel, pTreeview, &s_state](GdkEventAny* /*any_event*/)->bool{
+    auto on_allmatchesdialog_delete_event = [pMatchesDialog, rModel, pTreeview, &s_state, pCtMainWin](GdkEventAny* /*any_event*/)->bool{
         pMatchesDialog->get_position(rModel->dlg_pos[0], rModel->dlg_pos[1]);
         pMatchesDialog->get_size(rModel->dlg_size[0], rModel->dlg_size[1]);
         Gtk::TreeModel::iterator list_iter = pTreeview->get_selection()->get_selected();
         rModel->saved_path = list_iter ? pTreeview->get_model()->get_path(list_iter).to_string() : "";
 
+        s_clear_ocr_highlights(pCtMainWin);
         s_state.pMatchStoreDialog = nullptr;
         delete pMatchesDialog; // should delete ourselves
         return false;
@@ -899,7 +916,7 @@ void CtDialogs::match_dialog(const std::string& str_find,
     pTreeview->signal_cursor_changed().connect(select_found_line);
 
     // Response handling
-    pMatchesDialog->signal_response().connect([&s_state, rModel, pMatchesDialog, pButtonPrev, pButtonNext](int response_id){
+    pMatchesDialog->signal_response().connect([&s_state, rModel, pMatchesDialog, pButtonPrev, pButtonNext, pCtMainWin](int response_id){
         if (response_id == 10) { // prev
             s_state.in_loading = true;
             rModel->load_prev_page();
@@ -909,6 +926,7 @@ void CtDialogs::match_dialog(const std::string& str_find,
             rModel->load_next_page();
             s_state.in_loading = false;
         } else if (response_id == 12) { // hide
+            s_clear_ocr_highlights(pCtMainWin);
             pMatchesDialog->close();
         }
     });
@@ -947,8 +965,9 @@ void CtDialogs::iterated_find_dialog(CtMainWin* pCtMainWin, CtSearchState& s_sta
         button_find_fw->grab_focus();
         button_find_fw->grab_default();
 
-        button_close->signal_clicked().connect([pDialog, &s_state](){
+        button_close->signal_clicked().connect([pDialog, &s_state, pCtMainWin](){
             pDialog->get_position(s_state.iterDialogPos[0], s_state.iterDialogPos[1]);
+            s_clear_ocr_highlights(pCtMainWin);
             pDialog->hide();
         });
         button_find_fw->signal_clicked().connect([pDialog, &s_state, pCtMainWin](){
@@ -1006,6 +1025,8 @@ void CtDialogs::iterated_find_dialog(CtMainWin* pCtMainWin, CtSearchState& s_sta
                 s_state.replace_subsequent = false;
             } else if (id == 3) {
                 pCtMainWin->get_ct_actions()->requested_step_back();
+            } else if (id == 0) {
+                s_clear_ocr_highlights(pCtMainWin);
             }
             pDialog->close();
         });
