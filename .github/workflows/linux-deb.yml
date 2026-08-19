@@ -54,6 +54,11 @@ jobs:
             libxml2-utils
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Patch PaddleOCR-ncnn for OpenCV 4.5 compatibility
+        run: |
+          sed -i '/#include <opencv2\/core\/matx.inl.hpp>/d' src/paddleocr_ncnn/src/*.cpp
       - name: Fix debian/control dependencies for this distro
         run: |
           # Let dpkg-shlibdeps figure out the right versioned packages.

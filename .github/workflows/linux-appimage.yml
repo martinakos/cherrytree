@@ -16,6 +16,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          submodules: recursive
       - name: Install dependencies
         run: |
           sudo apt update -qq
@@ -38,6 +40,9 @@ jobs:
             libopencv-dev \
             file \
             libxml2-utils
+      - name: Patch PaddleOCR-ncnn for OpenCV 4.5 compatibility
+        run: |
+          sed -i '/#include <opencv2\/core\/matx.inl.hpp>/d' src/paddleocr_ncnn/src/*.cpp
       - name: CI-Build
         run: |
           ./build.sh appimg notest ncnn
