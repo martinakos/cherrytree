@@ -171,12 +171,16 @@ then
   # https://github.com/linuxdeploy/linuxdeploy-plugin-gtk
   [ -f linuxdeploy-plugin-gtk.sh ] || wget -c "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master/linuxdeploy-plugin-gtk.sh"
   [ -f linuxdeploy-x86_64.AppImage ] || wget -c "https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
-  [ -f TinyTeX-1-v2022.04.04.tar.xz ] || wget -c "https://github.com/giuspen/cherrytree/releases/download/v1.7.1/TinyTeX-1-v2022.04.04.tar.xz"
+  [ -f TinyTeX-1-v2022.04.04.tar.xz ] || wget -c --timeout=30 --tries=3 "https://github.com/giuspen/cherrytree/releases/download/v1.7.1/TinyTeX-1-v2022.04.04.tar.xz" || echo "!! TinyTeX download failed — AppImage will lack LaTeX support !!"
   chmod +x linuxdeploy-x86_64.AppImage linuxdeploy-plugin-gtk.sh
   rm -rf AppDir
   mkdir AppDir
-  tar xf TinyTeX-1-v2022.04.04.tar.xz -C AppDir/
-  mv AppDir/.TinyTeX AppDir/usr
+  if [ -f TinyTeX-1-v2022.04.04.tar.xz ]; then
+    tar xf TinyTeX-1-v2022.04.04.tar.xz -C AppDir/
+    mv AppDir/.TinyTeX AppDir/usr
+  else
+    mkdir -p AppDir/usr
+  fi
   mkdir -p AppDir/usr/share
   [ -d /usr/share/gtksourceview-4 ] && cp -rv /usr/share/gtksourceview-4 AppDir/usr/share/ || echo "!! /usr/share/gtksourceview-4 NOT FOUND !!"
   DESTDIR=AppDir ninja install
