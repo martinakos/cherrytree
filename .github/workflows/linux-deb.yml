@@ -25,6 +25,7 @@ jobs:
       image: ${{ matrix.distro }}
     steps:
       - name: Install git and deps
+        timeout-minutes: 15
         run: |
           apt-get update -qq
           apt-get install -y --no-install-recommends \
@@ -49,9 +50,7 @@ jobs:
             libvte-2.91-dev \
             libfmt-dev \
             libspdlog-dev \
-            libopencv-core-dev \
-            libopencv-imgproc-dev \
-            libopencv-imgcodecs-dev \
+            libopencv-dev \
             file \
             libxml2-utils
       - name: Checkout
@@ -76,8 +75,6 @@ jobs:
           sed -i '/^ libfribidi0/d' debian/control
           sed -i '/^ libvte-2.91/d' debian/control
           sed -i '/^ libspdlog/d' debian/control
-          # Replace full libopencv-dev with only the modules we need
-          sed -i 's/ libopencv-dev/ libopencv-core-dev,\n libopencv-imgproc-dev,\n libopencv-imgcodecs-dev/' debian/control
       - name: Build deb
         run: |
           dpkg-buildpackage -b -uc -us
