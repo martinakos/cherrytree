@@ -25,7 +25,7 @@ jobs:
       image: ${{ matrix.distro }}
     steps:
       - name: Install git and deps
-        timeout-minutes: 15
+        timeout-minutes: 30
         run: |
           apt-get update -qq
           apt-get install -y --no-install-recommends \
