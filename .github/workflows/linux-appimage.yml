@@ -37,7 +37,9 @@ jobs:
             libvte-2.91-dev \
             libfmt-dev \
             libspdlog-dev \
-            libopencv-dev \
+            libopencv-core-dev \
+            libopencv-imgproc-dev \
+            libopencv-imgcodecs-dev \
             file \
             libxml2-utils
       - name: Cache TinyTeX
