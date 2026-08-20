@@ -40,6 +40,11 @@ jobs:
             libopencv-dev \
             file \
             libxml2-utils
+      - name: Cache TinyTeX
+        uses: actions/cache@v4
+        with:
+          path: build/TinyTeX-1-v2022.04.04.tar.xz
+          key: tinytex-v2022.04.04
       - name: Patch PaddleOCR-ncnn for OpenCV 4.5 compatibility
         run: |
           sed -i '/#include <opencv2\/core\/matx.inl.hpp>/d' src/paddleocr_ncnn/src/*.cpp
