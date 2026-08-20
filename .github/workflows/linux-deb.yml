@@ -26,7 +26,10 @@ jobs:
     steps:
       - name: Install git and deps
         timeout-minutes: 30
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
+          echo 'force-unsafe-io' > /etc/dpkg/dpkg.cfg.d/force-unsafe-io
           apt-get update -qq
           apt-get install -y --no-install-recommends \
             git \
