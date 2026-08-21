@@ -285,7 +285,8 @@ if(${CMAKE_SYSTEM_NAME} MATCHES Linux|.*BSD|DragonFly|Darwin)
   # share/cherrytree ocr_models
   if(USE_NCNN)
     install(DIRECTORY ${CMAKE_SOURCE_DIR}/data/ocr_models
-            DESTINATION ${CHERRYTREE_SHARE_INSTALL}/data)
+            DESTINATION ${CHERRYTREE_SHARE_INSTALL}/data
+            PATTERN "ct_ocr_config*.json" EXCLUDE)
   endif()
   # share/cherrytree icons
   install(FILES
