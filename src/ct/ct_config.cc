@@ -853,6 +853,12 @@ void CtConfig::_populate_data_from_keyfile()
     _populate_string_from_keyfile("menubar_insert_ui_list", &menubarInsertUiList);
     _populate_string_from_keyfile("menubar_format_ui_list", &menubarFormatUiList);
     _populate_string_from_keyfile("menubar_tools_ui_list", &menubarToolsUiList);
+    if (menubarToolsUiList.find("ocr_all_images") == std::string::npos) {
+        if (not menubarToolsUiList.empty() and menubarToolsUiList.back() != ',') {
+            menubarToolsUiList += ",";
+        }
+        menubarToolsUiList += "separator,ocr_all_images,reocr_all_images";
+    }
     _populate_string_from_keyfile("menubar_tree_ui_list", &menubarTreeUiList);
     _populate_string_from_keyfile("menubar_search_ui_list", &menubarSearchUiList);
     _populate_string_from_keyfile("menubar_view_ui_list", &menubarViewUiList);

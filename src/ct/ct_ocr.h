@@ -89,6 +89,7 @@ private:
     std::atomic<size_t> _pendingCount{0};
     std::atomic<size_t> _totalEnqueued{0};
     std::string _modelDir;
+    std::string _runtimeConfigPath;
     std::unique_ptr<OCR::OCREngine> _pOcrEngine;
 };
 
