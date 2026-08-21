@@ -65,6 +65,9 @@ CtOcrManager::~CtOcrManager()
     while (auto optItem = _workQueue.try_pop_front()) {
         delete *optItem;
     }
+    if (not _runtimeConfigPath.empty()) {
+        std::filesystem::remove(_runtimeConfigPath);
+    }
 }
 
 bool CtOcrManager::enqueue(const std::string& pngBlob, gint64 nodeId, CtImagePng* pImagePng, bool priority)
@@ -132,6 +135,10 @@ void CtOcrManager::enqueue_all(CtTreeStore& treeStore)
               and stdfs::exists(modelDir + "/PP_OCRv6_tiny_rec.bin");
     bool hasKeys = stdfs::exists(modelDir + "/ppocr_keys_v6_tiny.txt");
     bool result = isDir and hasDet and hasRec and hasKeys;
+    if (not result) {
+        spdlog::info("CtOcrManager::is_available: dir={} det={} rec={} keys={} path={}",
+                     isDir, hasDet, hasRec, hasKeys, modelDir);
+    }
     return result;
 }
 
@@ -158,9 +165,9 @@ void CtOcrManager::_worker_func()
     sp.sched_priority = 0;
     pthread_setschedparam(pthread_self(), SCHED_BATCH, &sp);
 
-    const std::string configPath = _modelDir + "/ct_ocr_config.json";
-    if (not std::filesystem::exists(configPath)) {
-        std::ofstream f(configPath);
+    _runtimeConfigPath = "/tmp/ct_ocr_config_" + std::to_string(getpid()) + ".json";
+    {
+        std::ofstream f(_runtimeConfigPath);
         f << "{\n"
           << R"(  "save": false,)" << "\n"
           << R"(  "det": {)" << "\n"
@@ -196,7 +203,7 @@ void CtOcrManager::_worker_func()
         int savedStderr = dup(STDERR_FILENO);
         int devNull = open("/dev/null", O_WRONLY);
         if (devNull >= 0) { dup2(devNull, STDERR_FILENO); close(devNull); }
-        bool ok = _pOcrEngine->Initialize(configPath);
+        bool ok = _pOcrEngine->Initialize(_runtimeConfigPath);
         if (savedStderr >= 0) { dup2(savedStderr, STDERR_FILENO); close(savedStderr); }
         if (not ok) {
             spdlog::error("CtOcrManager: failed to initialize OCR engine from {}", _modelDir);
