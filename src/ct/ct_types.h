@@ -450,7 +450,7 @@ struct CtSearchOptions {
     bool        node_content{true};
     bool        node_name_n_tags{true};
     bool        drawing_canvases{true};
-    bool        text_in_images{false};
+    bool        text_in_images{true};
     bool        replace_in_link_targets{false};
 };
 
