@@ -202,7 +202,7 @@ void CtHtml2Xml::_parse_style_attribute(const Glib::ustring& style_data)
             if (!color.empty())
                 _add_tag_style(CtConst::TAG_FOREGROUND, color);
         } else if (attr_name == CtConst::TAG_BACKGROUND || attr_name == "background-color") {
-            auto color = _convert_html_color(attr_value, true/*is_background*/);
+            auto color = _convert_html_color(attr_value);
             if (!color.empty())
                 _add_tag_style(CtConst::TAG_BACKGROUND, color);
         } else if (attr_name == "text-decoration") {

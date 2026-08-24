@@ -1900,12 +1900,12 @@ void CtMainWin::update_selected_node_statusbar_info()
     else                                            typeStr = syntaxHighl;
 
     Glib::ustring spellStr;
-    if (_pCtConfig->enableSpellCheck && curr_tree_iter().get_node_is_text()) {
+    if (_pCtConfig->enableSpellCheck && treeIter.get_node_is_text()) {
         spellStr = _pCtConfig->spellCheckLang;
     }
 
     Glib::ustring wordCountStr;
-    if (_pCtConfig->wordCountOn) {
+    if (_pCtConfig->wordCountOn and _uCtActions) {
         wordCountStr = std::to_string(_uCtActions->get_word_count_for_statusbar());
     }
 
