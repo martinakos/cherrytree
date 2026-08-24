@@ -1,4 +1,7 @@
-cherrytree-docmodel (1.7.2+docmodel5-1) plucky; urgency=low
+cherrytree-docmodel (1.7.2+docmodel15-1) plucky; urgency=low
 
+  * Rebase docmodel branch on upstream v1.7.2
+  * Enable search in OCR text by default
+  * Fix OCR not working in installed packages
 
- -- Giuseppe Penone <giuspen@gmail.com>  Sat, 22 Aug 2026 17:50:18 +0100
+ -- Giuseppe Penone <giuspen@gmail.com>  Mon, 24 Aug 2026 23:00:00 +0100
