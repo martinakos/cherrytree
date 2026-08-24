@@ -220,10 +220,10 @@ TEST(OcrSearchTest, TextInImagesMatchTypeExists)
 
 // --- Search options test ---
 
-TEST(OcrSearchTest, SearchOptionsDefaultTextInImagesFalse)
+TEST(OcrSearchTest, SearchOptionsDefaultTextInImagesTrue)
 {
     CtSearchOptions opts;
-    EXPECT_FALSE(opts.text_in_images);
+    EXPECT_TRUE(opts.text_in_images);
 }
 
 // --- ThreadSafeDEQueue tests ---
@@ -715,10 +715,10 @@ TEST(OcrBoxesFormatTest, MatchRangeOverlap)
 
 // --- Search option integration tests ---
 
-TEST(OcrSearchIntegrationTest, TextInImagesDefaultsOff)
+TEST(OcrSearchIntegrationTest, TextInImagesDefaultsOn)
 {
     CtSearchOptions opts;
-    EXPECT_FALSE(opts.text_in_images);
+    EXPECT_TRUE(opts.text_in_images);
     EXPECT_TRUE(opts.node_content);
     EXPECT_TRUE(opts.node_name_n_tags);
 }
