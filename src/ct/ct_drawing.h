@@ -39,7 +39,8 @@ enum class CtDrawingElementType {
     Polyline,
     Triangle,
     Diamond,
-    RoundedRectangle
+    RoundedRectangle,
+    BezierCurve
 };
 
 enum class CtDrawingLineStyle {
@@ -59,7 +60,8 @@ enum class CtDrawingTool {
     Text,
     Rubber,
     Move,
-    Rotate
+    Rotate,
+    Select
 };
 
 struct CtDrawingPoint {
@@ -119,7 +121,8 @@ enum class CtDrawingDragType {
     Resize,
     CreateCanvas,
     MoveStroke,
-    RotateStroke
+    RotateStroke,
+    EditPoint
 };
 
 class CtDrawingOverlay {
@@ -244,6 +247,10 @@ private:
     bool _polylineActive{false};
     std::vector<CtDrawingPoint> _polylinePoints;
 
+    bool _bezierActive{false};
+    int _bezierPhase{0};
+    std::vector<CtDrawingPoint> _bezierPoints;
+
     Gtk::Image* _pLineToolIcon{nullptr};
     Gtk::Image* _pShapeToolIcon{nullptr};
     Gtk::Image* _pMoveToolIcon{nullptr};
@@ -263,6 +270,10 @@ private:
     int _rotateStrokeIdx{-1};
     double _rotateOrigRotation{0.0};
     double _rotateStartAngle{0.0};
+
+    int _selectStrokeIdx{-1};
+    int _selectDragPointIdx{-1};
+    std::vector<CtDrawingPoint> _selectOrigPoints;
 
     bool _updatingToolButtons{false};
 

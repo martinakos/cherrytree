@@ -1715,3 +1715,175 @@ TEST(DrawingSearchTest, MultipleCanvases_IndependentMatching)
     EXPECT_FALSE(canvasNameMatchesPattern(stored[0], re));
     EXPECT_FALSE(canvasNameMatchesPattern(stored[1], re));
 }
+
+// ── Bezier point editing via MoveStrokeCommand (Select tool) ──────────────
+
+static CtDrawingStroke makeBezierStroke(const std::string& color, double w,
+                                        double p0x, double p0y,
+                                        double cp1x, double cp1y,
+                                        double cp2x, double cp2y,
+                                        double p3x, double p3y)
+{
+    CtDrawingStroke s;
+    s.color = color;
+    s.lineWidth = w;
+    s.opacity = 1.0;
+    s.type = CtDrawingElementType::BezierCurve;
+    s.points.push_back({p0x, p0y});
+    s.points.push_back({cp1x, cp1y});
+    s.points.push_back({cp2x, cp2y});
+    s.points.push_back({p3x, p3y});
+    return s;
+}
+
+TEST_F(DrawingCommandTest, MoveStrokeCommand_BezierControlPoint_ExecuteAndUndo)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    auto& strokes = node->getDrawingCanvasesMut()[0].strokes;
+    strokes.push_back(makeBezierStroke("#ff0000", 2.0,
+        10, 50,   30, 10,   70, 90,   90, 50));
+
+    std::vector<CtDrawingPoint> oldPoints = strokes[0].points;
+    std::vector<CtDrawingPoint> newPoints = oldPoints;
+    newPoints[1] = {40, 5};
+
+    MoveStrokeCommand cmd(model, 1, 0, 0, oldPoints, newPoints);
+
+    cmd.execute();
+    EXPECT_DOUBLE_EQ(40.0, node->getDrawingCanvases()[0].strokes[0].points[1].x);
+    EXPECT_DOUBLE_EQ(5.0, node->getDrawingCanvases()[0].strokes[0].points[1].y);
+    EXPECT_DOUBLE_EQ(10.0, node->getDrawingCanvases()[0].strokes[0].points[0].x);
+    EXPECT_DOUBLE_EQ(90.0, node->getDrawingCanvases()[0].strokes[0].points[3].x);
+
+    cmd.undo();
+    EXPECT_DOUBLE_EQ(30.0, node->getDrawingCanvases()[0].strokes[0].points[1].x);
+    EXPECT_DOUBLE_EQ(10.0, node->getDrawingCanvases()[0].strokes[0].points[1].y);
+}
+
+TEST_F(DrawingCommandTest, MoveStrokeCommand_BezierEndpoint_ExecuteAndUndo)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    auto& strokes = node->getDrawingCanvasesMut()[0].strokes;
+    strokes.push_back(makeBezierStroke("#0000ff", 3.0,
+        10, 50,   30, 10,   70, 90,   90, 50));
+
+    std::vector<CtDrawingPoint> oldPoints = strokes[0].points;
+    std::vector<CtDrawingPoint> newPoints = oldPoints;
+    newPoints[0] = {15, 55};
+
+    MoveStrokeCommand cmd(model, 1, 0, 0, oldPoints, newPoints);
+
+    cmd.execute();
+    EXPECT_DOUBLE_EQ(15.0, node->getDrawingCanvases()[0].strokes[0].points[0].x);
+    EXPECT_DOUBLE_EQ(55.0, node->getDrawingCanvases()[0].strokes[0].points[0].y);
+
+    cmd.undo();
+    EXPECT_DOUBLE_EQ(10.0, node->getDrawingCanvases()[0].strokes[0].points[0].x);
+    EXPECT_DOUBLE_EQ(50.0, node->getDrawingCanvases()[0].strokes[0].points[0].y);
+}
+
+TEST_F(DrawingCommandTest, MoveStrokeCommand_BezierPoint_Redo)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    auto& strokes = node->getDrawingCanvasesMut()[0].strokes;
+    strokes.push_back(makeBezierStroke("#00ff00", 2.0,
+        10, 50,   30, 10,   70, 90,   90, 50));
+
+    std::vector<CtDrawingPoint> oldPoints = strokes[0].points;
+    std::vector<CtDrawingPoint> newPoints = oldPoints;
+    newPoints[2] = {80, 85};
+
+    MoveStrokeCommand cmd(model, 1, 0, 0, oldPoints, newPoints);
+
+    cmd.execute();
+    cmd.undo();
+    EXPECT_DOUBLE_EQ(70.0, node->getDrawingCanvases()[0].strokes[0].points[2].x);
+    EXPECT_DOUBLE_EQ(90.0, node->getDrawingCanvases()[0].strokes[0].points[2].y);
+
+    cmd.execute();
+    EXPECT_DOUBLE_EQ(80.0, node->getDrawingCanvases()[0].strokes[0].points[2].x);
+    EXPECT_DOUBLE_EQ(85.0, node->getDrawingCanvases()[0].strokes[0].points[2].y);
+}
+
+TEST_F(DrawingCommandTest, MoveStrokeCommand_BezierPoint_NotifiesObserver)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    node->getDrawingCanvasesMut()[0].strokes.push_back(
+        makeBezierStroke("#ff0000", 2.0, 10, 50, 30, 10, 70, 90, 90, 50));
+
+    DrawingObserverLog log;
+    model->addObserver(&log);
+
+    auto& strokes = node->getDrawingCanvasesMut()[0].strokes;
+    std::vector<CtDrawingPoint> oldPoints = strokes[0].points;
+    std::vector<CtDrawingPoint> newPoints = oldPoints;
+    newPoints[3] = {100, 60};
+
+    MoveStrokeCommand cmd(model, 1, 0, 0, oldPoints, newPoints);
+    cmd.execute();
+    EXPECT_EQ(1, log.drawingChangedCount);
+    EXPECT_EQ(1, log.lastDrawingNodeId);
+
+    cmd.undo();
+    EXPECT_EQ(2, log.drawingChangedCount);
+
+    model->removeObserver(&log);
+}
+
+TEST(DrawingXmlTest, RoundTrip_BezierCurve)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    auto c = makeCanvas(0, 0, 300, 250);
+    c.strokes.push_back(makeBezierStroke("#ff0000", 2.5,
+        10, 50,   30, 10,   70, 90,   90, 50));
+    canvases.push_back(std::move(c));
+
+    xmlpp::Document doc;
+    auto* root = doc.create_root_node("node");
+    CtXmlHelper::drawing_canvases_to_xml(root, canvases);
+    auto result = CtXmlHelper::drawing_canvases_from_xml(root);
+
+    ASSERT_EQ(1u, result[0].strokes.size());
+    const auto& s = result[0].strokes[0];
+    EXPECT_EQ(CtDrawingElementType::BezierCurve, s.type);
+    ASSERT_EQ(4u, s.points.size());
+    EXPECT_DOUBLE_EQ(10.0, s.points[0].x);
+    EXPECT_DOUBLE_EQ(50.0, s.points[0].y);
+    EXPECT_DOUBLE_EQ(30.0, s.points[1].x);
+    EXPECT_DOUBLE_EQ(10.0, s.points[1].y);
+    EXPECT_DOUBLE_EQ(70.0, s.points[2].x);
+    EXPECT_DOUBLE_EQ(90.0, s.points[2].y);
+    EXPECT_DOUBLE_EQ(90.0, s.points[3].x);
+    EXPECT_DOUBLE_EQ(50.0, s.points[3].y);
+    EXPECT_DOUBLE_EQ(2.5, s.lineWidth);
+    EXPECT_EQ("#ff0000", s.color);
+}
+
+TEST(DrawingXmlTest, RoundTrip_BezierCurve_EditedPoints)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    auto c = makeCanvas(0, 0, 300, 250);
+    auto bez = makeBezierStroke("#0000ff", 3.0,
+        10, 50,   30, 10,   70, 90,   90, 50);
+    bez.points[1] = {45, 5};
+    bez.points[2] = {55, 95};
+    c.strokes.push_back(std::move(bez));
+    canvases.push_back(std::move(c));
+
+    xmlpp::Document doc;
+    auto* root = doc.create_root_node("node");
+    CtXmlHelper::drawing_canvases_to_xml(root, canvases);
+    auto result = CtXmlHelper::drawing_canvases_from_xml(root);
+
+    ASSERT_EQ(1u, result[0].strokes.size());
+    const auto& s = result[0].strokes[0];
+    EXPECT_EQ(CtDrawingElementType::BezierCurve, s.type);
+    EXPECT_DOUBLE_EQ(45.0, s.points[1].x);
+    EXPECT_DOUBLE_EQ(5.0, s.points[1].y);
+    EXPECT_DOUBLE_EQ(55.0, s.points[2].x);
+    EXPECT_DOUBLE_EQ(95.0, s.points[2].y);
+}
