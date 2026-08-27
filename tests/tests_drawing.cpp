@@ -1887,3 +1887,379 @@ TEST(DrawingXmlTest, RoundTrip_BezierCurve_EditedPoints)
     EXPECT_DOUBLE_EQ(55.0, s.points[2].x);
     EXPECT_DOUBLE_EQ(95.0, s.points[2].y);
 }
+
+// ── Multi-select stroke operations via CompoundCommand ────────────────────
+
+TEST_F(DrawingCommandTest, MultiDelete_CompoundEraseDescending)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    auto& strokes = node->getDrawingCanvasesMut()[0].strokes;
+    strokes.push_back(makeStroke("#ff0000", 1.0, {{1,1},{2,2}}));
+    strokes.push_back(makeStroke("#00ff00", 2.0, {{3,3},{4,4}}));
+    strokes.push_back(makeStroke("#0000ff", 3.0, {{5,5},{6,6}}));
+    strokes.push_back(makeStroke("#ffff00", 4.0, {{7,7},{8,8}}));
+
+    auto compound = std::make_unique<CompoundCommand>("Delete strokes");
+    compound->setNodeId(1);
+
+    // erase indices 1 and 3 in descending order
+    compound->addCommand(std::make_unique<EraseStrokeCommand>(
+        model, 1, 0, strokes[3], 3));
+    compound->addCommand(std::make_unique<EraseStrokeCommand>(
+        model, 1, 0, strokes[1], 1));
+
+    compound->execute();
+    ASSERT_EQ(2u, node->getDrawingCanvases()[0].strokes.size());
+    EXPECT_EQ("#ff0000", node->getDrawingCanvases()[0].strokes[0].color);
+    EXPECT_EQ("#0000ff", node->getDrawingCanvases()[0].strokes[1].color);
+
+    compound->undo();
+    ASSERT_EQ(4u, node->getDrawingCanvases()[0].strokes.size());
+    EXPECT_EQ("#ff0000", node->getDrawingCanvases()[0].strokes[0].color);
+    EXPECT_EQ("#00ff00", node->getDrawingCanvases()[0].strokes[1].color);
+    EXPECT_EQ("#0000ff", node->getDrawingCanvases()[0].strokes[2].color);
+    EXPECT_EQ("#ffff00", node->getDrawingCanvases()[0].strokes[3].color);
+
+    compound->redo();
+    ASSERT_EQ(2u, node->getDrawingCanvases()[0].strokes.size());
+    EXPECT_EQ("#ff0000", node->getDrawingCanvases()[0].strokes[0].color);
+    EXPECT_EQ("#0000ff", node->getDrawingCanvases()[0].strokes[1].color);
+}
+
+TEST_F(DrawingCommandTest, MultiPaste_CompoundDrawStroke)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    node->getDrawingCanvasesMut()[0].strokes.push_back(
+        makeStroke("#ff0000", 1.0, {{1,1},{2,2}}));
+
+    auto compound = std::make_unique<CompoundCommand>("Paste strokes");
+    compound->setNodeId(1);
+    compound->addCommand(std::make_unique<DrawStrokeCommand>(
+        model, 1, 0, makeStroke("#00ff00", 2.0, {{10,10},{20,20}})));
+    compound->addCommand(std::make_unique<DrawStrokeCommand>(
+        model, 1, 0, makeStroke("#0000ff", 3.0, {{30,30},{40,40}})));
+
+    compound->execute();
+    ASSERT_EQ(3u, node->getDrawingCanvases()[0].strokes.size());
+    EXPECT_EQ("#ff0000", node->getDrawingCanvases()[0].strokes[0].color);
+    EXPECT_EQ("#00ff00", node->getDrawingCanvases()[0].strokes[1].color);
+    EXPECT_EQ("#0000ff", node->getDrawingCanvases()[0].strokes[2].color);
+
+    compound->undo();
+    ASSERT_EQ(1u, node->getDrawingCanvases()[0].strokes.size());
+    EXPECT_EQ("#ff0000", node->getDrawingCanvases()[0].strokes[0].color);
+
+    compound->redo();
+    ASSERT_EQ(3u, node->getDrawingCanvases()[0].strokes.size());
+}
+
+TEST_F(DrawingCommandTest, MultiMove_CompoundMoveStroke)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    auto& strokes = node->getDrawingCanvasesMut()[0].strokes;
+    strokes.push_back(makeStroke("#ff0000", 1.0, {{10,10},{20,20}}));
+    strokes.push_back(makeStroke("#00ff00", 2.0, {{30,30},{40,40}}));
+
+    auto origPts0 = strokes[0].points;
+    auto origPts1 = strokes[1].points;
+    auto newPts0 = origPts0;
+    auto newPts1 = origPts1;
+    for (auto& p : newPts0) { p.x += 50; p.y += 50; }
+    for (auto& p : newPts1) { p.x += 50; p.y += 50; }
+
+    auto compound = std::make_unique<CompoundCommand>("Move strokes");
+    compound->setNodeId(1);
+    compound->addCommand(std::make_unique<MoveStrokeCommand>(
+        model, 1, 0, 0, origPts0, newPts0));
+    compound->addCommand(std::make_unique<MoveStrokeCommand>(
+        model, 1, 0, 1, origPts1, newPts1));
+
+    compound->execute();
+    EXPECT_DOUBLE_EQ(60.0, node->getDrawingCanvases()[0].strokes[0].points[0].x);
+    EXPECT_DOUBLE_EQ(80.0, node->getDrawingCanvases()[0].strokes[1].points[0].x);
+
+    compound->undo();
+    EXPECT_DOUBLE_EQ(10.0, node->getDrawingCanvases()[0].strokes[0].points[0].x);
+    EXPECT_DOUBLE_EQ(30.0, node->getDrawingCanvases()[0].strokes[1].points[0].x);
+
+    compound->redo();
+    EXPECT_DOUBLE_EQ(60.0, node->getDrawingCanvases()[0].strokes[0].points[0].x);
+    EXPECT_DOUBLE_EQ(80.0, node->getDrawingCanvases()[0].strokes[1].points[0].x);
+}
+
+TEST_F(DrawingCommandTest, StrokeClipboard_SetGetClear)
+{
+    CtDrawingOverlay::clearStrokeClipboard();
+    EXPECT_FALSE(CtDrawingOverlay::hasStrokeClipboard());
+
+    std::vector<CtDrawingStroke> clipboard;
+    clipboard.push_back(makeStroke("#ff0000", 2.0, {{1,1},{2,2}}));
+    clipboard.push_back(makeStroke("#00ff00", 3.0, {{3,3},{4,4}}));
+    CtDrawingOverlay::setStrokeClipboard(clipboard);
+
+    ASSERT_TRUE(CtDrawingOverlay::hasStrokeClipboard());
+    ASSERT_EQ(2u, CtDrawingOverlay::getStrokeClipboard().size());
+    EXPECT_EQ("#ff0000", CtDrawingOverlay::getStrokeClipboard()[0].color);
+    EXPECT_EQ("#00ff00", CtDrawingOverlay::getStrokeClipboard()[1].color);
+
+    CtDrawingOverlay::clearStrokeClipboard();
+    EXPECT_FALSE(CtDrawingOverlay::hasStrokeClipboard());
+}
+
+TEST_F(DrawingCommandTest, StrokeProperties_ChangeColor)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    node->getDrawingCanvasesMut()[0].strokes.push_back(
+        makeStroke("#ff0000", 2.0, {{10,10},{20,20}}));
+
+    CtDrawingStroke oldStroke = node->getDrawingCanvases()[0].strokes[0];
+    CtDrawingStroke newStroke = oldStroke;
+    newStroke.color = "#0000ff";
+
+    StrokePropertiesCommand cmd(model, 1, 0, 0, oldStroke, newStroke);
+
+    cmd.execute();
+    EXPECT_EQ("#0000ff", node->getDrawingCanvases()[0].strokes[0].color);
+    EXPECT_DOUBLE_EQ(2.0, node->getDrawingCanvases()[0].strokes[0].lineWidth);
+
+    cmd.undo();
+    EXPECT_EQ("#ff0000", node->getDrawingCanvases()[0].strokes[0].color);
+
+    cmd.redo();
+    EXPECT_EQ("#0000ff", node->getDrawingCanvases()[0].strokes[0].color);
+}
+
+TEST_F(DrawingCommandTest, StrokeProperties_ChangeLineWidth)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    node->getDrawingCanvasesMut()[0].strokes.push_back(
+        makeStroke("#ff0000", 2.0, {{10,10},{20,20}}));
+
+    CtDrawingStroke oldStroke = node->getDrawingCanvases()[0].strokes[0];
+    CtDrawingStroke newStroke = oldStroke;
+    newStroke.lineWidth = 8.0;
+
+    StrokePropertiesCommand cmd(model, 1, 0, 0, oldStroke, newStroke);
+
+    cmd.execute();
+    EXPECT_DOUBLE_EQ(8.0, node->getDrawingCanvases()[0].strokes[0].lineWidth);
+    EXPECT_EQ("#ff0000", node->getDrawingCanvases()[0].strokes[0].color);
+
+    cmd.undo();
+    EXPECT_DOUBLE_EQ(2.0, node->getDrawingCanvases()[0].strokes[0].lineWidth);
+}
+
+TEST_F(DrawingCommandTest, StrokeProperties_ChangeOpacity)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    node->getDrawingCanvasesMut()[0].strokes.push_back(
+        makeStroke("#ff0000", 2.0, {{10,10},{20,20}}));
+
+    CtDrawingStroke oldStroke = node->getDrawingCanvases()[0].strokes[0];
+    CtDrawingStroke newStroke = oldStroke;
+    newStroke.opacity = 0.5;
+
+    StrokePropertiesCommand cmd(model, 1, 0, 0, oldStroke, newStroke);
+
+    cmd.execute();
+    EXPECT_DOUBLE_EQ(0.5, node->getDrawingCanvases()[0].strokes[0].opacity);
+
+    cmd.undo();
+    EXPECT_DOUBLE_EQ(1.0, node->getDrawingCanvases()[0].strokes[0].opacity);
+}
+
+TEST_F(DrawingCommandTest, StrokeProperties_ChangeLineStyle)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    node->getDrawingCanvasesMut()[0].strokes.push_back(
+        makeStroke("#ff0000", 2.0, {{10,10},{20,20}}));
+
+    CtDrawingStroke oldStroke = node->getDrawingCanvases()[0].strokes[0];
+    CtDrawingStroke newStroke = oldStroke;
+    newStroke.lineStyle = CtDrawingLineStyle::Dashed;
+
+    StrokePropertiesCommand cmd(model, 1, 0, 0, oldStroke, newStroke);
+
+    cmd.execute();
+    EXPECT_EQ(CtDrawingLineStyle::Dashed, node->getDrawingCanvases()[0].strokes[0].lineStyle);
+
+    cmd.undo();
+    EXPECT_EQ(CtDrawingLineStyle::Solid, node->getDrawingCanvases()[0].strokes[0].lineStyle);
+}
+
+TEST_F(DrawingCommandTest, StrokeProperties_ChangeArrowHead)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    auto stroke = makeStroke("#ff0000", 2.0, {{10,10},{50,50}});
+    stroke.type = CtDrawingElementType::Line;
+    node->getDrawingCanvasesMut()[0].strokes.push_back(stroke);
+
+    CtDrawingStroke oldStroke = node->getDrawingCanvases()[0].strokes[0];
+    CtDrawingStroke newStroke = oldStroke;
+    newStroke.arrowHead = CtDrawingArrowHead::Both;
+    newStroke.arrowStyle = CtDrawingArrowStyle::Open;
+
+    StrokePropertiesCommand cmd(model, 1, 0, 0, oldStroke, newStroke);
+
+    cmd.execute();
+    EXPECT_EQ(CtDrawingArrowHead::Both, node->getDrawingCanvases()[0].strokes[0].arrowHead);
+    EXPECT_EQ(CtDrawingArrowStyle::Open, node->getDrawingCanvases()[0].strokes[0].arrowStyle);
+
+    cmd.undo();
+    EXPECT_EQ(CtDrawingArrowHead::None, node->getDrawingCanvases()[0].strokes[0].arrowHead);
+    EXPECT_EQ(CtDrawingArrowStyle::Solid, node->getDrawingCanvases()[0].strokes[0].arrowStyle);
+}
+
+TEST_F(DrawingCommandTest, StrokeProperties_ChangeFilled)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    auto stroke = makeStroke("#ff0000", 2.0, {{10,10},{50,10},{50,50},{10,50}});
+    stroke.type = CtDrawingElementType::Rectangle;
+    node->getDrawingCanvasesMut()[0].strokes.push_back(stroke);
+
+    CtDrawingStroke oldStroke = node->getDrawingCanvases()[0].strokes[0];
+    CtDrawingStroke newStroke = oldStroke;
+    newStroke.filled = true;
+
+    StrokePropertiesCommand cmd(model, 1, 0, 0, oldStroke, newStroke);
+
+    cmd.execute();
+    EXPECT_TRUE(node->getDrawingCanvases()[0].strokes[0].filled);
+
+    cmd.undo();
+    EXPECT_FALSE(node->getDrawingCanvases()[0].strokes[0].filled);
+}
+
+TEST_F(DrawingCommandTest, StrokeProperties_MultiplePropsAtOnce)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    node->getDrawingCanvasesMut()[0].strokes.push_back(
+        makeStroke("#ff0000", 2.0, {{10,10},{20,20}}));
+
+    CtDrawingStroke oldStroke = node->getDrawingCanvases()[0].strokes[0];
+    CtDrawingStroke newStroke = oldStroke;
+    newStroke.color = "#00ff00";
+    newStroke.lineWidth = 5.0;
+    newStroke.opacity = 0.75;
+    newStroke.lineStyle = CtDrawingLineStyle::Dotted;
+
+    StrokePropertiesCommand cmd(model, 1, 0, 0, oldStroke, newStroke);
+
+    cmd.execute();
+    const auto& s = node->getDrawingCanvases()[0].strokes[0];
+    EXPECT_EQ("#00ff00", s.color);
+    EXPECT_DOUBLE_EQ(5.0, s.lineWidth);
+    EXPECT_DOUBLE_EQ(0.75, s.opacity);
+    EXPECT_EQ(CtDrawingLineStyle::Dotted, s.lineStyle);
+
+    cmd.undo();
+    const auto& s2 = node->getDrawingCanvases()[0].strokes[0];
+    EXPECT_EQ("#ff0000", s2.color);
+    EXPECT_DOUBLE_EQ(2.0, s2.lineWidth);
+    EXPECT_DOUBLE_EQ(1.0, s2.opacity);
+    EXPECT_EQ(CtDrawingLineStyle::Solid, s2.lineStyle);
+}
+
+TEST_F(DrawingCommandTest, StrokeProperties_PointsPreserved)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    node->getDrawingCanvasesMut()[0].strokes.push_back(
+        makeStroke("#ff0000", 2.0, {{10,10},{20,30},{30,20}}));
+
+    CtDrawingStroke oldStroke = node->getDrawingCanvases()[0].strokes[0];
+    CtDrawingStroke newStroke = oldStroke;
+    newStroke.color = "#0000ff";
+
+    StrokePropertiesCommand cmd(model, 1, 0, 0, oldStroke, newStroke);
+
+    cmd.execute();
+    const auto& pts = node->getDrawingCanvases()[0].strokes[0].points;
+    ASSERT_EQ(3u, pts.size());
+    EXPECT_DOUBLE_EQ(10.0, pts[0].x);
+    EXPECT_DOUBLE_EQ(10.0, pts[0].y);
+    EXPECT_DOUBLE_EQ(20.0, pts[1].x);
+    EXPECT_DOUBLE_EQ(30.0, pts[1].y);
+}
+
+TEST_F(DrawingCommandTest, StrokeProperties_CompoundMultiStroke)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    auto& strokes = node->getDrawingCanvasesMut()[0].strokes;
+    strokes.push_back(makeStroke("#ff0000", 2.0, {{10,10},{20,20}}));
+    strokes.push_back(makeStroke("#00ff00", 3.0, {{30,30},{40,40}}));
+    strokes.push_back(makeStroke("#0000ff", 4.0, {{50,50},{60,60}}));
+
+    auto compound = std::make_unique<CompoundCommand>("Change stroke properties");
+    compound->setNodeId(1);
+
+    for (size_t i = 0; i < 3; ++i) {
+        CtDrawingStroke oldS = strokes[i];
+        CtDrawingStroke newS = oldS;
+        newS.lineWidth = 7.0;
+        newS.opacity = 0.25;
+        compound->addCommand(std::make_unique<StrokePropertiesCommand>(
+            model, 1, 0, i, std::move(oldS), std::move(newS)));
+    }
+
+    compound->execute();
+    for (size_t i = 0; i < 3; ++i) {
+        EXPECT_DOUBLE_EQ(7.0, node->getDrawingCanvases()[0].strokes[i].lineWidth);
+        EXPECT_DOUBLE_EQ(0.25, node->getDrawingCanvases()[0].strokes[i].opacity);
+    }
+    EXPECT_EQ("#ff0000", node->getDrawingCanvases()[0].strokes[0].color);
+    EXPECT_EQ("#00ff00", node->getDrawingCanvases()[0].strokes[1].color);
+    EXPECT_EQ("#0000ff", node->getDrawingCanvases()[0].strokes[2].color);
+
+    compound->undo();
+    EXPECT_DOUBLE_EQ(2.0, node->getDrawingCanvases()[0].strokes[0].lineWidth);
+    EXPECT_DOUBLE_EQ(3.0, node->getDrawingCanvases()[0].strokes[1].lineWidth);
+    EXPECT_DOUBLE_EQ(4.0, node->getDrawingCanvases()[0].strokes[2].lineWidth);
+    for (size_t i = 0; i < 3; ++i) {
+        EXPECT_DOUBLE_EQ(1.0, node->getDrawingCanvases()[0].strokes[i].opacity);
+    }
+
+    compound->redo();
+    for (size_t i = 0; i < 3; ++i) {
+        EXPECT_DOUBLE_EQ(7.0, node->getDrawingCanvases()[0].strokes[i].lineWidth);
+        EXPECT_DOUBLE_EQ(0.25, node->getDrawingCanvases()[0].strokes[i].opacity);
+    }
+}
+
+TEST_F(DrawingCommandTest, StrokeProperties_NotifiesObserver)
+{
+    DrawingObserverLog log;
+    model->addObserver(&log);
+
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    node->getDrawingCanvasesMut()[0].strokes.push_back(
+        makeStroke("#ff0000", 2.0, {{10,10},{20,20}}));
+
+    CtDrawingStroke oldStroke = node->getDrawingCanvases()[0].strokes[0];
+    CtDrawingStroke newStroke = oldStroke;
+    newStroke.color = "#00ff00";
+
+    StrokePropertiesCommand cmd(model, 1, 0, 0, oldStroke, newStroke);
+
+    log.clear();
+    cmd.execute();
+    EXPECT_EQ(1, log.drawingChangedCount);
+    EXPECT_EQ(1, log.lastDrawingNodeId);
+
+    cmd.undo();
+    EXPECT_EQ(2, log.drawingChangedCount);
+
+    model->removeObserver(&log);
+}

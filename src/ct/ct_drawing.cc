@@ -67,6 +67,7 @@ static void applyLineStyle(const Cairo::RefPtr<Cairo::Context>& cr, CtDrawingLin
 }
 
 std::optional<CtDrawingCanvas> CtDrawingOverlay::_clipboard;
+std::vector<CtDrawingStroke> CtDrawingOverlay::_strokeClipboard;
 
 CtDrawingOverlay::CtDrawingOverlay(CtMainWin* pMainWin)
     : _pMainWin(pMainWin)
@@ -100,6 +101,31 @@ CtDrawingOverlay::CtDrawingOverlay(CtMainWin* pMainWin)
             _bezierPoints.clear();
             _drawingArea.queue_draw();
             return true;
+        }
+        if (_currentTool == CtDrawingTool::Select) {
+            if (ev->keyval == GDK_KEY_Escape) {
+                _clearStrokeSelection();
+                _drawingArea.queue_draw();
+                return true;
+            }
+            if ((ev->keyval == GDK_KEY_Delete || ev->keyval == GDK_KEY_BackSpace) &&
+                !_selectedStrokeIndices.empty()) {
+                _deleteSelectedStrokes();
+                return true;
+            }
+            bool ctrl = (ev->state & GDK_CONTROL_MASK) != 0;
+            if (ctrl && (ev->keyval == GDK_KEY_c || ev->keyval == GDK_KEY_C)) {
+                _copySelectedStrokes();
+                return true;
+            }
+            if (ctrl && (ev->keyval == GDK_KEY_x || ev->keyval == GDK_KEY_X)) {
+                _cutSelectedStrokes();
+                return true;
+            }
+            if (ctrl && (ev->keyval == GDK_KEY_v || ev->keyval == GDK_KEY_V)) {
+                _pasteStrokes();
+                return true;
+            }
         }
         return false;
     }, false);
@@ -191,6 +217,12 @@ void CtDrawingOverlay::setCurrentTool(CtDrawingTool tool)
     _selectStrokeIdx = -1;
     _selectDragPointIdx = -1;
     _selectOrigPoints.clear();
+    _selectedStrokeIndices.clear();
+    _moveSelOrigPoints.clear();
+    _selectBandStartX = _selectBandStartY = 0.0;
+    _selectBandEndX = _selectBandEndY = 0.0;
+    _scaleHandleIdx = -1;
+    _scaleOrigPoints.clear();
     _updateToolButtonStates();
     _drawingArea.queue_draw();
 }
@@ -210,6 +242,12 @@ void CtDrawingOverlay::resetSelection()
     _selectStrokeIdx = -1;
     _selectDragPointIdx = -1;
     _selectOrigPoints.clear();
+    _selectedStrokeIndices.clear();
+    _moveSelOrigPoints.clear();
+    _selectBandStartX = _selectBandStartY = 0.0;
+    _selectBandEndX = _selectBandEndY = 0.0;
+    _scaleHandleIdx = -1;
+    _scaleOrigPoints.clear();
     _hideToolbar();
     _drawingArea.queue_draw();
 }
@@ -271,12 +309,11 @@ void CtDrawingOverlay::_buildToolbar()
         btn->set_image(*img);
         btn->set_always_show_image(true);
         btn->set_tooltip_text(
+            tool == CtDrawingTool::Select ? _("Select") :
             tool == CtDrawingTool::Pencil ? _("Pencil") :
             tool == CtDrawingTool::Line   ? _("Line") :
             tool == CtDrawingTool::Shape  ? _("Shape") :
             tool == CtDrawingTool::Text   ? _("Text") :
-            tool == CtDrawingTool::Rubber ? _("Eraser") :
-            tool == CtDrawingTool::Move   ? _("Move") :
                                             _("Rotate"));
         btn->signal_clicked().connect([this, btn, tool]() {
             if (_updatingToolButtons) return;
@@ -291,18 +328,19 @@ void CtDrawingOverlay::_buildToolbar()
         return btn;
     };
 
-    addToolBtn("ct_draw_pencil.svg", CtDrawingTool::Pencil);
+    addToolBtn("ct_draw_select.svg", CtDrawingTool::Select);
 
-    // Line tool — left click opens submenu (Line / Polyline)
-    auto* lineBtn = addToolBtn("ct_draw_line.svg", CtDrawingTool::Line);
+    // Pencil/Line/Polyline/Bezier submenu
+    auto* lineBtn = addToolBtn("ct_draw_pencil.svg", CtDrawingTool::Pencil);
     _pLineToolIcon = dynamic_cast<Gtk::Image*>(lineBtn->get_image());
     auto* lineMenu = Gtk::manage(new Gtk::Menu());
     {
-        struct LineEntry { const char* label; const char* icon; CtDrawingElementType type; };
+        struct LineEntry { const char* label; const char* icon; CtDrawingTool tool; CtDrawingElementType type; };
         LineEntry lineTypes[] = {
-            {_("Line"), "ct_draw_line.svg", CtDrawingElementType::Line},
-            {_("Polyline"), "ct_draw_polyline.svg", CtDrawingElementType::Polyline},
-            {_("Bezier Curve"), "ct_draw_bezier.svg", CtDrawingElementType::BezierCurve}
+            {_("Pencil"), "ct_draw_pencil.svg", CtDrawingTool::Pencil, CtDrawingElementType::Freehand},
+            {_("Line"), "ct_draw_line.svg", CtDrawingTool::Line, CtDrawingElementType::Line},
+            {_("Polyline"), "ct_draw_polyline.svg", CtDrawingTool::Line, CtDrawingElementType::Polyline},
+            {_("Bezier Curve"), "ct_draw_bezier.svg", CtDrawingTool::Line, CtDrawingElementType::BezierCurve}
         };
         for (auto& lt : lineTypes) {
             auto* img = Gtk::manage(new Gtk::Image());
@@ -313,19 +351,23 @@ void CtDrawingOverlay::_buildToolbar()
             box->pack_start(*Gtk::manage(new Gtk::Label(lt.label)), false, false);
             auto* item = Gtk::manage(new Gtk::MenuItem());
             item->add(*box);
+            CtDrawingTool ltool = lt.tool;
             CtDrawingElementType ltype = lt.type;
             const char* licon = lt.icon;
-            item->signal_activate().connect([this, ltype, licon, lineBtn]() {
-                _currentLineType = ltype;
+            item->signal_activate().connect([this, ltool, ltype, licon, lineBtn]() {
+                if (ltool == CtDrawingTool::Line) {
+                    _currentLineType = ltype;
+                }
                 if (_pLineToolIcon) {
                     _pLineToolIcon->set_from_resource(std::string("/icons/") + licon);
                     _pLineToolIcon->set_pixel_size(18);
                 }
                 lineBtn->set_tooltip_text(
+                    ltool == CtDrawingTool::Pencil ? _("Pencil") :
                     ltype == CtDrawingElementType::Line ? _("Line") :
                     ltype == CtDrawingElementType::Polyline ? _("Polyline") :
                                                               _("Bezier Curve"));
-                setCurrentTool(CtDrawingTool::Line);
+                setCurrentTool(ltool);
             });
             lineMenu->append(*item);
         }
@@ -390,50 +432,48 @@ void CtDrawingOverlay::_buildToolbar()
     }, false);
 
     addToolBtn("ct_draw_text.svg", CtDrawingTool::Text);
-    addToolBtn("ct_draw_eraser.svg", CtDrawingTool::Rubber);
-    // Move/Rotate tool — left click opens submenu
-    auto* moveBtn = addToolBtn("ct_draw_move.svg", CtDrawingTool::Move);
-    _pMoveToolIcon = dynamic_cast<Gtk::Image*>(moveBtn->get_image());
-    auto* moveMenu = Gtk::manage(new Gtk::Menu());
+
+    // Rotate/Scale submenu
+    auto* rotateBtn = addToolBtn("ct_draw_rotate.svg", CtDrawingTool::Rotate);
+    _pRotateToolIcon = dynamic_cast<Gtk::Image*>(rotateBtn->get_image());
     {
-        struct MoveEntry { const char* label; const char* icon; CtDrawingTool tool; };
-        MoveEntry moveTypes[] = {
-            {_("Move"), "ct_draw_move.svg", CtDrawingTool::Move},
+        auto* menu = Gtk::manage(new Gtk::Menu());
+        struct Entry { const char* label; const char* icon; CtDrawingTool tool; };
+        Entry entries[] = {
             {_("Rotate"), "ct_draw_rotate.svg", CtDrawingTool::Rotate},
-            {_("Select"), "ct_draw_select.svg", CtDrawingTool::Select}
+            {_("Scale"), "ct_draw_scale.svg", CtDrawingTool::Scale}
         };
-        for (auto& mt : moveTypes) {
+        for (auto& e : entries) {
             auto* img = Gtk::manage(new Gtk::Image());
-            img->set_from_resource(std::string("/icons/") + mt.icon);
+            img->set_from_resource(std::string("/icons/") + e.icon);
             img->set_pixel_size(16);
             auto* box = Gtk::manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 6));
             box->pack_start(*img, false, false);
-            box->pack_start(*Gtk::manage(new Gtk::Label(mt.label)), false, false);
+            box->pack_start(*Gtk::manage(new Gtk::Label(e.label)), false, false);
             auto* item = Gtk::manage(new Gtk::MenuItem());
             item->add(*box);
-            CtDrawingTool mtool = mt.tool;
-            const char* micon = mt.icon;
-            item->signal_activate().connect([this, mtool, micon, moveBtn]() {
-                if (_pMoveToolIcon) {
-                    _pMoveToolIcon->set_from_resource(std::string("/icons/") + micon);
-                    _pMoveToolIcon->set_pixel_size(18);
+            CtDrawingTool etool = e.tool;
+            const char* eicon = e.icon;
+            item->signal_activate().connect([this, etool, eicon, rotateBtn]() {
+                if (_pRotateToolIcon) {
+                    _pRotateToolIcon->set_from_resource(std::string("/icons/") + eicon);
+                    _pRotateToolIcon->set_pixel_size(18);
                 }
-                moveBtn->set_tooltip_text(
-                    mtool == CtDrawingTool::Move ? _("Move") :
-                    mtool == CtDrawingTool::Rotate ? _("Rotate") : _("Select"));
-                setCurrentTool(mtool);
+                rotateBtn->set_tooltip_text(
+                    etool == CtDrawingTool::Rotate ? _("Rotate") : _("Scale"));
+                setCurrentTool(etool);
             });
-            moveMenu->append(*item);
+            menu->append(*item);
         }
-        moveMenu->show_all();
+        menu->show_all();
+        rotateBtn->signal_button_press_event().connect([this, menu, rotateBtn](GdkEventButton* ev) -> bool {
+            if (ev->button == 1) {
+                menu->popup_at_widget(rotateBtn, Gdk::GRAVITY_SOUTH, Gdk::GRAVITY_NORTH, nullptr);
+                return true;
+            }
+            return false;
+        }, false);
     }
-    moveBtn->signal_button_press_event().connect([this, moveMenu, moveBtn](GdkEventButton* ev) -> bool {
-        if (ev->button == 1) {
-            moveMenu->popup_at_widget(moveBtn, Gdk::GRAVITY_SOUTH, Gdk::GRAVITY_NORTH, nullptr);
-            return true;
-        }
-        return false;
-    }, false);
 
     // separator
     auto* sep1 = Gtk::manage(new Gtk::Separator(Gtk::ORIENTATION_VERTICAL));
@@ -454,6 +494,9 @@ void CtDrawingOverlay::_buildToolbar()
         item->signal_activate().connect([this, tw, thickLabel]() {
             _currentLineWidth = static_cast<double>(tw);
             thickLabel->set_text(std::to_string(tw) + "px");
+            _applyPropertyToSelection([tw](CtDrawingStroke& s) {
+                s.lineWidth = static_cast<double>(tw);
+            });
         });
         thickMenu->append(*item);
     }
@@ -507,6 +550,10 @@ void CtDrawingOverlay::_buildToolbar()
                 _currentArrowStyle = aStyle;
                 arrowImg->set_from_resource(std::string("/icons/") + aIcon);
                 arrowImg->set_pixel_size(16);
+                _applyPropertyToSelection([aHead, aStyle](CtDrawingStroke& s) {
+                    s.arrowHead = aHead;
+                    s.arrowStyle = aStyle;
+                });
             });
             arrowMenu->append(*item);
         }
@@ -564,6 +611,9 @@ void CtDrawingOverlay::_buildToolbar()
             _currentLineStyle = sv;
             *styleBtnStyle = sv;
             styleBtnDraw->queue_draw();
+            _applyPropertyToSelection([sv](CtDrawingStroke& s) {
+                s.lineStyle = sv;
+            });
         });
         styleMenu->append(*item);
     }
@@ -588,6 +638,10 @@ void CtDrawingOverlay::_buildToolbar()
                  static_cast<int>(c.get_green() * 255),
                  static_cast<int>(c.get_blue() * 255));
         _currentColor = buf;
+        std::string newColor = _currentColor;
+        _applyPropertyToSelection([newColor](CtDrawingStroke& s) {
+            s.color = newColor;
+        });
     });
     _pToolbarBox->pack_start(*colorBtn, false, false);
 
@@ -607,6 +661,9 @@ void CtDrawingOverlay::_buildToolbar()
         item->signal_activate().connect([this, ov, ol, opacLabel]() {
             _currentOpacity = ov;
             opacLabel->set_text(ol);
+            _applyPropertyToSelection([ov](CtDrawingStroke& s) {
+                s.opacity = ov;
+            });
         });
         opacMenu->append(*item);
     }
@@ -620,6 +677,10 @@ void CtDrawingOverlay::_buildToolbar()
     filledBtn->set_tooltip_text(_("Fill shapes"));
     filledBtn->signal_toggled().connect([this, filledBtn]() {
         _currentFilled = filledBtn->get_active();
+        bool filled = _currentFilled;
+        _applyPropertyToSelection([filled](CtDrawingStroke& s) {
+            s.filled = filled;
+        });
     });
     _pToolbarBox->pack_start(*filledBtn, false, false);
 
@@ -792,20 +853,21 @@ void CtDrawingOverlay::_updateToolbarPosition()
 
 void CtDrawingOverlay::_updateToolButtonStates()
 {
-    if (_toolButtons.size() < 6) return;
+    if (_toolButtons.size() < 5) return;
     _updatingToolButtons = true;
-    CtDrawingTool tools[] = {
-        CtDrawingTool::Pencil, CtDrawingTool::Line,
-        CtDrawingTool::Shape, CtDrawingTool::Text,
-        CtDrawingTool::Rubber, CtDrawingTool::Move
-    };
-    for (size_t i = 0; i < 6; ++i) {
-        if (i == 5) {
-            _toolButtons[i]->set_active(_currentTool == CtDrawingTool::Move ||
-                                        _currentTool == CtDrawingTool::Rotate ||
-                                        _currentTool == CtDrawingTool::Select);
-        } else {
-            _toolButtons[i]->set_active(_currentTool == tools[i]);
+    for (size_t i = 0; i < 5; ++i) {
+        if (i == 0) {
+            _toolButtons[i]->set_active(_currentTool == CtDrawingTool::Select);
+        } else if (i == 1) {
+            _toolButtons[i]->set_active(_currentTool == CtDrawingTool::Pencil ||
+                                        _currentTool == CtDrawingTool::Line);
+        } else if (i == 2) {
+            _toolButtons[i]->set_active(_currentTool == CtDrawingTool::Shape);
+        } else if (i == 3) {
+            _toolButtons[i]->set_active(_currentTool == CtDrawingTool::Text);
+        } else if (i == 4) {
+            _toolButtons[i]->set_active(_currentTool == CtDrawingTool::Rotate ||
+                                        _currentTool == CtDrawingTool::Scale);
         }
     }
     _updatingToolButtons = false;
@@ -847,6 +909,22 @@ bool CtDrawingOverlay::_onDraw(const Cairo::RefPtr<Cairo::Context>& cr)
         cr->set_source_rgba(0.2, 0.5, 1.0, 0.8);
         cr->set_line_width(1.0);
         std::vector<double> dashes{6.0, 3.0};
+        cr->set_dash(dashes, 0.0);
+        cr->stroke();
+        cr->unset_dash();
+    }
+
+    if (_dragType == CtDrawingDragType::SelectBand) {
+        double sx = std::min(_selectBandStartX, _selectBandEndX);
+        double sy = std::min(_selectBandStartY, _selectBandEndY);
+        double sw = std::abs(_selectBandEndX - _selectBandStartX);
+        double sh = std::abs(_selectBandEndY - _selectBandStartY);
+        cr->rectangle(sx, sy, sw, sh);
+        cr->set_source_rgba(0.2, 0.5, 1.0, 0.15);
+        cr->fill_preserve();
+        cr->set_source_rgba(0.2, 0.5, 1.0, 0.7);
+        cr->set_line_width(1.0);
+        std::vector<double> dashes{4.0, 3.0};
         cr->set_dash(dashes, 0.0);
         cr->stroke();
         cr->unset_dash();
@@ -1148,6 +1226,50 @@ void CtDrawingOverlay::_drawCanvas(const Cairo::RefPtr<Cairo::Context>& cr,
     // render strokes
     for (const auto& stroke : canvas.strokes) {
         _drawStroke(cr, stroke, cx, cy, zoom);
+    }
+
+    // draw selection highlights for multi-selected strokes
+    if ((_currentTool == CtDrawingTool::Select || _currentTool == CtDrawingTool::Scale)
+        && idx == _selectedCanvasIdx)
+    {
+        for (int si : _selectedStrokeIndices) {
+            if (static_cast<size_t>(si) < canvas.strokes.size()) {
+                _drawSelectionHighlight(cr, canvas.strokes[si], cx, cy, zoom);
+            }
+        }
+    }
+
+    // draw scale handles for Scale tool
+    if (_currentTool == CtDrawingTool::Scale && idx == _selectedCanvasIdx
+        && !_selectedStrokeIndices.empty())
+    {
+        double bMinX = 1e9, bMinY = 1e9, bMaxX = -1e9, bMaxY = -1e9;
+        for (int si : _selectedStrokeIndices) {
+            if (static_cast<size_t>(si) < canvas.strokes.size()) {
+                double sMinX, sMinY, sMaxX, sMaxY;
+                _strokeBoundingBox(canvas.strokes[si], sMinX, sMinY, sMaxX, sMaxY);
+                bMinX = std::min(bMinX, sMinX);
+                bMinY = std::min(bMinY, sMinY);
+                bMaxX = std::max(bMaxX, sMaxX);
+                bMaxY = std::max(bMaxY, sMaxY);
+            }
+        }
+        constexpr double hs = 5.0;
+        double corners[][2] = {
+            {cx + bMinX * zoom, cy + bMinY * zoom},
+            {cx + bMaxX * zoom, cy + bMinY * zoom},
+            {cx + bMinX * zoom, cy + bMaxY * zoom},
+            {cx + bMaxX * zoom, cy + bMaxY * zoom}
+        };
+        cr->set_source_rgba(0.2, 0.5, 1.0, 0.9);
+        cr->set_line_width(1.5);
+        for (int h = 0; h < 4; ++h) {
+            cr->rectangle(corners[h][0] - hs, corners[h][1] - hs, hs * 2, hs * 2);
+            cr->fill_preserve();
+            cr->set_source_rgba(1.0, 1.0, 1.0, 0.9);
+            cr->stroke();
+            cr->set_source_rgba(0.2, 0.5, 1.0, 0.9);
+        }
     }
 
     // draw handles for selected Bezier stroke
@@ -1775,6 +1897,16 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
         int ci = _hitTestCanvas(event->x, event->y, hScroll, vScroll, zoom);
         if (ci >= 0) {
             _selectedCanvasIdx = ci;
+            auto* bridge2 = _pMainWin->get_command_bridge();
+            if (bridge2 && bridge2->isActive()) {
+                auto nm = bridge2->getDocumentModel()->getNodeById(_pMainWin->curr_tree_iter().get_node_id());
+                if (nm && static_cast<size_t>(ci) < nm->getDrawingCanvases().size()) {
+                    double csx = nm->getDrawingCanvases()[ci].x * zoom - hScroll;
+                    double csy = nm->getDrawingCanvases()[ci].y * zoom - vScroll;
+                    _lastClickCanvasX = (event->x - csx) / zoom;
+                    _lastClickCanvasY = (event->y - csy) / zoom;
+                }
+            }
             _drawingArea.queue_draw();
         } else {
             _selectedCanvasIdx = -1;
@@ -1832,16 +1964,6 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
         _resizeZone = zone;
     }
     else if (zone == CtDrawingHitZone::Interior) {
-        if (_currentTool == CtDrawingTool::Move) {
-            int si = _hitTestStroke(event->x, event->y, canvas, hScroll, vScroll, zoom);
-            if (si >= 0) {
-                _moveStrokeIdx = si;
-                _moveStrokeOrigPoints = canvas.strokes[si].points;
-                _dragType = CtDrawingDragType::MoveStroke;
-            }
-            return true;
-        }
-
         if (_currentTool == CtDrawingTool::Rotate) {
             int si = _hitTestStroke(event->x, event->y, canvas, hScroll, vScroll, zoom);
             if (si >= 0) {
@@ -1864,8 +1986,11 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
             double canvasScreenY = canvas.y * zoom - vScroll;
             double mx = (event->x - canvasScreenX) / zoom;
             double my = (event->y - canvasScreenY) / zoom;
+            _lastClickCanvasX = mx;
+            _lastClickCanvasY = my;
+            bool ctrlHeld = (event->state & GDK_CONTROL_MASK) != 0;
 
-            // if a stroke is already selected, check if clicking near a handle point
+            // check Bezier handle hit first (when exactly one BezierCurve selected)
             if (_selectStrokeIdx >= 0 &&
                 static_cast<size_t>(_selectStrokeIdx) < canvas.strokes.size())
             {
@@ -1873,9 +1998,9 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
                 if (sel.type == CtDrawingElementType::BezierCurve && sel.points.size() >= 4) {
                     constexpr double hitR = 8.0;
                     for (int pi = 0; pi < 4; ++pi) {
-                        double dx = mx - sel.points[pi].x;
-                        double dy = my - sel.points[pi].y;
-                        if (dx * dx + dy * dy <= hitR * hitR) {
+                        double ddx = mx - sel.points[pi].x;
+                        double ddy = my - sel.points[pi].y;
+                        if (ddx * ddx + ddy * ddy <= hitR * hitR) {
                             _selectOrigPoints = sel.points;
                             _selectDragPointIdx = pi;
                             _dragType = CtDrawingDragType::EditPoint;
@@ -1885,15 +2010,121 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
                 }
             }
 
-            // hit-test strokes to select a new one
+            // hit-test strokes
             int si = _hitTestStroke(event->x, event->y, canvas, hScroll, vScroll, zoom);
-            if (si >= 0 && canvas.strokes[si].type == CtDrawingElementType::BezierCurve) {
-                _selectStrokeIdx = si;
+
+            if (si >= 0) {
+                if (ctrlHeld) {
+                    // toggle stroke in/out of selection
+                    if (_selectedStrokeIndices.count(si)) {
+                        _selectedStrokeIndices.erase(si);
+                    } else {
+                        _selectedStrokeIndices.insert(si);
+                    }
+                } else if (_selectedStrokeIndices.count(si)) {
+                    // clicked on already-selected stroke: start MoveSelection
+                    _moveSelOrigPoints.clear();
+                    for (int idx : _selectedStrokeIndices) {
+                        if (static_cast<size_t>(idx) < canvas.strokes.size()) {
+                            _moveSelOrigPoints[idx] = canvas.strokes[idx].points;
+                        }
+                    }
+                    _dragType = CtDrawingDragType::MoveSelection;
+                } else {
+                    // plain click on stroke: select just this one
+                    _selectedStrokeIndices.clear();
+                    _selectedStrokeIndices.insert(si);
+                }
+            } else {
+                // clicked empty space
+                if (!ctrlHeld) {
+                    _selectedStrokeIndices.clear();
+                }
+                // start rubber-band selection
+                _selectBandStartX = event->x;
+                _selectBandStartY = event->y;
+                _selectBandEndX = event->x;
+                _selectBandEndY = event->y;
+                _dragType = CtDrawingDragType::SelectBand;
+            }
+
+            // show Bezier handles only when exactly one BezierCurve is selected
+            if (_selectedStrokeIndices.size() == 1) {
+                int onlyIdx = *_selectedStrokeIndices.begin();
+                if (static_cast<size_t>(onlyIdx) < canvas.strokes.size() &&
+                    canvas.strokes[onlyIdx].type == CtDrawingElementType::BezierCurve) {
+                    _selectStrokeIdx = onlyIdx;
+                } else {
+                    _selectStrokeIdx = -1;
+                }
             } else {
                 _selectStrokeIdx = -1;
             }
             _selectDragPointIdx = -1;
             _selectOrigPoints.clear();
+            _drawingArea.queue_draw();
+            return true;
+        }
+
+        if (_currentTool == CtDrawingTool::Scale) {
+            double canvasScreenX = canvas.x * zoom - hScroll;
+            double canvasScreenY = canvas.y * zoom - vScroll;
+            double mx = (event->x - canvasScreenX) / zoom;
+            double my = (event->y - canvasScreenY) / zoom;
+
+            // if we have a selected stroke, check handle hit first
+            if (!_selectedStrokeIndices.empty()) {
+                // compute combined bounding box
+                double bMinX = 1e9, bMinY = 1e9, bMaxX = -1e9, bMaxY = -1e9;
+                for (int idx : _selectedStrokeIndices) {
+                    if (static_cast<size_t>(idx) < canvas.strokes.size()) {
+                        double sMinX, sMinY, sMaxX, sMaxY;
+                        _strokeBoundingBox(canvas.strokes[idx], sMinX, sMinY, sMaxX, sMaxY);
+                        bMinX = std::min(bMinX, sMinX);
+                        bMinY = std::min(bMinY, sMinY);
+                        bMaxX = std::max(bMaxX, sMaxX);
+                        bMaxY = std::max(bMaxY, sMaxY);
+                    }
+                }
+                constexpr double handleR = 6.0;
+                double corners[][2] = {
+                    {bMinX, bMinY}, {bMaxX, bMinY},
+                    {bMinX, bMaxY}, {bMaxX, bMaxY}
+                };
+                for (int h = 0; h < 4; ++h) {
+                    double ddx = mx - corners[h][0];
+                    double ddy = my - corners[h][1];
+                    if (ddx * ddx + ddy * ddy <= handleR * handleR) {
+                        _scaleHandleIdx = h;
+                        // anchor is the opposite corner
+                        _scaleAnchorX = corners[3 - h][0];
+                        _scaleAnchorY = corners[3 - h][1];
+                        _scaleBBoxMinX = bMinX;
+                        _scaleBBoxMinY = bMinY;
+                        _scaleBBoxMaxX = bMaxX;
+                        _scaleBBoxMaxY = bMaxY;
+                        _scaleOrigPoints.clear();
+                        for (int idx : _selectedStrokeIndices) {
+                            if (static_cast<size_t>(idx) < canvas.strokes.size()) {
+                                _scaleOrigPoints[idx] = canvas.strokes[idx].points;
+                            }
+                        }
+                        _dragType = CtDrawingDragType::ScaleSelection;
+                        return true;
+                    }
+                }
+            }
+
+            // hit-test strokes for selection
+            int si = _hitTestStroke(event->x, event->y, canvas, hScroll, vScroll, zoom);
+            if (si >= 0) {
+                _selectedStrokeIndices.clear();
+                _selectedStrokeIndices.insert(si);
+            } else {
+                _selectedStrokeIndices.clear();
+            }
+            _scaleHandleIdx = -1;
+            _scaleOrigPoints.clear();
             _drawingArea.queue_draw();
             return true;
         }
@@ -2093,14 +2324,14 @@ bool CtDrawingOverlay::_onMotionNotify(GdkEventMotion* event)
                         case CtDrawingHitZone::Bottom:      cursorType = Gdk::BOTTOM_SIDE; break;
                         case CtDrawingHitZone::Header:      cursorType = Gdk::FLEUR; break;
                         case CtDrawingHitZone::Interior:
-                            if (_currentTool == CtDrawingTool::Move ||
-                                _currentTool == CtDrawingTool::Rotate) {
+                            if (_currentTool == CtDrawingTool::Rotate) {
                                 const auto& canvases2 = nodeModel->getDrawingCanvases();
                                 int si = _hitTestStroke(event->x, event->y, canvases2[ci], hScroll, vScroll, zoom);
-                                if (si >= 0) cursorType = _currentTool == CtDrawingTool::Move ? Gdk::FLEUR : Gdk::EXCHANGE;
+                                if (si >= 0) cursorType = Gdk::EXCHANGE;
                             }
                             else if (_currentTool == CtDrawingTool::Select) {
                                 const auto& canvases2 = nodeModel->getDrawingCanvases();
+                                // check Bezier handle hover
                                 if (_selectStrokeIdx >= 0 &&
                                     static_cast<size_t>(_selectStrokeIdx) < canvases2[ci].strokes.size())
                                 {
@@ -2108,12 +2339,12 @@ bool CtDrawingOverlay::_onMotionNotify(GdkEventMotion* event)
                                     if (sel.type == CtDrawingElementType::BezierCurve && sel.points.size() >= 4) {
                                         double csx = canvases2[ci].x * zoom - hScroll;
                                         double csy = canvases2[ci].y * zoom - vScroll;
-                                        double mx = (event->x - csx) / zoom;
-                                        double my = (event->y - csy) / zoom;
+                                        double smx = (event->x - csx) / zoom;
+                                        double smy = (event->y - csy) / zoom;
                                         constexpr double hitR = 8.0;
                                         for (int pi = 0; pi < 4; ++pi) {
-                                            double ddx = mx - sel.points[pi].x;
-                                            double ddy = my - sel.points[pi].y;
+                                            double ddx = smx - sel.points[pi].x;
+                                            double ddy = smy - sel.points[pi].y;
                                             if (ddx * ddx + ddy * ddy <= hitR * hitR) {
                                                 cursorType = Gdk::HAND2;
                                                 break;
@@ -2123,9 +2354,54 @@ bool CtDrawingOverlay::_onMotionNotify(GdkEventMotion* event)
                                 }
                                 if (cursorType == Gdk::ARROW) {
                                     int si = _hitTestStroke(event->x, event->y, canvases2[ci], hScroll, vScroll, zoom);
-                                    if (si >= 0 && canvases2[ci].strokes[si].type == CtDrawingElementType::BezierCurve) {
-                                        cursorType = Gdk::HAND1;
+                                    if (si >= 0) {
+                                        if (_selectedStrokeIndices.count(si)) {
+                                            cursorType = Gdk::FLEUR;
+                                        } else {
+                                            cursorType = Gdk::HAND1;
+                                        }
                                     }
+                                }
+                            }
+                            else if (_currentTool == CtDrawingTool::Scale) {
+                                const auto& canvases2 = nodeModel->getDrawingCanvases();
+                                if (!_selectedStrokeIndices.empty()) {
+                                    double bMinX = 1e9, bMinY = 1e9, bMaxX = -1e9, bMaxY = -1e9;
+                                    for (int si2 : _selectedStrokeIndices) {
+                                        if (static_cast<size_t>(si2) < canvases2[ci].strokes.size()) {
+                                            double sMinX, sMinY, sMaxX, sMaxY;
+                                            _strokeBoundingBox(canvases2[ci].strokes[si2], sMinX, sMinY, sMaxX, sMaxY);
+                                            bMinX = std::min(bMinX, sMinX);
+                                            bMinY = std::min(bMinY, sMinY);
+                                            bMaxX = std::max(bMaxX, sMaxX);
+                                            bMaxY = std::max(bMaxY, sMaxY);
+                                        }
+                                    }
+                                    double csx = canvases2[ci].x * zoom - hScroll;
+                                    double csy = canvases2[ci].y * zoom - vScroll;
+                                    double smx = (event->x - csx) / zoom;
+                                    double smy = (event->y - csy) / zoom;
+                                    constexpr double handleR = 6.0;
+                                    double corners[][2] = {
+                                        {bMinX, bMinY}, {bMaxX, bMinY},
+                                        {bMinX, bMaxY}, {bMaxX, bMaxY}
+                                    };
+                                    Gdk::CursorType cornerCursors[] = {
+                                        Gdk::TOP_LEFT_CORNER, Gdk::TOP_RIGHT_CORNER,
+                                        Gdk::BOTTOM_LEFT_CORNER, Gdk::BOTTOM_RIGHT_CORNER
+                                    };
+                                    for (int h = 0; h < 4; ++h) {
+                                        double ddx = smx - corners[h][0];
+                                        double ddy = smy - corners[h][1];
+                                        if (ddx * ddx + ddy * ddy <= handleR * handleR) {
+                                            cursorType = cornerCursors[h];
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (cursorType == Gdk::ARROW) {
+                                    int si = _hitTestStroke(event->x, event->y, canvases2[ci], hScroll, vScroll, zoom);
+                                    if (si >= 0) cursorType = Gdk::HAND1;
                                 }
                             }
                             break;
@@ -2216,6 +2492,60 @@ bool CtDrawingOverlay::_onMotionNotify(GdkEventMotion* event)
             canvas.strokes[_selectStrokeIdx].points[_selectDragPointIdx] = {mx, my};
             _drawingArea.queue_draw();
         }
+        return true;
+    }
+
+    if (_dragType == CtDrawingDragType::SelectBand) {
+        _selectBandEndX = event->x;
+        _selectBandEndY = event->y;
+        _drawingArea.queue_draw();
+        return true;
+    }
+
+    if (_dragType == CtDrawingDragType::MoveSelection) {
+        for (auto& [idx, origPts] : _moveSelOrigPoints) {
+            if (static_cast<size_t>(idx) < canvas.strokes.size()) {
+                auto& pts = canvas.strokes[idx].points;
+                for (size_t i = 0; i < pts.size() && i < origPts.size(); ++i) {
+                    pts[i].x = origPts[i].x + dx;
+                    pts[i].y = origPts[i].y + dy;
+                }
+            }
+        }
+        _drawingArea.queue_draw();
+        return true;
+    }
+
+    if (_dragType == CtDrawingDragType::ScaleSelection) {
+        double bboxW = _scaleBBoxMaxX - _scaleBBoxMinX;
+        double bboxH = _scaleBBoxMaxY - _scaleBBoxMinY;
+        if (bboxW < 1.0) bboxW = 1.0;
+        if (bboxH < 1.0) bboxH = 1.0;
+        auto hAdjS = _pMainWin->getScrolledwindowText().get_hadjustment();
+        auto vAdjS = _pMainWin->getScrolledwindowText().get_vadjustment();
+        double hScrollS = hAdjS ? hAdjS->get_value() : 0.0;
+        double vScrollS = vAdjS ? vAdjS->get_value() : 0.0;
+        double canvasScreenX = canvas.x * zoom - hScrollS;
+        double canvasScreenY = canvas.y * zoom - vScrollS;
+        double mx = (event->x - canvasScreenX) / zoom;
+        double my = (event->y - canvasScreenY) / zoom;
+        double newW = std::abs(mx - _scaleAnchorX);
+        double newH = std::abs(my - _scaleAnchorY);
+        double scaleX = newW / bboxW;
+        double scaleY = newH / bboxH;
+        if (scaleX < 0.05) scaleX = 0.05;
+        if (scaleY < 0.05) scaleY = 0.05;
+
+        for (auto& [idx, origPts] : _scaleOrigPoints) {
+            if (static_cast<size_t>(idx) < canvas.strokes.size()) {
+                auto& pts = canvas.strokes[idx].points;
+                for (size_t i = 0; i < pts.size() && i < origPts.size(); ++i) {
+                    pts[i].x = _scaleAnchorX + (origPts[i].x - _scaleAnchorX) * scaleX;
+                    pts[i].y = _scaleAnchorY + (origPts[i].y - _scaleAnchorY) * scaleY;
+                }
+            }
+        }
+        _drawingArea.queue_draw();
         return true;
     }
 
@@ -2435,6 +2765,120 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
         _selectDragPointIdx = -1;
         _selectOrigPoints.clear();
     }
+    else if (_dragType == CtDrawingDragType::SelectBand) {
+        auto hAdj = _pMainWin->getScrolledwindowText().get_hadjustment();
+        auto vAdj = _pMainWin->getScrolledwindowText().get_vadjustment();
+        double hScroll = hAdj ? hAdj->get_value() : 0.0;
+        double vScroll = vAdj ? vAdj->get_value() : 0.0;
+        double zoom2 = _pMainWin->get_rt_zoom_scale_factor();
+        double canvasScreenX = canvas.x * zoom2 - hScroll;
+        double canvasScreenY = canvas.y * zoom2 - vScroll;
+
+        double bandMinX = (std::min(_selectBandStartX, _selectBandEndX) - canvasScreenX) / zoom2;
+        double bandMinY = (std::min(_selectBandStartY, _selectBandEndY) - canvasScreenY) / zoom2;
+        double bandMaxX = (std::max(_selectBandStartX, _selectBandEndX) - canvasScreenX) / zoom2;
+        double bandMaxY = (std::max(_selectBandStartY, _selectBandEndY) - canvasScreenY) / zoom2;
+
+        bool ctrlHeld = (event->state & GDK_CONTROL_MASK) != 0;
+        std::set<int> hits;
+        for (size_t si = 0; si < canvas.strokes.size(); ++si) {
+            double sMinX, sMinY, sMaxX, sMaxY;
+            _strokeBoundingBox(canvas.strokes[si], sMinX, sMinY, sMaxX, sMaxY);
+            if (sMaxX >= bandMinX && sMinX <= bandMaxX &&
+                sMaxY >= bandMinY && sMinY <= bandMaxY) {
+                hits.insert(static_cast<int>(si));
+            }
+        }
+
+        if (ctrlHeld) {
+            for (int h : hits) {
+                if (_selectedStrokeIndices.count(h))
+                    _selectedStrokeIndices.erase(h);
+                else
+                    _selectedStrokeIndices.insert(h);
+            }
+        } else {
+            _selectedStrokeIndices = hits;
+        }
+
+        if (_selectedStrokeIndices.size() == 1) {
+            int onlyIdx = *_selectedStrokeIndices.begin();
+            if (static_cast<size_t>(onlyIdx) < canvas.strokes.size() &&
+                canvas.strokes[onlyIdx].type == CtDrawingElementType::BezierCurve) {
+                _selectStrokeIdx = onlyIdx;
+            } else {
+                _selectStrokeIdx = -1;
+            }
+        } else {
+            _selectStrokeIdx = -1;
+        }
+
+        _selectBandStartX = _selectBandStartY = 0.0;
+        _selectBandEndX = _selectBandEndY = 0.0;
+    }
+    else if (_dragType == CtDrawingDragType::MoveSelection) {
+        auto compound = std::make_unique<CompoundCommand>("Move strokes");
+        compound->setNodeId(treeIter.get_node_id());
+        bool anyMoved = false;
+
+        for (auto& [idx, origPts] : _moveSelOrigPoints) {
+            if (static_cast<size_t>(idx) < canvas.strokes.size()) {
+                auto newPoints = canvas.strokes[idx].points;
+                canvas.strokes[idx].points = origPts;
+                bool moved = false;
+                for (size_t i = 0; i < newPoints.size() && i < origPts.size(); ++i) {
+                    if (newPoints[i].x != origPts[i].x || newPoints[i].y != origPts[i].y) {
+                        moved = true;
+                        break;
+                    }
+                }
+                if (moved) {
+                    compound->addCommand(std::make_unique<MoveStrokeCommand>(
+                        bridge->getDocumentModel(), treeIter.get_node_id(), ci,
+                        static_cast<size_t>(idx), origPts, std::move(newPoints)));
+                    anyMoved = true;
+                }
+            }
+        }
+
+        if (anyMoved) {
+            bridge->executeCommand(std::move(compound));
+            _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+        }
+        _moveSelOrigPoints.clear();
+    }
+    else if (_dragType == CtDrawingDragType::ScaleSelection) {
+        auto compound = std::make_unique<CompoundCommand>("Scale strokes");
+        compound->setNodeId(treeIter.get_node_id());
+        bool anyScaled = false;
+
+        for (auto& [idx, origPts] : _scaleOrigPoints) {
+            if (static_cast<size_t>(idx) < canvas.strokes.size()) {
+                auto newPoints = canvas.strokes[idx].points;
+                canvas.strokes[idx].points = origPts;
+                bool changed = false;
+                for (size_t i = 0; i < newPoints.size() && i < origPts.size(); ++i) {
+                    if (newPoints[i].x != origPts[i].x || newPoints[i].y != origPts[i].y) {
+                        changed = true;
+                        break;
+                    }
+                }
+                if (changed) {
+                    compound->addCommand(std::make_unique<MoveStrokeCommand>(
+                        bridge->getDocumentModel(), treeIter.get_node_id(), ci,
+                        static_cast<size_t>(idx), origPts, std::move(newPoints)));
+                    anyScaled = true;
+                }
+            }
+        }
+
+        if (anyScaled) {
+            bridge->executeCommand(std::move(compound));
+            _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+        }
+        _scaleOrigPoints.clear();
+        _scaleHandleIdx = -1;
+    }
     else if (_dragType == CtDrawingDragType::Resize) {
         double newX = canvas.x, newY = canvas.y;
         double newW = canvas.width, newH = canvas.height;
@@ -2590,8 +3034,293 @@ void CtDrawingOverlay::_showTextDialog(double canvasX, double canvasY, size_t ca
     _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
 }
 
+void CtDrawingOverlay::_strokeBoundingBox(const CtDrawingStroke& stroke,
+                                          double& minX, double& minY,
+                                          double& maxX, double& maxY)
+{
+    if (stroke.points.empty()) {
+        minX = minY = maxX = maxY = 0.0;
+        return;
+    }
+
+    if (stroke.type == CtDrawingElementType::Text && !stroke.textContent.empty()) {
+        auto surface = Cairo::ImageSurface::create(Cairo::FORMAT_ARGB32, 1, 1);
+        auto tmpCr = Cairo::Context::create(surface);
+        auto layout = Pango::Layout::create(tmpCr);
+        layout->set_text(stroke.textContent);
+        Pango::FontDescription fd;
+        fd.set_family(stroke.fontFamily);
+        fd.set_size(static_cast<int>(stroke.fontSize * Pango::SCALE));
+        layout->set_font_description(fd);
+        int tw, th;
+        layout->get_pixel_size(tw, th);
+        minX = stroke.points[0].x;
+        minY = stroke.points[0].y;
+        maxX = minX + tw;
+        maxY = minY + th;
+    } else {
+        minX = maxX = stroke.points[0].x;
+        minY = maxY = stroke.points[0].y;
+        for (size_t i = 1; i < stroke.points.size(); ++i) {
+            minX = std::min(minX, stroke.points[i].x);
+            minY = std::min(minY, stroke.points[i].y);
+            maxX = std::max(maxX, stroke.points[i].x);
+            maxY = std::max(maxY, stroke.points[i].y);
+        }
+    }
+
+    double hw = stroke.lineWidth / 2.0;
+    minX -= hw;
+    minY -= hw;
+    maxX += hw;
+    maxY += hw;
+
+    if (std::abs(stroke.rotation) > 1e-6) {
+        double scx, scy;
+        _strokeCenter(stroke, scx, scy);
+        double cosA = std::cos(stroke.rotation);
+        double sinA = std::sin(stroke.rotation);
+        double corners[4][2] = {
+            {minX, minY}, {maxX, minY}, {maxX, maxY}, {minX, maxY}
+        };
+        double rMinX = 1e18, rMinY = 1e18, rMaxX = -1e18, rMaxY = -1e18;
+        for (auto& c : corners) {
+            double dx = c[0] - scx, dy = c[1] - scy;
+            double rx = scx + dx * cosA - dy * sinA;
+            double ry = scy + dx * sinA + dy * cosA;
+            rMinX = std::min(rMinX, rx);
+            rMinY = std::min(rMinY, ry);
+            rMaxX = std::max(rMaxX, rx);
+            rMaxY = std::max(rMaxY, ry);
+        }
+        minX = rMinX; minY = rMinY;
+        maxX = rMaxX; maxY = rMaxY;
+    }
+}
+
+void CtDrawingOverlay::_drawSelectionHighlight(const Cairo::RefPtr<Cairo::Context>& cr,
+                                                const CtDrawingStroke& stroke,
+                                                double cx, double cy, double zoom)
+{
+    double minX, minY, maxX, maxY;
+    _strokeBoundingBox(stroke, minX, minY, maxX, maxY);
+
+    double sx = cx + minX * zoom;
+    double sy = cy + minY * zoom;
+    double sw = (maxX - minX) * zoom;
+    double sh = (maxY - minY) * zoom;
+
+    cr->set_source_rgba(0.2, 0.5, 1.0, 0.6);
+    cr->set_line_width(1.5);
+    std::vector<double> dashes{4.0, 3.0};
+    cr->set_dash(dashes, 0.0);
+    cr->rectangle(sx, sy, sw, sh);
+    cr->stroke();
+    cr->unset_dash();
+}
+
+void CtDrawingOverlay::_applyPropertyToSelection(std::function<void(CtDrawingStroke&)> mutate)
+{
+    if (_selectedStrokeIndices.empty() || _selectedCanvasIdx < 0) return;
+    auto* bridge = _pMainWin->get_command_bridge();
+    auto treeIter = _pMainWin->curr_tree_iter();
+    if (!bridge || !bridge->isActive() || !treeIter) return;
+    auto docModel = bridge->getDocumentModel();
+    auto nodeModel = docModel->getNodeById(treeIter.get_node_id());
+    if (!nodeModel) return;
+    auto& canvases = nodeModel->getDrawingCanvasesMut();
+    size_t ci = static_cast<size_t>(_selectedCanvasIdx);
+    if (ci >= canvases.size()) return;
+
+    auto compound = std::make_unique<CompoundCommand>("Change stroke properties");
+    compound->setNodeId(treeIter.get_node_id());
+    bool anyChanged = false;
+
+    for (int idx : _selectedStrokeIndices) {
+        if (static_cast<size_t>(idx) >= canvases[ci].strokes.size()) continue;
+        CtDrawingStroke oldStroke = canvases[ci].strokes[idx];
+        CtDrawingStroke newStroke = oldStroke;
+        mutate(newStroke);
+        if (newStroke.color != oldStroke.color ||
+            newStroke.lineWidth != oldStroke.lineWidth ||
+            newStroke.opacity != oldStroke.opacity ||
+            newStroke.lineStyle != oldStroke.lineStyle ||
+            newStroke.filled != oldStroke.filled ||
+            newStroke.arrowHead != oldStroke.arrowHead ||
+            newStroke.arrowStyle != oldStroke.arrowStyle)
+        {
+            compound->addCommand(std::make_unique<StrokePropertiesCommand>(
+                docModel, treeIter.get_node_id(), ci,
+                static_cast<size_t>(idx), std::move(oldStroke), std::move(newStroke)));
+            anyChanged = true;
+        }
+    }
+
+    if (anyChanged) {
+        bridge->executeCommand(std::move(compound));
+        _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+        _drawingArea.queue_draw();
+    }
+}
+
+void CtDrawingOverlay::_clearStrokeSelection()
+{
+    _selectedStrokeIndices.clear();
+    _selectStrokeIdx = -1;
+    _selectDragPointIdx = -1;
+    _selectOrigPoints.clear();
+    _moveSelOrigPoints.clear();
+}
+
+void CtDrawingOverlay::_copySelectedStrokes()
+{
+    if (_selectedStrokeIndices.empty() || _selectedCanvasIdx < 0) return;
+    auto* bridge = _pMainWin->get_command_bridge();
+    auto treeIter = _pMainWin->curr_tree_iter();
+    if (!bridge || !treeIter) return;
+    auto nodeModel = bridge->getDocumentModel()->getNodeById(treeIter.get_node_id());
+    if (!nodeModel) return;
+    const auto& canvases = nodeModel->getDrawingCanvases();
+    size_t ci = static_cast<size_t>(_selectedCanvasIdx);
+    if (ci >= canvases.size()) return;
+
+    _strokeClipboard.clear();
+    for (int idx : _selectedStrokeIndices) {
+        if (static_cast<size_t>(idx) < canvases[ci].strokes.size()) {
+            _strokeClipboard.push_back(canvases[ci].strokes[idx]);
+        }
+    }
+}
+
+void CtDrawingOverlay::_cutSelectedStrokes()
+{
+    _copySelectedStrokes();
+    _deleteSelectedStrokes();
+}
+
+void CtDrawingOverlay::_pasteStrokes(double canvasX, double canvasY)
+{
+    if (_strokeClipboard.empty() || _selectedCanvasIdx < 0) return;
+    auto* bridge = _pMainWin->get_command_bridge();
+    auto treeIter = _pMainWin->curr_tree_iter();
+    if (!bridge || !treeIter) return;
+    auto nodeModel = bridge->getDocumentModel()->getNodeById(treeIter.get_node_id());
+    if (!nodeModel) return;
+    const auto& canvases = nodeModel->getDrawingCanvases();
+    size_t ci = static_cast<size_t>(_selectedCanvasIdx);
+    if (ci >= canvases.size()) return;
+
+    double groupMinX = 1e18, groupMinY = 1e18;
+    double groupMaxX = -1e18, groupMaxY = -1e18;
+    for (const auto& s : _strokeClipboard) {
+        double bMinX, bMinY, bMaxX, bMaxY;
+        _strokeBoundingBox(s, bMinX, bMinY, bMaxX, bMaxY);
+        groupMinX = std::min(groupMinX, bMinX);
+        groupMinY = std::min(groupMinY, bMinY);
+        groupMaxX = std::max(groupMaxX, bMaxX);
+        groupMaxY = std::max(groupMaxY, bMaxY);
+    }
+    double centerX = (groupMinX + groupMaxX) / 2.0;
+    double centerY = (groupMinY + groupMaxY) / 2.0;
+
+    if (canvasX < 0.0 || canvasY < 0.0) {
+        canvasX = canvases[ci].width / 2.0;
+        canvasY = canvases[ci].height / 2.0;
+    }
+    double offsetX = canvasX - centerX + 10.0;
+    double offsetY = canvasY - centerY + 10.0;
+
+    auto compound = std::make_unique<CompoundCommand>("Paste strokes");
+    compound->setNodeId(treeIter.get_node_id());
+
+    int baseIdx = static_cast<int>(canvases[ci].strokes.size());
+    _selectedStrokeIndices.clear();
+
+    for (size_t i = 0; i < _strokeClipboard.size(); ++i) {
+        CtDrawingStroke pasted = _strokeClipboard[i];
+        for (auto& p : pasted.points) {
+            p.x += offsetX;
+            p.y += offsetY;
+        }
+        compound->addCommand(std::make_unique<DrawStrokeCommand>(
+            bridge->getDocumentModel(), treeIter.get_node_id(), ci,
+            std::move(pasted)));
+        _selectedStrokeIndices.insert(baseIdx + static_cast<int>(i));
+    }
+
+    bridge->executeCommand(std::move(compound));
+    _selectStrokeIdx = -1;
+    _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+    _drawingArea.queue_draw();
+}
+
+void CtDrawingOverlay::_deleteSelectedStrokes()
+{
+    if (_selectedStrokeIndices.empty() || _selectedCanvasIdx < 0) return;
+    auto* bridge = _pMainWin->get_command_bridge();
+    auto treeIter = _pMainWin->curr_tree_iter();
+    if (!bridge || !treeIter) return;
+    auto nodeModel = bridge->getDocumentModel()->getNodeById(treeIter.get_node_id());
+    if (!nodeModel) return;
+    const auto& canvases = nodeModel->getDrawingCanvases();
+    size_t ci = static_cast<size_t>(_selectedCanvasIdx);
+    if (ci >= canvases.size()) return;
+
+    auto compound = std::make_unique<CompoundCommand>("Delete strokes");
+    compound->setNodeId(treeIter.get_node_id());
+
+    // iterate in reverse to keep indices valid during execute
+    for (auto it = _selectedStrokeIndices.rbegin(); it != _selectedStrokeIndices.rend(); ++it) {
+        int idx = *it;
+        if (static_cast<size_t>(idx) < canvases[ci].strokes.size()) {
+            compound->addCommand(std::make_unique<EraseStrokeCommand>(
+                bridge->getDocumentModel(), treeIter.get_node_id(), ci,
+                canvases[ci].strokes[idx], static_cast<size_t>(idx)));
+        }
+    }
+
+    bridge->executeCommand(std::move(compound));
+    _clearStrokeSelection();
+    _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+    _drawingArea.queue_draw();
+}
+
+void CtDrawingOverlay::_showStrokeContextMenu(GdkEventButton* event)
+{
+    auto* menu = Gtk::manage(new Gtk::Menu());
+
+    auto* cutItem = Gtk::manage(new Gtk::MenuItem(_("Cut Strokes")));
+    cutItem->signal_activate().connect([this]() { _cutSelectedStrokes(); });
+    menu->append(*cutItem);
+
+    auto* copyItem = Gtk::manage(new Gtk::MenuItem(_("Copy Strokes")));
+    copyItem->signal_activate().connect([this]() { _copySelectedStrokes(); });
+    menu->append(*copyItem);
+
+    auto* pasteItem = Gtk::manage(new Gtk::MenuItem(_("Paste Strokes")));
+    pasteItem->set_sensitive(!_strokeClipboard.empty());
+    pasteItem->signal_activate().connect([this]() {
+        _pasteStrokes(_lastClickCanvasX, _lastClickCanvasY);
+    });
+    menu->append(*pasteItem);
+
+    menu->append(*Gtk::manage(new Gtk::SeparatorMenuItem()));
+
+    auto* deleteItem = Gtk::manage(new Gtk::MenuItem(_("Delete Strokes")));
+    deleteItem->signal_activate().connect([this]() { _deleteSelectedStrokes(); });
+    menu->append(*deleteItem);
+
+    menu->show_all();
+    menu->popup_at_pointer(reinterpret_cast<GdkEvent*>(event));
+}
+
 void CtDrawingOverlay::_showContextMenu(GdkEventButton* event)
 {
+    if (_currentTool == CtDrawingTool::Select && !_selectedStrokeIndices.empty()) {
+        _showStrokeContextMenu(event);
+        return;
+    }
+
     auto* menu = Gtk::manage(new Gtk::Menu());
     bool hasSelection = _selectedCanvasIdx >= 0;
 
