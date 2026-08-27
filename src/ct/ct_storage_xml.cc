@@ -1076,6 +1076,9 @@ void CtXmlHelper::drawing_canvases_to_xml(xmlpp::Element* p_node_node,
         for (const auto& stroke : canvas.strokes) {
             auto* p_stroke = p_canvas->add_child("stroke");
             p_stroke->set_attribute("color", stroke.color);
+            if (stroke.fillColor != "#ffffff") {
+                p_stroke->set_attribute("fill_color", stroke.fillColor);
+            }
             p_stroke->set_attribute("width", std::to_string(stroke.lineWidth));
             p_stroke->set_attribute("opacity", std::to_string(stroke.opacity));
             if (stroke.type != CtDrawingElementType::Freehand) {
@@ -1145,6 +1148,8 @@ std::vector<CtDrawingCanvas> CtXmlHelper::drawing_canvases_from_xml(const xmlpp:
                 if (!strokeElem) continue;
                 CtDrawingStroke stroke;
                 stroke.color = strokeElem->get_attribute_value("color");
+                auto fillColorStr = strokeElem->get_attribute_value("fill_color");
+                if (!fillColorStr.empty()) stroke.fillColor = fillColorStr;
                 auto wStr = strokeElem->get_attribute_value("width");
                 if (!wStr.empty()) stroke.lineWidth = std::stod(wStr);
                 auto oStr = strokeElem->get_attribute_value("opacity");

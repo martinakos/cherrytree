@@ -294,6 +294,10 @@ void CtDrawingOverlay::_buildToolbar()
             "  background: #c0bfbc;"
             "  margin: 4px 4px;"
             "}"
+            ".drawing-toolbar .color-swatch {"
+            "  min-width: 0; min-height: 0;"
+            "  padding: 0; margin: 0;"
+            "}"
         );
         return css;
     };
@@ -621,29 +625,68 @@ void CtDrawingOverlay::_buildToolbar()
     styleBtn->set_popup(*styleMenu);
     _pToolbarBox->pack_start(*styleBtn, false, false);
 
-    // color button
-    auto* colorBtn = Gtk::manage(new Gtk::ColorButton());
-    colorBtn->get_style_context()->add_provider(css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
-    colorBtn->set_tooltip_text(_("Color"));
-    {
-        Gdk::RGBA rgba;
-        rgba.set_red(0); rgba.set_green(0); rgba.set_blue(0); rgba.set_alpha(1.0);
-        colorBtn->set_rgba(rgba);
-    }
-    colorBtn->signal_color_set().connect([this, colorBtn]() {
-        auto c = colorBtn->get_rgba();
-        char buf[8];
-        snprintf(buf, sizeof(buf), "#%02x%02x%02x",
-                 static_cast<int>(c.get_red() * 255),
-                 static_cast<int>(c.get_green() * 255),
-                 static_cast<int>(c.get_blue() * 255));
-        _currentColor = buf;
-        std::string newColor = _currentColor;
-        _applyPropertyToSelection([newColor](CtDrawingStroke& s) {
-            s.color = newColor;
+    // stroke color / fill color — two half-width swatches touching
+    auto strokeColor = std::make_shared<Gdk::RGBA>();
+    strokeColor->set_red(0); strokeColor->set_green(0); strokeColor->set_blue(0); strokeColor->set_alpha(1.0);
+    auto fillColor = std::make_shared<Gdk::RGBA>();
+    fillColor->set_red(1.0); fillColor->set_green(1.0); fillColor->set_blue(1.0); fillColor->set_alpha(1.0);
+
+    auto makeColorSwatch = [&](std::shared_ptr<Gdk::RGBA> color, const char* tooltip,
+                               std::function<void(const std::string&)> onChanged) {
+        auto* da = Gtk::manage(new Gtk::DrawingArea());
+        da->set_size_request(16, 18);
+        da->signal_draw().connect([color, da](const Cairo::RefPtr<Cairo::Context>& cr) -> bool {
+            int w = da->get_allocated_width();
+            int h = da->get_allocated_height();
+            cr->set_source_rgba(color->get_red(), color->get_green(), color->get_blue(), 1.0);
+            cr->paint();
+            cr->set_source_rgba(0.5, 0.5, 0.5, 0.6);
+            cr->set_line_width(0.5);
+            cr->rectangle(0.25, 0.25, w - 0.5, h - 0.5);
+            cr->stroke();
+            return true;
         });
-    });
-    _pToolbarBox->pack_start(*colorBtn, false, false);
+        auto* ev = Gtk::manage(new Gtk::EventBox());
+        ev->add(*da);
+        ev->set_tooltip_text(tooltip);
+        ev->signal_button_press_event().connect([this, color, da, onChanged](GdkEventButton* event) -> bool {
+            if (event->button != 1) return false;
+            auto* dlg = new Gtk::ColorChooserDialog(_("Choose Color"),
+                *dynamic_cast<Gtk::Window*>(_pMainWin));
+            dlg->set_rgba(*color);
+            dlg->signal_response().connect([dlg, color, da, onChanged](int resp) {
+                if (resp == Gtk::RESPONSE_OK) {
+                    *color = dlg->get_rgba();
+                    char buf[8];
+                    snprintf(buf, sizeof(buf), "#%02x%02x%02x",
+                             static_cast<int>(color->get_red() * 255),
+                             static_cast<int>(color->get_green() * 255),
+                             static_cast<int>(color->get_blue() * 255));
+                    onChanged(std::string(buf));
+                    da->queue_draw();
+                }
+                delete dlg;
+            });
+            dlg->show();
+            return true;
+        });
+        return ev;
+    };
+
+    auto* colorBox = Gtk::manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 0));
+    colorBox->get_style_context()->add_class("color-swatch");
+    colorBox->get_style_context()->add_provider(css, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    colorBox->pack_start(*makeColorSwatch(strokeColor, _("Stroke Color"),
+        [this](const std::string& c) {
+            _currentColor = c;
+            _applyPropertyToSelection([c](CtDrawingStroke& s) { s.color = c; });
+        }), false, false);
+    colorBox->pack_start(*makeColorSwatch(fillColor, _("Fill Color"),
+        [this](const std::string& c) {
+            _currentFillColor = c;
+            _applyPropertyToSelection([c](CtDrawingStroke& s) { s.fillColor = c; });
+        }), false, false);
+    _pToolbarBox->pack_start(*colorBox, false, false);
 
     // opacity dropdown
     auto* opacBtn = Gtk::manage(new Gtk::MenuButton());
@@ -1369,6 +1412,17 @@ void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
     cr->set_line_cap(Cairo::LINE_CAP_ROUND);
     cr->set_line_join(Cairo::LINE_JOIN_ROUND);
 
+    double fr, fg, fb;
+    parseColor(stroke.fillColor, fr, fg, fb);
+    auto fillAndStroke = [&]() {
+        if (stroke.filled) {
+            cr->set_source_rgba(fr, fg, fb, stroke.opacity);
+            cr->fill_preserve();
+            cr->set_source_rgba(r, g, b, stroke.opacity);
+        }
+        cr->stroke();
+    };
+
     applyLineStyle(cr, stroke.lineStyle, stroke.lineWidth * zoom);
 
     if (std::abs(stroke.rotation) > 1e-6) {
@@ -1463,8 +1517,7 @@ void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
         double rx = std::min(x0, x1), ry = std::min(y0, y1);
         double rw = std::abs(x1 - x0), rh = std::abs(y1 - y0);
         cr->rectangle(rx, ry, rw, rh);
-        if (stroke.filled) { cr->fill_preserve(); }
-        cr->stroke();
+        fillAndStroke();
         break;
     }
     case CtDrawingElementType::RoundedRectangle: {
@@ -1477,8 +1530,7 @@ void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
         double rw = std::abs(x1 - x0), rh = std::abs(y1 - y0);
         double rr = std::min(std::min(rw, rh) * 0.25, 12.0 * zoom);
         _drawRoundedRect(cr, rx, ry, rw, rh, rr);
-        if (stroke.filled) { cr->fill_preserve(); }
-        cr->stroke();
+        fillAndStroke();
         break;
     }
     case CtDrawingElementType::Ellipse: {
@@ -1495,8 +1547,7 @@ void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
             cr->scale(ew / 2.0, eh / 2.0);
             cr->arc(0, 0, 1.0, 0, 2.0 * M_PI);
             cr->restore();
-            if (stroke.filled) { cr->fill_preserve(); }
-            cr->stroke();
+            fillAndStroke();
         }
         break;
     }
@@ -1512,8 +1563,7 @@ void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
         cr->line_to(rx, ry + rh);
         cr->line_to(rx + rw, ry + rh);
         cr->close_path();
-        if (stroke.filled) { cr->fill_preserve(); }
-        cr->stroke();
+        fillAndStroke();
         break;
     }
     case CtDrawingElementType::Diamond: {
@@ -1529,8 +1579,7 @@ void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
         cr->line_to(rx + rw / 2.0, ry + rh);
         cr->line_to(rx, ry + rh / 2.0);
         cr->close_path();
-        if (stroke.filled) { cr->fill_preserve(); }
-        cr->stroke();
+        fillAndStroke();
         break;
     }
     case CtDrawingElementType::Freehand:
@@ -2167,6 +2216,7 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
                 CtDrawingPoint cp2 = {px, py};
                 CtDrawingStroke newStroke;
                 newStroke.color = _currentColor;
+                newStroke.fillColor = _currentFillColor;
                 newStroke.lineWidth = _currentLineWidth;
                 newStroke.opacity = _currentOpacity;
                 newStroke.lineStyle = _currentLineStyle;
@@ -2208,6 +2258,7 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
                     if (_polylinePoints.size() >= 2) {
                         CtDrawingStroke newStroke;
                         newStroke.color = _currentColor;
+                        newStroke.fillColor = _currentFillColor;
                         newStroke.lineWidth = _currentLineWidth;
                         newStroke.opacity = _currentOpacity;
                         newStroke.lineStyle = _currentLineStyle;
@@ -2249,6 +2300,7 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
             auto& canvasMut = nodeModel->getDrawingCanvasesMut()[ci];
             CtDrawingStroke newStroke;
             newStroke.color = _currentColor;
+            newStroke.fillColor = _currentFillColor;
             newStroke.lineWidth = _currentLineWidth;
             newStroke.opacity = _currentOpacity;
             newStroke.lineStyle = _currentLineStyle;
@@ -2904,6 +2956,7 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
             if (std::abs(dx) > 1.0 || std::abs(dy) > 1.0) {
                 CtDrawingStroke newStroke;
                 newStroke.color = _currentColor;
+                newStroke.fillColor = _currentFillColor;
                 newStroke.lineWidth = _currentLineWidth;
                 newStroke.opacity = _currentOpacity;
                 newStroke.lineStyle = _currentLineStyle;
@@ -3142,6 +3195,7 @@ void CtDrawingOverlay::_applyPropertyToSelection(std::function<void(CtDrawingStr
         CtDrawingStroke newStroke = oldStroke;
         mutate(newStroke);
         if (newStroke.color != oldStroke.color ||
+            newStroke.fillColor != oldStroke.fillColor ||
             newStroke.lineWidth != oldStroke.lineWidth ||
             newStroke.opacity != oldStroke.opacity ||
             newStroke.lineStyle != oldStroke.lineStyle ||
