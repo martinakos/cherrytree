@@ -228,6 +228,56 @@ private:
     gint64 _newTsLastSave{std::time(nullptr)};
 };
 
+class StrokePropertiesCommand : public CtCommand {
+public:
+    StrokePropertiesCommand(std::shared_ptr<CtDocumentModel> docModel,
+                            gint64 nodeId, size_t canvasIdx, size_t strokeIdx,
+                            CtDrawingStroke oldStroke, CtDrawingStroke newStroke)
+        : _docModel(std::move(docModel))
+        , _nodeId(nodeId)
+        , _canvasIdx(canvasIdx)
+        , _strokeIdx(strokeIdx)
+        , _oldStroke(std::move(oldStroke))
+        , _newStroke(std::move(newStroke))
+    {}
+
+    void execute() override {
+        auto node = _docModel->getNodeById(_nodeId);
+        if (!node) return;
+        auto& canvases = node->getDrawingCanvasesMut();
+        if (_canvasIdx < canvases.size() && _strokeIdx < canvases[_canvasIdx].strokes.size()) {
+            _oldTsLastSave = canvases[_canvasIdx].tsLastSave;
+            canvases[_canvasIdx].strokes[_strokeIdx] = _newStroke;
+            canvases[_canvasIdx].tsLastSave = _newTsLastSave;
+            _docModel->notifyNodeDrawingChanged(_nodeId);
+        }
+    }
+
+    void undo() override {
+        auto node = _docModel->getNodeById(_nodeId);
+        if (!node) return;
+        auto& canvases = node->getDrawingCanvasesMut();
+        if (_canvasIdx < canvases.size() && _strokeIdx < canvases[_canvasIdx].strokes.size()) {
+            canvases[_canvasIdx].strokes[_strokeIdx] = _oldStroke;
+            canvases[_canvasIdx].tsLastSave = _oldTsLastSave;
+            _docModel->notifyNodeDrawingChanged(_nodeId);
+        }
+    }
+
+    std::string getDescription() const override { return "Change stroke properties"; }
+    gint64 getNodeId() const override { return _nodeId; }
+
+private:
+    std::shared_ptr<CtDocumentModel> _docModel;
+    gint64 _nodeId;
+    size_t _canvasIdx;
+    size_t _strokeIdx;
+    CtDrawingStroke _oldStroke;
+    CtDrawingStroke _newStroke;
+    gint64 _oldTsLastSave{0};
+    gint64 _newTsLastSave{std::time(nullptr)};
+};
+
 class AddCanvasCommand : public CtCommand {
 public:
     AddCanvasCommand(std::shared_ptr<CtDocumentModel> docModel,

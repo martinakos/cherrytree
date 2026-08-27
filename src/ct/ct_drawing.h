@@ -26,6 +26,9 @@
 #include <vector>
 #include <string>
 #include <optional>
+#include <set>
+#include <map>
+#include <functional>
 #include <gtkmm.h>
 
 class CtMainWin;
@@ -61,7 +64,8 @@ enum class CtDrawingTool {
     Rubber,
     Move,
     Rotate,
-    Select
+    Select,
+    Scale
 };
 
 struct CtDrawingPoint {
@@ -122,7 +126,10 @@ enum class CtDrawingDragType {
     CreateCanvas,
     MoveStroke,
     RotateStroke,
-    EditPoint
+    EditPoint,
+    SelectBand,
+    MoveSelection,
+    ScaleSelection
 };
 
 class CtDrawingOverlay {
@@ -151,6 +158,11 @@ public:
     static const CtDrawingCanvas& getClipboard() { return _clipboard.value(); }
     static bool hasClipboard() { return _clipboard.has_value(); }
     static void clearClipboard() { _clipboard.reset(); }
+
+    static void setStrokeClipboard(const std::vector<CtDrawingStroke>& s) { _strokeClipboard = s; }
+    static const std::vector<CtDrawingStroke>& getStrokeClipboard() { return _strokeClipboard; }
+    static bool hasStrokeClipboard() { return !_strokeClipboard.empty(); }
+    static void clearStrokeClipboard() { _strokeClipboard.clear(); }
 
     double getCurrentLineWidth() const { return _currentLineWidth; }
     void setCurrentLineWidth(double w) { _currentLineWidth = w; }
@@ -189,6 +201,19 @@ private:
                                double ax, double ay, double bx, double by);
 
     void _showContextMenu(GdkEventButton* event);
+    void _showStrokeContextMenu(GdkEventButton* event);
+
+    void _strokeBoundingBox(const CtDrawingStroke& stroke,
+                            double& minX, double& minY, double& maxX, double& maxY);
+    void _drawSelectionHighlight(const Cairo::RefPtr<Cairo::Context>& cr,
+                                 const CtDrawingStroke& stroke,
+                                 double cx, double cy, double zoom);
+    void _copySelectedStrokes();
+    void _cutSelectedStrokes();
+    void _pasteStrokes(double canvasX = -1.0, double canvasY = -1.0);
+    void _deleteSelectedStrokes();
+    void _clearStrokeSelection();
+    void _applyPropertyToSelection(std::function<void(CtDrawingStroke&)> mutate);
 
     void _buildToolbar();
     void _showToolbar();
@@ -212,6 +237,7 @@ private:
     void _strokeCenter(const CtDrawingStroke& stroke, double& centerX, double& centerY);
 
     static std::optional<CtDrawingCanvas> _clipboard;
+    static std::vector<CtDrawingStroke> _strokeClipboard;
 
     CtMainWin* _pMainWin;
     Gtk::Overlay _overlay;
@@ -253,7 +279,7 @@ private:
 
     Gtk::Image* _pLineToolIcon{nullptr};
     Gtk::Image* _pShapeToolIcon{nullptr};
-    Gtk::Image* _pMoveToolIcon{nullptr};
+    Gtk::Image* _pRotateToolIcon{nullptr};
 
     CtDrawingDragType _dragType{CtDrawingDragType::None};
     CtDrawingHitZone _resizeZone{CtDrawingHitZone::None};
@@ -274,6 +300,18 @@ private:
     int _selectStrokeIdx{-1};
     int _selectDragPointIdx{-1};
     std::vector<CtDrawingPoint> _selectOrigPoints;
+
+    std::set<int> _selectedStrokeIndices;
+    std::map<int, std::vector<CtDrawingPoint>> _moveSelOrigPoints;
+    double _selectBandStartX{0.0}, _selectBandStartY{0.0};
+    double _selectBandEndX{0.0}, _selectBandEndY{0.0};
+    double _lastClickCanvasX{0.0}, _lastClickCanvasY{0.0};
+
+    int _scaleHandleIdx{-1};
+    double _scaleAnchorX{0.0}, _scaleAnchorY{0.0};
+    double _scaleBBoxMinX{0.0}, _scaleBBoxMinY{0.0};
+    double _scaleBBoxMaxX{0.0}, _scaleBBoxMaxY{0.0};
+    std::map<int, std::vector<CtDrawingPoint>> _scaleOrigPoints;
 
     bool _updatingToolButtons{false};
 
