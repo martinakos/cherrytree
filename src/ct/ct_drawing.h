@@ -76,6 +76,7 @@ struct CtDrawingPoint {
 struct CtDrawingStroke {
     std::vector<CtDrawingPoint> points;
     std::string color{"#000000"};
+    std::string fillColor{"#ffffff"};
     double lineWidth{2.0};
     double opacity{1.0};
     CtDrawingElementType type{CtDrawingElementType::Freehand};
@@ -256,6 +257,7 @@ private:
     CtDrawingArrowStyle _currentArrowStyle{CtDrawingArrowStyle::Solid};
     double _currentLineWidth{2.0};
     std::string _currentColor{"#000000"};
+    std::string _currentFillColor{"#ffffff"};
     double _currentOpacity{1.0};
     bool _currentFilled{false};
 
