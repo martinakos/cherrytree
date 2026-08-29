@@ -3159,6 +3159,7 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
             auto compound = std::make_unique<CompoundCommand>("Rotate group");
             compound->setNodeId(treeIter.get_node_id());
             compound->setDrawingCanvasIdx(static_cast<int>(ci));
+            compound->setDocumentModel(bridge->getDocumentModel());
             for (int idx : _selectedStrokeIndices) {
                 if (static_cast<size_t>(idx) >= canvas.strokes.size()) continue;
                 if (!_rotateSelOrigPoints.count(idx)) continue;
@@ -3297,6 +3298,7 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
         auto compound = std::make_unique<CompoundCommand>("Move strokes");
         compound->setNodeId(treeIter.get_node_id());
         compound->setDrawingCanvasIdx(static_cast<int>(ci));
+        compound->setDocumentModel(bridge->getDocumentModel());
         bool anyMoved = false;
 
         for (auto& [idx, origPts] : _moveSelOrigPoints) {
@@ -3329,6 +3331,7 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
         auto compound = std::make_unique<CompoundCommand>("Scale strokes");
         compound->setNodeId(treeIter.get_node_id());
         compound->setDrawingCanvasIdx(static_cast<int>(ci));
+        compound->setDocumentModel(bridge->getDocumentModel());
         bool anyChanged = false;
 
         for (auto& [idx, origPts] : _scaleOrigPoints) {
@@ -3537,13 +3540,6 @@ void CtDrawingOverlay::_showTextDialog(double canvasX, double canvasY, size_t ca
     auto treeIter = _pMainWin->curr_tree_iter();
     if (!bridge || !treeIter) return;
 
-    if (existingStroke && existingIdx >= 0) {
-        auto eraseCmd = std::make_unique<EraseStrokeCommand>(
-            bridge->getDocumentModel(), treeIter.get_node_id(),
-            canvasIdx, *existingStroke, static_cast<size_t>(existingIdx));
-        bridge->executeCommand(std::move(eraseCmd));
-    }
-
     CtDrawingStroke stroke;
     stroke.type = CtDrawingElementType::Text;
     stroke.color = _currentColor;
@@ -3558,10 +3554,24 @@ void CtDrawingOverlay::_showTextDialog(double canvasX, double canvasY, size_t ca
         existingStroke ? existingStroke->points[0].y : canvasY
     });
 
-    auto cmd = std::make_unique<DrawStrokeCommand>(
-        bridge->getDocumentModel(), treeIter.get_node_id(),
-        canvasIdx, std::move(stroke));
-    bridge->executeCommand(std::move(cmd));
+    if (existingStroke && existingIdx >= 0) {
+        auto compound = std::make_unique<CompoundCommand>("Edit text");
+        compound->setNodeId(treeIter.get_node_id());
+        compound->setDrawingCanvasIdx(static_cast<int>(canvasIdx));
+        compound->setDocumentModel(bridge->getDocumentModel());
+        compound->addCommand(std::make_unique<EraseStrokeCommand>(
+            bridge->getDocumentModel(), treeIter.get_node_id(),
+            canvasIdx, *existingStroke, static_cast<size_t>(existingIdx)));
+        compound->addCommand(std::make_unique<DrawStrokeCommand>(
+            bridge->getDocumentModel(), treeIter.get_node_id(),
+            canvasIdx, std::move(stroke)));
+        bridge->executeCommand(std::move(compound));
+    } else {
+        auto cmd = std::make_unique<DrawStrokeCommand>(
+            bridge->getDocumentModel(), treeIter.get_node_id(),
+            canvasIdx, std::move(stroke));
+        bridge->executeCommand(std::move(cmd));
+    }
     _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
     auto nm = bridge->getDocumentModel()->getNodeById(treeIter.get_node_id());
     if (nm && canvasIdx < nm->getDrawingCanvases().size()) {
@@ -3729,6 +3739,7 @@ void CtDrawingOverlay::_applyPropertyToSelection(std::function<void(CtDrawingStr
     auto compound = std::make_unique<CompoundCommand>("Change stroke properties");
     compound->setNodeId(treeIter.get_node_id());
     compound->setDrawingCanvasIdx(static_cast<int>(ci));
+    compound->setDocumentModel(docModel);
     bool anyChanged = false;
 
     for (int idx : _selectedStrokeIndices) {
@@ -3829,6 +3840,7 @@ void CtDrawingOverlay::_pasteStrokes(double canvasX, double canvasY)
     auto compound = std::make_unique<CompoundCommand>("Paste strokes");
     compound->setNodeId(treeIter.get_node_id());
     compound->setDrawingCanvasIdx(static_cast<int>(ci));
+    compound->setDocumentModel(bridge->getDocumentModel());
 
     int baseIdx = static_cast<int>(canvases[ci].strokes.size());
     _selectedStrokeIndices.clear();
@@ -3866,6 +3878,7 @@ void CtDrawingOverlay::_deleteSelectedStrokes()
     auto compound = std::make_unique<CompoundCommand>("Delete strokes");
     compound->setNodeId(treeIter.get_node_id());
     compound->setDrawingCanvasIdx(static_cast<int>(ci));
+    compound->setDocumentModel(bridge->getDocumentModel());
 
     // iterate in reverse to keep indices valid during execute
     for (auto it = _selectedStrokeIndices.rbegin(); it != _selectedStrokeIndices.rend(); ++it) {
