@@ -451,23 +451,45 @@ void CtCommandBridge::undo()
     // with many anchored widgets, PRIORITY_DEFAULT_IDLE fires too early and
     // scroll_to computes the wrong pixel position.
     if (not _pMainWin->no_gui()) {
-        Glib::signal_idle().connect_once([this, pMainWin = _pMainWin, scrollTargetOffset, savedScrollVal, cmdScrollPos](){
+        int const drawingCanvasIdx = cmd->getDrawingCanvasIdx();
+        Glib::signal_idle().connect_once([this, pMainWin = _pMainWin, scrollTargetOffset, savedScrollVal, cmdScrollPos, drawingCanvasIdx, affectedNodeId](){
             // Disconnect the signal_changed fixup — this idle callback takes over
             _scrollFixupConnection.disconnect();
             if (auto buf = pMainWin->curr_buffer()) {
                 Gtk::TextView& tv = pMainWin->get_text_view().mm();
                 auto adj = pMainWin->getScrolledwindowText().get_vadjustment();
-                // Place cursor in main buffer (only meaningful for non-widget commands)
-                if (cmdScrollPos < 0 && scrollTargetOffset >= 0) {
-                    int maxOff = buf->get_char_count();
-                    auto targetIter = buf->get_iter_at_offset(std::min(scrollTargetOffset, maxOff));
-                    buf->place_cursor(targetIter);
-                }
-                // Restore scroll position
-                adj->set_value(savedScrollVal);
-                // Always verify cursor is visible — the stored scroll position may
-                // be stale (e.g. captured at node load before the user scrolled).
-                {
+                if (drawingCanvasIdx >= 0) {
+                    // Drawing command: center viewport on the affected canvas
+                    adj->set_value(savedScrollVal);
+                    auto docModel = _docModel;
+                    if (docModel) {
+                        auto nodeModel = docModel->getNodeById(affectedNodeId);
+                        if (nodeModel) {
+                            const auto& canvases = nodeModel->getDrawingCanvases();
+                            if (static_cast<size_t>(drawingCanvasIdx) < canvases.size()) {
+                                double zoom = pMainWin->get_rt_zoom_scale_factor();
+                                const auto& canvas = canvases[drawingCanvasIdx];
+                                double canvasTopY = canvas.y * zoom;
+                                double canvasBotY = (canvas.y + canvas.height) * zoom;
+                                double viewTop = adj->get_value();
+                                double viewBot = viewTop + adj->get_page_size();
+                                if (canvasTopY < viewTop || canvasBotY > viewBot) {
+                                    double canvasCenterY = (canvas.y + canvas.height / 2.0) * zoom;
+                                    double targetScroll = canvasCenterY - adj->get_page_size() / 2.0;
+                                    targetScroll = std::clamp(targetScroll, 0.0, adj->get_upper() - adj->get_page_size());
+                                    adj->set_value(targetScroll);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Text command: place cursor and verify it's visible
+                    if (cmdScrollPos < 0 && scrollTargetOffset >= 0) {
+                        int maxOff = buf->get_char_count();
+                        auto targetIter = buf->get_iter_at_offset(std::min(scrollTargetOffset, maxOff));
+                        buf->place_cursor(targetIter);
+                    }
+                    adj->set_value(savedScrollVal);
                     Gdk::Rectangle iterRect, visibleRect;
                     auto cursorIter = buf->get_iter_at_mark(buf->get_insert());
                     tv.get_iter_location(cursorIter, iterRect);
@@ -593,23 +615,45 @@ void CtCommandBridge::redo()
 
     // Restore cursor and scroll — see undo() for rationale.
     if (not _pMainWin->no_gui()) {
-        Glib::signal_idle().connect_once([this, pMainWin = _pMainWin, scrollTargetOffset, savedScrollVal, cmdScrollPos](){
+        int const drawingCanvasIdx = cmd->getDrawingCanvasIdx();
+        Glib::signal_idle().connect_once([this, pMainWin = _pMainWin, scrollTargetOffset, savedScrollVal, cmdScrollPos, drawingCanvasIdx, affectedNodeId](){
             // Disconnect the signal_changed fixup — this idle callback takes over
             _scrollFixupConnection.disconnect();
             if (auto buf = pMainWin->curr_buffer()) {
                 Gtk::TextView& tv = pMainWin->get_text_view().mm();
                 auto adj = pMainWin->getScrolledwindowText().get_vadjustment();
-                // Place cursor in main buffer (only meaningful for non-widget commands)
-                if (cmdScrollPos < 0 && scrollTargetOffset >= 0) {
-                    int maxOff = buf->get_char_count();
-                    auto targetIter = buf->get_iter_at_offset(std::min(scrollTargetOffset, maxOff));
-                    buf->place_cursor(targetIter);
-                }
-                // Restore scroll position
-                adj->set_value(savedScrollVal);
-                // Always verify cursor is visible — the stored scroll position may
-                // be stale (e.g. captured at node load before the user scrolled).
-                {
+                if (drawingCanvasIdx >= 0) {
+                    // Drawing command: center viewport on the affected canvas
+                    adj->set_value(savedScrollVal);
+                    auto docModel = _docModel;
+                    if (docModel) {
+                        auto nodeModel = docModel->getNodeById(affectedNodeId);
+                        if (nodeModel) {
+                            const auto& canvases = nodeModel->getDrawingCanvases();
+                            if (static_cast<size_t>(drawingCanvasIdx) < canvases.size()) {
+                                double zoom = pMainWin->get_rt_zoom_scale_factor();
+                                const auto& canvas = canvases[drawingCanvasIdx];
+                                double canvasTopY = canvas.y * zoom;
+                                double canvasBotY = (canvas.y + canvas.height) * zoom;
+                                double viewTop = adj->get_value();
+                                double viewBot = viewTop + adj->get_page_size();
+                                if (canvasTopY < viewTop || canvasBotY > viewBot) {
+                                    double canvasCenterY = (canvas.y + canvas.height / 2.0) * zoom;
+                                    double targetScroll = canvasCenterY - adj->get_page_size() / 2.0;
+                                    targetScroll = std::clamp(targetScroll, 0.0, adj->get_upper() - adj->get_page_size());
+                                    adj->set_value(targetScroll);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Text command: place cursor and verify it's visible
+                    if (cmdScrollPos < 0 && scrollTargetOffset >= 0) {
+                        int maxOff = buf->get_char_count();
+                        auto targetIter = buf->get_iter_at_offset(std::min(scrollTargetOffset, maxOff));
+                        buf->place_cursor(targetIter);
+                    }
+                    adj->set_value(savedScrollVal);
                     Gdk::Rectangle iterRect, visibleRect;
                     auto cursorIter = buf->get_iter_at_mark(buf->get_insert());
                     tv.get_iter_location(cursorIter, iterRect);

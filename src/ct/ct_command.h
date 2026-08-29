@@ -56,6 +56,9 @@ public:
     // Scroll position for undo/redo restoration (-1.0 = not captured)
     virtual double getOldScrollPos() const { return -1.0; }
     virtual double getNewScrollPos() const { return -1.0; }
+
+    // Drawing canvas index (-1 = not a drawing command)
+    virtual int getDrawingCanvasIdx() const { return -1; }
 };
 
 // Compound command that groups multiple commands together
@@ -79,11 +82,13 @@ public:
     void setNewCursorPos(int pos) { _newCursorPos = pos; }
     void setOldScrollPos(double pos) { _oldScrollPos = pos; }
     void setNewScrollPos(double pos) { _newScrollPos = pos; }
+    void setDrawingCanvasIdx(int idx) { _drawingCanvasIdx = idx; }
     int64_t getNodeId() const override { return _nodeId; }
     int getOldCursorPos() const override { return _oldCursorPos; }
     int getNewCursorPos() const override { return _newCursorPos; }
     double getOldScrollPos() const override { return _oldScrollPos; }
     double getNewScrollPos() const override { return _newScrollPos; }
+    int getDrawingCanvasIdx() const override { return _drawingCanvasIdx; }
 
     // Document model for notification suppression during delta replay
     void setDocumentModel(std::shared_ptr<CtDocumentModel> model) { _docModel = model; }
@@ -96,6 +101,7 @@ private:
     int _newCursorPos{-1};
     double _oldScrollPos{-1.0};
     double _newScrollPos{-1.0};
+    int _drawingCanvasIdx{-1};
     std::shared_ptr<CtDocumentModel> _docModel;
 };
 
