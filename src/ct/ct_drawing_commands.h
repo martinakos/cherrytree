@@ -64,6 +64,7 @@ public:
 
     std::string getDescription() const override { return "Draw stroke"; }
     gint64 getNodeId() const override { return _nodeId; }
+    int getDrawingCanvasIdx() const override { return static_cast<int>(_canvasIdx); }
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
@@ -116,6 +117,7 @@ public:
 
     std::string getDescription() const override { return "Erase stroke"; }
     gint64 getNodeId() const override { return _nodeId; }
+    int getDrawingCanvasIdx() const override { return static_cast<int>(_canvasIdx); }
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
@@ -165,6 +167,7 @@ public:
 
     std::string getDescription() const override { return "Rotate stroke"; }
     gint64 getNodeId() const override { return _nodeId; }
+    int getDrawingCanvasIdx() const override { return static_cast<int>(_canvasIdx); }
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
@@ -216,6 +219,7 @@ public:
 
     std::string getDescription() const override { return "Move stroke"; }
     gint64 getNodeId() const override { return _nodeId; }
+    int getDrawingCanvasIdx() const override { return static_cast<int>(_canvasIdx); }
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
@@ -266,6 +270,7 @@ public:
 
     std::string getDescription() const override { return "Change stroke properties"; }
     gint64 getNodeId() const override { return _nodeId; }
+    int getDrawingCanvasIdx() const override { return static_cast<int>(_canvasIdx); }
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
@@ -308,6 +313,7 @@ public:
 
     std::string getDescription() const override { return "Add drawing canvas"; }
     gint64 getNodeId() const override { return _nodeId; }
+    int getDrawingCanvasIdx() const override { return static_cast<int>(_canvasIdx); }
     size_t getCanvasIdx() const { return _canvasIdx; }
 
 private:
@@ -351,6 +357,7 @@ public:
 
     std::string getDescription() const override { return "Delete drawing canvas"; }
     gint64 getNodeId() const override { return _nodeId; }
+    int getDrawingCanvasIdx() const override { return static_cast<int>(_canvasIdx); }
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
@@ -398,6 +405,7 @@ public:
 
     std::string getDescription() const override { return "Move drawing canvas"; }
     gint64 getNodeId() const override { return _nodeId; }
+    int getDrawingCanvasIdx() const override { return static_cast<int>(_canvasIdx); }
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
@@ -452,6 +460,7 @@ public:
 
     std::string getDescription() const override { return "Resize drawing canvas"; }
     gint64 getNodeId() const override { return _nodeId; }
+    int getDrawingCanvasIdx() const override { return static_cast<int>(_canvasIdx); }
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
@@ -514,6 +523,7 @@ public:
     }
 
     std::string getDescription() const override { return "Canvas properties"; }
+    int getDrawingCanvasIdx() const override { return static_cast<int>(_canvasIdx); }
     gint64 getNodeId() const override { return _nodeId; }
 
 private:

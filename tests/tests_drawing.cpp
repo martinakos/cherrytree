@@ -2441,3 +2441,97 @@ TEST_F(DrawingCommandTest, StrokeProperties_RestoresAllBoxShapeTypes)
             << "After undo, shape index " << i;
     }
 }
+
+// ── getDrawingCanvasIdx tests ──────────────────────────────────────────────
+
+TEST_F(DrawingCommandTest, DrawStrokeCommand_ReportsCanvasIdx)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+
+    DrawStrokeCommand cmd(model, 1, 2, makeStroke("#000", 1.0, {{0,0},{1,1}}));
+    EXPECT_EQ(2, cmd.getDrawingCanvasIdx());
+}
+
+TEST_F(DrawingCommandTest, EraseStrokeCommand_ReportsCanvasIdx)
+{
+    EraseStrokeCommand cmd(model, 1, 5, makeStroke("#000", 1.0, {{0,0}}), 0);
+    EXPECT_EQ(5, cmd.getDrawingCanvasIdx());
+}
+
+TEST_F(DrawingCommandTest, RotateStrokeCommand_ReportsCanvasIdx)
+{
+    RotateStrokeCommand cmd(model, 1, 3, 0, 0.0, 1.0);
+    EXPECT_EQ(3, cmd.getDrawingCanvasIdx());
+}
+
+TEST_F(DrawingCommandTest, MoveStrokeCommand_ReportsCanvasIdx)
+{
+    MoveStrokeCommand cmd(model, 1, 7, 0, {}, {});
+    EXPECT_EQ(7, cmd.getDrawingCanvasIdx());
+}
+
+TEST_F(DrawingCommandTest, StrokePropertiesCommand_ReportsCanvasIdx)
+{
+    CtDrawingStroke s;
+    StrokePropertiesCommand cmd(model, 1, 4, 0, s, s);
+    EXPECT_EQ(4, cmd.getDrawingCanvasIdx());
+}
+
+TEST_F(DrawingCommandTest, AddCanvasCommand_ReportsCanvasIdx)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 100, 100));
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 100, 100, 100));
+
+    AddCanvasCommand cmd(model, 1, makeCanvas(0, 200, 100, 100));
+    cmd.execute();
+    EXPECT_EQ(2, cmd.getDrawingCanvasIdx());
+}
+
+TEST_F(DrawingCommandTest, DeleteCanvasCommand_ReportsCanvasIdx)
+{
+    DeleteCanvasCommand cmd(model, 1, makeCanvas(0, 0, 100, 100), 3);
+    EXPECT_EQ(3, cmd.getDrawingCanvasIdx());
+}
+
+TEST_F(DrawingCommandTest, MoveCanvasCommand_ReportsCanvasIdx)
+{
+    MoveCanvasCommand cmd(model, 1, 1, 0, 0, 10, 10);
+    EXPECT_EQ(1, cmd.getDrawingCanvasIdx());
+}
+
+TEST_F(DrawingCommandTest, ResizeCanvasCommand_ReportsCanvasIdx)
+{
+    ResizeCanvasCommand cmd(model, 1, 6, 0, 0, 100, 100, 10, 10, 200, 200);
+    EXPECT_EQ(6, cmd.getDrawingCanvasIdx());
+}
+
+TEST_F(DrawingCommandTest, CanvasPropertiesCommand_ReportsCanvasIdx)
+{
+    CanvasPropertiesCommand cmd(model, 1, 9, "", "", "#fff", "#000", 1.0, 0.5, 8.0, 4.0, false, true);
+    EXPECT_EQ(9, cmd.getDrawingCanvasIdx());
+}
+
+TEST_F(DrawingCommandTest, BaseCommand_ReportsNoCanvasIdx)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+
+    DrawStrokeCommand drawCmd(model, 1, 0, makeStroke("#000", 1.0, {{0,0},{1,1}}));
+    CtCommand& base = drawCmd;
+    EXPECT_EQ(0, base.getDrawingCanvasIdx());
+
+    CompoundCommand textCmd("text edit");
+    EXPECT_EQ(-1, textCmd.getDrawingCanvasIdx());
+}
+
+TEST_F(DrawingCommandTest, CompoundCommand_DrawingCanvasIdx)
+{
+    CompoundCommand compound("Move strokes");
+    compound.setNodeId(1);
+    EXPECT_EQ(-1, compound.getDrawingCanvasIdx());
+
+    compound.setDrawingCanvasIdx(2);
+    EXPECT_EQ(2, compound.getDrawingCanvasIdx());
+}
