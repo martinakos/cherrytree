@@ -102,7 +102,9 @@ CtDrawingOverlay::CtDrawingOverlay(CtMainWin* pMainWin)
             _drawingArea.queue_draw();
             return true;
         }
-        if (_currentTool == CtDrawingTool::Select) {
+        if (_currentTool == CtDrawingTool::Select ||
+            _currentTool == CtDrawingTool::Rotate ||
+            _currentTool == CtDrawingTool::Scale) {
             if (ev->keyval == GDK_KEY_Escape) {
                 _clearStrokeSelection();
                 _drawingArea.queue_draw();
@@ -206,6 +208,12 @@ void CtDrawingOverlay::setDrawingMode(bool on)
 
 void CtDrawingOverlay::setCurrentTool(CtDrawingTool tool)
 {
+    bool keepSelection = (tool == CtDrawingTool::Select ||
+                          tool == CtDrawingTool::Scale ||
+                          tool == CtDrawingTool::Rotate) &&
+                         (_currentTool == CtDrawingTool::Select ||
+                          _currentTool == CtDrawingTool::Scale ||
+                          _currentTool == CtDrawingTool::Rotate);
     _currentTool = tool;
     _deleteStrokeMode = (tool == CtDrawingTool::Rubber);
     _previewActive = false;
@@ -217,12 +225,17 @@ void CtDrawingOverlay::setCurrentTool(CtDrawingTool tool)
     _selectStrokeIdx = -1;
     _selectDragPointIdx = -1;
     _selectOrigPoints.clear();
-    _selectedStrokeIndices.clear();
+    if (!keepSelection) {
+        _selectedStrokeIndices.clear();
+    }
     _moveSelOrigPoints.clear();
     _selectBandStartX = _selectBandStartY = 0.0;
     _selectBandEndX = _selectBandEndY = 0.0;
     _scaleHandleIdx = -1;
     _scaleOrigPoints.clear();
+    _scalePreBakePoints.clear();
+    _scalePreBakeRotations.clear();
+    _scalePreBakeTypes.clear();
     _updateToolButtonStates();
     _drawingArea.queue_draw();
 }
@@ -248,6 +261,9 @@ void CtDrawingOverlay::resetSelection()
     _selectBandEndX = _selectBandEndY = 0.0;
     _scaleHandleIdx = -1;
     _scaleOrigPoints.clear();
+    _scalePreBakePoints.clear();
+    _scalePreBakeRotations.clear();
+    _scalePreBakeTypes.clear();
     _hideToolbar();
     _drawingArea.queue_draw();
 }
@@ -1271,47 +1287,89 @@ void CtDrawingOverlay::_drawCanvas(const Cairo::RefPtr<Cairo::Context>& cr,
         _drawStroke(cr, stroke, cx, cy, zoom);
     }
 
-    // draw selection highlights for multi-selected strokes
-    if ((_currentTool == CtDrawingTool::Select || _currentTool == CtDrawingTool::Scale)
-        && idx == _selectedCanvasIdx)
+    // draw selection highlights
+    if ((_currentTool == CtDrawingTool::Select || _currentTool == CtDrawingTool::Scale
+         || _currentTool == CtDrawingTool::Rotate)
+        && idx == _selectedCanvasIdx && !_selectedStrokeIndices.empty())
     {
-        for (int si : _selectedStrokeIndices) {
-            if (static_cast<size_t>(si) < canvas.strokes.size()) {
-                _drawSelectionHighlight(cr, canvas.strokes[si], cx, cy, zoom);
+        bool isGroup = _selectedStrokeIndices.size() > 1;
+        if (!isGroup) {
+            for (int si : _selectedStrokeIndices) {
+                if (static_cast<size_t>(si) < canvas.strokes.size()) {
+                    _drawSelectionHighlight(cr, canvas.strokes[si], cx, cy, zoom);
+                }
             }
         }
-    }
 
-    // draw scale handles for Scale tool
-    if (_currentTool == CtDrawingTool::Scale && idx == _selectedCanvasIdx
-        && !_selectedStrokeIndices.empty())
-    {
-        double bMinX = 1e9, bMinY = 1e9, bMaxX = -1e9, bMaxY = -1e9;
-        for (int si : _selectedStrokeIndices) {
-            if (static_cast<size_t>(si) < canvas.strokes.size()) {
-                double sMinX, sMinY, sMaxX, sMaxY;
-                _strokeBoundingBox(canvas.strokes[si], sMinX, sMinY, sMaxX, sMaxY);
-                bMinX = std::min(bMinX, sMinX);
-                bMinY = std::min(bMinY, sMinY);
-                bMaxX = std::max(bMaxX, sMaxX);
-                bMaxY = std::max(bMaxY, sMaxY);
+        if (isGroup || _currentTool == CtDrawingTool::Scale) {
+            bool activeGroupRotation = _rotatingGroup &&
+                _dragType == CtDrawingDragType::RotateStroke;
+
+            if (isGroup && activeGroupRotation) {
+                double gx = cx + _rotateGroupBBoxMinX * zoom;
+                double gy = cy + _rotateGroupBBoxMinY * zoom;
+                double gw = (_rotateGroupBBoxMaxX - _rotateGroupBBoxMinX) * zoom;
+                double gh = (_rotateGroupBBoxMaxY - _rotateGroupBBoxMinY) * zoom;
+                double pivotX = cx + _rotateGroupCenterX * zoom;
+                double pivotY = cy + _rotateGroupCenterY * zoom;
+                cr->set_source_rgba(0.2, 0.5, 1.0, 0.6);
+                cr->set_line_width(1.5);
+                std::vector<double> dashes{4.0, 3.0};
+                cr->set_dash(dashes, 0.0);
+                cr->save();
+                cr->translate(pivotX, pivotY);
+                cr->rotate(_rotateGroupDelta);
+                cr->translate(-pivotX, -pivotY);
+                cr->rectangle(gx, gy, gw, gh);
+                cr->stroke();
+                cr->restore();
+                cr->unset_dash();
+            } else {
+                double bMinX = 1e9, bMinY = 1e9, bMaxX = -1e9, bMaxY = -1e9;
+                for (int si : _selectedStrokeIndices) {
+                    if (static_cast<size_t>(si) < canvas.strokes.size()) {
+                        double sMinX, sMinY, sMaxX, sMaxY;
+                        _strokeBoundingBox(canvas.strokes[si], sMinX, sMinY, sMaxX, sMaxY);
+                        bMinX = std::min(bMinX, sMinX);
+                        bMinY = std::min(bMinY, sMinY);
+                        bMaxX = std::max(bMaxX, sMaxX);
+                        bMaxY = std::max(bMaxY, sMaxY);
+                    }
+                }
+
+                if (isGroup) {
+                    double gx = cx + bMinX * zoom;
+                    double gy = cy + bMinY * zoom;
+                    double gw = (bMaxX - bMinX) * zoom;
+                    double gh = (bMaxY - bMinY) * zoom;
+                    cr->set_source_rgba(0.2, 0.5, 1.0, 0.6);
+                    cr->set_line_width(1.5);
+                    std::vector<double> dashes{4.0, 3.0};
+                    cr->set_dash(dashes, 0.0);
+                    cr->rectangle(gx, gy, gw, gh);
+                    cr->stroke();
+                    cr->unset_dash();
+                }
+
+                if (_currentTool == CtDrawingTool::Scale) {
+                    constexpr double hs = 5.0;
+                    double corners[][2] = {
+                        {cx + bMinX * zoom, cy + bMinY * zoom},
+                        {cx + bMaxX * zoom, cy + bMinY * zoom},
+                        {cx + bMinX * zoom, cy + bMaxY * zoom},
+                        {cx + bMaxX * zoom, cy + bMaxY * zoom}
+                    };
+                    cr->set_source_rgba(0.2, 0.5, 1.0, 0.9);
+                    cr->set_line_width(1.5);
+                    for (int h = 0; h < 4; ++h) {
+                        cr->rectangle(corners[h][0] - hs, corners[h][1] - hs, hs * 2, hs * 2);
+                        cr->fill_preserve();
+                        cr->set_source_rgba(1.0, 1.0, 1.0, 0.9);
+                        cr->stroke();
+                        cr->set_source_rgba(0.2, 0.5, 1.0, 0.9);
+                    }
+                }
             }
-        }
-        constexpr double hs = 5.0;
-        double corners[][2] = {
-            {cx + bMinX * zoom, cy + bMinY * zoom},
-            {cx + bMaxX * zoom, cy + bMinY * zoom},
-            {cx + bMinX * zoom, cy + bMaxY * zoom},
-            {cx + bMaxX * zoom, cy + bMaxY * zoom}
-        };
-        cr->set_source_rgba(0.2, 0.5, 1.0, 0.9);
-        cr->set_line_width(1.5);
-        for (int h = 0; h < 4; ++h) {
-            cr->rectangle(corners[h][0] - hs, corners[h][1] - hs, hs * 2, hs * 2);
-            cr->fill_preserve();
-            cr->set_source_rgba(1.0, 1.0, 1.0, 0.9);
-            cr->stroke();
-            cr->set_source_rgba(0.2, 0.5, 1.0, 0.9);
         }
     }
 
@@ -2016,15 +2074,61 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
         if (_currentTool == CtDrawingTool::Rotate) {
             int si = _hitTestStroke(event->x, event->y, canvas, hScroll, vScroll, zoom);
             if (si >= 0) {
-                _rotateStrokeIdx = si;
-                _rotateOrigRotation = canvas.strokes[si].rotation;
-                double scx, scy;
-                _strokeCenter(canvas.strokes[si], scx, scy);
                 double canvasScreenX = canvas.x * zoom - hScroll;
                 double canvasScreenY = canvas.y * zoom - vScroll;
                 double emx = (event->x - canvasScreenX) / zoom;
                 double emy = (event->y - canvasScreenY) / zoom;
-                _rotateStartAngle = std::atan2(emy - scy, emx - scx);
+
+                if (_selectedStrokeIndices.size() > 1 && _selectedStrokeIndices.count(si)) {
+                    _rotatingGroup = true;
+                    _rotateSelOrigPoints.clear();
+                    _rotateSelOrigRotations.clear();
+                    _rotateSelOrigCenters.clear();
+                    _rotateGroupCenterX = 0.0;
+                    _rotateGroupCenterY = 0.0;
+                    int count = 0;
+                    for (int idx : _selectedStrokeIndices) {
+                        if (static_cast<size_t>(idx) < canvas.strokes.size()) {
+                            _rotateSelOrigPoints[idx] = canvas.strokes[idx].points;
+                            _rotateSelOrigRotations[idx] = canvas.strokes[idx].rotation;
+                            double scx, scy;
+                            _strokeCenter(canvas.strokes[idx], scx, scy);
+                            _rotateSelOrigCenters[idx] = {scx, scy};
+                            _rotateGroupCenterX += scx;
+                            _rotateGroupCenterY += scy;
+                            ++count;
+                        }
+                    }
+                    if (count > 0) {
+                        _rotateGroupCenterX /= count;
+                        _rotateGroupCenterY /= count;
+                    }
+                    _rotateGroupDelta = 0.0;
+                    _rotateGroupBBoxMinX = 1e9; _rotateGroupBBoxMinY = 1e9;
+                    _rotateGroupBBoxMaxX = -1e9; _rotateGroupBBoxMaxY = -1e9;
+                    for (int idx2 : _selectedStrokeIndices) {
+                        if (static_cast<size_t>(idx2) < canvas.strokes.size()) {
+                            double sMinX, sMinY, sMaxX, sMaxY;
+                            _strokeBoundingBox(canvas.strokes[idx2], sMinX, sMinY, sMaxX, sMaxY);
+                            _rotateGroupBBoxMinX = std::min(_rotateGroupBBoxMinX, sMinX);
+                            _rotateGroupBBoxMinY = std::min(_rotateGroupBBoxMinY, sMinY);
+                            _rotateGroupBBoxMaxX = std::max(_rotateGroupBBoxMaxX, sMaxX);
+                            _rotateGroupBBoxMaxY = std::max(_rotateGroupBBoxMaxY, sMaxY);
+                        }
+                    }
+                    _rotateStartAngle = std::atan2(emy - _rotateGroupCenterY, emx - _rotateGroupCenterX);
+                } else {
+                    _rotatingGroup = false;
+                    _rotateStrokeIdx = si;
+                    _rotateOrigRotation = canvas.strokes[si].rotation;
+                    double scx, scy;
+                    _strokeCenter(canvas.strokes[si], scx, scy);
+                    _rotateStartAngle = std::atan2(emy - scy, emx - scx);
+                    if (!_selectedStrokeIndices.count(si)) {
+                        _selectedStrokeIndices.clear();
+                        _selectedStrokeIndices.insert(si);
+                    }
+                }
                 _dragType = CtDrawingDragType::RotateStroke;
             }
             return true;
@@ -2118,12 +2222,10 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
         if (_currentTool == CtDrawingTool::Scale) {
             double canvasScreenX = canvas.x * zoom - hScroll;
             double canvasScreenY = canvas.y * zoom - vScroll;
-            double mx = (event->x - canvasScreenX) / zoom;
-            double my = (event->y - canvasScreenY) / zoom;
 
             // if we have a selected stroke, check handle hit first
             if (!_selectedStrokeIndices.empty()) {
-                // compute combined bounding box
+                // compute combined bounding box (rotation-aware for handle positions)
                 double bMinX = 1e9, bMinY = 1e9, bMaxX = -1e9, bMaxY = -1e9;
                 for (int idx : _selectedStrokeIndices) {
                     if (static_cast<size_t>(idx) < canvas.strokes.size()) {
@@ -2135,27 +2237,111 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
                         bMaxY = std::max(bMaxY, sMaxY);
                     }
                 }
-                constexpr double handleR = 6.0;
+                constexpr double handleScreenR = 12.0;
                 double corners[][2] = {
                     {bMinX, bMinY}, {bMaxX, bMinY},
                     {bMinX, bMaxY}, {bMaxX, bMaxY}
                 };
                 for (int h = 0; h < 4; ++h) {
-                    double ddx = mx - corners[h][0];
-                    double ddy = my - corners[h][1];
-                    if (ddx * ddx + ddy * ddy <= handleR * handleR) {
+                    double sx = canvasScreenX + corners[h][0] * zoom;
+                    double sy = canvasScreenY + corners[h][1] * zoom;
+                    double ddx = event->x - sx;
+                    double ddy = event->y - sy;
+                    if (ddx * ddx + ddy * ddy <= handleScreenR * handleScreenR) {
                         _scaleHandleIdx = h;
-                        // anchor is the opposite corner
-                        _scaleAnchorX = corners[3 - h][0];
-                        _scaleAnchorY = corners[3 - h][1];
+
+                        // bake rotation into points so scaling works in visual space
+                        auto& canvasMut = nodeModel->getDrawingCanvasesMut()[ci];
+                        _scalePreBakePoints.clear();
+                        _scalePreBakeRotations.clear();
+                        _scalePreBakeTypes.clear();
+                        for (int idx : _selectedStrokeIndices) {
+                            if (static_cast<size_t>(idx) >= canvasMut.strokes.size()) continue;
+                            auto& stroke = canvasMut.strokes[idx];
+                            if (std::abs(stroke.rotation) < 1e-6) continue;
+                            _scalePreBakePoints[idx] = stroke.points;
+                            _scalePreBakeRotations[idx] = stroke.rotation;
+                            double scx, scy;
+                            _strokeCenter(stroke, scx, scy);
+                            double cosA = std::cos(stroke.rotation);
+                            double sinA = std::sin(stroke.rotation);
+
+                            bool is2PointShape = (stroke.points.size() == 2 &&
+                                stroke.type != CtDrawingElementType::Line &&
+                                stroke.type != CtDrawingElementType::Freehand &&
+                                stroke.type != CtDrawingElementType::Polyline &&
+                                stroke.type != CtDrawingElementType::BezierCurve &&
+                                stroke.type != CtDrawingElementType::Text);
+                            if (is2PointShape) {
+                                _scalePreBakeTypes[idx] = stroke.type;
+                                double x0 = std::min(stroke.points[0].x, stroke.points[1].x);
+                                double y0 = std::min(stroke.points[0].y, stroke.points[1].y);
+                                double x1 = std::max(stroke.points[0].x, stroke.points[1].x);
+                                double y1 = std::max(stroke.points[0].y, stroke.points[1].y);
+                                double midX = (x0 + x1) / 2.0;
+                                double midY = (y0 + y1) / 2.0;
+                                std::vector<CtDrawingPoint> visualPts;
+                                if (stroke.type == CtDrawingElementType::Triangle) {
+                                    visualPts = {{midX,y0}, {x0,y1}, {x1,y1}};
+                                } else if (stroke.type == CtDrawingElementType::Diamond) {
+                                    visualPts = {{midX,y0}, {x1,midY}, {midX,y1}, {x0,midY}};
+                                } else if (stroke.type == CtDrawingElementType::Ellipse) {
+                                    double rx = (x1 - x0) / 2.0, ry = (y1 - y0) / 2.0;
+                                    constexpr int segs = 32;
+                                    for (int s = 0; s < segs; ++s) {
+                                        double a = 2.0 * M_PI * s / segs;
+                                        visualPts.push_back({midX + rx * std::cos(a),
+                                                             midY + ry * std::sin(a)});
+                                    }
+                                } else {
+                                    visualPts = {{x0,y0}, {x1,y0}, {x1,y1}, {x0,y1}};
+                                }
+                                stroke.points.resize(visualPts.size() + 1);
+                                for (size_t v = 0; v < visualPts.size(); ++v) {
+                                    double dx = visualPts[v].x - scx;
+                                    double dy = visualPts[v].y - scy;
+                                    stroke.points[v].x = scx + dx * cosA - dy * sinA;
+                                    stroke.points[v].y = scy + dx * sinA + dy * cosA;
+                                }
+                                stroke.points[visualPts.size()] = stroke.points[0];
+                                stroke.type = CtDrawingElementType::Freehand;
+                            } else {
+                                for (auto& p : stroke.points) {
+                                    double dx = p.x - scx, dy = p.y - scy;
+                                    p.x = scx + dx * cosA - dy * sinA;
+                                    p.y = scy + dx * sinA + dy * cosA;
+                                }
+                            }
+                            stroke.rotation = 0.0;
+                        }
+
+                        // recompute bbox from baked (rotation-free) points
+                        bMinX = 1e9; bMinY = 1e9; bMaxX = -1e9; bMaxY = -1e9;
+                        for (int idx : _selectedStrokeIndices) {
+                            if (static_cast<size_t>(idx) < canvasMut.strokes.size()) {
+                                double sMinX, sMinY, sMaxX, sMaxY;
+                                _strokeBoundingBox(canvasMut.strokes[idx], sMinX, sMinY, sMaxX, sMaxY);
+                                bMinX = std::min(bMinX, sMinX);
+                                bMinY = std::min(bMinY, sMinY);
+                                bMaxX = std::max(bMaxX, sMaxX);
+                                bMaxY = std::max(bMaxY, sMaxY);
+                            }
+                        }
+                        // anchor and bbox from post-bake coordinates
+                        double bakedCorners[][2] = {
+                            {bMinX, bMinY}, {bMaxX, bMinY},
+                            {bMinX, bMaxY}, {bMaxX, bMaxY}
+                        };
+                        _scaleAnchorX = bakedCorners[3 - h][0];
+                        _scaleAnchorY = bakedCorners[3 - h][1];
                         _scaleBBoxMinX = bMinX;
                         _scaleBBoxMinY = bMinY;
                         _scaleBBoxMaxX = bMaxX;
                         _scaleBBoxMaxY = bMaxY;
                         _scaleOrigPoints.clear();
                         for (int idx : _selectedStrokeIndices) {
-                            if (static_cast<size_t>(idx) < canvas.strokes.size()) {
-                                _scaleOrigPoints[idx] = canvas.strokes[idx].points;
+                            if (static_cast<size_t>(idx) < canvasMut.strokes.size()) {
+                                _scaleOrigPoints[idx] = canvasMut.strokes[idx].points;
                             }
                         }
                         _dragType = CtDrawingDragType::ScaleSelection;
@@ -2164,9 +2350,17 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
                 }
             }
 
-            // hit-test strokes for selection
+            // hit-test strokes for selection or group move
             int si = _hitTestStroke(event->x, event->y, canvas, hScroll, vScroll, zoom);
-            if (si >= 0) {
+            if (si >= 0 && _selectedStrokeIndices.count(si)) {
+                _moveSelOrigPoints.clear();
+                for (int idx : _selectedStrokeIndices) {
+                    if (static_cast<size_t>(idx) < canvas.strokes.size()) {
+                        _moveSelOrigPoints[idx] = canvas.strokes[idx].points;
+                    }
+                }
+                _dragType = CtDrawingDragType::MoveSelection;
+            } else if (si >= 0) {
                 _selectedStrokeIndices.clear();
                 _selectedStrokeIndices.insert(si);
             } else {
@@ -2174,6 +2368,9 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
             }
             _scaleHandleIdx = -1;
             _scaleOrigPoints.clear();
+            _scalePreBakePoints.clear();
+            _scalePreBakeRotations.clear();
+            _scalePreBakeTypes.clear();
             _drawingArea.queue_draw();
             return true;
         }
@@ -2431,9 +2628,7 @@ bool CtDrawingOverlay::_onMotionNotify(GdkEventMotion* event)
                                     }
                                     double csx = canvases2[ci].x * zoom - hScroll;
                                     double csy = canvases2[ci].y * zoom - vScroll;
-                                    double smx = (event->x - csx) / zoom;
-                                    double smy = (event->y - csy) / zoom;
-                                    constexpr double handleR = 6.0;
+                                    constexpr double handleScreenR = 12.0;
                                     double corners[][2] = {
                                         {bMinX, bMinY}, {bMaxX, bMinY},
                                         {bMinX, bMaxY}, {bMaxX, bMaxY}
@@ -2443,9 +2638,11 @@ bool CtDrawingOverlay::_onMotionNotify(GdkEventMotion* event)
                                         Gdk::BOTTOM_LEFT_CORNER, Gdk::BOTTOM_RIGHT_CORNER
                                     };
                                     for (int h = 0; h < 4; ++h) {
-                                        double ddx = smx - corners[h][0];
-                                        double ddy = smy - corners[h][1];
-                                        if (ddx * ddx + ddy * ddy <= handleR * handleR) {
+                                        double sx = csx + corners[h][0] * zoom;
+                                        double sy = csy + corners[h][1] * zoom;
+                                        double ddx = event->x - sx;
+                                        double ddy = event->y - sy;
+                                        if (ddx * ddx + ddy * ddy <= handleScreenR * handleScreenR) {
                                             cursorType = cornerCursors[h];
                                             break;
                                         }
@@ -2453,7 +2650,13 @@ bool CtDrawingOverlay::_onMotionNotify(GdkEventMotion* event)
                                 }
                                 if (cursorType == Gdk::ARROW) {
                                     int si = _hitTestStroke(event->x, event->y, canvases2[ci], hScroll, vScroll, zoom);
-                                    if (si >= 0) cursorType = Gdk::HAND1;
+                                    if (si >= 0) {
+                                        if (_selectedStrokeIndices.count(si)) {
+                                            cursorType = Gdk::FLEUR;
+                                        } else {
+                                            cursorType = Gdk::HAND1;
+                                        }
+                                    }
                                 }
                             }
                             break;
@@ -2509,17 +2712,47 @@ bool CtDrawingOverlay::_onMotionNotify(GdkEventMotion* event)
     }
 
     if (_dragType == CtDrawingDragType::RotateStroke) {
-        if (_rotateStrokeIdx >= 0 && static_cast<size_t>(_rotateStrokeIdx) < canvas.strokes.size()) {
-            auto hAdj = _pMainWin->getScrolledwindowText().get_hadjustment();
-            auto vAdj = _pMainWin->getScrolledwindowText().get_vadjustment();
-            double hScroll = hAdj ? hAdj->get_value() : 0.0;
-            double vScroll = vAdj ? vAdj->get_value() : 0.0;
+        auto hAdj = _pMainWin->getScrolledwindowText().get_hadjustment();
+        auto vAdj = _pMainWin->getScrolledwindowText().get_vadjustment();
+        double hScrollR = hAdj ? hAdj->get_value() : 0.0;
+        double vScrollR = vAdj ? vAdj->get_value() : 0.0;
+        double canvasScreenX = canvas.x * zoom - hScrollR;
+        double canvasScreenY = canvas.y * zoom - vScrollR;
+        double emx = (event->x - canvasScreenX) / zoom;
+        double emy = (event->y - canvasScreenY) / zoom;
+
+        if (_rotatingGroup) {
+            double currentAngle = std::atan2(emy - _rotateGroupCenterY, emx - _rotateGroupCenterX);
+            double delta = currentAngle - _rotateStartAngle;
+            _rotateGroupDelta = delta;
+            double cosD = std::cos(delta);
+            double sinD = std::sin(delta);
+            for (int idx : _selectedStrokeIndices) {
+                if (static_cast<size_t>(idx) < canvas.strokes.size() &&
+                    _rotateSelOrigPoints.count(idx) &&
+                    _rotateSelOrigCenters.count(idx))
+                {
+                    auto& stroke = canvas.strokes[idx];
+                    const auto& origPts = _rotateSelOrigPoints[idx];
+                    auto [ocx, ocy] = _rotateSelOrigCenters[idx];
+                    double dcx = ocx - _rotateGroupCenterX;
+                    double dcy = ocy - _rotateGroupCenterY;
+                    double newCx = _rotateGroupCenterX + dcx * cosD - dcy * sinD;
+                    double newCy = _rotateGroupCenterY + dcx * sinD + dcy * cosD;
+                    double tx = newCx - ocx;
+                    double ty = newCy - ocy;
+                    stroke.points.resize(origPts.size());
+                    for (size_t p = 0; p < origPts.size(); ++p) {
+                        stroke.points[p].x = origPts[p].x + tx;
+                        stroke.points[p].y = origPts[p].y + ty;
+                    }
+                    stroke.rotation = _rotateSelOrigRotations[idx] + delta;
+                }
+            }
+            _drawingArea.queue_draw();
+        } else if (_rotateStrokeIdx >= 0 && static_cast<size_t>(_rotateStrokeIdx) < canvas.strokes.size()) {
             double scx, scy;
             _strokeCenter(canvas.strokes[_rotateStrokeIdx], scx, scy);
-            double canvasScreenX = canvas.x * zoom - hScroll;
-            double canvasScreenY = canvas.y * zoom - vScroll;
-            double emx = (event->x - canvasScreenX) / zoom;
-            double emy = (event->y - canvasScreenY) / zoom;
             double currentAngle = std::atan2(emy - scy, emx - scx);
             double delta = currentAngle - _rotateStartAngle;
             canvas.strokes[_rotateStrokeIdx].rotation = _rotateOrigRotation + delta;
@@ -2589,12 +2822,11 @@ bool CtDrawingOverlay::_onMotionNotify(GdkEventMotion* event)
         if (scaleY < 0.05) scaleY = 0.05;
 
         for (auto& [idx, origPts] : _scaleOrigPoints) {
-            if (static_cast<size_t>(idx) < canvas.strokes.size()) {
-                auto& pts = canvas.strokes[idx].points;
-                for (size_t i = 0; i < pts.size() && i < origPts.size(); ++i) {
-                    pts[i].x = _scaleAnchorX + (origPts[i].x - _scaleAnchorX) * scaleX;
-                    pts[i].y = _scaleAnchorY + (origPts[i].y - _scaleAnchorY) * scaleY;
-                }
+            if (static_cast<size_t>(idx) >= canvas.strokes.size()) continue;
+            auto& pts = canvas.strokes[idx].points;
+            for (size_t i = 0; i < pts.size() && i < origPts.size(); ++i) {
+                pts[i].x = _scaleAnchorX + (origPts[i].x - _scaleAnchorX) * scaleX;
+                pts[i].y = _scaleAnchorY + (origPts[i].y - _scaleAnchorY) * scaleY;
             }
         }
         _drawingArea.queue_draw();
@@ -2776,19 +3008,64 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
         _moveStrokeOrigPoints.clear();
     }
     else if (_dragType == CtDrawingDragType::RotateStroke) {
-        if (_rotateStrokeIdx >= 0 && static_cast<size_t>(_rotateStrokeIdx) < canvas.strokes.size()) {
-            double newRotation = canvas.strokes[_rotateStrokeIdx].rotation;
-            canvas.strokes[_rotateStrokeIdx].rotation = _rotateOrigRotation;
-            if (std::abs(newRotation - _rotateOrigRotation) > 1e-6) {
-                auto cmd = std::make_unique<RotateStrokeCommand>(
-                    bridge->getDocumentModel(), treeIter.get_node_id(), ci,
-                    static_cast<size_t>(_rotateStrokeIdx),
-                    _rotateOrigRotation, newRotation);
-                bridge->executeCommand(std::move(cmd));
+        if (_rotatingGroup) {
+            auto compound = std::make_unique<CompoundCommand>("Rotate group");
+            compound->setNodeId(treeIter.get_node_id());
+            for (int idx : _selectedStrokeIndices) {
+                if (static_cast<size_t>(idx) >= canvas.strokes.size()) continue;
+                if (!_rotateSelOrigPoints.count(idx)) continue;
+                auto& stroke = canvas.strokes[idx];
+                auto newPts = stroke.points;
+                double newRot = stroke.rotation;
+                stroke.points = _rotateSelOrigPoints[idx];
+                stroke.rotation = _rotateSelOrigRotations[idx];
+                bool moved = false;
+                for (size_t i = 0; i < newPts.size() && i < _rotateSelOrigPoints[idx].size(); ++i) {
+                    if (newPts[i].x != _rotateSelOrigPoints[idx][i].x ||
+                        newPts[i].y != _rotateSelOrigPoints[idx][i].y) {
+                        moved = true;
+                        break;
+                    }
+                }
+                bool rotChanged = std::abs(newRot - _rotateSelOrigRotations[idx]) > 1e-6;
+                if (moved || rotChanged) {
+                    if (moved) {
+                        compound->addCommand(std::make_unique<MoveStrokeCommand>(
+                            bridge->getDocumentModel(), treeIter.get_node_id(), ci,
+                            static_cast<size_t>(idx),
+                            _rotateSelOrigPoints[idx], newPts));
+                    }
+                    if (rotChanged) {
+                        compound->addCommand(std::make_unique<RotateStrokeCommand>(
+                            bridge->getDocumentModel(), treeIter.get_node_id(), ci,
+                            static_cast<size_t>(idx),
+                            _rotateSelOrigRotations[idx], newRot));
+                    }
+                }
+            }
+            if (!compound->isEmpty()) {
+                bridge->executeCommand(std::move(compound));
                 _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
             }
+            _rotateSelOrigPoints.clear();
+            _rotateSelOrigRotations.clear();
+            _rotateSelOrigCenters.clear();
+            _rotatingGroup = false;
+        } else {
+            if (_rotateStrokeIdx >= 0 && static_cast<size_t>(_rotateStrokeIdx) < canvas.strokes.size()) {
+                double newRotation = canvas.strokes[_rotateStrokeIdx].rotation;
+                canvas.strokes[_rotateStrokeIdx].rotation = _rotateOrigRotation;
+                if (std::abs(newRotation - _rotateOrigRotation) > 1e-6) {
+                    auto cmd = std::make_unique<RotateStrokeCommand>(
+                        bridge->getDocumentModel(), treeIter.get_node_id(), ci,
+                        static_cast<size_t>(_rotateStrokeIdx),
+                        _rotateOrigRotation, newRotation);
+                    bridge->executeCommand(std::move(cmd));
+                    _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+                }
+            }
+            _rotateStrokeIdx = -1;
         }
-        _rotateStrokeIdx = -1;
     }
     else if (_dragType == CtDrawingDragType::EditPoint) {
         if (_selectStrokeIdx >= 0 &&
@@ -2902,33 +3179,80 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
     else if (_dragType == CtDrawingDragType::ScaleSelection) {
         auto compound = std::make_unique<CompoundCommand>("Scale strokes");
         compound->setNodeId(treeIter.get_node_id());
-        bool anyScaled = false;
+        bool anyChanged = false;
 
         for (auto& [idx, origPts] : _scaleOrigPoints) {
-            if (static_cast<size_t>(idx) < canvas.strokes.size()) {
-                auto newPoints = canvas.strokes[idx].points;
-                canvas.strokes[idx].points = origPts;
-                bool changed = false;
-                for (size_t i = 0; i < newPoints.size() && i < origPts.size(); ++i) {
-                    if (newPoints[i].x != origPts[i].x || newPoints[i].y != origPts[i].y) {
-                        changed = true;
-                        break;
+            if (static_cast<size_t>(idx) >= canvas.strokes.size()) continue;
+            auto& stroke = canvas.strokes[idx];
+            CtDrawingStroke newStroke = stroke;
+
+            // use pre-bake points as the "old" state for undo
+            auto& oldPts = _scalePreBakePoints.count(idx)
+                ? _scalePreBakePoints[idx] : origPts;
+            double oldRot = _scalePreBakeRotations.count(idx)
+                ? _scalePreBakeRotations[idx] : stroke.rotation;
+
+            bool typeChanged = _scalePreBakeTypes.count(idx) > 0;
+
+            if (typeChanged) {
+                CtDrawingStroke oldStroke = stroke;
+                oldStroke.points = oldPts;
+                oldStroke.rotation = oldRot;
+                oldStroke.type = _scalePreBakeTypes[idx];
+
+                bool changed = (oldStroke.points != newStroke.points ||
+                                oldStroke.rotation != newStroke.rotation ||
+                                oldStroke.type != newStroke.type);
+
+                stroke = oldStroke;
+
+                if (changed) {
+                    compound->addCommand(std::make_unique<StrokePropertiesCommand>(
+                        bridge->getDocumentModel(), treeIter.get_node_id(),
+                        static_cast<size_t>(ci), static_cast<size_t>(idx),
+                        std::move(oldStroke), std::move(newStroke)));
+                    anyChanged = true;
+                }
+            } else {
+                stroke.points = oldPts;
+                if (_scalePreBakeRotations.count(idx)) {
+                    stroke.rotation = oldRot;
+                }
+
+                bool pointsChanged = (oldPts.size() != newStroke.points.size());
+                if (!pointsChanged) {
+                    for (size_t i = 0; i < newStroke.points.size(); ++i) {
+                        if (newStroke.points[i].x != oldPts[i].x || newStroke.points[i].y != oldPts[i].y) {
+                            pointsChanged = true;
+                            break;
+                        }
                     }
                 }
-                if (changed) {
+                bool rotChanged = _scalePreBakeRotations.count(idx) && std::abs(oldRot) > 1e-6;
+
+                if (pointsChanged) {
                     compound->addCommand(std::make_unique<MoveStrokeCommand>(
                         bridge->getDocumentModel(), treeIter.get_node_id(), ci,
-                        static_cast<size_t>(idx), origPts, std::move(newPoints)));
-                    anyScaled = true;
+                        static_cast<size_t>(idx), oldPts, std::move(newStroke.points)));
+                    anyChanged = true;
+                }
+                if (rotChanged) {
+                    compound->addCommand(std::make_unique<RotateStrokeCommand>(
+                        bridge->getDocumentModel(), treeIter.get_node_id(),
+                        static_cast<size_t>(ci), static_cast<size_t>(idx), oldRot, 0.0));
+                    anyChanged = true;
                 }
             }
         }
 
-        if (anyScaled) {
+        if (anyChanged) {
             bridge->executeCommand(std::move(compound));
             _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
         }
         _scaleOrigPoints.clear();
+        _scalePreBakePoints.clear();
+        _scalePreBakeRotations.clear();
+        _scalePreBakeTypes.clear();
         _scaleHandleIdx = -1;
     }
     else if (_dragType == CtDrawingDragType::Resize) {
@@ -3089,7 +3413,8 @@ void CtDrawingOverlay::_showTextDialog(double canvasX, double canvasY, size_t ca
 
 void CtDrawingOverlay::_strokeBoundingBox(const CtDrawingStroke& stroke,
                                           double& minX, double& minY,
-                                          double& maxX, double& maxY)
+                                          double& maxX, double& maxY,
+                                          bool ignoreRotation)
 {
     if (stroke.points.empty()) {
         minX = minY = maxX = maxY = 0.0;
@@ -3123,22 +3448,47 @@ void CtDrawingOverlay::_strokeBoundingBox(const CtDrawingStroke& stroke,
     }
 
     double hw = stroke.lineWidth / 2.0;
-    minX -= hw;
-    minY -= hw;
-    maxX += hw;
-    maxY += hw;
 
-    if (std::abs(stroke.rotation) > 1e-6) {
+    if (!ignoreRotation && std::abs(stroke.rotation) > 1e-6) {
         double scx, scy;
         _strokeCenter(stroke, scx, scy);
         double cosA = std::cos(stroke.rotation);
         double sinA = std::sin(stroke.rotation);
-        double corners[4][2] = {
-            {minX, minY}, {maxX, minY}, {maxX, maxY}, {minX, maxY}
-        };
+
+        std::vector<std::pair<double,double>> visualPts;
+        bool is2Point = (stroke.points.size() == 2 &&
+            stroke.type != CtDrawingElementType::Line &&
+            stroke.type != CtDrawingElementType::Freehand &&
+            stroke.type != CtDrawingElementType::Polyline &&
+            stroke.type != CtDrawingElementType::BezierCurve &&
+            stroke.type != CtDrawingElementType::Text);
+
+        if (is2Point) {
+            double x0 = minX + hw, y0 = minY + hw, x1 = maxX - hw, y1 = maxY - hw;
+            double midX = (x0 + x1) / 2.0, midY = (y0 + y1) / 2.0;
+            if (stroke.type == CtDrawingElementType::Triangle) {
+                visualPts = {{midX,y0}, {x0,y1}, {x1,y1}};
+            } else if (stroke.type == CtDrawingElementType::Diamond) {
+                visualPts = {{midX,y0}, {x1,midY}, {midX,y1}, {x0,midY}};
+            } else if (stroke.type == CtDrawingElementType::Ellipse) {
+                double rx = (x1 - x0) / 2.0, ry = (y1 - y0) / 2.0;
+                constexpr int segs = 16;
+                for (int s = 0; s < segs; ++s) {
+                    double a = 2.0 * M_PI * s / segs;
+                    visualPts.push_back({midX + rx * std::cos(a), midY + ry * std::sin(a)});
+                }
+            } else {
+                visualPts = {{x0,y0}, {x1,y0}, {x1,y1}, {x0,y1}};
+            }
+        } else {
+            for (const auto& p : stroke.points) {
+                visualPts.push_back({p.x, p.y});
+            }
+        }
+
         double rMinX = 1e18, rMinY = 1e18, rMaxX = -1e18, rMaxY = -1e18;
-        for (auto& c : corners) {
-            double dx = c[0] - scx, dy = c[1] - scy;
+        for (auto& [vx, vy] : visualPts) {
+            double dx = vx - scx, dy = vy - scy;
             double rx = scx + dx * cosA - dy * sinA;
             double ry = scy + dx * sinA + dy * cosA;
             rMinX = std::min(rMinX, rx);
@@ -3146,8 +3496,11 @@ void CtDrawingOverlay::_strokeBoundingBox(const CtDrawingStroke& stroke,
             rMaxX = std::max(rMaxX, rx);
             rMaxY = std::max(rMaxY, ry);
         }
-        minX = rMinX; minY = rMinY;
-        maxX = rMaxX; maxY = rMaxY;
+        minX = rMinX - hw; minY = rMinY - hw;
+        maxX = rMaxX + hw; maxY = rMaxY + hw;
+    } else {
+        minX -= hw; minY -= hw;
+        maxX += hw; maxY += hw;
     }
 }
 
@@ -3156,7 +3509,7 @@ void CtDrawingOverlay::_drawSelectionHighlight(const Cairo::RefPtr<Cairo::Contex
                                                 double cx, double cy, double zoom)
 {
     double minX, minY, maxX, maxY;
-    _strokeBoundingBox(stroke, minX, minY, maxX, maxY);
+    _strokeBoundingBox(stroke, minX, minY, maxX, maxY, true);
 
     double sx = cx + minX * zoom;
     double sy = cy + minY * zoom;
@@ -3167,8 +3520,23 @@ void CtDrawingOverlay::_drawSelectionHighlight(const Cairo::RefPtr<Cairo::Contex
     cr->set_line_width(1.5);
     std::vector<double> dashes{4.0, 3.0};
     cr->set_dash(dashes, 0.0);
-    cr->rectangle(sx, sy, sw, sh);
-    cr->stroke();
+
+    if (std::abs(stroke.rotation) > 1e-6) {
+        double scx, scy;
+        _strokeCenter(stroke, scx, scy);
+        double pivotX = cx + scx * zoom;
+        double pivotY = cy + scy * zoom;
+        cr->save();
+        cr->translate(pivotX, pivotY);
+        cr->rotate(stroke.rotation);
+        cr->translate(-pivotX, -pivotY);
+        cr->rectangle(sx, sy, sw, sh);
+        cr->stroke();
+        cr->restore();
+    } else {
+        cr->rectangle(sx, sy, sw, sh);
+        cr->stroke();
+    }
     cr->unset_dash();
 }
 
@@ -3370,7 +3738,9 @@ void CtDrawingOverlay::_showStrokeContextMenu(GdkEventButton* event)
 
 void CtDrawingOverlay::_showContextMenu(GdkEventButton* event)
 {
-    if (_currentTool == CtDrawingTool::Select && !_selectedStrokeIndices.empty()) {
+    if ((_currentTool == CtDrawingTool::Select ||
+         _currentTool == CtDrawingTool::Rotate ||
+         _currentTool == CtDrawingTool::Scale) && !_selectedStrokeIndices.empty()) {
         _showStrokeContextMenu(event);
         return;
     }

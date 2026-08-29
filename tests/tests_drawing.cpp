@@ -2263,3 +2263,181 @@ TEST_F(DrawingCommandTest, StrokeProperties_NotifiesObserver)
 
     model->removeObserver(&log);
 }
+
+// ── CtDrawingPoint equality ────────────────────────────────────────────────
+
+TEST(DrawingPointTest, Equality)
+{
+    CtDrawingPoint a{1.0, 2.0};
+    CtDrawingPoint b{1.0, 2.0};
+    CtDrawingPoint c{1.0, 3.0};
+    EXPECT_EQ(a, b);
+    EXPECT_NE(a, c);
+}
+
+TEST(DrawingPointTest, VectorEquality)
+{
+    std::vector<CtDrawingPoint> v1{{1.0,2.0},{3.0,4.0}};
+    std::vector<CtDrawingPoint> v2{{1.0,2.0},{3.0,4.0}};
+    std::vector<CtDrawingPoint> v3{{1.0,2.0},{3.0,5.0}};
+    std::vector<CtDrawingPoint> v4{{1.0,2.0}};
+    EXPECT_EQ(v1, v2);
+    EXPECT_NE(v1, v3);
+    EXPECT_NE(v1, v4);
+}
+
+// ── Group scale undo: StrokePropertiesCommand restores type ────────────────
+
+TEST_F(DrawingCommandTest, StrokeProperties_RestoresTypeOnUndo)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    auto& strokes = node->getDrawingCanvasesMut()[0].strokes;
+
+    CtDrawingStroke rect;
+    rect.type = CtDrawingElementType::Rectangle;
+    rect.color = "#000000";
+    rect.lineWidth = 2.0;
+    rect.rotation = M_PI / 4.0;
+    rect.points = {{100,100},{200,200}};
+    strokes.push_back(rect);
+
+    CtDrawingStroke oldStroke = strokes[0];
+
+    CtDrawingStroke newStroke = oldStroke;
+    newStroke.type = CtDrawingElementType::Freehand;
+    newStroke.points = {{120,80},{220,120},{200,220},{100,180},{120,80}};
+    newStroke.rotation = 0.0;
+
+    StrokePropertiesCommand cmd(model, 1, 0, 0, oldStroke, newStroke);
+
+    cmd.execute();
+    EXPECT_EQ(CtDrawingElementType::Freehand, node->getDrawingCanvases()[0].strokes[0].type);
+    EXPECT_EQ(5u, node->getDrawingCanvases()[0].strokes[0].points.size());
+    EXPECT_DOUBLE_EQ(0.0, node->getDrawingCanvases()[0].strokes[0].rotation);
+
+    cmd.undo();
+    EXPECT_EQ(CtDrawingElementType::Rectangle, node->getDrawingCanvases()[0].strokes[0].type);
+    EXPECT_EQ(2u, node->getDrawingCanvases()[0].strokes[0].points.size());
+    EXPECT_DOUBLE_EQ(M_PI / 4.0, node->getDrawingCanvases()[0].strokes[0].rotation);
+}
+
+// ── Group scale undo: compound with type change + move + rotate ────────────
+
+TEST_F(DrawingCommandTest, CompoundCommand_GroupScaleWithBakedBoxShape)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 400, 400));
+    auto& strokes = node->getDrawingCanvasesMut()[0].strokes;
+
+    CtDrawingStroke triangle;
+    triangle.type = CtDrawingElementType::Triangle;
+    triangle.color = "#ff0000";
+    triangle.lineWidth = 2.0;
+    triangle.rotation = 0.5;
+    triangle.points = {{50,50},{150,150}};
+    strokes.push_back(triangle);
+
+    CtDrawingStroke line;
+    line.type = CtDrawingElementType::Freehand;
+    line.color = "#0000ff";
+    line.lineWidth = 2.0;
+    line.rotation = 0.3;
+    line.points = {{200,200},{250,210},{300,250}};
+    strokes.push_back(line);
+
+    CtDrawingStroke origTriangle = strokes[0];
+    CtDrawingStroke origLine = strokes[1];
+
+    auto compound = std::make_unique<CompoundCommand>("Scale strokes");
+    compound->setNodeId(1);
+
+    CtDrawingStroke newTriangle = origTriangle;
+    newTriangle.type = CtDrawingElementType::Freehand;
+    newTriangle.points = {{90,40},{45,160},{155,160},{90,40}};
+    newTriangle.rotation = 0.0;
+    compound->addCommand(std::make_unique<StrokePropertiesCommand>(
+        model, 1, 0, 0, origTriangle, newTriangle));
+
+    std::vector<CtDrawingPoint> newLinePts = {{180,180},{230,190},{280,230}};
+    compound->addCommand(std::make_unique<MoveStrokeCommand>(
+        model, 1, 0, 1, origLine.points, newLinePts));
+    compound->addCommand(std::make_unique<RotateStrokeCommand>(
+        model, 1, 0, 1, 0.3, 0.0));
+
+    compound->execute();
+
+    EXPECT_EQ(CtDrawingElementType::Freehand, strokes[0].type);
+    EXPECT_EQ(4u, strokes[0].points.size());
+    EXPECT_DOUBLE_EQ(0.0, strokes[0].rotation);
+    EXPECT_EQ(3u, strokes[1].points.size());
+    EXPECT_DOUBLE_EQ(0.0, strokes[1].rotation);
+
+    compound->undo();
+
+    EXPECT_EQ(CtDrawingElementType::Triangle, strokes[0].type);
+    EXPECT_EQ(2u, strokes[0].points.size());
+    EXPECT_DOUBLE_EQ(0.5, strokes[0].rotation);
+    EXPECT_DOUBLE_EQ(50.0, strokes[0].points[0].x);
+    EXPECT_DOUBLE_EQ(50.0, strokes[0].points[0].y);
+
+    EXPECT_EQ(3u, strokes[1].points.size());
+    EXPECT_DOUBLE_EQ(0.3, strokes[1].rotation);
+    EXPECT_DOUBLE_EQ(200.0, strokes[1].points[0].x);
+}
+
+// ── Group scale undo: all 2-point shape types ──────────────────────────────
+
+TEST_F(DrawingCommandTest, StrokeProperties_RestoresAllBoxShapeTypes)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 500, 500));
+    auto& strokes = node->getDrawingCanvasesMut()[0].strokes;
+
+    struct ShapeTestCase {
+        CtDrawingElementType type;
+        size_t expectedBakedPoints;
+    };
+    std::vector<ShapeTestCase> cases = {
+        {CtDrawingElementType::Rectangle, 5},
+        {CtDrawingElementType::RoundedRectangle, 5},
+        {CtDrawingElementType::Triangle, 4},
+        {CtDrawingElementType::Diamond, 5},
+        {CtDrawingElementType::Ellipse, 33},
+    };
+
+    for (size_t i = 0; i < cases.size(); ++i) {
+        CtDrawingStroke s;
+        s.type = cases[i].type;
+        s.color = "#000000";
+        s.lineWidth = 2.0;
+        s.rotation = 0.7;
+        s.points = {{10.0 + i * 100.0, 10.0}, {90.0 + i * 100.0, 90.0}};
+        strokes.push_back(s);
+    }
+
+    for (size_t i = 0; i < cases.size(); ++i) {
+        CtDrawingStroke oldStroke = strokes[i];
+
+        CtDrawingStroke newStroke = oldStroke;
+        newStroke.type = CtDrawingElementType::Freehand;
+        newStroke.rotation = 0.0;
+        newStroke.points.resize(cases[i].expectedBakedPoints, {0.0, 0.0});
+
+        StrokePropertiesCommand cmd(model, 1, 0, i, oldStroke, newStroke);
+
+        cmd.execute();
+        EXPECT_EQ(CtDrawingElementType::Freehand, strokes[i].type)
+            << "After execute, shape index " << i;
+        EXPECT_EQ(cases[i].expectedBakedPoints, strokes[i].points.size())
+            << "After execute, shape index " << i;
+
+        cmd.undo();
+        EXPECT_EQ(cases[i].type, strokes[i].type)
+            << "After undo, shape index " << i;
+        EXPECT_EQ(2u, strokes[i].points.size())
+            << "After undo, shape index " << i;
+        EXPECT_DOUBLE_EQ(0.7, strokes[i].rotation)
+            << "After undo, shape index " << i;
+    }
+}
