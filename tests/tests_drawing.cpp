@@ -2684,3 +2684,109 @@ TEST(DrawingPointTest, ClosedPolygonDetection)
     s.filled = true;
     EXPECT_TRUE(s.filled);
 }
+
+// ── Group operations undo as single step ────────────────────────────────────
+
+TEST_F(DrawingCommandTest, CompoundCommand_GroupScaleUndoesInOneStep)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    auto& strokes = node->getDrawingCanvasesMut()[0].strokes;
+    strokes.push_back(makeShapeStroke(CtDrawingElementType::Rectangle, "#ff0000", 2.0, false, 10, 10, 50, 50));
+    strokes.push_back(makeShapeStroke(CtDrawingElementType::Ellipse, "#00ff00", 2.0, false, 60, 10, 100, 50));
+    strokes.push_back(makeShapeStroke(CtDrawingElementType::Triangle, "#0000ff", 2.0, false, 110, 10, 150, 50));
+
+    CtCommandManager mgr;
+    auto compound = std::make_unique<CompoundCommand>("Scale strokes");
+    compound->setNodeId(1);
+    compound->setDocumentModel(model);
+
+    for (size_t i = 0; i < 3; ++i) {
+        auto oldPts = strokes[i].points;
+        std::vector<CtDrawingPoint> newPts;
+        for (auto& p : oldPts) {
+            newPts.push_back({p.x * 2.0, p.y * 2.0});
+        }
+        compound->addCommand(std::make_unique<MoveStrokeCommand>(
+            model, 1, 0, i, oldPts, newPts));
+    }
+
+    mgr.executeCommand(std::move(compound));
+
+    EXPECT_DOUBLE_EQ(20.0, strokes[0].points[0].x);
+    EXPECT_DOUBLE_EQ(120.0, strokes[1].points[0].x);
+    EXPECT_DOUBLE_EQ(220.0, strokes[2].points[0].x);
+
+    EXPECT_TRUE(mgr.canUndo());
+    mgr.undo();
+
+    EXPECT_DOUBLE_EQ(10.0, strokes[0].points[0].x);
+    EXPECT_DOUBLE_EQ(60.0, strokes[1].points[0].x);
+    EXPECT_DOUBLE_EQ(110.0, strokes[2].points[0].x);
+    EXPECT_FALSE(mgr.canUndo());
+
+    mgr.redo();
+    EXPECT_DOUBLE_EQ(20.0, strokes[0].points[0].x);
+    EXPECT_FALSE(mgr.canRedo());
+}
+
+TEST_F(DrawingCommandTest, CompoundCommand_GroupDeleteUndoesInOneStep)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    auto& strokes = node->getDrawingCanvasesMut()[0].strokes;
+    strokes.push_back(makeStroke("#ff0000", 2.0, {{10,10},{20,20}}));
+    strokes.push_back(makeStroke("#00ff00", 2.0, {{30,30},{40,40}}));
+    strokes.push_back(makeStroke("#0000ff", 2.0, {{50,50},{60,60}}));
+
+    CtCommandManager mgr;
+    auto compound = std::make_unique<CompoundCommand>("Delete strokes");
+    compound->setNodeId(1);
+    compound->setDocumentModel(model);
+
+    for (int i = 2; i >= 0; --i) {
+        compound->addCommand(std::make_unique<EraseStrokeCommand>(
+            model, 1, 0, strokes[i], static_cast<size_t>(i)));
+    }
+
+    mgr.executeCommand(std::move(compound));
+    EXPECT_EQ(0u, strokes.size());
+
+    mgr.undo();
+    ASSERT_EQ(3u, strokes.size());
+    EXPECT_EQ("#ff0000", strokes[0].color);
+    EXPECT_EQ("#00ff00", strokes[1].color);
+    EXPECT_EQ("#0000ff", strokes[2].color);
+    EXPECT_FALSE(mgr.canUndo());
+}
+
+TEST_F(DrawingCommandTest, CompoundCommand_GroupPropertyChangeUndoesInOneStep)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+    auto& strokes = node->getDrawingCanvasesMut()[0].strokes;
+    strokes.push_back(makeStroke("#000000", 2.0, {{10,10},{20,20}}));
+    strokes.push_back(makeStroke("#000000", 2.0, {{30,30},{40,40}}));
+
+    CtCommandManager mgr;
+    auto compound = std::make_unique<CompoundCommand>("Change stroke properties");
+    compound->setNodeId(1);
+    compound->setDocumentModel(model);
+
+    for (size_t i = 0; i < 2; ++i) {
+        CtDrawingStroke oldStroke = strokes[i];
+        CtDrawingStroke newStroke = oldStroke;
+        newStroke.filled = true;
+        compound->addCommand(std::make_unique<StrokePropertiesCommand>(
+            model, 1, 0, i, std::move(oldStroke), std::move(newStroke)));
+    }
+
+    mgr.executeCommand(std::move(compound));
+    EXPECT_TRUE(strokes[0].filled);
+    EXPECT_TRUE(strokes[1].filled);
+
+    mgr.undo();
+    EXPECT_FALSE(strokes[0].filled);
+    EXPECT_FALSE(strokes[1].filled);
+    EXPECT_FALSE(mgr.canUndo());
+}
