@@ -412,7 +412,9 @@ void CtDrawingOverlay::_buildToolbar()
             {_("Rounded Rectangle"), "ct_draw_rounded_rectangle.svg", CtDrawingElementType::RoundedRectangle},
             {_("Ellipse"), "ct_draw_ellipse.svg", CtDrawingElementType::Ellipse},
             {_("Triangle"), "ct_draw_triangle.svg", CtDrawingElementType::Triangle},
-            {_("Diamond"), "ct_draw_diamond.svg", CtDrawingElementType::Diamond}
+            {_("Diamond"), "ct_draw_diamond.svg", CtDrawingElementType::Diamond},
+            {_("Arrow"), "ct_draw_arrow.svg", CtDrawingElementType::Arrow},
+            {_("Double Arrow"), "ct_draw_double_arrow.svg", CtDrawingElementType::DoubleArrow}
         };
         for (auto& st : shapeTypes) {
             auto* img = Gtk::manage(new Gtk::Image());
@@ -436,7 +438,10 @@ void CtDrawingOverlay::_buildToolbar()
                     stype == CtDrawingElementType::RoundedRectangle ? _("Shape (Rounded Rectangle)") :
                     stype == CtDrawingElementType::Ellipse          ? _("Shape (Ellipse)") :
                     stype == CtDrawingElementType::Triangle          ? _("Shape (Triangle)") :
-                                                                       _("Shape (Diamond)"));
+                    stype == CtDrawingElementType::Diamond           ? _("Shape (Diamond)") :
+                    stype == CtDrawingElementType::Arrow             ? _("Shape (Arrow)") :
+                    stype == CtDrawingElementType::DoubleArrow       ? _("Shape (Double Arrow)") :
+                                                                       _("Shape"));
                 setCurrentTool(CtDrawingTool::Shape);
             });
             shapeMenu->append(*item);
@@ -1059,6 +1064,29 @@ bool CtDrawingOverlay::_onDraw(const Cairo::RefPtr<Cairo::Context>& cr)
                         double rr = std::min(std::min(rw, rh) * 0.25, 12.0 * zoom);
                         _drawRoundedRect(cr, rx, ry, rw, rh, rr);
                         cr->stroke();
+                    } else if (_currentShapeType == CtDrawingElementType::Arrow) {
+                        cr->move_to(rx, ry + rh * 0.3);
+                        cr->line_to(rx + rw * 0.65, ry + rh * 0.3);
+                        cr->line_to(rx + rw * 0.65, ry);
+                        cr->line_to(rx + rw, ry + rh * 0.5);
+                        cr->line_to(rx + rw * 0.65, ry + rh);
+                        cr->line_to(rx + rw * 0.65, ry + rh * 0.7);
+                        cr->line_to(rx, ry + rh * 0.7);
+                        cr->close_path();
+                        cr->stroke();
+                    } else if (_currentShapeType == CtDrawingElementType::DoubleArrow) {
+                        cr->move_to(rx, ry + rh * 0.5);
+                        cr->line_to(rx + rw * 0.35, ry);
+                        cr->line_to(rx + rw * 0.35, ry + rh * 0.3);
+                        cr->line_to(rx + rw * 0.65, ry + rh * 0.3);
+                        cr->line_to(rx + rw * 0.65, ry);
+                        cr->line_to(rx + rw, ry + rh * 0.5);
+                        cr->line_to(rx + rw * 0.65, ry + rh);
+                        cr->line_to(rx + rw * 0.65, ry + rh * 0.7);
+                        cr->line_to(rx + rw * 0.35, ry + rh * 0.7);
+                        cr->line_to(rx + rw * 0.35, ry + rh);
+                        cr->close_path();
+                        cr->stroke();
                     } else {
                         cr->rectangle(rx, ry, rw, rh);
                         cr->stroke();
@@ -1640,6 +1668,43 @@ void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
         fillAndStroke();
         break;
     }
+    case CtDrawingElementType::Arrow: {
+        if (stroke.points.size() < 2) break;
+        double rx = cx + std::min(stroke.points[0].x, stroke.points[1].x) * zoom;
+        double ry = cy + std::min(stroke.points[0].y, stroke.points[1].y) * zoom;
+        double rw = std::abs(stroke.points[1].x - stroke.points[0].x) * zoom;
+        double rh = std::abs(stroke.points[1].y - stroke.points[0].y) * zoom;
+        cr->move_to(rx, ry + rh * 0.3);
+        cr->line_to(rx + rw * 0.65, ry + rh * 0.3);
+        cr->line_to(rx + rw * 0.65, ry);
+        cr->line_to(rx + rw, ry + rh * 0.5);
+        cr->line_to(rx + rw * 0.65, ry + rh);
+        cr->line_to(rx + rw * 0.65, ry + rh * 0.7);
+        cr->line_to(rx, ry + rh * 0.7);
+        cr->close_path();
+        fillAndStroke();
+        break;
+    }
+    case CtDrawingElementType::DoubleArrow: {
+        if (stroke.points.size() < 2) break;
+        double rx = cx + std::min(stroke.points[0].x, stroke.points[1].x) * zoom;
+        double ry = cy + std::min(stroke.points[0].y, stroke.points[1].y) * zoom;
+        double rw = std::abs(stroke.points[1].x - stroke.points[0].x) * zoom;
+        double rh = std::abs(stroke.points[1].y - stroke.points[0].y) * zoom;
+        cr->move_to(rx, ry + rh * 0.5);
+        cr->line_to(rx + rw * 0.35, ry);
+        cr->line_to(rx + rw * 0.35, ry + rh * 0.3);
+        cr->line_to(rx + rw * 0.65, ry + rh * 0.3);
+        cr->line_to(rx + rw * 0.65, ry);
+        cr->line_to(rx + rw, ry + rh * 0.5);
+        cr->line_to(rx + rw * 0.65, ry + rh);
+        cr->line_to(rx + rw * 0.65, ry + rh * 0.7);
+        cr->line_to(rx + rw * 0.35, ry + rh * 0.7);
+        cr->line_to(rx + rw * 0.35, ry + rh);
+        cr->close_path();
+        fillAndStroke();
+        break;
+    }
     case CtDrawingElementType::Freehand:
     default: {
         if (stroke.points.size() < 2) break;
@@ -1647,7 +1712,14 @@ void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
         for (size_t j = 1; j < stroke.points.size(); ++j) {
             cr->line_to(cx + stroke.points[j].x * zoom, cy + stroke.points[j].y * zoom);
         }
-        cr->stroke();
+        bool closed = (stroke.points.size() >= 3 &&
+            stroke.points.front() == stroke.points.back());
+        if (closed) {
+            cr->close_path();
+            fillAndStroke();
+        } else {
+            cr->stroke();
+        }
         break;
     }
     }
@@ -1955,6 +2027,61 @@ int CtDrawingOverlay::_hitTestStroke(double mx, double my,
                 double dc = _distPointToSegment(mx, my, dbottom_x, dbottom_y, dleft_x, dleft_y);
                 double dd = _distPointToSegment(mx, my, dleft_x, dleft_y, dtop_x, dtop_y);
                 dist = std::min({da, db, dc, dd});
+            }
+            break;
+        }
+        case CtDrawingElementType::Arrow: {
+            if (pts.size() < 2) continue;
+            double x0 = cx + std::min(pts[0].x, pts[1].x) * zoom;
+            double y0 = cy + std::min(pts[0].y, pts[1].y) * zoom;
+            double aw = std::abs(pts[1].x - pts[0].x) * zoom;
+            double ah = std::abs(pts[1].y - pts[0].y) * zoom;
+            std::vector<std::pair<double,double>> averts = {
+                {x0, y0+ah*0.3}, {x0+aw*0.65, y0+ah*0.3}, {x0+aw*0.65, y0},
+                {x0+aw, y0+ah*0.5}, {x0+aw*0.65, y0+ah}, {x0+aw*0.65, y0+ah*0.7},
+                {x0, y0+ah*0.7}
+            };
+            if (stroke.filled) {
+                bool inside = false;
+                for (size_t vi = 0, vj = averts.size()-1; vi < averts.size(); vj = vi++) {
+                    if (((averts[vi].second > my) != (averts[vj].second > my)) &&
+                        (mx < (averts[vj].first-averts[vi].first)*(my-averts[vi].second)/(averts[vj].second-averts[vi].second)+averts[vi].first))
+                        inside = !inside;
+                }
+                if (inside) { dist = 0.0; break; }
+            }
+            for (size_t vi = 0; vi < averts.size(); ++vi) {
+                size_t vj = (vi + 1) % averts.size();
+                double d = _distPointToSegment(mx, my, averts[vi].first, averts[vi].second, averts[vj].first, averts[vj].second);
+                if (d < dist) dist = d;
+            }
+            break;
+        }
+        case CtDrawingElementType::DoubleArrow: {
+            if (pts.size() < 2) continue;
+            double x0 = cx + std::min(pts[0].x, pts[1].x) * zoom;
+            double y0 = cy + std::min(pts[0].y, pts[1].y) * zoom;
+            double aw = std::abs(pts[1].x - pts[0].x) * zoom;
+            double ah = std::abs(pts[1].y - pts[0].y) * zoom;
+            std::vector<std::pair<double,double>> averts = {
+                {x0, y0+ah*0.5}, {x0+aw*0.35, y0}, {x0+aw*0.35, y0+ah*0.3},
+                {x0+aw*0.65, y0+ah*0.3}, {x0+aw*0.65, y0},
+                {x0+aw, y0+ah*0.5}, {x0+aw*0.65, y0+ah}, {x0+aw*0.65, y0+ah*0.7},
+                {x0+aw*0.35, y0+ah*0.7}, {x0+aw*0.35, y0+ah}
+            };
+            if (stroke.filled) {
+                bool inside = false;
+                for (size_t vi = 0, vj = averts.size()-1; vi < averts.size(); vj = vi++) {
+                    if (((averts[vi].second > my) != (averts[vj].second > my)) &&
+                        (mx < (averts[vj].first-averts[vi].first)*(my-averts[vi].second)/(averts[vj].second-averts[vi].second)+averts[vi].first))
+                        inside = !inside;
+                }
+                if (inside) { dist = 0.0; break; }
+            }
+            for (size_t vi = 0; vi < averts.size(); ++vi) {
+                size_t vj = (vi + 1) % averts.size();
+                double d = _distPointToSegment(mx, my, averts[vi].first, averts[vi].second, averts[vj].first, averts[vj].second);
+                if (d < dist) dist = d;
             }
             break;
         }
@@ -2278,6 +2405,7 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
                                 double y0 = std::min(stroke.points[0].y, stroke.points[1].y);
                                 double x1 = std::max(stroke.points[0].x, stroke.points[1].x);
                                 double y1 = std::max(stroke.points[0].y, stroke.points[1].y);
+                                double bw = x1 - x0, bh = y1 - y0;
                                 double midX = (x0 + x1) / 2.0;
                                 double midY = (y0 + y1) / 2.0;
                                 std::vector<CtDrawingPoint> visualPts;
@@ -2293,6 +2421,19 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
                                         visualPts.push_back({midX + rx * std::cos(a),
                                                              midY + ry * std::sin(a)});
                                     }
+                                } else if (stroke.type == CtDrawingElementType::Arrow) {
+                                    visualPts = {
+                                        {x0, y0+bh*0.3}, {x0+bw*0.65, y0+bh*0.3}, {x0+bw*0.65, y0},
+                                        {x1, midY}, {x0+bw*0.65, y1}, {x0+bw*0.65, y0+bh*0.7},
+                                        {x0, y0+bh*0.7}
+                                    };
+                                } else if (stroke.type == CtDrawingElementType::DoubleArrow) {
+                                    visualPts = {
+                                        {x0, midY}, {x0+bw*0.35, y0}, {x0+bw*0.35, y0+bh*0.3},
+                                        {x0+bw*0.65, y0+bh*0.3}, {x0+bw*0.65, y0},
+                                        {x1, midY}, {x0+bw*0.65, y1}, {x0+bw*0.65, y0+bh*0.7},
+                                        {x0+bw*0.35, y0+bh*0.7}, {x0+bw*0.35, y1}
+                                    };
                                 } else {
                                     visualPts = {{x0,y0}, {x1,y0}, {x1,y1}, {x0,y1}};
                                 }
@@ -2429,6 +2570,8 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
                     std::move(newStroke));
                 bridge->executeCommand(std::move(cmd));
                 _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+                _selectedStrokeIndices.clear();
+                _selectedStrokeIndices.insert(static_cast<int>(canvas.strokes.size()) - 1);
                 _bezierPhase = 0;
                 _bezierPoints.clear();
             }
@@ -2468,6 +2611,8 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
                             std::move(newStroke));
                         bridge->executeCommand(std::move(cmd));
                         _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+                        _selectedStrokeIndices.clear();
+                        _selectedStrokeIndices.insert(static_cast<int>(canvas.strokes.size()) - 1);
                     }
                     _polylinePoints.clear();
                 } else {
@@ -2477,6 +2622,7 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
             _drawingArea.queue_draw();
             return true;
         } else if (_currentTool == CtDrawingTool::Line || _currentTool == CtDrawingTool::Shape) {
+            _selectedStrokeIndices.clear();
             _previewActive = true;
             _previewStart = {px, py};
             _previewEnd = {px, py};
@@ -2493,6 +2639,7 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
             return true;
         } else {
             // Pencil — freehand drawing
+            _selectedStrokeIndices.clear();
             _dragType = CtDrawingDragType::Draw;
             auto& canvasMut = nodeModel->getDrawingCanvasesMut()[ci];
             CtDrawingStroke newStroke;
@@ -3302,6 +3449,8 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
                     std::move(newStroke));
                 bridge->executeCommand(std::move(cmd));
                 _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+                _selectedStrokeIndices.clear();
+                _selectedStrokeIndices.insert(static_cast<int>(canvas.strokes.size()) - 1);
             }
         } else if (!canvas.strokes.empty()) {
             CtDrawingStroke finishedStroke = canvas.strokes.back();
@@ -3312,6 +3461,8 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
                     std::move(finishedStroke));
                 bridge->executeCommand(std::move(cmd));
                 _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+                _selectedStrokeIndices.clear();
+                _selectedStrokeIndices.insert(static_cast<int>(canvas.strokes.size()) - 1);
             }
         }
     }
@@ -3412,6 +3563,11 @@ void CtDrawingOverlay::_showTextDialog(double canvasX, double canvasY, size_t ca
         canvasIdx, std::move(stroke));
     bridge->executeCommand(std::move(cmd));
     _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+    auto nm = bridge->getDocumentModel()->getNodeById(treeIter.get_node_id());
+    if (nm && canvasIdx < nm->getDrawingCanvases().size()) {
+        _selectedStrokeIndices.clear();
+        _selectedStrokeIndices.insert(static_cast<int>(nm->getDrawingCanvases()[canvasIdx].strokes.size()) - 1);
+    }
 }
 
 void CtDrawingOverlay::_strokeBoundingBox(const CtDrawingStroke& stroke,
@@ -3468,6 +3624,7 @@ void CtDrawingOverlay::_strokeBoundingBox(const CtDrawingStroke& stroke,
 
         if (is2Point) {
             double x0 = minX + hw, y0 = minY + hw, x1 = maxX - hw, y1 = maxY - hw;
+            double bw = x1 - x0, bh = y1 - y0;
             double midX = (x0 + x1) / 2.0, midY = (y0 + y1) / 2.0;
             if (stroke.type == CtDrawingElementType::Triangle) {
                 visualPts = {{midX,y0}, {x0,y1}, {x1,y1}};
@@ -3480,6 +3637,19 @@ void CtDrawingOverlay::_strokeBoundingBox(const CtDrawingStroke& stroke,
                     double a = 2.0 * M_PI * s / segs;
                     visualPts.push_back({midX + rx * std::cos(a), midY + ry * std::sin(a)});
                 }
+            } else if (stroke.type == CtDrawingElementType::Arrow) {
+                visualPts = {
+                    {x0, y0+bh*0.3}, {x0+bw*0.65, y0+bh*0.3}, {x0+bw*0.65, y0},
+                    {x1, midY}, {x0+bw*0.65, y1}, {x0+bw*0.65, y0+bh*0.7},
+                    {x0, y0+bh*0.7}
+                };
+            } else if (stroke.type == CtDrawingElementType::DoubleArrow) {
+                visualPts = {
+                    {x0, midY}, {x0+bw*0.35, y0}, {x0+bw*0.35, y0+bh*0.3},
+                    {x0+bw*0.65, y0+bh*0.3}, {x0+bw*0.65, y0},
+                    {x1, midY}, {x0+bw*0.65, y1}, {x0+bw*0.65, y0+bh*0.7},
+                    {x0+bw*0.35, y0+bh*0.7}, {x0+bw*0.35, y1}
+                };
             } else {
                 visualPts = {{x0,y0}, {x1,y0}, {x1,y1}, {x0,y1}};
             }
