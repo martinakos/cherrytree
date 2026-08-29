@@ -267,9 +267,13 @@ std::vector<std::string> CtCommandManager::getUndoStackDescriptions() const
 {
     std::vector<std::string> descriptions;
     descriptions.reserve(_undoStack.size());
-    // Iterate in reverse order (most recent first)
     for (auto it = _undoStack.rbegin(); it != _undoStack.rend(); ++it) {
-        descriptions.push_back((*it)->getDescription());
+        std::string desc = (*it)->getDescription();
+        gint64 nodeId = (*it)->getNodeId();
+        if (nodeId > 0 && (desc.empty() || desc[0] != '[')) {
+            desc = "[" + std::to_string(nodeId) + "] " + desc;
+        }
+        descriptions.push_back(std::move(desc));
     }
     return descriptions;
 }
@@ -278,9 +282,13 @@ std::vector<std::string> CtCommandManager::getRedoStackDescriptions() const
 {
     std::vector<std::string> descriptions;
     descriptions.reserve(_redoStack.size());
-    // Iterate in reverse order (most recent first)
     for (auto it = _redoStack.rbegin(); it != _redoStack.rend(); ++it) {
-        descriptions.push_back((*it)->getDescription());
+        std::string desc = (*it)->getDescription();
+        gint64 nodeId = (*it)->getNodeId();
+        if (nodeId > 0 && (desc.empty() || desc[0] != '[')) {
+            desc = "[" + std::to_string(nodeId) + "] " + desc;
+        }
+        descriptions.push_back(std::move(desc));
     }
     return descriptions;
 }

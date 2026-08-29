@@ -2790,3 +2790,75 @@ TEST_F(DrawingCommandTest, CompoundCommand_GroupPropertyChangeUndoesInOneStep)
     EXPECT_FALSE(strokes[1].filled);
     EXPECT_FALSE(mgr.canUndo());
 }
+
+TEST_F(DrawingCommandTest, AllDrawingCommands_ShowNodeIdInUndoRedoList)
+{
+    const gint64 nodeId = 1;
+    auto node = model->getNodeById(nodeId);
+    auto canvas = makeCanvas(0, 0, 300, 250);
+    canvas.strokes.push_back(makeStroke("#000000", 2.0, {{10,10},{20,20}}));
+    node->getDrawingCanvasesMut().push_back(std::move(canvas));
+
+    CtCommandManager mgr;
+    const std::string prefix = "[" + std::to_string(nodeId) + "] ";
+
+    mgr.executeCommand(std::make_unique<DrawStrokeCommand>(
+        model, nodeId, 0, makeStroke("#ff0000", 1.0, {{0,0},{5,5}})));
+
+    mgr.executeCommand(std::make_unique<EraseStrokeCommand>(
+        model, nodeId, 0,
+        node->getDrawingCanvasesMut()[0].strokes.back(),
+        node->getDrawingCanvasesMut()[0].strokes.size() - 1));
+
+    mgr.executeCommand(std::make_unique<RotateStrokeCommand>(
+        model, nodeId, 0, 0, 0.0, 1.5));
+
+    mgr.executeCommand(std::make_unique<MoveStrokeCommand>(
+        model, nodeId, 0, 0,
+        node->getDrawingCanvasesMut()[0].strokes[0].points,
+        std::vector<CtDrawingPoint>{{15,15},{25,25}}));
+
+    CtDrawingStroke oldStroke = node->getDrawingCanvasesMut()[0].strokes[0];
+    CtDrawingStroke newStroke = oldStroke;
+    newStroke.filled = true;
+    mgr.executeCommand(std::make_unique<StrokePropertiesCommand>(
+        model, nodeId, 0, 0, std::move(oldStroke), std::move(newStroke)));
+
+    mgr.executeCommand(std::make_unique<AddCanvasCommand>(
+        model, nodeId, makeCanvas(10, 10, 100, 80)));
+
+    mgr.executeCommand(std::make_unique<DeleteCanvasCommand>(
+        model, nodeId, node->getDrawingCanvasesMut().back(),
+        node->getDrawingCanvasesMut().size() - 1));
+
+    mgr.executeCommand(std::make_unique<MoveCanvasCommand>(
+        model, nodeId, 0, 0.0, 0.0, 50.0, 50.0));
+
+    mgr.executeCommand(std::make_unique<ResizeCanvasCommand>(
+        model, nodeId, 0, 50.0, 50.0, 300.0, 250.0, 60.0, 60.0, 400.0, 300.0));
+
+    mgr.executeCommand(std::make_unique<CanvasPropertiesCommand>(
+        model, nodeId, 0, "", "test", "", "#ffffff", 1.0, 0.8, 8.0, 12.0, false, true));
+
+    auto compound = std::make_unique<CompoundCommand>("Group operation");
+    compound->setNodeId(nodeId);
+    compound->addCommand(std::make_unique<DrawStrokeCommand>(
+        model, nodeId, 0, makeStroke("#00ff00", 1.0, {{1,1},{2,2}})));
+    mgr.executeCommand(std::move(compound));
+
+    auto undoDescs = mgr.getUndoStackDescriptions();
+    ASSERT_EQ(11u, undoDescs.size());
+    for (size_t i = 0; i < undoDescs.size(); ++i) {
+        EXPECT_EQ(0u, undoDescs[i].find(prefix))
+            << "Undo entry missing node ID prefix: \"" << undoDescs[i] << "\"";
+    }
+
+    while (mgr.canUndo()) mgr.undo();
+
+    auto redoDescs = mgr.getRedoStackDescriptions();
+    ASSERT_EQ(11u, redoDescs.size());
+    for (size_t i = 0; i < redoDescs.size(); ++i) {
+        EXPECT_EQ(0u, redoDescs[i].find(prefix))
+            << "Redo entry missing node ID prefix: \"" << redoDescs[i] << "\"";
+    }
+}
