@@ -71,6 +71,8 @@ enum class CtDrawingTool {
 struct CtDrawingPoint {
     double x;
     double y;
+    bool operator==(const CtDrawingPoint& o) const { return x == o.x && y == o.y; }
+    bool operator!=(const CtDrawingPoint& o) const { return !(*this == o); }
 };
 
 struct CtDrawingStroke {
@@ -205,7 +207,8 @@ private:
     void _showStrokeContextMenu(GdkEventButton* event);
 
     void _strokeBoundingBox(const CtDrawingStroke& stroke,
-                            double& minX, double& minY, double& maxX, double& maxY);
+                            double& minX, double& minY, double& maxX, double& maxY,
+                            bool ignoreRotation = false);
     void _drawSelectionHighlight(const Cairo::RefPtr<Cairo::Context>& cr,
                                  const CtDrawingStroke& stroke,
                                  double cx, double cy, double zoom);
@@ -298,6 +301,14 @@ private:
     int _rotateStrokeIdx{-1};
     double _rotateOrigRotation{0.0};
     double _rotateStartAngle{0.0};
+    bool _rotatingGroup{false};
+    double _rotateGroupCenterX{0.0}, _rotateGroupCenterY{0.0};
+    double _rotateGroupDelta{0.0};
+    double _rotateGroupBBoxMinX{0.0}, _rotateGroupBBoxMinY{0.0};
+    double _rotateGroupBBoxMaxX{0.0}, _rotateGroupBBoxMaxY{0.0};
+    std::map<int, std::vector<CtDrawingPoint>> _rotateSelOrigPoints;
+    std::map<int, double> _rotateSelOrigRotations;
+    std::map<int, std::pair<double,double>> _rotateSelOrigCenters;
 
     int _selectStrokeIdx{-1};
     int _selectDragPointIdx{-1};
@@ -314,6 +325,9 @@ private:
     double _scaleBBoxMinX{0.0}, _scaleBBoxMinY{0.0};
     double _scaleBBoxMaxX{0.0}, _scaleBBoxMaxY{0.0};
     std::map<int, std::vector<CtDrawingPoint>> _scaleOrigPoints;
+    std::map<int, std::vector<CtDrawingPoint>> _scalePreBakePoints;
+    std::map<int, double> _scalePreBakeRotations;
+    std::map<int, CtDrawingElementType> _scalePreBakeTypes;
 
     bool _updatingToolButtons{false};
 
