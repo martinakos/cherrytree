@@ -2535,3 +2535,152 @@ TEST_F(DrawingCommandTest, CompoundCommand_DrawingCanvasIdx)
     compound.setDrawingCanvasIdx(2);
     EXPECT_EQ(2, compound.getDrawingCanvasIdx());
 }
+
+// ── Arrow / DoubleArrow shape tests ─────────────────────────────────────────
+
+TEST_F(DrawingCommandTest, DrawArrowStroke_ExecuteAndUndo)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+
+    auto stroke = makeShapeStroke(CtDrawingElementType::Arrow, "#ff6600", 2.0, false,
+                                   10, 20, 110, 80);
+    DrawStrokeCommand cmd(model, 1, 0, stroke);
+
+    cmd.execute();
+    ASSERT_EQ(1u, node->getDrawingCanvases()[0].strokes.size());
+    const auto& s = node->getDrawingCanvases()[0].strokes[0];
+    EXPECT_EQ(CtDrawingElementType::Arrow, s.type);
+    EXPECT_FALSE(s.filled);
+    EXPECT_EQ(2u, s.points.size());
+
+    cmd.undo();
+    EXPECT_EQ(0u, node->getDrawingCanvases()[0].strokes.size());
+}
+
+TEST_F(DrawingCommandTest, DrawDoubleArrowStroke_ExecuteAndUndo)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+
+    auto stroke = makeShapeStroke(CtDrawingElementType::DoubleArrow, "#0066ff", 3.0, true,
+                                   20, 30, 120, 90);
+    DrawStrokeCommand cmd(model, 1, 0, stroke);
+
+    cmd.execute();
+    ASSERT_EQ(1u, node->getDrawingCanvases()[0].strokes.size());
+    const auto& s = node->getDrawingCanvases()[0].strokes[0];
+    EXPECT_EQ(CtDrawingElementType::DoubleArrow, s.type);
+    EXPECT_TRUE(s.filled);
+    EXPECT_EQ(2u, s.points.size());
+
+    cmd.undo();
+    EXPECT_EQ(0u, node->getDrawingCanvases()[0].strokes.size());
+}
+
+TEST(DrawingXmlTest, RoundTrip_Arrow)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    auto c = makeCanvas(0, 0, 300, 250);
+    c.strokes.push_back(makeShapeStroke(CtDrawingElementType::Arrow, "#ff6600", 2.0, false,
+                                         10, 20, 110, 80));
+    canvases.push_back(std::move(c));
+
+    xmlpp::Document doc;
+    auto* root = doc.create_root_node("node");
+    CtXmlHelper::drawing_canvases_to_xml(root, canvases);
+    auto result = CtXmlHelper::drawing_canvases_from_xml(root);
+
+    ASSERT_EQ(1u, result[0].strokes.size());
+    EXPECT_EQ(CtDrawingElementType::Arrow, result[0].strokes[0].type);
+    EXPECT_FALSE(result[0].strokes[0].filled);
+    EXPECT_DOUBLE_EQ(10.0, result[0].strokes[0].points[0].x);
+}
+
+TEST(DrawingXmlTest, RoundTrip_DoubleArrow)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    auto c = makeCanvas(0, 0, 300, 250);
+    c.strokes.push_back(makeShapeStroke(CtDrawingElementType::DoubleArrow, "#0066ff", 3.0, true,
+                                         20, 30, 120, 90));
+    canvases.push_back(std::move(c));
+
+    xmlpp::Document doc;
+    auto* root = doc.create_root_node("node");
+    CtXmlHelper::drawing_canvases_to_xml(root, canvases);
+    auto result = CtXmlHelper::drawing_canvases_from_xml(root);
+
+    ASSERT_EQ(1u, result[0].strokes.size());
+    EXPECT_EQ(CtDrawingElementType::DoubleArrow, result[0].strokes[0].type);
+    EXPECT_TRUE(result[0].strokes[0].filled);
+}
+
+// ── Arrow baking: rotated 2-point Arrow converts to Freehand polygon ────────
+
+TEST_F(DrawingCommandTest, StrokeProperties_ArrowBakesToFreehandPolygon)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 300, 250));
+
+    CtDrawingStroke arrow;
+    arrow.type = CtDrawingElementType::Arrow;
+    arrow.color = "#ff0000";
+    arrow.lineWidth = 2.0;
+    arrow.opacity = 1.0;
+    arrow.rotation = M_PI / 6.0;
+    arrow.points = {{10, 20}, {110, 80}};
+    node->getDrawingCanvasesMut()[0].strokes.push_back(arrow);
+
+    CtDrawingStroke baked = arrow;
+    double x0 = 10, y0 = 20, x1 = 110, y1 = 80;
+    double bw = x1 - x0, bh = y1 - y0;
+    double midY = (y0 + y1) / 2.0;
+    double scx = (x0 + x1) / 2.0, scy = midY;
+    double cosA = std::cos(arrow.rotation);
+    double sinA = std::sin(arrow.rotation);
+
+    std::vector<CtDrawingPoint> visualPts = {
+        {x0, y0+bh*0.3}, {x0+bw*0.65, y0+bh*0.3}, {x0+bw*0.65, y0},
+        {x1, midY}, {x0+bw*0.65, y1}, {x0+bw*0.65, y0+bh*0.7},
+        {x0, y0+bh*0.7}
+    };
+    baked.points.resize(visualPts.size() + 1);
+    for (size_t v = 0; v < visualPts.size(); ++v) {
+        double dx = visualPts[v].x - scx;
+        double dy = visualPts[v].y - scy;
+        baked.points[v].x = scx + dx * cosA - dy * sinA;
+        baked.points[v].y = scy + dx * sinA + dy * cosA;
+    }
+    baked.points[visualPts.size()] = baked.points[0];
+    baked.type = CtDrawingElementType::Freehand;
+    baked.rotation = 0.0;
+
+    StrokePropertiesCommand cmd(model, 1, 0, 0, arrow, baked);
+    cmd.execute();
+
+    const auto& s = node->getDrawingCanvases()[0].strokes[0];
+    EXPECT_EQ(CtDrawingElementType::Freehand, s.type);
+    EXPECT_DOUBLE_EQ(0.0, s.rotation);
+    EXPECT_EQ(8u, s.points.size());
+    EXPECT_EQ(s.points.front(), s.points.back());
+
+    cmd.undo();
+    const auto& orig = node->getDrawingCanvases()[0].strokes[0];
+    EXPECT_EQ(CtDrawingElementType::Arrow, orig.type);
+    EXPECT_DOUBLE_EQ(M_PI / 6.0, orig.rotation);
+    EXPECT_EQ(2u, orig.points.size());
+}
+
+// ── Closed freehand polygon supports fill ───────────────────────────────────
+
+TEST(DrawingPointTest, ClosedPolygonDetection)
+{
+    CtDrawingStroke s;
+    s.type = CtDrawingElementType::Freehand;
+    s.points = {{10, 20}, {50, 60}, {90, 20}, {10, 20}};
+    EXPECT_EQ(s.points.front(), s.points.back());
+    EXPECT_EQ(4u, s.points.size());
+
+    s.filled = true;
+    EXPECT_TRUE(s.filled);
+}

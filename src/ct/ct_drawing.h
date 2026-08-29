@@ -43,7 +43,9 @@ enum class CtDrawingElementType {
     Triangle,
     Diamond,
     RoundedRectangle,
-    BezierCurve
+    BezierCurve,
+    Arrow,
+    DoubleArrow
 };
 
 enum class CtDrawingLineStyle {
