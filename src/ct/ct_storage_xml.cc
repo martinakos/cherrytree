@@ -1072,6 +1072,12 @@ void CtXmlHelper::drawing_canvases_to_xml(xmlpp::Element* p_node_node,
             if (stroke.type == CtDrawingElementType::Text) {
                 p_stroke->set_attribute("font_family", stroke.fontFamily);
                 p_stroke->set_attribute("font_size", std::to_string(stroke.fontSize));
+                if (!stroke.fontTransform.isIdentity()) {
+                    p_stroke->set_attribute("font_tf_a", std::to_string(stroke.fontTransform.a));
+                    p_stroke->set_attribute("font_tf_b", std::to_string(stroke.fontTransform.b));
+                    p_stroke->set_attribute("font_tf_c", std::to_string(stroke.fontTransform.c));
+                    p_stroke->set_attribute("font_tf_d", std::to_string(stroke.fontTransform.d));
+                }
             }
             std::string pointsStr;
             for (size_t i = 0; i < stroke.points.size(); ++i) {
@@ -1141,6 +1147,14 @@ std::vector<CtDrawingCanvas> CtXmlHelper::drawing_canvases_from_xml(const xmlpp:
                 if (!fontFamStr.empty()) stroke.fontFamily = fontFamStr;
                 auto fontSzStr = strokeElem->get_attribute_value("font_size");
                 if (!fontSzStr.empty()) stroke.fontSize = std::stod(fontSzStr);
+                auto ftA = strokeElem->get_attribute_value("font_tf_a");
+                if (!ftA.empty()) stroke.fontTransform.a = std::stod(ftA);
+                auto ftB = strokeElem->get_attribute_value("font_tf_b");
+                if (!ftB.empty()) stroke.fontTransform.b = std::stod(ftB);
+                auto ftC = strokeElem->get_attribute_value("font_tf_c");
+                if (!ftC.empty()) stroke.fontTransform.c = std::stod(ftC);
+                auto ftD = strokeElem->get_attribute_value("font_tf_d");
+                if (!ftD.empty()) stroke.fontTransform.d = std::stod(ftD);
                 // parse points from text content
                 auto* textNode = strokeElem->get_child_text();
                 if (textNode) {
