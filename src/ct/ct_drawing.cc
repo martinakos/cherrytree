@@ -233,8 +233,12 @@ void CtDrawingOverlay::setCurrentTool(CtDrawingTool tool)
     _selectBandEndX = _selectBandEndY = 0.0;
     _scaleHandleIdx = -1;
     _scaleOrigPoints.clear();
+    _scaleOrigFontTransforms.clear();
+    _scaleOrigTextCenters.clear();
+    _scaleTextDims.clear();
     _scalePreBakePoints.clear();
     _scalePreBakeRotations.clear();
+
     _scalePreBakeTypes.clear();
     _updateToolButtonStates();
     _drawingArea.queue_draw();
@@ -261,8 +265,12 @@ void CtDrawingOverlay::resetSelection()
     _selectBandEndX = _selectBandEndY = 0.0;
     _scaleHandleIdx = -1;
     _scaleOrigPoints.clear();
+    _scaleOrigFontTransforms.clear();
+    _scaleOrigTextCenters.clear();
+    _scaleTextDims.clear();
     _scalePreBakePoints.clear();
     _scalePreBakeRotations.clear();
+
     _scalePreBakeTypes.clear();
     _hideToolbar();
     _drawingArea.queue_draw();
@@ -1464,8 +1472,9 @@ void CtDrawingOverlay::_strokeCenter(const CtDrawingStroke& stroke, double& cent
         layout->set_font_description(fd);
         int pw, ph;
         layout->get_pixel_size(pw, ph);
-        centerX = stroke.points[0].x + pw / 2.0;
-        centerY = stroke.points[0].y + ph / 2.0;
+        const auto& ft = stroke.fontTransform;
+        centerX = stroke.points[0].x + (ft.a * pw + ft.b * ph) / 2.0;
+        centerY = stroke.points[0].y + (ft.c * pw + ft.d * ph) / 2.0;
         return;
     }
     if (stroke.points.size() == 1) {
@@ -1532,8 +1541,21 @@ void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
         fd.set_family(stroke.fontFamily);
         fd.set_size(static_cast<int>(stroke.fontSize * zoom * Pango::SCALE));
         layout->set_font_description(fd);
-        cr->move_to(cx + stroke.points[0].x * zoom, cy + stroke.points[0].y * zoom);
+        double tx = cx + stroke.points[0].x * zoom;
+        double ty = cy + stroke.points[0].y * zoom;
+        const auto& ft = stroke.fontTransform;
+        if (!ft.isIdentity()) {
+            cr->save();
+            cr->translate(tx, ty);
+            Cairo::Matrix m(ft.a, ft.c, ft.b, ft.d, 0, 0);
+            cr->transform(m);
+            cr->translate(-tx, -ty);
+        }
+        cr->move_to(tx, ty);
         layout->show_in_cairo_context(cr);
+        if (!ft.isIdentity()) {
+            cr->restore();
+        }
         break;
     }
     case CtDrawingElementType::Line: {
@@ -1900,7 +1922,13 @@ int CtDrawingOverlay::_hitTestStroke(double mx, double my,
             layout->get_pixel_size(tw, th);
             double tx = cx + pts[0].x * zoom;
             double ty = cy + pts[0].y * zoom;
-            if (mx >= tx && mx <= tx + tw && my >= ty && my <= ty + th) {
+            const auto& ft = stroke.fontTransform;
+            double det = ft.a * ft.d - ft.b * ft.c;
+            if (std::abs(det) < 1e-12) continue;
+            double dx = mx - tx, dy = my - ty;
+            double ux = ( ft.d * dx - ft.b * dy) / det;
+            double uy = (-ft.c * dx + ft.a * dy) / det;
+            if (ux >= 0 && ux <= tw && uy >= 0 && uy <= th) {
                 dist = 0.0;
             }
             break;
@@ -2381,11 +2409,13 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
                         auto& canvasMut = nodeModel->getDrawingCanvasesMut()[ci];
                         _scalePreBakePoints.clear();
                         _scalePreBakeRotations.clear();
+                    
                         _scalePreBakeTypes.clear();
                         for (int idx : _selectedStrokeIndices) {
                             if (static_cast<size_t>(idx) >= canvasMut.strokes.size()) continue;
                             auto& stroke = canvasMut.strokes[idx];
                             if (std::abs(stroke.rotation) < 1e-6) continue;
+                            if (stroke.type == CtDrawingElementType::Text) continue;
                             _scalePreBakePoints[idx] = stroke.points;
                             _scalePreBakeRotations[idx] = stroke.rotation;
                             double scx, scy;
@@ -2480,9 +2510,29 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
                         _scaleBBoxMaxX = bMaxX;
                         _scaleBBoxMaxY = bMaxY;
                         _scaleOrigPoints.clear();
+                        _scaleOrigFontTransforms.clear();
+                        _scaleOrigTextCenters.clear();
+                        _scaleTextDims.clear();
                         for (int idx : _selectedStrokeIndices) {
                             if (static_cast<size_t>(idx) < canvasMut.strokes.size()) {
                                 _scaleOrigPoints[idx] = canvasMut.strokes[idx].points;
+                                if (canvasMut.strokes[idx].type == CtDrawingElementType::Text) {
+                                    _scaleOrigFontTransforms[idx] = canvasMut.strokes[idx].fontTransform;
+                                    double cx, cy;
+                                    _strokeCenter(canvasMut.strokes[idx], cx, cy);
+                                    _scaleOrigTextCenters[idx] = {cx, cy};
+                                    auto surface = Cairo::ImageSurface::create(Cairo::FORMAT_ARGB32, 1, 1);
+                                    auto tmpCr = Cairo::Context::create(surface);
+                                    auto layout = Pango::Layout::create(tmpCr);
+                                    layout->set_text(canvasMut.strokes[idx].textContent);
+                                    Pango::FontDescription fd;
+                                    fd.set_family(canvasMut.strokes[idx].fontFamily);
+                                    fd.set_size(static_cast<int>(canvasMut.strokes[idx].fontSize * Pango::SCALE));
+                                    layout->set_font_description(fd);
+                                    int tw, th;
+                                    layout->get_pixel_size(tw, th);
+                                    _scaleTextDims[idx] = {tw, th};
+                                }
                             }
                         }
                         _dragType = CtDrawingDragType::ScaleSelection;
@@ -2509,8 +2559,12 @@ bool CtDrawingOverlay::_onButtonPress(GdkEventButton* event)
             }
             _scaleHandleIdx = -1;
             _scaleOrigPoints.clear();
+            _scaleOrigFontTransforms.clear();
+            _scaleOrigTextCenters.clear();
+            _scaleTextDims.clear();
             _scalePreBakePoints.clear();
             _scalePreBakeRotations.clear();
+
             _scalePreBakeTypes.clear();
             _drawingArea.queue_draw();
             return true;
@@ -2971,9 +3025,36 @@ bool CtDrawingOverlay::_onMotionNotify(GdkEventMotion* event)
         for (auto& [idx, origPts] : _scaleOrigPoints) {
             if (static_cast<size_t>(idx) >= canvas.strokes.size()) continue;
             auto& pts = canvas.strokes[idx].points;
-            for (size_t i = 0; i < pts.size() && i < origPts.size(); ++i) {
-                pts[i].x = _scaleAnchorX + (origPts[i].x - _scaleAnchorX) * scaleX;
-                pts[i].y = _scaleAnchorY + (origPts[i].y - _scaleAnchorY) * scaleY;
+
+            if (_scaleOrigFontTransforms.count(idx)) {
+                const auto& M = _scaleOrigFontTransforms[idx];
+                double rot = canvas.strokes[idx].rotation;
+                double cosR = std::cos(rot), sinR = std::sin(rot);
+                double t11 = scaleX * cosR * cosR + scaleY * sinR * sinR;
+                double t12 = (scaleY - scaleX) * cosR * sinR;
+                double t21 = t12;
+                double t22 = scaleX * sinR * sinR + scaleY * cosR * cosR;
+                auto& ft = canvas.strokes[idx].fontTransform;
+                ft.a = t11 * M.a + t12 * M.c;
+                ft.b = t11 * M.b + t12 * M.d;
+                ft.c = t21 * M.a + t22 * M.c;
+                ft.d = t21 * M.b + t22 * M.d;
+
+                if (_scaleOrigTextCenters.count(idx) && _scaleTextDims.count(idx)) {
+                    auto [origCx, origCy] = _scaleOrigTextCenters[idx];
+                    auto [tw, th] = _scaleTextDims[idx];
+                    double targetCx = _scaleAnchorX + (origCx - _scaleAnchorX) * scaleX;
+                    double targetCy = _scaleAnchorY + (origCy - _scaleAnchorY) * scaleY;
+                    double newCrx = (ft.a * tw + ft.b * th) / 2.0;
+                    double newCry = (ft.c * tw + ft.d * th) / 2.0;
+                    pts[0].x = targetCx - newCrx;
+                    pts[0].y = targetCy - newCry;
+                }
+            } else {
+                for (size_t i = 0; i < pts.size() && i < origPts.size(); ++i) {
+                    pts[i].x = _scaleAnchorX + (origPts[i].x - _scaleAnchorX) * scaleX;
+                    pts[i].y = _scaleAnchorY + (origPts[i].y - _scaleAnchorY) * scaleY;
+                }
             }
         }
         _drawingArea.queue_draw();
@@ -3346,16 +3427,21 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
                 ? _scalePreBakeRotations[idx] : stroke.rotation;
 
             bool typeChanged = _scalePreBakeTypes.count(idx) > 0;
+            bool fontTransformChanged = _scaleOrigFontTransforms.count(idx) > 0;
 
-            if (typeChanged) {
+            if (typeChanged || fontTransformChanged) {
                 CtDrawingStroke oldStroke = stroke;
                 oldStroke.points = oldPts;
                 oldStroke.rotation = oldRot;
-                oldStroke.type = _scalePreBakeTypes[idx];
+                if (typeChanged) oldStroke.type = _scalePreBakeTypes[idx];
+                if (fontTransformChanged) {
+                    oldStroke.fontTransform = _scaleOrigFontTransforms[idx];
+                }
 
                 bool changed = (oldStroke.points != newStroke.points ||
                                 oldStroke.rotation != newStroke.rotation ||
-                                oldStroke.type != newStroke.type);
+                                oldStroke.type != newStroke.type ||
+                                oldStroke.fontTransform != newStroke.fontTransform);
 
                 stroke = oldStroke;
 
@@ -3403,8 +3489,12 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
             _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
         }
         _scaleOrigPoints.clear();
+        _scaleOrigFontTransforms.clear();
+        _scaleOrigTextCenters.clear();
+        _scaleTextDims.clear();
         _scalePreBakePoints.clear();
         _scalePreBakeRotations.clear();
+
         _scalePreBakeTypes.clear();
         _scaleHandleIdx = -1;
     }
@@ -3590,6 +3680,8 @@ void CtDrawingOverlay::_strokeBoundingBox(const CtDrawingStroke& stroke,
         return;
     }
 
+    double _textCornersX[4]{}, _textCornersY[4]{};
+    bool _hasTextCorners = false;
     if (stroke.type == CtDrawingElementType::Text && !stroke.textContent.empty()) {
         auto surface = Cairo::ImageSurface::create(Cairo::FORMAT_ARGB32, 1, 1);
         auto tmpCr = Cairo::Context::create(surface);
@@ -3601,10 +3693,17 @@ void CtDrawingOverlay::_strokeBoundingBox(const CtDrawingStroke& stroke,
         layout->set_font_description(fd);
         int tw, th;
         layout->get_pixel_size(tw, th);
-        minX = stroke.points[0].x;
-        minY = stroke.points[0].y;
-        maxX = minX + tw;
-        maxY = minY + th;
+        const auto& ft = stroke.fontTransform;
+        double ax = stroke.points[0].x, ay = stroke.points[0].y;
+        _textCornersX[0] = ax;                               _textCornersY[0] = ay;
+        _textCornersX[1] = ax + ft.a * tw;                   _textCornersY[1] = ay + ft.c * tw;
+        _textCornersX[2] = ax + ft.a * tw + ft.b * th;       _textCornersY[2] = ay + ft.c * tw + ft.d * th;
+        _textCornersX[3] = ax + ft.b * th;                   _textCornersY[3] = ay + ft.d * th;
+        _hasTextCorners = true;
+        minX = *std::min_element(_textCornersX, _textCornersX + 4);
+        minY = *std::min_element(_textCornersY, _textCornersY + 4);
+        maxX = *std::max_element(_textCornersX, _textCornersX + 4);
+        maxY = *std::max_element(_textCornersY, _textCornersY + 4);
     } else {
         minX = maxX = stroke.points[0].x;
         minY = maxY = stroke.points[0].y;
@@ -3663,6 +3762,9 @@ void CtDrawingOverlay::_strokeBoundingBox(const CtDrawingStroke& stroke,
             } else {
                 visualPts = {{x0,y0}, {x1,y0}, {x1,y1}, {x0,y1}};
             }
+        } else if (_hasTextCorners) {
+            for (int ti = 0; ti < 4; ++ti)
+                visualPts.push_back({_textCornersX[ti], _textCornersY[ti]});
         } else {
             for (const auto& p : stroke.points) {
                 visualPts.push_back({p.x, p.y});
@@ -3691,8 +3793,9 @@ void CtDrawingOverlay::_drawSelectionHighlight(const Cairo::RefPtr<Cairo::Contex
                                                 const CtDrawingStroke& stroke,
                                                 double cx, double cy, double zoom)
 {
+    bool axisAligned = (_currentTool == CtDrawingTool::Scale);
     double minX, minY, maxX, maxY;
-    _strokeBoundingBox(stroke, minX, minY, maxX, maxY, true);
+    _strokeBoundingBox(stroke, minX, minY, maxX, maxY, !axisAligned);
 
     double sx = cx + minX * zoom;
     double sy = cy + minY * zoom;
@@ -3704,7 +3807,7 @@ void CtDrawingOverlay::_drawSelectionHighlight(const Cairo::RefPtr<Cairo::Contex
     std::vector<double> dashes{4.0, 3.0};
     cr->set_dash(dashes, 0.0);
 
-    if (std::abs(stroke.rotation) > 1e-6) {
+    if (!axisAligned && std::abs(stroke.rotation) > 1e-6) {
         double scx, scy;
         _strokeCenter(stroke, scx, scy);
         double pivotX = cx + scx * zoom;

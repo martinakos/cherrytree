@@ -77,6 +77,15 @@ struct CtDrawingPoint {
     bool operator!=(const CtDrawingPoint& o) const { return !(*this == o); }
 };
 
+struct CtFontTransform {
+    double a{1.0}, b{0.0}, c{0.0}, d{1.0};
+    bool isIdentity() const {
+        return std::abs(a-1.0)<1e-6 && std::abs(b)<1e-6 && std::abs(c)<1e-6 && std::abs(d-1.0)<1e-6;
+    }
+    bool operator==(const CtFontTransform& o) const { return a==o.a && b==o.b && c==o.c && d==o.d; }
+    bool operator!=(const CtFontTransform& o) const { return !(*this == o); }
+};
+
 struct CtDrawingStroke {
     std::vector<CtDrawingPoint> points;
     std::string color{"#000000"};
@@ -89,6 +98,7 @@ struct CtDrawingStroke {
     std::string textContent;
     std::string fontFamily{"Sans"};
     double fontSize{14.0};
+    CtFontTransform fontTransform;
     double rotation{0.0};
     CtDrawingArrowHead arrowHead{CtDrawingArrowHead::None};
     CtDrawingArrowStyle arrowStyle{CtDrawingArrowStyle::Solid};
@@ -327,6 +337,9 @@ private:
     double _scaleBBoxMinX{0.0}, _scaleBBoxMinY{0.0};
     double _scaleBBoxMaxX{0.0}, _scaleBBoxMaxY{0.0};
     std::map<int, std::vector<CtDrawingPoint>> _scaleOrigPoints;
+    std::map<int, CtFontTransform> _scaleOrigFontTransforms;
+    std::map<int, std::pair<double,double>> _scaleOrigTextCenters;
+    std::map<int, std::pair<int,int>> _scaleTextDims;
     std::map<int, std::vector<CtDrawingPoint>> _scalePreBakePoints;
     std::map<int, double> _scalePreBakeRotations;
     std::map<int, CtDrawingElementType> _scalePreBakeTypes;

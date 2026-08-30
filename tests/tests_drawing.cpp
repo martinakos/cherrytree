@@ -2862,3 +2862,305 @@ TEST_F(DrawingCommandTest, AllDrawingCommands_ShowNodeIdInUndoRedoList)
             << "Redo entry missing node ID prefix: \"" << redoDescs[i] << "\"";
     }
 }
+
+// ── CtFontTransform tests ──────────────────────────────────────────────────
+
+TEST(FontTransformTest, Identity)
+{
+    CtFontTransform ft;
+    EXPECT_TRUE(ft.isIdentity());
+    EXPECT_DOUBLE_EQ(1.0, ft.a);
+    EXPECT_DOUBLE_EQ(0.0, ft.b);
+    EXPECT_DOUBLE_EQ(0.0, ft.c);
+    EXPECT_DOUBLE_EQ(1.0, ft.d);
+}
+
+TEST(FontTransformTest, NonIdentity)
+{
+    CtFontTransform ft;
+    ft.a = 2.0;
+    EXPECT_FALSE(ft.isIdentity());
+}
+
+TEST(FontTransformTest, Equality)
+{
+    CtFontTransform a, b;
+    EXPECT_EQ(a, b);
+    b.a = 1.5;
+    EXPECT_NE(a, b);
+    a.a = 1.5;
+    EXPECT_EQ(a, b);
+}
+
+// ── FontTransform XML round-trip ───────────────────────────────────────────
+
+TEST(DrawingXmlTest, RoundTrip_FontTransform)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    auto c = makeCanvas(0, 0, 400, 300);
+    CtDrawingStroke s;
+    s.type = CtDrawingElementType::Text;
+    s.color = "#000000";
+    s.lineWidth = 1.0;
+    s.opacity = 1.0;
+    s.textContent = "Hello";
+    s.fontFamily = "Serif";
+    s.fontSize = 18.0;
+    s.rotation = 0.5;
+    s.fontTransform = {1.5, 0.1, 0.2, 0.8};
+    s.points.push_back({50, 60});
+    c.strokes.push_back(std::move(s));
+    canvases.push_back(std::move(c));
+
+    xmlpp::Document doc;
+    auto* root = doc.create_root_node("node");
+    CtXmlHelper::drawing_canvases_to_xml(root, canvases);
+    auto result = CtXmlHelper::drawing_canvases_from_xml(root);
+
+    ASSERT_EQ(1u, result.size());
+    ASSERT_EQ(1u, result[0].strokes.size());
+    const auto& rs = result[0].strokes[0];
+    EXPECT_EQ(CtDrawingElementType::Text, rs.type);
+    EXPECT_EQ("Hello", rs.textContent);
+    EXPECT_EQ("Serif", rs.fontFamily);
+    EXPECT_DOUBLE_EQ(18.0, rs.fontSize);
+    EXPECT_NEAR(0.5, rs.rotation, 1e-6);
+    EXPECT_NEAR(1.5, rs.fontTransform.a, 1e-6);
+    EXPECT_NEAR(0.1, rs.fontTransform.b, 1e-6);
+    EXPECT_NEAR(0.2, rs.fontTransform.c, 1e-6);
+    EXPECT_NEAR(0.8, rs.fontTransform.d, 1e-6);
+}
+
+TEST(DrawingXmlTest, RoundTrip_FontTransformIdentity_NotWritten)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    auto c = makeCanvas(0, 0, 400, 300);
+    CtDrawingStroke s;
+    s.type = CtDrawingElementType::Text;
+    s.color = "#000000";
+    s.lineWidth = 1.0;
+    s.opacity = 1.0;
+    s.textContent = "Test";
+    s.points.push_back({10, 20});
+    c.strokes.push_back(std::move(s));
+    canvases.push_back(std::move(c));
+
+    xmlpp::Document doc;
+    auto* root = doc.create_root_node("node");
+    CtXmlHelper::drawing_canvases_to_xml(root, canvases);
+
+    std::string xml = doc.write_to_string();
+    EXPECT_EQ(std::string::npos, xml.find("font_tf_a"));
+
+    auto result = CtXmlHelper::drawing_canvases_from_xml(root);
+    ASSERT_EQ(1u, result.size());
+    ASSERT_EQ(1u, result[0].strokes.size());
+    EXPECT_TRUE(result[0].strokes[0].fontTransform.isIdentity());
+}
+
+// ── FontTransform StrokePropertiesCommand ──────────────────────────────────
+
+TEST_F(DrawingCommandTest, StrokeProperties_ChangeFontTransform)
+{
+    auto node = model->getNodeById(1);
+    node->getDrawingCanvasesMut().push_back(makeCanvas(0, 0, 400, 300));
+    CtDrawingStroke s;
+    s.type = CtDrawingElementType::Text;
+    s.color = "#000000";
+    s.lineWidth = 1.0;
+    s.opacity = 1.0;
+    s.textContent = "Scale me";
+    s.points.push_back({50, 60});
+    node->getDrawingCanvasesMut()[0].strokes.push_back(std::move(s));
+
+    CtDrawingStroke oldStroke = node->getDrawingCanvases()[0].strokes[0];
+    CtDrawingStroke newStroke = oldStroke;
+    newStroke.fontTransform = {2.0, 0.3, -0.1, 1.5};
+    newStroke.points[0] = {70, 80};
+
+    StrokePropertiesCommand cmd(model, 1, 0, 0, oldStroke, newStroke);
+
+    cmd.execute();
+    const auto& after = node->getDrawingCanvases()[0].strokes[0];
+    EXPECT_NEAR(2.0, after.fontTransform.a, 1e-9);
+    EXPECT_NEAR(0.3, after.fontTransform.b, 1e-9);
+    EXPECT_NEAR(-0.1, after.fontTransform.c, 1e-9);
+    EXPECT_NEAR(1.5, after.fontTransform.d, 1e-9);
+    EXPECT_NEAR(70.0, after.points[0].x, 1e-9);
+    EXPECT_NEAR(80.0, after.points[0].y, 1e-9);
+
+    cmd.undo();
+    const auto& reverted = node->getDrawingCanvases()[0].strokes[0];
+    EXPECT_TRUE(reverted.fontTransform.isIdentity());
+    EXPECT_NEAR(50.0, reverted.points[0].x, 1e-9);
+    EXPECT_NEAR(60.0, reverted.points[0].y, 1e-9);
+}
+
+// ── SQLite INSERT with explicit column names vs wrong column order ─────────
+
+TEST(DrawingSqliteMigrationTest, InsertWithExplicitColumns_WrongPhysicalOrder)
+{
+    sqlite3* db = nullptr;
+    ASSERT_EQ(SQLITE_OK, sqlite3_open(":memory:", &db));
+
+    auto sqlExec = [&](const char* sql) {
+        char* err = nullptr;
+        sqlite3_exec(db, sql, nullptr, nullptr, &err);
+        if (err) sqlite3_free(err);
+    };
+
+    sqlExec("CREATE TABLE drawing_stroke ("
+            "node_id INTEGER, canvas_index INTEGER, stroke_index INTEGER,"
+            "color TEXT, width REAL, opacity REAL DEFAULT 1.0, points TEXT,"
+            "PRIMARY KEY (node_id, canvas_index, stroke_index))");
+
+    // Simulate the OLD (wrong) migration order: font_tf before line_style
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN element_type INTEGER DEFAULT 0");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN filled INTEGER DEFAULT 0");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN text_content TEXT DEFAULT ''");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN font_family TEXT DEFAULT 'Sans'");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN font_size REAL DEFAULT 14.0");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN font_tf_a REAL DEFAULT 1.0");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN font_tf_b REAL DEFAULT 0.0");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN font_tf_c REAL DEFAULT 0.0");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN font_tf_d REAL DEFAULT 1.0");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN line_style INTEGER DEFAULT 0");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN rotation REAL DEFAULT 0.0");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN arrow_head INTEGER DEFAULT 0");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN arrow_style INTEGER DEFAULT 0");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN fill_color TEXT DEFAULT '#ffffff'");
+
+    // INSERT using explicit column names (as the fixed code does)
+    sqlite3_stmt* stmt = nullptr;
+    ASSERT_EQ(SQLITE_OK, sqlite3_prepare_v2(db,
+        "INSERT INTO drawing_stroke(node_id,canvas_index,stroke_index,"
+        "color,width,opacity,points,element_type,filled,text_content,font_family,font_size,"
+        "line_style,rotation,arrow_head,arrow_style,fill_color,"
+        "font_tf_a,font_tf_b,font_tf_c,font_tf_d) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        -1, &stmt, nullptr));
+
+    sqlite3_bind_int64(stmt, 1, 1);
+    sqlite3_bind_int(stmt, 2, 0);
+    sqlite3_bind_int(stmt, 3, 0);
+    sqlite3_bind_text(stmt, 4, "#ff0000", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_double(stmt, 5, 2.0);
+    sqlite3_bind_double(stmt, 6, 0.8);
+    sqlite3_bind_text(stmt, 7, "10.0,20.0;30.0,40.0", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 8, 7);     // element_type = Text
+    sqlite3_bind_int(stmt, 9, 0);
+    sqlite3_bind_text(stmt, 10, "Hello", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 11, "Serif", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_double(stmt, 12, 18.0);
+    sqlite3_bind_int(stmt, 13, 2);    // line_style
+    sqlite3_bind_double(stmt, 14, 0.5); // rotation
+    sqlite3_bind_int(stmt, 15, 1);    // arrow_head
+    sqlite3_bind_int(stmt, 16, 0);    // arrow_style
+    sqlite3_bind_text(stmt, 17, "#00ff00", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_double(stmt, 18, 1.5); // font_tf_a
+    sqlite3_bind_double(stmt, 19, 0.1); // font_tf_b
+    sqlite3_bind_double(stmt, 20, 0.2); // font_tf_c
+    sqlite3_bind_double(stmt, 21, 0.8); // font_tf_d
+    ASSERT_EQ(SQLITE_DONE, sqlite3_step(stmt));
+    sqlite3_finalize(stmt);
+
+    // Read back by column name — should get correct values
+    sqlite3_stmt* sel = nullptr;
+    sqlite3_prepare_v2(db,
+        "SELECT color, rotation, fill_color, font_tf_a, font_tf_b, font_tf_c, font_tf_d, line_style, text_content "
+        "FROM drawing_stroke WHERE node_id=1",
+        -1, &sel, nullptr);
+    ASSERT_EQ(SQLITE_ROW, sqlite3_step(sel));
+
+    EXPECT_STREQ("#ff0000", reinterpret_cast<const char*>(sqlite3_column_text(sel, 0)));
+    EXPECT_DOUBLE_EQ(0.5, sqlite3_column_double(sel, 1));
+    EXPECT_STREQ("#00ff00", reinterpret_cast<const char*>(sqlite3_column_text(sel, 2)));
+    EXPECT_DOUBLE_EQ(1.5, sqlite3_column_double(sel, 3));
+    EXPECT_DOUBLE_EQ(0.1, sqlite3_column_double(sel, 4));
+    EXPECT_DOUBLE_EQ(0.2, sqlite3_column_double(sel, 5));
+    EXPECT_DOUBLE_EQ(0.8, sqlite3_column_double(sel, 6));
+    EXPECT_EQ(2, sqlite3_column_int(sel, 7));
+    EXPECT_STREQ("Hello", reinterpret_cast<const char*>(sqlite3_column_text(sel, 8)));
+
+    sqlite3_finalize(sel);
+    sqlite3_close(db);
+}
+
+TEST(DrawingSqliteMigrationTest, PositionalInsert_WrongOnMigratedDB)
+{
+    sqlite3* db = nullptr;
+    ASSERT_EQ(SQLITE_OK, sqlite3_open(":memory:", &db));
+
+    auto sqlExec = [&](const char* sql) {
+        char* err = nullptr;
+        sqlite3_exec(db, sql, nullptr, nullptr, &err);
+        if (err) sqlite3_free(err);
+    };
+
+    sqlExec("CREATE TABLE drawing_stroke ("
+            "node_id INTEGER, canvas_index INTEGER, stroke_index INTEGER,"
+            "color TEXT, width REAL, opacity REAL DEFAULT 1.0, points TEXT,"
+            "PRIMARY KEY (node_id, canvas_index, stroke_index))");
+
+    // Wrong migration order (font_tf before line_style)
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN element_type INTEGER DEFAULT 0");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN filled INTEGER DEFAULT 0");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN text_content TEXT DEFAULT ''");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN font_family TEXT DEFAULT 'Sans'");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN font_size REAL DEFAULT 14.0");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN font_tf_a REAL DEFAULT 1.0");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN font_tf_b REAL DEFAULT 0.0");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN font_tf_c REAL DEFAULT 0.0");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN font_tf_d REAL DEFAULT 1.0");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN line_style INTEGER DEFAULT 0");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN rotation REAL DEFAULT 0.0");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN arrow_head INTEGER DEFAULT 0");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN arrow_style INTEGER DEFAULT 0");
+    sqlExec("ALTER TABLE drawing_stroke ADD COLUMN fill_color TEXT DEFAULT '#ffffff'");
+
+    // Positional INSERT (the old bug): puts rotation value into font_tf_b column
+    sqlite3_stmt* stmt = nullptr;
+    ASSERT_EQ(SQLITE_OK, sqlite3_prepare_v2(db,
+        "INSERT INTO drawing_stroke VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        -1, &stmt, nullptr));
+    sqlite3_bind_int64(stmt, 1, 1);
+    sqlite3_bind_int(stmt, 2, 0);
+    sqlite3_bind_int(stmt, 3, 0);
+    sqlite3_bind_text(stmt, 4, "#ff0000", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_double(stmt, 5, 2.0);
+    sqlite3_bind_double(stmt, 6, 1.0);
+    sqlite3_bind_text(stmt, 7, "10,20", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 8, 0);
+    sqlite3_bind_int(stmt, 9, 0);
+    sqlite3_bind_text(stmt, 10, "", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 11, "Sans", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_double(stmt, 12, 14.0);
+    sqlite3_bind_int(stmt, 13, 2);       // intended: line_style=2
+    sqlite3_bind_double(stmt, 14, 0.5);  // intended: rotation=0.5
+    sqlite3_bind_int(stmt, 15, 0);
+    sqlite3_bind_int(stmt, 16, 0);
+    sqlite3_bind_text(stmt, 17, "#00ff00", -1, SQLITE_TRANSIENT);
+    sqlite3_bind_double(stmt, 18, 1.0);
+    sqlite3_bind_double(stmt, 19, 0.0);
+    sqlite3_bind_double(stmt, 20, 0.0);
+    sqlite3_bind_double(stmt, 21, 1.0);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+
+    // Read back — rotation and line_style should be in the WRONG columns
+    sqlite3_stmt* sel = nullptr;
+    sqlite3_prepare_v2(db,
+        "SELECT rotation, line_style, font_tf_a FROM drawing_stroke WHERE node_id=1",
+        -1, &sel, nullptr);
+    ASSERT_EQ(SQLITE_ROW, sqlite3_step(sel));
+
+    // With positional INSERT on wrong-order table:
+    // position 13 (line_style=2) went into font_tf_a column
+    // position 14 (rotation=0.5) went into font_tf_b column
+    // So rotation column got font_tf_a value (1.0), not 0.5
+    EXPECT_NE(0.5, sqlite3_column_double(sel, 0));
+    // And font_tf_a column got line_style value (2), not 1.0
+    EXPECT_NE(1.0, sqlite3_column_double(sel, 2));
+
+    sqlite3_finalize(sel);
+    sqlite3_close(db);
+}
