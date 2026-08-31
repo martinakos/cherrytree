@@ -934,7 +934,16 @@ void CtMainWin::update_theme()
     css_str += ".ct-toolbar4 .ct-toolbar4-menu-btn { border-left: 2px solid rgba(0,0,0,0.2); padding: 0px 4px 0px 6px; } ";
     css_str += ".ct-toolbar4 separator.ct-toolbar4-separator { margin: 0px 3px 0px 3px; min-width: 1px; } ";
 #endif
-    css_str += "textview border { background-color: transparent; } "; // Loss of transparency with PNGs (#1402, #2132)
+    {
+        Gdk::RGBA bgRgba = _pCtConfig->get_rt_bg_color();
+        std::string bgHex = fmt::format("#{:02x}{:02x}{:02x}",
+            static_cast<int>(bgRgba.get_red()   * 255),
+            static_cast<int>(bgRgba.get_green() * 255),
+            static_cast<int>(bgRgba.get_blue()  * 255));
+        css_str += "textview border { background-color: " + bgHex + "; } ";
+        css_str += "textview text { background-color: " + bgHex + "; } ";
+        css_str += "textview { background-color: " + bgHex + "; } ";
+    }
     //printf("css_str_len=%zu\n", css_str.size());
 
     if (_css_provider_theme) {
