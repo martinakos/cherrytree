@@ -81,15 +81,7 @@ void CtDrawingOverlay::setClipboard(const CtDrawingCanvas& c)
         [](Gtk::SelectionData& data, guint) {
             data.set(CLIPBOARD_TARGET, "1");
         },
-        []() {});
-}
-
-bool CtDrawingOverlay::isCanvasOnSystemClipboard()
-{
-    auto display = Gdk::Display::get_default();
-    if (!display) return false;
-    auto clipboard = Gtk::Clipboard::get();
-    return clipboard->wait_is_target_available(CLIPBOARD_TARGET);
+        []() { _clipboard.reset(); });
 }
 
 CtDrawingOverlay::CtDrawingOverlay(CtMainWin* pMainWin)

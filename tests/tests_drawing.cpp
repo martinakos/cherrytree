@@ -823,11 +823,12 @@ TEST_F(DrawingCommandTest, ClearClipboard_RemovesStoredCanvas)
     EXPECT_FALSE(CtDrawingOverlay::hasClipboard());
 }
 
-TEST_F(DrawingCommandTest, SystemClipboard_NoDisplay_ReturnsFalse)
+TEST_F(DrawingCommandTest, ClipboardClearResetsState)
 {
     CtDrawingOverlay::setClipboard(makeCanvas(10, 20, 300, 250));
     EXPECT_TRUE(CtDrawingOverlay::hasClipboard());
-    EXPECT_FALSE(CtDrawingOverlay::isCanvasOnSystemClipboard());
+    CtDrawingOverlay::clearClipboard();
+    EXPECT_FALSE(CtDrawingOverlay::hasClipboard());
 }
 
 TEST_F(DrawingCommandTest, PasteCanvas_CenterPosition)
@@ -3351,4 +3352,70 @@ TEST(ScrollExtent, HorizontalSizeRequestDecision)
     computeScrollExtent(canvases, 1.0, maxRight, maxBottom);
     needsHorizontalScroll = (maxRight > viewportWidth && viewportWidth > 1);
     EXPECT_FALSE(needsHorizontalScroll);
+}
+
+// ── Image paste zoom compensation ──────────────────────────────────────────────
+
+TEST(ImageZoomCompensation, AtZoom100_NoChange)
+{
+    const int origW = 520, origH = 511;
+    const double zoomSf = 1.0;
+    int w = origW, h = origH;
+    if (std::abs(zoomSf - 1.0) > 0.001) {
+        w = std::max(1, (int)std::round(origW / zoomSf));
+        h = std::max(1, (int)std::round(origH / zoomSf));
+    }
+    EXPECT_EQ(origW, w);
+    EXPECT_EQ(origH, h);
+}
+
+TEST(ImageZoomCompensation, AtZoom138_ScalesDown)
+{
+    const int origW = 520, origH = 511;
+    const double zoomSf = 1.375;
+    int w = std::max(1, (int)std::round(origW / zoomSf));
+    int h = std::max(1, (int)std::round(origH / zoomSf));
+    EXPECT_EQ(378, w);
+    EXPECT_EQ(372, h);
+    // After apply_zoom the displayed size should approximate the original
+    int displayW = (int)(w * zoomSf);
+    int displayH = (int)(h * zoomSf);
+    EXPECT_NEAR(origW, displayW, 2);
+    EXPECT_NEAR(origH, displayH, 2);
+}
+
+TEST(ImageZoomCompensation, AtZoom200_HalvesSize)
+{
+    const int origW = 800, origH = 600;
+    const double zoomSf = 2.0;
+    int w = std::max(1, (int)std::round(origW / zoomSf));
+    int h = std::max(1, (int)std::round(origH / zoomSf));
+    EXPECT_EQ(400, w);
+    EXPECT_EQ(300, h);
+    int displayW = (int)(w * zoomSf);
+    int displayH = (int)(h * zoomSf);
+    EXPECT_EQ(origW, displayW);
+    EXPECT_EQ(origH, displayH);
+}
+
+TEST(ImageZoomCompensation, SmallImage_NeverZero)
+{
+    const int origW = 1, origH = 1;
+    const double zoomSf = 3.0;
+    int w = std::max(1, (int)std::round(origW / zoomSf));
+    int h = std::max(1, (int)std::round(origH / zoomSf));
+    EXPECT_GE(w, 1);
+    EXPECT_GE(h, 1);
+}
+
+// ── Canvas clipboard clear callback ────────────────────────────────────────────
+
+TEST_F(DrawingCommandTest, ClipboardClear_OnNewCopy_ResetsHasClipboard)
+{
+    CtDrawingOverlay::setClipboard(makeCanvas(10, 20, 300, 250));
+    EXPECT_TRUE(CtDrawingOverlay::hasClipboard());
+    // Simulates what the GTK clear callback does when another operation
+    // claims the clipboard — _clipboard.reset() is now called.
+    CtDrawingOverlay::clearClipboard();
+    EXPECT_FALSE(CtDrawingOverlay::hasClipboard());
 }
