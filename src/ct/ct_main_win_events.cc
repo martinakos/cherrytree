@@ -25,6 +25,8 @@
 #include "ct_actions.h"
 #include "ct_list.h"
 #include "ct_command_bridge.h"
+#include "ct_drawing.h"
+#include "ct_drawing_commands.h"
 
 void CtMainWin::_on_treeview_cursor_changed()
 {
@@ -165,6 +167,32 @@ bool CtMainWin::_on_window_key_press_event(GdkEventKey* event)
         if (GDK_KEY_Tab == event->keyval or GDK_KEY_ISO_Left_Tab == event->keyval) {
             _uCtActions->toggle_focus_tree_text();
             return true;
+        }
+        if ((GDK_KEY_v == event->keyval || GDK_KEY_V == event->keyval) &&
+            CtDrawingOverlay::isCanvasOnSystemClipboard() &&
+            CtDrawingOverlay::hasClipboard())
+        {
+            auto* bridge = get_command_bridge();
+            auto treeIter = curr_tree_iter();
+            if (bridge && bridge->isActive() && treeIter) {
+                CtDrawingCanvas canvas = CtDrawingOverlay::getClipboard();
+                auto hAdj = _scrolledwindowText.get_hadjustment();
+                auto vAdj = _scrolledwindowText.get_vadjustment();
+                double hScroll = hAdj ? hAdj->get_value() : 0.0;
+                double vScroll = vAdj ? vAdj->get_value() : 0.0;
+                double zoom = get_rt_zoom_scale_factor();
+                double vpW = _scrolledwindowText.get_allocated_width();
+                double vpH = _scrolledwindowText.get_allocated_height();
+                canvas.x = (hScroll + vpW * 0.5 - canvas.width * zoom * 0.5) / zoom;
+                canvas.y = (vScroll + vpH * 0.5 - canvas.height * zoom * 0.5) / zoom;
+                auto cmd = std::make_unique<AddCanvasCommand>(
+                    bridge->getDocumentModel(), treeIter.get_node_id(),
+                    std::move(canvas));
+                bridge->executeCommand(std::move(cmd));
+                update_window_save_needed(CtSaveNeededUpdType::None, true);
+                if (_pDrawingOverlay) _pDrawingOverlay->refresh();
+                return true;
+            }
         }
     }
     return false;

@@ -29,6 +29,8 @@
 #include "ct_storage_control.h"
 #include "ct_gtk_compat.h"
 #include "ct_command_bridge.h"
+#include "ct_drawing.h"
+#include "ct_drawing_commands.h"
 #include <gtkmm/dialog.h>
 
 namespace {
@@ -909,6 +911,30 @@ void CtActions::copy_rich_text()
 void CtActions::paste_rich_text()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
+    if (CtDrawingOverlay::isCanvasOnSystemClipboard() && CtDrawingOverlay::hasClipboard()) {
+        auto* overlay = _pCtMainWin->get_drawing_overlay();
+        auto* bridge = _pCtMainWin->get_command_bridge();
+        auto treeIter = _pCtMainWin->curr_tree_iter();
+        if (overlay && bridge && bridge->isActive() && treeIter) {
+            CtDrawingCanvas canvas = CtDrawingOverlay::getClipboard();
+            auto hAdj = _pCtMainWin->getScrolledwindowText().get_hadjustment();
+            auto vAdj = _pCtMainWin->getScrolledwindowText().get_vadjustment();
+            double hScroll = hAdj ? hAdj->get_value() : 0.0;
+            double vScroll = vAdj ? vAdj->get_value() : 0.0;
+            double zoom = _pCtMainWin->get_rt_zoom_scale_factor();
+            double vpW = _pCtMainWin->getScrolledwindowText().get_allocated_width();
+            double vpH = _pCtMainWin->getScrolledwindowText().get_allocated_height();
+            canvas.x = (hScroll + vpW * 0.5 - canvas.width * zoom * 0.5) / zoom;
+            canvas.y = (vScroll + vpH * 0.5 - canvas.height * zoom * 0.5) / zoom;
+            auto cmd = std::make_unique<AddCanvasCommand>(
+                bridge->getDocumentModel(), treeIter.get_node_id(),
+                std::move(canvas));
+            bridge->executeCommand(std::move(cmd));
+            _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
+            overlay->refresh();
+            return;
+        }
+    }
     auto proof = _get_text_view_n_buffer_codebox_proof();
     g_signal_emit_by_name(G_OBJECT(proof.text_view->gobj()), "paste-clipboard");
 }
