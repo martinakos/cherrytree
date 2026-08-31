@@ -1,3 +1,19 @@
+cherrytree-docmodel (1.7.2+docmodel16-1) plucky; urgency=low
+
+  * Select tool for editing Bezier curve control points
+  * Multi-select, scale tool, and apply properties to selection
+  * Separate stroke and fill colors for drawing strokes
+  * Arrow and DoubleArrow polygon shapes, closed freehand fill
+  * Scrollbars for drawing canvases extending beyond visible page area
+  * Font transform matrix for independent X/Y text scaling
+  * Fix group scaling of rotated shapes
+  * Fix drawing canvas undo/redo scrolling to bottom of page
+  * Ensure group drawing operations undo/redo as a single step
+  * Allow Ctrl+V to paste drawing canvases outside edit mode
+  * Show node ID prefix on all drawing commands in undo/redo list
+
+ -- Giuseppe Penone <giuspen@gmail.com>  Mon, 31 Aug 2026 11:05:25 +0100
+
 cherrytree-docmodel (1.7.2+docmodel15-1) plucky; urgency=low
 
   * Rebase docmodel branch on upstream v1.7.2
