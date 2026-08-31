@@ -724,7 +724,7 @@ void CtClipboard::_selection_to_clipboard(Glib::RefPtr<Gtk::TextBuffer> text_buf
                 // image target doesn't work on Win32 with other targets, so have to set it directly
                 // then copy/paste into MS Paint will work. Pasting into CT back also will work
                 if (image->get_type() == CtAnchWidgType::ImagePng) {
-                    Gtk::Clipboard::get()->set_image(image->get_pixbuf());
+                    Gtk::Clipboard::get()->set_image(image->get_zoom_base_pixbuf());
                     return;
                 }
 #endif
@@ -770,7 +770,7 @@ void CtClipboard::_selection_to_clipboard(Glib::RefPtr<Gtk::TextBuffer> text_buf
         if (not CtClipboard::_static_force_plain_text) {
             targets_vector = {CtConst::TARGET_CTD_PLAIN_TEXT, CtConst::TARGET_CTD_RICH_TEXT, CtConst::TARGETS_HTML[0], CtConst::TARGETS_HTML[1]};
             if (pixbuf_target) {
-                clip_data->pix_buf = pixbuf_target->get_pixbuf();
+                clip_data->pix_buf = pixbuf_target->get_zoom_base_pixbuf();
                 targets_vector.push_back(CtConst::TARGETS_IMAGES[0]);
             }
         }
@@ -1660,6 +1660,14 @@ void CtClipboard::on_received_to_image(const Gtk::SelectionData& selection_data,
             const int w = std::max(1, rPixbuf->get_width() / windowScale);
             const int h = std::max(1, rPixbuf->get_height() / windowScale);
             pastePixbuf = rPixbuf->scale_simple(w, h, Gdk::INTERP_BILINEAR);
+        }
+        // Compensate for current text zoom so pasted images match the
+        // captured area's on-screen size at any zoom level.
+        const double zoomSf = _pCtMainWin->get_rt_zoom_scale_factor();
+        if (std::abs(zoomSf - 1.0) > 0.001) {
+            const int w = std::max(1, (int)std::round(pastePixbuf->get_width() / zoomSf));
+            const int h = std::max(1, (int)std::round(pastePixbuf->get_height() / zoomSf));
+            pastePixbuf = pastePixbuf->scale_simple(w, h, Gdk::INTERP_BILINEAR);
         }
 
         auto pBridge = _pCtMainWin->get_command_bridge();

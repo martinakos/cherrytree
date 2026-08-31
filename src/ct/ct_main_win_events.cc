@@ -169,7 +169,6 @@ bool CtMainWin::_on_window_key_press_event(GdkEventKey* event)
             return true;
         }
         if ((GDK_KEY_v == event->keyval || GDK_KEY_V == event->keyval) &&
-            CtDrawingOverlay::isCanvasOnSystemClipboard() &&
             CtDrawingOverlay::hasClipboard())
         {
             auto* bridge = get_command_bridge();

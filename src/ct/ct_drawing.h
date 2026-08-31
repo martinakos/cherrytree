@@ -174,7 +174,6 @@ public:
     static const CtDrawingCanvas& getClipboard() { return _clipboard.value(); }
     static bool hasClipboard() { return _clipboard.has_value(); }
     static void clearClipboard() { _clipboard.reset(); }
-    static bool isCanvasOnSystemClipboard();
     static constexpr const char* CLIPBOARD_TARGET = "application/x-cherrytree-canvas";
 
     static void setStrokeClipboard(const std::vector<CtDrawingStroke>& s) { _strokeClipboard = s; }

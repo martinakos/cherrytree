@@ -911,7 +911,7 @@ void CtActions::copy_rich_text()
 void CtActions::paste_rich_text()
 {
     if (not _is_curr_node_not_read_only_or_error()) return;
-    if (CtDrawingOverlay::isCanvasOnSystemClipboard() && CtDrawingOverlay::hasClipboard()) {
+    if (CtDrawingOverlay::hasClipboard()) {
         auto* overlay = _pCtMainWin->get_drawing_overlay();
         auto* bridge = _pCtMainWin->get_command_bridge();
         auto treeIter = _pCtMainWin->curr_tree_iter();
