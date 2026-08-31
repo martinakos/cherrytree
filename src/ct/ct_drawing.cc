@@ -69,6 +69,29 @@ static void applyLineStyle(const Cairo::RefPtr<Cairo::Context>& cr, CtDrawingLin
 std::optional<CtDrawingCanvas> CtDrawingOverlay::_clipboard;
 std::vector<CtDrawingStroke> CtDrawingOverlay::_strokeClipboard;
 
+void CtDrawingOverlay::setClipboard(const CtDrawingCanvas& c)
+{
+    _clipboard = c;
+    auto display = Gdk::Display::get_default();
+    if (!display) return;
+    auto clipboard = Gtk::Clipboard::get();
+    std::vector<Gtk::TargetEntry> targets;
+    targets.push_back(Gtk::TargetEntry(CLIPBOARD_TARGET, Gtk::TARGET_SAME_APP));
+    clipboard->set(targets,
+        [](Gtk::SelectionData& data, guint) {
+            data.set(CLIPBOARD_TARGET, "1");
+        },
+        []() {});
+}
+
+bool CtDrawingOverlay::isCanvasOnSystemClipboard()
+{
+    auto display = Gdk::Display::get_default();
+    if (!display) return false;
+    auto clipboard = Gtk::Clipboard::get();
+    return clipboard->wait_is_target_available(CLIPBOARD_TARGET);
+}
+
 CtDrawingOverlay::CtDrawingOverlay(CtMainWin* pMainWin)
     : _pMainWin(pMainWin)
 {
@@ -4185,7 +4208,7 @@ void CtDrawingOverlay::_showContextMenu(GdkEventButton* event)
         size_t ci = static_cast<size_t>(_selectedCanvasIdx);
         if (ci >= canvases.size()) return;
 
-        _clipboard = canvases[ci];
+        setClipboard(canvases[ci]);
         auto cmd = std::make_unique<DeleteCanvasCommand>(
             bridge->getDocumentModel(), treeIter.get_node_id(),
             canvases[ci], ci);
@@ -4209,7 +4232,7 @@ void CtDrawingOverlay::_showContextMenu(GdkEventButton* event)
         size_t ci = static_cast<size_t>(_selectedCanvasIdx);
         if (ci >= canvases.size()) return;
 
-        _clipboard = canvases[ci];
+        setClipboard(canvases[ci]);
     });
     menu->append(*copyItem);
 

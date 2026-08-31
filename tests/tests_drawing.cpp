@@ -823,6 +823,37 @@ TEST_F(DrawingCommandTest, ClearClipboard_RemovesStoredCanvas)
     EXPECT_FALSE(CtDrawingOverlay::hasClipboard());
 }
 
+TEST_F(DrawingCommandTest, SystemClipboard_NoDisplay_ReturnsFalse)
+{
+    CtDrawingOverlay::setClipboard(makeCanvas(10, 20, 300, 250));
+    EXPECT_TRUE(CtDrawingOverlay::hasClipboard());
+    EXPECT_FALSE(CtDrawingOverlay::isCanvasOnSystemClipboard());
+}
+
+TEST_F(DrawingCommandTest, PasteCanvas_CenterPosition)
+{
+    CtDrawingCanvas canvas = makeCanvas(0, 0, 200, 100);
+    double hScroll = 50.0, vScroll = 80.0;
+    double zoom = 1.0;
+    double vpW = 800.0, vpH = 600.0;
+    canvas.x = (hScroll + vpW * 0.5 - canvas.width * zoom * 0.5) / zoom;
+    canvas.y = (vScroll + vpH * 0.5 - canvas.height * zoom * 0.5) / zoom;
+    EXPECT_DOUBLE_EQ(350.0, canvas.x);
+    EXPECT_DOUBLE_EQ(330.0, canvas.y);
+}
+
+TEST_F(DrawingCommandTest, PasteCanvas_CenterPositionWithZoom)
+{
+    CtDrawingCanvas canvas = makeCanvas(0, 0, 200, 100);
+    double hScroll = 0.0, vScroll = 0.0;
+    double zoom = 2.0;
+    double vpW = 800.0, vpH = 600.0;
+    canvas.x = (hScroll + vpW * 0.5 - canvas.width * zoom * 0.5) / zoom;
+    canvas.y = (vScroll + vpH * 0.5 - canvas.height * zoom * 0.5) / zoom;
+    EXPECT_DOUBLE_EQ(100.0, canvas.x);
+    EXPECT_DOUBLE_EQ(100.0, canvas.y);
+}
+
 // ── Multiple canvases with multiple strokes ─────────────────────────────────
 
 TEST(DrawingXmlTest, RoundTrip_MultipleCanvasesMultipleStrokes)
