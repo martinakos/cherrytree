@@ -891,7 +891,16 @@ void CtMainWin::update_theme()
     css_str += ".ct-table grid { background: #cccccc; border-style:solid; border-width: 1px; border-color: gray; } ";
     css_str += "toolbar { padding: 2px 2px 2px 2px; } ";
     css_str += "toolbar button { padding: 0px; } ";
-    css_str += "textview border { background-color: transparent; } "; // Loss of transparency with PNGs (#1402, #2132)
+    {
+        Gdk::RGBA bgRgba = _pCtConfig->get_rt_bg_color();
+        std::string bgHex = fmt::format("#{:02x}{:02x}{:02x}",
+            static_cast<int>(bgRgba.get_red()   * 255),
+            static_cast<int>(bgRgba.get_green() * 255),
+            static_cast<int>(bgRgba.get_blue()  * 255));
+        css_str += "textview border { background-color: " + bgHex + "; } ";
+        css_str += "textview text { background-color: " + bgHex + "; } ";
+        css_str += "textview { background-color: " + bgHex + "; } ";
+    }
     //printf("css_str_len=%zu\n", css_str.size());
 
     if (_css_provider_theme) {

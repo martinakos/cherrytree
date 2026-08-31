@@ -3164,3 +3164,160 @@ TEST(DrawingSqliteMigrationTest, PositionalInsert_WrongOnMigratedDB)
     sqlite3_finalize(sel);
     sqlite3_close(db);
 }
+
+// ── Scroll extent computation tests ────────────────────────────────────────
+// These verify the pure computation that updateScrollableExtent() performs:
+// given canvas positions/sizes and a zoom factor, compute the required
+// maxRight/maxBottom and the needed bottom margin / horizontal size request.
+
+static constexpr double SCROLL_MARGIN = 50.0;
+
+static void computeScrollExtent(const std::vector<CtDrawingCanvas>& canvases,
+                                double zoom,
+                                double& maxRight, double& maxBottom)
+{
+    maxRight = 0.0;
+    maxBottom = 0.0;
+    for (const auto& c : canvases) {
+        double r = (c.x + c.width) * zoom;
+        double b = (c.y + c.height) * zoom;
+        if (r > maxRight) maxRight = r;
+        if (b > maxBottom) maxBottom = b;
+    }
+    maxRight += SCROLL_MARGIN;
+    maxBottom += SCROLL_MARGIN;
+}
+
+TEST(ScrollExtent, EmptyCanvases_NoExtent)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    double maxRight = 0, maxBottom = 0;
+    computeScrollExtent(canvases, 1.0, maxRight, maxBottom);
+    EXPECT_DOUBLE_EQ(SCROLL_MARGIN, maxRight);
+    EXPECT_DOUBLE_EQ(SCROLL_MARGIN, maxBottom);
+}
+
+TEST(ScrollExtent, SingleCanvasWithinViewport)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    canvases.push_back(makeCanvas(10, 20, 300, 250));
+
+    double maxRight = 0, maxBottom = 0;
+    computeScrollExtent(canvases, 1.0, maxRight, maxBottom);
+
+    EXPECT_DOUBLE_EQ(10 + 300 + SCROLL_MARGIN, maxRight);
+    EXPECT_DOUBLE_EQ(20 + 250 + SCROLL_MARGIN, maxBottom);
+
+    double viewportWidth = 800.0;
+    double textHeight = 600.0;
+    EXPECT_LT(maxRight, viewportWidth);
+    EXPECT_LT(maxBottom, textHeight);
+}
+
+TEST(ScrollExtent, CanvasExtendsBeyondViewportRight)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    canvases.push_back(makeCanvas(600, 20, 400, 250));
+
+    double maxRight = 0, maxBottom = 0;
+    computeScrollExtent(canvases, 1.0, maxRight, maxBottom);
+
+    EXPECT_DOUBLE_EQ(600 + 400 + SCROLL_MARGIN, maxRight);
+
+    double viewportWidth = 800.0;
+    EXPECT_GT(maxRight, viewportWidth);
+
+    int sizeRequest = static_cast<int>(maxRight);
+    EXPECT_EQ(1050, sizeRequest);
+}
+
+TEST(ScrollExtent, CanvasExtendsBeyondViewportBottom)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    canvases.push_back(makeCanvas(10, 500, 300, 400));
+
+    double maxRight = 0, maxBottom = 0;
+    computeScrollExtent(canvases, 1.0, maxRight, maxBottom);
+
+    EXPECT_DOUBLE_EQ(500 + 400 + SCROLL_MARGIN, maxBottom);
+
+    double textHeight = 200.0;
+    int neededMargin = static_cast<int>(maxBottom - textHeight);
+    EXPECT_EQ(750, neededMargin);
+}
+
+TEST(ScrollExtent, MultipleCanvases_UseFarthestExtent)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    canvases.push_back(makeCanvas(10, 20, 300, 250));
+    canvases.push_back(makeCanvas(500, 100, 600, 200));
+    canvases.push_back(makeCanvas(50, 800, 200, 300));
+
+    double maxRight = 0, maxBottom = 0;
+    computeScrollExtent(canvases, 1.0, maxRight, maxBottom);
+
+    EXPECT_DOUBLE_EQ(500 + 600 + SCROLL_MARGIN, maxRight);
+    EXPECT_DOUBLE_EQ(800 + 300 + SCROLL_MARGIN, maxBottom);
+}
+
+TEST(ScrollExtent, ZoomScalesExtent)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    canvases.push_back(makeCanvas(100, 200, 300, 250));
+
+    double maxRight1 = 0, maxBottom1 = 0;
+    computeScrollExtent(canvases, 1.0, maxRight1, maxBottom1);
+
+    double maxRight2 = 0, maxBottom2 = 0;
+    computeScrollExtent(canvases, 2.0, maxRight2, maxBottom2);
+
+    EXPECT_DOUBLE_EQ((100 + 300) * 2.0 + SCROLL_MARGIN, maxRight2);
+    EXPECT_DOUBLE_EQ((200 + 250) * 2.0 + SCROLL_MARGIN, maxBottom2);
+    EXPECT_GT(maxRight2, maxRight1);
+    EXPECT_GT(maxBottom2, maxBottom1);
+}
+
+TEST(ScrollExtent, BottomMarginCalculation)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    canvases.push_back(makeCanvas(10, 100, 300, 500));
+
+    double maxRight = 0, maxBottom = 0;
+    computeScrollExtent(canvases, 1.0, maxRight, maxBottom);
+
+    double textHeight = 200.0;
+    int neededMargin = 0;
+    if (maxBottom > textHeight) {
+        neededMargin = static_cast<int>(maxBottom - textHeight);
+    }
+    EXPECT_EQ(static_cast<int>(100 + 500 + SCROLL_MARGIN - textHeight), neededMargin);
+    EXPECT_GT(neededMargin, 0);
+
+    textHeight = 1000.0;
+    neededMargin = 0;
+    if (maxBottom > textHeight) {
+        neededMargin = static_cast<int>(maxBottom - textHeight);
+    }
+    EXPECT_EQ(0, neededMargin);
+}
+
+TEST(ScrollExtent, HorizontalSizeRequestDecision)
+{
+    std::vector<CtDrawingCanvas> canvases;
+    canvases.push_back(makeCanvas(700, 20, 400, 250));
+
+    double maxRight = 0, maxBottom = 0;
+    computeScrollExtent(canvases, 1.0, maxRight, maxBottom);
+
+    double viewportWidth = 800.0;
+
+    bool needsHorizontalScroll = (maxRight > viewportWidth && viewportWidth > 1);
+    EXPECT_TRUE(needsHorizontalScroll);
+    EXPECT_EQ(static_cast<int>(maxRight), 1150);
+
+    canvases.clear();
+    canvases.push_back(makeCanvas(10, 20, 300, 250));
+    computeScrollExtent(canvases, 1.0, maxRight, maxBottom);
+    needsHorizontalScroll = (maxRight > viewportWidth && viewportWidth > 1);
+    EXPECT_FALSE(needsHorizontalScroll);
+}

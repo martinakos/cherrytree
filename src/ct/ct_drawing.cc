@@ -203,6 +203,7 @@ void CtDrawingOverlay::setDrawingMode(bool on)
     }
     if (on) {
         _drawingArea.grab_focus();
+        updateScrollableExtent();
     }
 }
 
@@ -279,6 +280,82 @@ void CtDrawingOverlay::resetSelection()
 void CtDrawingOverlay::refresh()
 {
     _drawingArea.queue_draw();
+    updateScrollableExtent();
+}
+
+void CtDrawingOverlay::updateScrollableExtent()
+{
+    if (_updatingScrollExtent) return;
+
+    auto* bridge = _pMainWin->get_command_bridge();
+    if (!bridge || !bridge->isActive()) return;
+    auto treeIter = _pMainWin->curr_tree_iter();
+    if (!treeIter) return;
+    auto nodeModel = bridge->getDocumentModel()->getNodeById(treeIter.get_node_id());
+    if (!nodeModel) return;
+
+    auto& textView = _pMainWin->get_text_view().mm();
+    const auto& canvases = nodeModel->getDrawingCanvases();
+
+    if (canvases.empty()) {
+        if (textView.get_bottom_margin() != 0) {
+            textView.set_bottom_margin(0);
+        }
+        textView.set_size_request(-1, -1);
+        return;
+    }
+
+    double zoom = _pMainWin->get_rt_zoom_scale_factor();
+    double maxRight = 0.0, maxBottom = 0.0;
+
+    for (const auto& c : canvases) {
+        double r = (c.x + c.width) * zoom;
+        double b = (c.y + c.height) * zoom;
+        if (r > maxRight) maxRight = r;
+        if (b > maxBottom) maxBottom = b;
+    }
+
+    maxRight += 50.0;
+    maxBottom += 50.0;
+
+    _updatingScrollExtent = true;
+
+    // Vertical: extend via text view bottom margin so GTK naturally enlarges
+    // the scroll range instead of fighting set_upper().
+    auto buffer = textView.get_buffer();
+    Gdk::Rectangle lastRect;
+    textView.get_iter_location(buffer->end(), lastRect);
+    double textHeight = lastRect.get_y() + lastRect.get_height();
+
+    int neededMargin = 0;
+    if (maxBottom > textHeight) {
+        neededMargin = static_cast<int>(maxBottom - textHeight);
+    }
+    if (textView.get_bottom_margin() != neededMargin) {
+        textView.set_bottom_margin(neededMargin);
+    }
+
+    // Horizontal: widen the text view so POLICY_AUTOMATIC shows the scrollbar,
+    // then override page_size which GtkTextView inflates to allocation width.
+    auto& sw = _pMainWin->getScrolledwindowText();
+    auto hAdj = sw.get_hadjustment();
+    if (hAdj) {
+        double viewportWidth = sw.get_allocated_width();
+        auto* vsb = sw.get_vscrollbar();
+        if (vsb && vsb->get_visible() && !sw.get_overlay_scrolling()) {
+            viewportWidth -= vsb->get_allocated_width();
+        }
+
+        if (maxRight > viewportWidth && viewportWidth > 1) {
+            textView.set_size_request(static_cast<int>(maxRight), -1);
+            hAdj->set_upper(maxRight);
+            hAdj->set_page_size(viewportWidth);
+        } else {
+            textView.set_size_request(-1, -1);
+        }
+    }
+
+    _updatingScrollExtent = false;
 }
 
 void CtDrawingOverlay::_buildToolbar()
@@ -858,6 +935,9 @@ void CtDrawingOverlay::_buildToolbar()
         });
     };
     _pMainWin->getScrolledwindowText().signal_realize().connect(connectScrollUpdate);
+
+    _pMainWin->get_text_view().mm().signal_size_allocate().connect(
+        [this](Gtk::Allocation&) { updateScrollableExtent(); }, true);
 
     _updateToolButtonStates();
 }
@@ -2896,6 +2976,7 @@ bool CtDrawingOverlay::_onMotionNotify(GdkEventMotion* event)
         canvas.x = _dragCanvasOrigX + dx;
         canvas.y = _dragCanvasOrigY + dy;
         if (_toolbarVisible) _updateToolbarPosition();
+        updateScrollableExtent();
         _drawingArea.queue_draw();
         return true;
     }
@@ -3095,6 +3176,7 @@ bool CtDrawingOverlay::_onMotionNotify(GdkEventMotion* event)
         canvas.width = newW;
         canvas.height = newH;
         if (_toolbarVisible) _updateToolbarPosition();
+        updateScrollableExtent();
         _drawingArea.queue_draw();
         return true;
     }
@@ -3180,6 +3262,7 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
 
         auto gdkWin = _drawingArea.get_window();
         if (gdkWin) gdkWin->set_cursor();
+        updateScrollableExtent();
         _drawingArea.queue_draw();
         return true;
     }
@@ -3210,6 +3293,7 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
             bridge->executeCommand(std::move(cmd));
             _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
         }
+        updateScrollableExtent();
     }
     else if (_dragType == CtDrawingDragType::MoveStroke) {
         if (_moveStrokeIdx >= 0 && static_cast<size_t>(_moveStrokeIdx) < canvas.strokes.size()) {
@@ -3514,6 +3598,7 @@ bool CtDrawingOverlay::_onButtonRelease(GdkEventButton* event)
             bridge->executeCommand(std::move(cmd));
             _pMainWin->update_window_save_needed(CtSaveNeededUpdType::None, true);
         }
+        updateScrollableExtent();
     }
     else if (_dragType == CtDrawingDragType::Draw) {
         if (_previewActive) {

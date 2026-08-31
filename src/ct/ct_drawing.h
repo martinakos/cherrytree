@@ -165,6 +165,7 @@ public:
 
     void resetSelection();
     void refresh();
+    void updateScrollableExtent();
 
     void beginCreateCanvas();
     bool isCreateCanvasMode() const { return _createCanvasMode; }
@@ -345,6 +346,7 @@ private:
     std::map<int, CtDrawingElementType> _scalePreBakeTypes;
 
     bool _updatingToolButtons{false};
+    bool _updatingScrollExtent{false};
 
     static constexpr double EDGE_HIT_THRESHOLD = 8.0;
     static constexpr double HEADER_HEIGHT = 28.0;

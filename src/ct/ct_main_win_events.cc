@@ -131,6 +131,7 @@ void CtMainWin::_on_treeview_cursor_changed()
             _pDrawingOverlay->setDrawingMode(false);
         }
         _pDrawingOverlay->resetSelection();
+        _pDrawingOverlay->updateScrollableExtent();
     }
 
     // Begin new edit session for command bridge AFTER cursor restoration,
