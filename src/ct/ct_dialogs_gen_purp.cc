@@ -42,6 +42,13 @@ CtDialogTextEntry::CtDialogTextEntry(const Glib::ustring& title,
         _entry.set_visibility(false);
     }
     get_content_area()->pack_start(_entry, true, true, 0);
+    if (forPassword) {
+        _checkbuttonShow.set_label(_("Show Password"));
+        _checkbuttonShow.signal_toggled().connect([this](){
+            _entry.set_visibility(_checkbuttonShow.get_active());
+        });
+        get_content_area()->pack_start(_checkbuttonShow, false, false, 0);
+    }
     _entry.signal_key_press_event().connect(sigc::mem_fun(*this, &CtDialogTextEntry::_on_entry_key_press_event), false/*call me before other*/);
     _entry.signal_icon_press().connect(sigc::mem_fun(*this, &CtDialogTextEntry::_on_entry_icon_press));
     get_content_area()->show_all();
@@ -575,5 +582,82 @@ std::string CtDialogs::folder_save_as_dialog(Gtk::Window* pParentWin, const CtFi
         chooser->set_current_name(args.curr_file_name.string());
     }
     return chooser->run() == Gtk::RESPONSE_ACCEPT ? chooser->get_filename() : "";
+#endif
+}
+
+Glib::ustring CtDialogs::ask_area_password_dialog(const Glib::ustring& nodeName, Gtk::Window& parent)
+{
+    CtDialogTextEntry dialogTextEntry{str::format(_("Enter Password for '%s'"), nodeName.raw()),
+                                      true/*forPassword*/,
+                                      &parent};
+    if (Gtk::RESPONSE_OK != dialogTextEntry.run()) {
+        return Glib::ustring{};
+    }
+    return dialogTextEntry.get_entry_text();
+}
+
+Glib::ustring CtDialogs::new_area_password_dialog(const Glib::ustring& nodeName, Gtk::Window& parent)
+{
+#if GTK_MAJOR_VERSION >= 4
+    (void)nodeName; (void)parent;
+    return Glib::ustring{};
+#else
+    Gtk::Dialog dialog{str::format(_("Password Protect '%s'"), nodeName.raw()),
+                       parent,
+                       Gtk::DialogFlags::DIALOG_MODAL | Gtk::DialogFlags::DIALOG_DESTROY_WITH_PARENT};
+    CtMiscUtil::dialog_add_button(&dialog, _("Cancel"), Gtk::RESPONSE_REJECT, "ct_cancel");
+    Gtk::Button* pButtonOk = CtMiscUtil::dialog_add_button(&dialog, _("OK"), Gtk::RESPONSE_ACCEPT, "ct_done");
+    dialog.set_default_size(400, -1);
+    dialog.set_position(Gtk::WIN_POS_CENTER_ON_PARENT);
+
+    Gtk::Entry entry_passw_1;
+    entry_passw_1.set_visibility(false);
+    entry_passw_1.set_placeholder_text(_("Password"));
+    Gtk::Entry entry_passw_2;
+    entry_passw_2.set_visibility(false);
+    entry_passw_2.set_placeholder_text(_("Repeat Password"));
+
+    Gtk::Label label_warning;
+    label_warning.set_markup(Glib::ustring{"<b>"} +
+        _("This node and all its subnodes will be encrypted in the document.") + "</b>\n" +
+        _("If you lose this password the content cannot be recovered."));
+    label_warning.set_width_chars(60);
+    label_warning.set_line_wrap(true);
+
+    Gtk::CheckButton checkbutton_show{_("Show Password")};
+    checkbutton_show.signal_toggled().connect([&](){
+        const bool isVisible = checkbutton_show.get_active();
+        entry_passw_1.set_visibility(isVisible);
+        entry_passw_2.set_visibility(isVisible);
+    });
+
+    Gtk::Box* pContentArea = dialog.get_content_area();
+    pContentArea->set_spacing(6);
+    pContentArea->pack_start(entry_passw_1, false, false);
+    pContentArea->pack_start(entry_passw_2, false, false);
+    pContentArea->pack_start(checkbutton_show, false, false);
+    pContentArea->pack_start(label_warning, false, false);
+    pContentArea->show_all();
+    entry_passw_1.grab_focus();
+
+    auto f_onEntryActivate = [&pButtonOk](){ pButtonOk->clicked(); };
+    entry_passw_1.signal_activate().connect(f_onEntryActivate);
+    entry_passw_2.signal_activate().connect(f_onEntryActivate);
+
+    while (true) {
+        if (Gtk::RESPONSE_ACCEPT != dialog.run()) {
+            return Glib::ustring{};
+        }
+        const Glib::ustring password = entry_passw_1.get_text();
+        if (password.empty()) {
+            error_dialog(_("The Password Fields Must be Filled."), dialog);
+            continue;
+        }
+        if (password != entry_passw_2.get_text()) {
+            error_dialog(_("The Two Inserted Passwords Do Not Match."), dialog);
+            continue;
+        }
+        return password;
+    }
 #endif
 }

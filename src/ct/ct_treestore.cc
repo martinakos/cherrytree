@@ -1229,7 +1229,18 @@ void CtTreeStore::update_node_aux_icon(const Gtk::TreeModel::iterator& treeIter)
     const bool is_bookmark = vec::exists(_bookmarks, treeIter->get_value(_columns.colNodeUniqueId));
     const bool is_excl_search = treeIter->get_value(_columns.colNodeIsExcludedFromSearch) or
                                 treeIter->get_value(_columns.colNodeChildrenAreExcludedFromSearch);
-    auto f_getAuxStock = [is_ro, is_bookmark, is_excl_search]()->std::string{
+    // CtProtectedAreas is the only source of truth for this; the areas are
+    // registered after the tree is built, which is why load_records() refreshes
+    // the icons of the roots it takes on
+    const gint64 aux_node_id = treeIter->get_value(_columns.colNodeUniqueId);
+    const bool is_protected_root = _pCtMainWin->get_protected_areas().is_protected_root(aux_node_id);
+    const bool is_area_unlocked = is_protected_root and
+        _pCtMainWin->get_protected_areas().is_unlocked(aux_node_id);
+    auto f_getAuxStock = [is_ro, is_bookmark, is_excl_search, is_protected_root, is_area_unlocked]()->std::string{
+        // whether an area is open or shut matters more than the other badges
+        if (is_protected_root) {
+            return is_area_unlocked ? "ct_keys" : "ct_shield";
+        }
         if (is_ro) {
             if (is_bookmark) {
                 if (is_excl_search) {

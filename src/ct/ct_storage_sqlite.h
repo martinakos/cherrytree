@@ -26,6 +26,7 @@
 #include "ct_types.h"
 #include "ct_widgets.h"
 #include "ct_filesystem.h"
+#include "ct_protected_area.h"
 #include "ct_drawing.h"
 #include <sqlite3.h>
 #include <glibmm/refptr.h>
@@ -119,6 +120,17 @@ private:
     void                _write_drawing_canvases_to_db(gint64 nodeId, const std::vector<CtDrawingCanvas>& canvases);
 
 public:
+    // The encrypted blobs of the password protected areas. The table is created
+    // on demand so that documents written by older versions gain it silently.
+    // Records whose node is gone, or whose node no longer carries the protected
+    // bit, are left over from a removed protection: they are skipped and their
+    // ids reported through pStaleIdsOut so the caller can delete the rows.
+    std::vector<CtProtectedAreaRecord> read_protected_areas(std::vector<gint64>* pStaleIdsOut = nullptr) const;
+    void                write_protected_area(const CtProtectedAreaRecord& record);
+    void                remove_protected_area(const gint64 nodeId);
+private:
+
+public:
     static const char TABLE_NODE_CREATE[];
     static const char TABLE_NODE_INSERT[];
     static const char TABLE_NODE_DELETE[];
@@ -141,6 +153,9 @@ public:
     static const char TABLE_DRAWING_CANVAS_DELETE[];
     static const char TABLE_DRAWING_STROKE_CREATE[];
     static const char TABLE_DRAWING_STROKE_DELETE[];
+    static const char TABLE_PROTECTED_AREA_CREATE[];
+    static const char TABLE_PROTECTED_AREA_INSERT[];
+    static const char TABLE_PROTECTED_AREA_DELETE[];
     static const std::string ERR_SQLITE_PREPV2;
     static const std::string ERR_SQLITE_STEP;
     static const char* safe_sqlite3_column_text(sqlite3_stmt* stmt, int iCol);

@@ -87,6 +87,9 @@ void CtActions::file_save_as()
     if (not CtDialogs::choose_data_storage_dialog(_pCtMainWin, storageSelArgs)) {
         return;
     }
+    if (not _protected_areas_allow_doc_type(storageSelArgs.ctDocType)) {
+        return;
+    }
     CtDialogs::CtFileSelectArgs fileSelArgs{};
     if (not currDocFilepath.empty()) {
         fileSelArgs.curr_folder = currDocFilepath.parent_path();

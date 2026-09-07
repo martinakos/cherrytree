@@ -210,6 +210,7 @@ CtMainWin::CtMainWin(bool                            no_gui,
     _pSaveMenuAction = _uCtMenu->find_action("ct_save");
     _uCtPrint.reset(new CtPrint{this});
     _uCtStorage.reset(CtStorageControl::create_dummy_storage(this));
+    _uCtProtectedAreas.reset(new CtProtectedAreas{this});
 
     _pCtCommandBridge.reset(new CtCommandBridge{this});
     _pCtCommandBridge->setActive(true);
@@ -1852,6 +1853,7 @@ void CtMainWin::reset()
     user_active() = false;
 
     _uCtStorage.reset(CtStorageControl::create_dummy_storage(this));
+    _uCtProtectedAreas->clear(); // a new document has no protected areas yet
     _pCtCommandBridge->resetForNewDocument();
 
     _reset_CtTreestore_CtTreeview();

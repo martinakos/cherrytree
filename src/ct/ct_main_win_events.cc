@@ -28,8 +28,29 @@
 #include "ct_drawing.h"
 #include "ct_drawing_commands.h"
 
+// Asks for the password when treeIter is a locked protected area. Returns true
+// when the node is accessible: either it was never locked, or it has just been
+// unlocked. Shared by the tree selection handler and the restore on document
+// open, so both behave the same.
+bool CtMainWin::prompt_unlock_if_locked(CtTreeIter& treeIter)
+{
+    if (_no_gui or not treeIter) return true;
+    if (not _uCtProtectedAreas->is_locked(treeIter.get_node_id())) return true;
+
+    const Glib::ustring password = CtDialogs::ask_area_password_dialog(treeIter.get_node_name(), *this);
+    if (password.empty()) return false; // cancelled
+    Glib::ustring error;
+    if (not _uCtProtectedAreas->unlock(treeIter.get_node_id(), password.raw(), error)) {
+        CtDialogs::error_dialog(error, *this);
+        return false;
+    }
+    _uCtTreestore->update_node_aux_icon(treeIter);
+    return true;
+}
+
 void CtMainWin::_on_treeview_cursor_changed()
 {
+    _uCtProtectedAreas->note_activity();
     CtTreeIter treeIter = curr_tree_iter();
     if (not treeIter) {
         // just removed the last node on the tree?
@@ -56,6 +77,16 @@ void CtMainWin::_on_treeview_cursor_changed()
         _nodesVScrollPos[prevNodeIdDataHolder] = scr;
         _nodesCursorPos[prevNodeIdDataHolder] = cur;
         //spdlog::debug("W[{}] scr={}, cur={}", prevNodeIdDataHolder, scr, cur);
+    }
+
+    // Landing on a locked protected area asks for its password. On cancel or on a
+    // wrong password the selection bounces back, the same way a node whose
+    // content cannot be loaded does just below.
+    if (user_active() and not prompt_unlock_if_locked(treeIter)) {
+        if (_prevTreeIter and _prevTreeIter.get_node_id() != treeIter.get_node_id()) {
+            _uCtTreeview->set_cursor_safe(_prevTreeIter);
+            return;
+        }
     }
 
     Glib::RefPtr<Gtk::TextBuffer> pTextBuffer = treeIter.get_node_text_buffer();
@@ -163,6 +194,7 @@ bool CtMainWin::_on_treeview_button_release_event(GdkEventButton* event)
 
 bool CtMainWin::_on_window_key_press_event(GdkEventKey* event)
 {
+    _uCtProtectedAreas->note_activity();
     if (event->state & GDK_CONTROL_MASK) {
         if (GDK_KEY_Tab == event->keyval or GDK_KEY_ISO_Left_Tab == event->keyval) {
             _uCtActions->toggle_focus_tree_text();
@@ -725,6 +757,7 @@ bool CtMainWin::_on_textview_event(GdkEvent* event)
 #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
 void CtMainWin::_on_textview_event_after(GdkEvent* event)
 {
+    _uCtProtectedAreas->note_activity();
     // Guard: GTK3 propagates event-after from embedded child anchor widgets (codeboxes,
     // rich cells) up to the parent text view, rewriting event->button.window to the
     // parent's own window in the process — so window-pointer comparison cannot distinguish

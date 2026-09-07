@@ -91,6 +91,9 @@ void CtActions::export_to_ct()
     if (not CtDialogs::choose_data_storage_dialog(_pCtMainWin, storageSelArgs)) {
         return;
     }
+    if (not _protected_areas_allow_doc_type(storageSelArgs.ctDocType)) {
+        return;
+    }
     const std::string fileExtension = CtMiscUtil::get_doc_extension(storageSelArgs.ctDocType, storageSelArgs.ctDocEncrypt);
     std::string proposed_name;
     if (CtExporting::ALL_TREE == export_type) {
@@ -189,6 +192,7 @@ void CtActions::export_to_txt_auto(const std::string& dir, bool overwrite, bool 
 
 void CtActions::_export_print(bool save_to_pdf, const fs::path& auto_path, bool auto_overwrite)
 {
+    if (not _protected_areas_warn_before_export()) return;
     CtExporting export_type;
     if (not auto_path.empty()) {
         export_type = CtExporting::ALL_TREE;
@@ -250,8 +254,30 @@ void CtActions::_export_print(bool save_to_pdf, const fs::path& auto_path, bool 
 }
 
 // Export to HTML
+// True when the export may go ahead. Locked areas are simply not in the tree,
+// so nothing of them can leak, but the user should know they are being left out.
+bool CtActions::_protected_areas_warn_before_export()
+{
+    CtProtectedAreas& areas = _pCtMainWin->get_protected_areas();
+    std::vector<Glib::ustring> lockedNames;
+    for (const gint64 nodeId : areas.area_ids()) {
+        if (not areas.is_unlocked(nodeId)) {
+            CtTreeIter iter = _pCtMainWin->get_tree_store().get_node_from_node_id(nodeId);
+            lockedNames.push_back(iter ? iter.get_node_name() : Glib::ustring{std::to_string(nodeId)});
+        }
+    }
+    if (lockedNames.empty()) return true;
+    Glib::ustring message = Glib::ustring{"<b>"} +
+        _("Some Password Protected Areas are Locked.") + "</b>\n\n" +
+        _("Their content will be left out of the export:") + "\n";
+    for (const Glib::ustring& name : lockedNames) message += "\n\t\u2022 " + name;
+    message += Glib::ustring{"\n\n"} + _("Continue anyway?");
+    return CtDialogs::question_dialog(message, *_pCtMainWin);
+}
+
 void CtActions::_export_to_html(const fs::path& auto_path, bool auto_overwrite)
 {
+    if (not _protected_areas_warn_before_export()) return;
     CtExporting export_type;
     if (not auto_path.empty()) {
         export_type = CtExporting::ALL_TREE;
@@ -318,6 +344,7 @@ void CtActions::_export_to_html(const fs::path& auto_path, bool auto_overwrite)
 // Export To Plain Text Multiple (or single) Files
 void CtActions::_export_to_txt(const fs::path& auto_path, bool auto_overwrite)
 {
+    if (not _protected_areas_warn_before_export()) return;
     CtExporting export_type;
     if (not auto_path.empty()) {
         _export_options.include_node_name = true;

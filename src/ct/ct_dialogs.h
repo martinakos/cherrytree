@@ -49,6 +49,8 @@ protected:
     bool _on_entry_key_press_event(GdkEventKey* pEventKey);
     void _on_entry_icon_press(Gtk::EntryIconPosition /*iconPosition*/, const GdkEventButton* /*pEvent*/) { _entry.set_text(""); }
     Gtk::Entry _entry;
+    // only added for a password entry, lets the user check what they typed
+    Gtk::CheckButton _checkbuttonShow;
 };
 
 template<class GtkStoreBase> class CtChooseDialogStore : public GtkStoreBase
@@ -125,6 +127,13 @@ CtPickDlgState colour_pick_dialog(CtMainWin* pCtMainWin, const Glib::ustring& ti
                                   Glib::ustring& colour, bool allow_remove_colour);
 
 // The Question dialog, returns True if the user presses OK
+// Ask for the password of an existing protected area. Empty means cancelled.
+Glib::ustring ask_area_password_dialog(const Glib::ustring& nodeName, Gtk::Window& parent);
+
+// Ask twice for a new protected area password, with the warning that losing it
+// loses the content. Empty means cancelled.
+Glib::ustring new_area_password_dialog(const Glib::ustring& nodeName, Gtk::Window& parent);
+
 bool question_dialog(const Glib::ustring& message,
                      Gtk::Window& parent);
 

@@ -35,6 +35,7 @@ set(CT_SHARED_FILES
   ct_command.cc
   ct_command_bridge.cc
   ct_config.cc
+  ct_crypto.cc
   ct_document_model.cc
   ct_node_content.cc
   ct_buffer_converter.cc
@@ -65,6 +66,7 @@ set(CT_SHARED_FILES
   ct_menu_ui.cc
   ct_misc_utils.cc
   ct_p7za_iface.cc
+  ct_protected_area.cc
   ct_pref_dlg.cc
   ct_pref_dlg_context_menus.cc
   ct_pref_dlg_kb_shortcuts.cc
@@ -96,6 +98,9 @@ set(CT_SHARED_FILES
 )
 
 add_library(cherrytree_shared STATIC ${CT_SHARED_FILES})
+
+# AES-256 and SHA-256 primitives used by ct_crypto.cc come from the bundled 7-Zip C sources
+target_include_directories(cherrytree_shared SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/src/7za/C)
 target_link_libraries(cherrytree_shared
   ${GTKMM_LIBRARIES}
   ${GTKSV_LIBRARIES}
@@ -111,6 +116,10 @@ target_link_libraries(cherrytree_shared
   pthread
   7za_static
 )
+if(MINGW)
+  # BCryptGenRandom, used by CtCrypto::random_bytes
+  target_link_libraries(cherrytree_shared bcrypt)
+endif()
 if(USE_SHARED_FMT_SPDLOG)
   target_link_libraries(cherrytree_shared
     ${FMT_LIBRARIES}

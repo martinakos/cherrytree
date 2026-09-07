@@ -87,50 +87,51 @@ void CtCommandBridge::initializeFromExistingDocument()
 
     auto& treeStore = _pMainWin->get_tree_store();
 
-    std::function<void(Gtk::TreeModel::iterator, gint64)> registerNode;
-    registerNode = [&](Gtk::TreeModel::iterator gtkIter, gint64 parentId) {
-        CtTreeIter ti = treeStore.to_ct_tree_iter(gtkIter);
-        if (!ti) return;
-        const gint64 nid = ti.get_node_id();
-
-        if (!_docModel->getNodeById(nid)) {
-            auto nodeModel = std::make_shared<CtNodeModel>(nid);
-            nodeModel->setName(ti.get_node_name());
-            nodeModel->setSyntax(ti.get_node_syntax_highlighting());
-            nodeModel->setTags(ti.get_node_tags());
-            nodeModel->setReadOnly(ti.get_node_read_only());
-            nodeModel->setBold(ti.get_node_is_bold());
-            nodeModel->setCustomIconId(ti.get_node_custom_icon_id());
-            nodeModel->setForegroundRgb24(ti.get_node_foreground());
-            nodeModel->setExcludedFromSearch(ti.get_node_is_excluded_from_search());
-            nodeModel->setChildrenExcludedFromSearch(ti.get_node_children_are_excluded_from_search());
-            nodeModel->setLineWrap(ti.get_node_line_wrap());
-            nodeModel->setCreationTime(ti.get_node_creating_time());
-            nodeModel->setLastSaveTime(ti.get_node_modification_time());
-            nodeModel->setSharedMasterId(ti.get_node_shared_master_id());
-            nodeModel->setSequence(ti.get_node_sequence());
-            // Content is NOT loaded here — it is captured lazily when a snapshot
-            // is needed (e.g. before node_delete) or via beginTextEditSession.
-            nodeModel->getDrawingCanvasesMut() = ti.get_drawing_canvases();
-            _docModel->addNode(nodeModel, parentId, -1);
-        }
-
-        #if GTKMM_MAJOR_VERSION >= 4
-        for (auto child = gtkIter->children().begin(); child; ++child)
-            registerNode(child, nid);
-        #else
-        for (auto child : gtkIter->children())
-            registerNode(child, nid);
-        #endif
-    };
-
     auto iter = treeStore.get_iter_first();
     for (; iter; ++iter) {
-        registerNode(iter, 0);
+        registerSubtreeInModel(treeStore.to_ct_tree_iter(iter), 0);
     }
+
 
     _docModel->suppressNotifications(false);
     spdlog::info("CtCommandBridge: model hierarchy initialized");
+}
+
+// Registers a node and everything under it in the document model, properties
+// only: the content is captured lazily, when a snapshot is needed or a text edit
+// session begins. CtDocumentModel::addNode does not notify, so this never
+// creates GTK rows and is safe to call for a subtree that already has them.
+void CtCommandBridge::registerSubtreeInModel(CtTreeIter ctTreeIter, gint64 parentId)
+{
+    if (!_active || !_pMainWin || !ctTreeIter) return;
+
+    const gint64 nid = ctTreeIter.get_node_id();
+
+    if (!_docModel->getNodeById(nid)) {
+        auto nodeModel = std::make_shared<CtNodeModel>(nid);
+        nodeModel->setName(ctTreeIter.get_node_name());
+        nodeModel->setSyntax(ctTreeIter.get_node_syntax_highlighting());
+        nodeModel->setTags(ctTreeIter.get_node_tags());
+        nodeModel->setReadOnly(ctTreeIter.get_node_read_only());
+        nodeModel->setBold(ctTreeIter.get_node_is_bold());
+        nodeModel->setCustomIconId(ctTreeIter.get_node_custom_icon_id());
+        nodeModel->setForegroundRgb24(ctTreeIter.get_node_foreground());
+        nodeModel->setExcludedFromSearch(ctTreeIter.get_node_is_excluded_from_search());
+        nodeModel->setChildrenExcludedFromSearch(ctTreeIter.get_node_children_are_excluded_from_search());
+        nodeModel->setLineWrap(ctTreeIter.get_node_line_wrap());
+        nodeModel->setCreationTime(ctTreeIter.get_node_creating_time());
+        nodeModel->setLastSaveTime(ctTreeIter.get_node_modification_time());
+        nodeModel->setSharedMasterId(ctTreeIter.get_node_shared_master_id());
+        nodeModel->setSequence(ctTreeIter.get_node_sequence());
+        // Content is NOT loaded here — it is captured lazily when a snapshot
+        // is needed (e.g. before node_delete) or via beginTextEditSession.
+        nodeModel->getDrawingCanvasesMut() = ctTreeIter.get_drawing_canvases();
+        _docModel->addNode(nodeModel, parentId, -1);
+    }
+
+    for (CtTreeIter child = ctTreeIter.first_child(); child; ++child) {
+        registerSubtreeInModel(child, nid);
+    }
 }
 
 void CtCommandBridge::syncModelFromTree()
@@ -2938,6 +2939,40 @@ void CtCommandBridge::BridgeObserver::onNodeMoved(gint64 nodeId, gint64 newParen
     // records the old father_id and _remove_db_node_with_children will cascade-
     // delete this node if the old parent is later removed.
     treeStore.to_ct_tree_iter(newGtkIter).pending_edit_db_node_hier();
+
+    // A move across the boundary of a password protected area changes whether
+    // each node in the subtree owns rows of its own, so the whole subtree has
+    // to be re-marked, not just the node that moved.
+    {
+        CtProtectedAreas& areas = win.get_protected_areas();
+        if (areas.has_any()) {
+            CtTreeIter movedIter = treeStore.to_ct_tree_iter(newGtkIter);
+            const bool nowInsideArea = 0 != areas.enclosing_area_id(movedIter) and
+                                       not areas.is_protected_root(movedIter.get_node_id());
+            std::vector<gint64> subtreeIds;
+            std::function<void(CtTreeIter)> f_collect;
+            f_collect = [&](CtTreeIter iter) {
+                while (iter) {
+                    subtreeIds.push_back(iter.get_node_id());
+                    f_collect(iter.first_child());
+                    ++iter;
+                }
+            };
+            f_collect(movedIter.first_child());
+            if (nowInsideArea) {
+                // from now on these live in the blob, so their rows must go
+                subtreeIds.push_back(movedIter.get_node_id());
+                treeStore.pending_rm_db_nodes(subtreeIds);
+            }
+            else {
+                // back out in the open: they need rows of their own again
+                for (const gint64 subtreeNodeId : subtreeIds) {
+                    CtTreeIter subtreeIter = treeStore.get_node_from_node_id(subtreeNodeId);
+                    if (subtreeIter) subtreeIter.pending_new_db_node();
+                }
+            }
+        }
+    }
 
     // Re-apply expansion state
     treeStore.get_store()->foreach_iter([&](const Gtk::TreeModel::iterator& it) {

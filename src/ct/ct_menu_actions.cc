@@ -52,6 +52,7 @@ void CtMenu::init_actions(CtActions* pActions)
     // stubs for sumenu bar
     _actions.push_back(CtMenuAction{"", "TreeDateSubMenu", "ct_calendar", _("Insert _Date Node"), None, None, [](){}});
     _actions.push_back(CtMenuAction{"", "TreeMoveSubMenu", "ct_go-jump", _("Node _Move"), None, None, [](){}});
+    _actions.push_back(CtMenuAction{"", "TreeProtectSubMenu", "ct_shield", _("Password _Protection"), None, None, [](){}});
     _actions.push_back(CtMenuAction{"", "TreeSortSubMenu", "ct_sort-asc", _("Nod_es Sort"), None, None, [](){}});
     _actions.push_back(CtMenuAction{"", "BookmarksSubMenu", "ct_pin", _("B_ookmarks"), None, None, [](){}});
     _actions.push_back(CtMenuAction{"", "ImportSubMenu", CtConst::STR_STOCK_CT_IMP, _("_Import"), None, None, [](){}});
@@ -377,6 +378,14 @@ void CtMenu::init_actions(CtActions* pActions)
             _("Edit the Properties of the Selected Node"), sigc::mem_fun(*pActions, &CtActions::node_edit)});
         _actions.push_back(CtMenuAction{tree_cat, "tree_node_toggle_ro", "ct_locked", _("Toggle _Read Only"), KB_SHIFT+KB_ALT+"r",
             _("Toggle the Read Only Property of the Selected Node"), sigc::mem_fun(*pActions, &CtActions::node_toggle_read_only)});
+        _actions.push_back(CtMenuAction{tree_cat, "tree_node_protect", "ct_shield", _("_Password Protect Subtree..."), None,
+            _("Encrypt the Selected Node and its Subnodes with a Password"), sigc::mem_fun(*pActions, &CtActions::node_protect)});
+        _actions.push_back(CtMenuAction{tree_cat, "tree_node_change_password", "ct_keys", _("Chan_ge Subtree Password..."), None,
+            _("Change the Password of the Selected Password Protected Area"), sigc::mem_fun(*pActions, &CtActions::node_change_password)});
+        _actions.push_back(CtMenuAction{tree_cat, "tree_node_unprotect", "ct_unlocked", _("Remo_ve Password Protection..."), None,
+            _("Remove the Password Protection from the Selected Area"), sigc::mem_fun(*pActions, &CtActions::node_unprotect)});
+        _actions.push_back(CtMenuAction{tree_cat, "tree_lock_protected", "ct_shield", _("_Lock Protected Areas"), KB_CONTROL+KB_SHIFT+"L",
+            _("Lock Every Unlocked Password Protected Area Now"), sigc::mem_fun(*pActions, &CtActions::tree_lock_protected_areas)});
         _actions.push_back(CtMenuAction{tree_cat, "tree_node_link", "ct_node_link", _("Cop_y Link to Node"), None,
             _("Copy Link to the Selected Node to Clipboard"), sigc::mem_fun(*pActions, &CtActions::node_link_to_clipboard)});
         _actions.push_back(CtMenuAction{tree_cat, "child_nodes_inherit_syntax", "ct_execute", _("Children _Inherit Syntax"), None,

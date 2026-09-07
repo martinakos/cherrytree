@@ -134,6 +134,7 @@ public:
     Gtk::TreeModel::iterator node_child_exist_or_create(Gtk::TreeModel::iterator parentIter,
                                              const std::string& nodeName,
                                              const bool focusIfExisting = true);
+    bool _node_move_protected_check(Gtk::TreeModel::iterator iter_to_move, Gtk::TreeModel::iterator father_iter);
     void node_move_after(Gtk::TreeModel::iterator iter_to_move,
                          Gtk::TreeModel::iterator father_iter,
                          Gtk::TreeModel::iterator brother_iter = Gtk::TreeModel::iterator{},
@@ -176,6 +177,12 @@ public:
     void node_inherit_syntax();
     void node_delete();
     void node_toggle_read_only();
+    bool _protected_areas_allow_doc_type(const CtDocType targetDocType);
+    bool _protected_areas_warn_before_export();
+    void node_protect();
+    void node_unprotect();
+    void node_change_password();
+    void tree_lock_protected_areas();
     void node_date_from_root() { _node_date(false/*from_sel_not_root*/); }
     void node_date_from_sel() { _node_date(true/*from_sel_not_root*/); }
     void node_date_tomorrow_from_root() { _node_date(false/*from_sel_not_root*/, 1/*days_offset*/); }

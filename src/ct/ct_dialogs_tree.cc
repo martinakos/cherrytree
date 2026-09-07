@@ -260,6 +260,32 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
     ro_wrap_hbox->pack_start(*ro_checkbutton, false, false);
     ro_wrap_hbox->pack_start(*wrap_checkbutton, false, false);
 
+    // Protection state is shown, not edited: it is changed from the
+    // Tree -> Password Protection menu, which asks for the password.
+    CtProtectedAreas& protectedAreas = pCtMainWin->get_protected_areas();
+    if (protectedAreas.is_protected_root(nodeData.nodeId)) {
+        const bool isUnlocked = protectedAreas.is_unlocked(nodeData.nodeId);
+        auto protected_label = Gtk::manage(new Gtk::Label{});
+        protected_label->set_markup(Glib::ustring{"<b>"} +
+            (isUnlocked ? _("Password Protected (unlocked)") : _("Password Protected (locked)")) + "</b>");
+        protected_label->set_margin_start(10);
+        auto protected_image = pCtMainWin->new_managed_image_from_stock(isUnlocked ? "ct_keys" : "ct_shield",
+                                                                       Gtk::ICON_SIZE_BUTTON);
+        ro_wrap_hbox->pack_start(*protected_image, false, false);
+        ro_wrap_hbox->pack_start(*protected_label, false, false);
+    }
+    else {
+        const gint64 enclosingAreaId = protectedAreas.enclosing_area_id(
+            pCtMainWin->get_tree_store().get_node_from_node_id(nodeData.nodeId));
+        if (0 != enclosingAreaId) {
+            const Glib::ustring areaName = pCtMainWin->get_tree_store().get_node_name_from_node_id(enclosingAreaId);
+            auto inside_label = Gtk::manage(new Gtk::Label{});
+            inside_label->set_markup(str::format(_("Inside the protected area '%s'"), areaName.raw()));
+            inside_label->set_margin_start(10);
+            ro_wrap_hbox->pack_start(*inside_label, false, false);
+        }
+    }
+
     Glib::ustring id_str = Glib::ustring{_("Unique Id")} + ": " + std::to_string(nodeData.nodeId);
     CtTreeIter currIter = pCtMainWin->get_tree_store().get_node_from_node_id(nodeData.nodeId);
     bool hasCurrIter = static_cast<bool>(currIter);

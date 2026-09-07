@@ -37,6 +37,7 @@
 #include <sigc++/functors/slot.h>
 #include <gtksourceview/gtksource.h>
 #include "ct_treestore.h"
+#include "ct_protected_area.h"
 #include "ct_misc_utils.h"
 #include "ct_menu.h"
 #include "ct_widgets.h"
@@ -184,6 +185,8 @@ public:
     CtPrint&                          get_ct_print()    { return *_uCtPrint; }
     CtConfig*                         get_ct_config()   { return _pCtConfig; }
     CtStorageControl*                 get_ct_storage()  { return _uCtStorage.get(); }
+    CtProtectedAreas&                 get_protected_areas() { return *_uCtProtectedAreas; }
+    bool                              prompt_unlock_if_locked(CtTreeIter& treeIter);
     CtActions*                        get_ct_actions()  { return _uCtActions.get(); }
     CtTmp*                            get_ct_tmp()      { return _pCtTmp; }
     Gtk::IconTheme*                   get_icon_theme()  { return _pGtkIconTheme; }
@@ -392,6 +395,7 @@ private:
     std::unique_ptr<CtMenu>           _uCtMenu;
     std::unique_ptr<CtPrint>          _uCtPrint;
     std::unique_ptr<CtStorageControl> _uCtStorage;
+    std::unique_ptr<CtProtectedAreas> _uCtProtectedAreas;
 
     Gtk::Box                     _vboxMain{Gtk::ORIENTATION_VERTICAL};
     Gtk::Box                     _vboxText{Gtk::ORIENTATION_VERTICAL};

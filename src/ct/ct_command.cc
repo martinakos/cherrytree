@@ -22,6 +22,7 @@
  */
 
 #include "ct_command.h"
+#include <algorithm>
 #include "ct_document_model.h"
 #include "ct_logging.h"
 #include <typeinfo>
@@ -351,6 +352,40 @@ void CtCommandManager::endCommandGroup()
     }
 
     _activeGroup.reset();
+}
+
+void CompoundCommand::collectNodeIds(std::set<gint64>& rNodeIds) const
+{
+    const gint64 nodeId = getNodeId();
+    if (nodeId > 0) rNodeIds.insert(nodeId);
+    for (const auto& pCommand : _commands) {
+        if (pCommand) pCommand->collectNodeIds(rNodeIds);
+    }
+}
+
+size_t CtCommandManager::purgeCommandsForNodes(const std::set<gint64>& nodeIds)
+{
+    if (nodeIds.empty()) return 0u;
+    size_t numPurged{0u};
+    auto f_touchesAny = [&nodeIds](const std::unique_ptr<CtCommand>& pCommand)->bool{
+        if (not pCommand) return false;
+        std::set<gint64> commandNodeIds;
+        pCommand->collectNodeIds(commandNodeIds);
+        for (const gint64 nodeId : commandNodeIds) {
+            if (0u != nodeIds.count(nodeId)) return true;
+        }
+        return false;
+    };
+    for (std::vector<std::unique_ptr<CtCommand>>* pStack : {&_undoStack, &_redoStack}) {
+        const size_t sizeBefore = pStack->size();
+        pStack->erase(std::remove_if(pStack->begin(), pStack->end(), f_touchesAny), pStack->end());
+        numPurged += sizeBefore - pStack->size();
+    }
+    if (numPurged > 0u) {
+        spdlog::debug("CtCommandManager: purged {} commands touching {} protected nodes",
+                      numPurged, nodeIds.size());
+    }
+    return numPurged;
 }
 
 void CtCommandManager::clear()

@@ -48,6 +48,16 @@ public:
 
     bool getInitLoadFromFileOk() { return _initLoadFromFileOk; }
     bool write_to_file(const std::string filepath = "");
+
+    // The saved menu layout wins over the defaults and there is no config
+    // versioning, so a menu entry added by a new version stays invisible to
+    // everyone who already has a config file. This splices a missing group in
+    // after an anchor entry, leaving any customisation alone. Static so it can
+    // be unit tested on its own.
+    static void ensure_ui_list_has_group(std::string& rUiList,
+                                         const std::string& probeId,
+                                         const std::string& groupToInsert,
+                                         const std::string& afterAnchor);
     void move_from_tmp();
 
     void update_user_style(const unsigned num);
@@ -290,6 +300,7 @@ public:
     bool                                        startOnSystray{false};
     bool                                        autosaveOn{true};
     int                                         autosaveMinutes{1};
+    int                                         protectedAreaLockMinutes{5};
     bool                                        checkVersion{false};
     bool                                        wordCountOn{true};
     bool                                        nodeSizeOn{false};

@@ -525,6 +525,17 @@ void CtDialogs::no_matches_dialog(CtMainWin* pCtMainWin,
     message_label.set_margin_bottom(5);
     Gtk::Box vbox{Gtk::ORIENTATION_VERTICAL, 5/*spacing*/};
     vbox.pack_start(message_label);
+    if (CtProtectedAreas::get_hit_locked_area()) {
+        auto pHBoxLocked = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 3/*spacing*/});
+        Gtk::Image* pImageLocked = pCtMainWin->new_managed_image_from_stock("ct_shield", Gtk::ICON_SIZE_BUTTON);
+        pImageLocked->set_margin_start(3);
+        pImageLocked->set_margin_end(3);
+        pHBoxLocked->pack_start(*pImageLocked, false, false);
+        auto pLabelLocked = Gtk::manage(new Gtk::Label{_("At least one password protected area was skipped because it is locked.\nUnlock it and search again to include its content.")});
+        pLabelLocked->set_xalign(0.0);
+        pHBoxLocked->pack_start(*pLabelLocked, false, false);
+        vbox.pack_start(*pHBoxLocked);
+    }
     if (CtTreeIter::get_hit_exclusion_from_search()) {
         auto pHBoxExclusions = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 3/*spacing*/});
         Gtk::Image* pImageExclusions = pCtMainWin->new_managed_image_from_stock("ct_ghost", Gtk::ICON_SIZE_BUTTON);
@@ -727,6 +738,17 @@ void CtDialogs::match_dialog(const std::string& str_find,
     pTreeview->set_margin_bottom(20); // so overlay horiz scroll doesn't hide the last result in the page
     auto pScrolledBox = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_VERTICAL, 3/*spacing*/});
     pScrolledBox->pack_start(*pTreeview);
+    if (CtProtectedAreas::get_hit_locked_area()) {
+        auto pHBoxLocked = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 3/*spacing*/});
+        Gtk::Image* pImageLocked = pCtMainWin->new_managed_image_from_stock("ct_shield", Gtk::ICON_SIZE_BUTTON);
+        pImageLocked->set_margin_start(3);
+        pImageLocked->set_margin_end(3);
+        pHBoxLocked->pack_start(*pImageLocked, false, false);
+        auto pLabelLocked = Gtk::manage(new Gtk::Label{_("At least one password protected area was skipped because it is locked.\nUnlock it and search again to include its content.")});
+        pLabelLocked->set_xalign(0.0);
+        pHBoxLocked->pack_start(*pLabelLocked, false, false);
+        pScrolledBox->pack_start(*pHBoxLocked, false, false);
+    }
     if (CtTreeIter::get_hit_exclusion_from_search()) {
         auto pHBoxExclusions = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 3/*spacing*/});
         Gtk::Image* pImageExclusions = pCtMainWin->new_managed_image_from_stock("ct_ghost", Gtk::ICON_SIZE_BUTTON);

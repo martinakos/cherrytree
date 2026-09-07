@@ -137,6 +137,22 @@ const char CtStorageSqlite::TABLE_DRAWING_CANVAS_CREATE[]{"CREATE TABLE IF NOT E
 };
 const char CtStorageSqlite::TABLE_DRAWING_CANVAS_DELETE[]{"DELETE FROM drawing_canvas WHERE node_id=?"};
 
+const char CtStorageSqlite::TABLE_PROTECTED_AREA_CREATE[]{"CREATE TABLE IF NOT EXISTS protected_area ("
+"node_id INTEGER UNIQUE,"
+"version INTEGER,"
+"kdf_salt BLOB,"
+"kdf_iters INTEGER,"
+"iv BLOB,"
+"mac BLOB,"
+"payload BLOB,"
+"ts_lastsave INTEGER"
+")"
+};
+
+const char CtStorageSqlite::TABLE_PROTECTED_AREA_INSERT[]{"INSERT OR REPLACE INTO protected_area VALUES(?,?,?,?,?,?,?,?)"};
+
+const char CtStorageSqlite::TABLE_PROTECTED_AREA_DELETE[]{"DELETE FROM protected_area WHERE node_id=?"};
+
 const char CtStorageSqlite::TABLE_DRAWING_STROKE_CREATE[]{"CREATE TABLE IF NOT EXISTS drawing_stroke ("
 "node_id INTEGER,"
 "canvas_index INTEGER,"
@@ -322,6 +338,15 @@ bool CtStorageSqlite::populate_treestore(const fs::path& file_path, Glib::ustrin
             f_nodes_from_db(top_id_pair, ++sequence, Gtk::TreeModel::iterator{});
         }
 
+        // the encrypted areas: every one of them starts locked. Not during a dry
+        // run: the integrity check re-parses the saved file and must not touch
+        // the live areas, which hold the derived keys of what is unlocked.
+        if (not _isDryRun) {
+            std::vector<gint64> staleAreaIds;
+            auto areaRecords = read_protected_areas(&staleAreaIds);
+            _pCtMainWin->get_protected_areas().load_records(std::move(areaRecords), staleAreaIds);
+        }
+
         // keep db open for lazy node buffer loading
         return true;
     }
@@ -361,6 +386,9 @@ bool CtStorageSqlite::save_treestore(const fs::path& file_path,
             CtStorageCache storage_cache;
             storage_cache.generate_cache(_pCtMainWin, nullptr/*all nodes*/, false/*for_xml*/);
 
+            // the descendants of a protected root live in the blob, not in rows
+            const std::set<gint64> protectedNodeIds = _pCtMainWin->get_protected_areas().node_ids_owned_by_areas();
+
             // function to iterate through the tree
             std::function<void(CtTreeIter, const gint64, const gint64)> f_save_node;
             f_save_node = [&](CtTreeIter ct_tree_iter, const gint64 sequence, const gint64 father_id) {
@@ -379,8 +407,11 @@ bool CtStorageSqlite::save_treestore(const fs::path& file_path,
                     gint64 child_sequence{0};
                     CtTreeIter ct_tree_iter_child = ct_tree_iter.first_child();
                     while (ct_tree_iter_child) {
-                        ++child_sequence;
-                        f_save_node(ct_tree_iter_child, child_sequence, ct_tree_iter.get_node_id());
+                        // stop at the boundary of a password protected area
+                        if (0u == protectedNodeIds.count(ct_tree_iter_child.get_node_id())) {
+                            ++child_sequence;
+                            f_save_node(ct_tree_iter_child, child_sequence, ct_tree_iter.get_node_id());
+                        }
                         ++ct_tree_iter_child;
                     }
                 }
@@ -419,7 +450,10 @@ bool CtStorageSqlite::save_treestore(const fs::path& file_path,
             // update changed nodes
             const std::list<std::pair<CtTreeIter, CtStorageNodeState>> nodes_to_write = CtStorageControl::get_sorted_by_level_nodes_to_write(
                 &_pCtMainWin->get_tree_store(), syncPending.nodes_to_write_dict);
+            // the descendants of a protected root live in the blob, not in rows
+            const std::set<gint64> protectedNodeIds = _pCtMainWin->get_protected_areas().node_ids_owned_by_areas();
             for (const auto& node_pair : nodes_to_write) {
+                if (0u != protectedNodeIds.count(node_pair.first.get_node_id())) continue;
                 CtTreeIter ct_tree_iter_parent = node_pair.first.parent();
                 _write_node_to_db(&node_pair.first,
                                   node_pair.first.get_node_sequence(),
@@ -434,6 +468,19 @@ bool CtStorageSqlite::save_treestore(const fs::path& file_path,
             // remove nodes and their sub nodes
             for (const gint64 node_id : syncPending.nodes_to_rm_set) {
                 _remove_db_node_with_children(node_id);
+            }
+        }
+        // the encrypted areas, written whole on every save: an unlocked one is
+        // re-sealed from the tree, a locked one already holds its bytes
+        if ( CtExporting::NONESAVE == export_type or
+             CtExporting::NONESAVEAS == export_type or
+             CtExporting::ALL_TREE == export_type )
+        {
+            for (const gint64 removedNodeId : _pCtMainWin->get_protected_areas().take_area_ids_to_remove()) {
+                remove_protected_area(removedNodeId);
+            }
+            for (const CtProtectedAreaRecord& record : _pCtMainWin->get_protected_areas().records_for_save()) {
+                write_protected_area(record);
             }
         }
         return true;
@@ -771,6 +818,72 @@ void CtStorageSqlite::_create_all_tables_in_db()
     _exec_no_callback(TABLE_BOOKMARK_CREATE);
     _exec_no_callback(TABLE_DRAWING_CANVAS_CREATE);
     _exec_no_callback(TABLE_DRAWING_STROKE_CREATE);
+    _exec_no_callback(TABLE_PROTECTED_AREA_CREATE);
+}
+
+std::vector<CtProtectedAreaRecord> CtStorageSqlite::read_protected_areas(std::vector<gint64>* pStaleIdsOut/*= nullptr*/) const
+{
+    std::vector<CtProtectedAreaRecord> records;
+    Sqlite3StmtAuto checkStmt{_pDb, "SELECT name FROM sqlite_master WHERE type='table' AND name='protected_area'"};
+    if (checkStmt.is_bad() or sqlite3_step(checkStmt) != SQLITE_ROW) {
+        return records; // documents written before this feature simply have no areas
+    }
+    // the left join lets a missing node row be told apart from a present one
+    Sqlite3StmtAuto stmt{_pDb, "SELECT p.node_id, p.version, p.kdf_salt, p.kdf_iters, p.iv, p.mac, p.payload, p.ts_lastsave,"
+                               " n.node_id IS NOT NULL, IFNULL(n.level,0)"
+                               " FROM protected_area p LEFT JOIN node n ON n.node_id = p.node_id"};
+    if (stmt.is_bad()) return records;
+
+    auto f_blob_at = [&stmt](const int iCol)->std::string{
+        const void* pBlob = sqlite3_column_blob(stmt, iCol);
+        const int numBytes = sqlite3_column_bytes(stmt, iCol);
+        if (not pBlob or numBytes <= 0) return std::string{};
+        return std::string{static_cast<const char*>(pBlob), static_cast<size_t>(numBytes)};
+    };
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        CtProtectedAreaRecord record;
+        record.nodeId = sqlite3_column_int64(stmt, 0);
+        record.envelope.version = sqlite3_column_int(stmt, 1);
+        record.envelope.kdfSalt = f_blob_at(2);
+        record.envelope.kdfIterations = static_cast<unsigned>(sqlite3_column_int64(stmt, 3));
+        record.envelope.iv = f_blob_at(4);
+        record.envelope.mac = f_blob_at(5);
+        record.envelope.payload = f_blob_at(6);
+        record.tsLastSave = sqlite3_column_int64(stmt, 7);
+
+        const bool nodeExists = 0 != sqlite3_column_int(stmt, 8);
+        const bool nodeIsMarked = 0 != (sqlite3_column_int64(stmt, 9) & 0x08);
+        if (not nodeExists or not nodeIsMarked) {
+            spdlog::warn("protected areas: dropping the stale blob of node {}", record.nodeId);
+            if (pStaleIdsOut) pStaleIdsOut->push_back(record.nodeId);
+            continue;
+        }
+        records.push_back(std::move(record));
+    }
+    return records;
+}
+
+void CtStorageSqlite::write_protected_area(const CtProtectedAreaRecord& record)
+{
+    _exec_no_callback(TABLE_PROTECTED_AREA_CREATE);
+    Sqlite3StmtAuto stmt{_pDb, TABLE_PROTECTED_AREA_INSERT};
+    if (stmt.is_bad()) throw std::runtime_error(ERR_SQLITE_PREPV2 + sqlite3_errmsg(_pDb));
+
+    sqlite3_bind_int64(stmt, 1, record.nodeId);
+    sqlite3_bind_int(stmt, 2, record.envelope.version);
+    sqlite3_bind_blob(stmt, 3, record.envelope.kdfSalt.data(), static_cast<int>(record.envelope.kdfSalt.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 4, static_cast<gint64>(record.envelope.kdfIterations));
+    sqlite3_bind_blob(stmt, 5, record.envelope.iv.data(), static_cast<int>(record.envelope.iv.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_blob(stmt, 6, record.envelope.mac.data(), static_cast<int>(record.envelope.mac.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_blob(stmt, 7, record.envelope.payload.data(), static_cast<int>(record.envelope.payload.size()), SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 8, record.tsLastSave);
+    if (sqlite3_step(stmt) != SQLITE_DONE) throw std::runtime_error(ERR_SQLITE_STEP + sqlite3_errmsg(_pDb));
+}
+
+void CtStorageSqlite::remove_protected_area(const gint64 nodeId)
+{
+    _exec_no_callback(TABLE_PROTECTED_AREA_CREATE);
+    _exec_bind_int64(TABLE_PROTECTED_AREA_DELETE, nodeId);
 }
 
 void CtStorageSqlite::_write_bookmarks_to_db(const std::list<gint64>& bookmarks)
@@ -860,7 +973,12 @@ void CtStorageSqlite::_write_node_to_db(const CtTreeIter* ct_tree_iter,
         is_richtxt |= 0x04;
         is_richtxt |= CtRgbUtil::get_rgb24int_from_str_any(ct_tree_iter->get_node_foreground().c_str()+1) << 3;
     }
-    /* level is bitfield [ ... | line_wrap | exclude_child_from_search | exclude_me_from_search ] */
+    // The content of a protected root lives in its encrypted blob, never in the
+    // node row. Its widgets get no rows either, and any left from before it was
+    // protected are deleted below.
+    const bool isProtectedRoot = _pCtMainWin->get_protected_areas().is_protected_root(node_id);
+
+    /* level is bitfield [ ... | is_protected_root | line_wrap | exclude_child_from_search | exclude_me_from_search ] */
     gint64 exclude_from_search = ct_tree_iter->get_node_is_excluded_from_search();
     if (ct_tree_iter->get_node_children_are_excluded_from_search()) {
         exclude_from_search |= 0x02;
@@ -868,19 +986,25 @@ void CtStorageSqlite::_write_node_to_db(const CtTreeIter* ct_tree_iter,
     if (ct_tree_iter->get_node_line_wrap()) {
         exclude_from_search |= 0x04;
     }
+    // Bit 3 mirrors CtProtectedAreas, which is authoritative. It is written so
+    // that a protected_area row can be recognised as stale on load, and it never
+    // leaves this layer: nothing above the storage reads it.
+    if (isProtectedRoot) {
+        exclude_from_search |= 0x08;
+    }
 
     // write widgets
     bool has_codebox{false};
     bool has_table{false};
     bool has_image{false};
     if (node_state.buff) {
-        if ((is_richtxt & 0x01) or node_state.prop) {
+        if ((is_richtxt & 0x01) or node_state.prop or isProtectedRoot) {
             // Always clear old widgets — a "new" node may have stale DB rows.
             _exec_bind_int64(TABLE_CODEBOX_DELETE, node_id);
             _exec_bind_int64(TABLE_TABLE_DELETE, node_id);
             _exec_bind_int64(TABLE_IMAGE_DELETE, node_id);
         }
-        if (is_richtxt & 0x01) {
+        if ((is_richtxt & 0x01) and not isProtectedRoot) {
             for (CtAnchoredWidget* pAnchoredWidget : ct_tree_iter->get_anchored_widgets(start_offset, end_offset)) {
                 if (not pAnchoredWidget->to_sqlite(_pDb, node_id, start_offset >= 0 ? -start_offset : 0, storage_cache))
                     throw std::runtime_error("couldn't save widget");
@@ -919,7 +1043,18 @@ void CtStorageSqlite::_write_node_to_db(const CtTreeIter* ct_tree_iter,
     else if (node_state.buff) {
         // get buffer content
         std::string node_txt;
-        if (is_richtxt & 0x01) {
+        if (isProtectedRoot) {
+            // The real content is in the protected_area blob. A rich text node
+            // still needs a well formed empty document here: get_delayed_text_buffer
+            // parses this column, and a literally empty string makes it throw.
+            if (is_richtxt & 0x01) {
+                xmlpp::Document xml_doc;
+                xml_doc.create_root_node("node");
+                node_txt = xml_doc.write_to_string();
+            }
+            // for plain text and code an empty string is exactly right
+        }
+        else if (is_richtxt & 0x01) {
             xmlpp::Document xml_doc;
             xml_doc.create_root_node("node");
             CtStorageXmlHelper{_pCtMainWin}.save_buffer_no_widgets_to_xml(xml_doc.get_root_node(),
@@ -1024,6 +1159,8 @@ void CtStorageSqlite::_remove_db_node_with_children(const gint64 node_id)
     _exec_bind_int64(TABLE_DRAWING_STROKE_DELETE, node_id);
     _exec_bind_int64(TABLE_NODE_DELETE, node_id);
     _exec_bind_int64(TABLE_CHILDREN_DELETE, node_id);
+    // a protected root takes its encrypted blob with it
+    remove_protected_area(node_id);
 
     for (const std::pair<gint64,gint64>& child_id_pair : _get_children_node_ids_from_db(node_id)) {
         _remove_db_node_with_children(child_id_pair.first);

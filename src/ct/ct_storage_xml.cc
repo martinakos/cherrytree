@@ -116,6 +116,18 @@ bool CtStorageXml::save_treestore(const fs::path& file_path,
                                   const int start_offset/*= 0*/,
                                   const int end_offset/*=-1*/)
 {
+    // A locked area exists only as an encrypted blob, which this format cannot
+    // store. Writing the tree as it stands would silently drop that content, so
+    // refuse instead. The UI unlocks and confirms before ever getting here.
+    {
+        CtProtectedAreas& areas = _pCtMainWin->get_protected_areas();
+        for (const gint64 nodeId : areas.area_ids()) {
+            if (not areas.is_unlocked(nodeId)) {
+                error = _("This format cannot store password protected areas. Unlock them first.");
+                return false;
+            }
+        }
+    }
     try {
         xmlpp::Document xml_doc;
         xml_doc.create_root_node(CtConst::APP_NAME);
