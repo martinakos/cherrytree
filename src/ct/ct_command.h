@@ -23,6 +23,8 @@
 
 #pragma once
 
+#include <set>
+
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -59,6 +61,13 @@ public:
 
     // Drawing canvas index (-1 = not a drawing command)
     virtual int getDrawingCanvasIdx() const { return -1; }
+
+    // Every node this command touches. The default covers the single node
+    // commands; CompoundCommand adds the nodes of the commands it holds.
+    virtual void collectNodeIds(std::set<gint64>& rNodeIds) const {
+        const gint64 nodeId = getNodeId();
+        if (nodeId > 0) rNodeIds.insert(nodeId);
+    }
 };
 
 // Compound command that groups multiple commands together
@@ -89,6 +98,7 @@ public:
     double getOldScrollPos() const override { return _oldScrollPos; }
     double getNewScrollPos() const override { return _newScrollPos; }
     int getDrawingCanvasIdx() const override { return _drawingCanvasIdx; }
+    void collectNodeIds(std::set<gint64>& rNodeIds) const override;
 
     // Document model for notification suppression during delta replay
     void setDocumentModel(std::shared_ptr<CtDocumentModel> model) { _docModel = model; }
@@ -150,6 +160,12 @@ public:
 
     // Clear all history
     void clear();
+
+    // Drop every entry that touches one of these nodes, from both stacks.
+    // Used when a password protected area locks: undo must not be able to
+    // resurrect the plaintext of nodes that are no longer in the tree.
+    // Returns how many entries were dropped.
+    size_t purgeCommandsForNodes(const std::set<gint64>& nodeIds);
 
     // Set maximum undo stack depth (0 = unlimited)
     void setMaxUndoDepth(size_t depth);

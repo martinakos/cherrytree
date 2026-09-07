@@ -472,6 +472,7 @@ void CtConfig::_populate_keyfile_from_data()
     _uKeyFile->set_boolean(_currentGroup, "start_on_systray", startOnSystray);
     _uKeyFile->set_boolean(_currentGroup, "autosave_on", autosaveOn);
     _uKeyFile->set_integer(_currentGroup, "autosave_val", autosaveMinutes);
+    _uKeyFile->set_integer(_currentGroup, "protected_area_lock_val", protectedAreaLockMinutes);
     _uKeyFile->set_boolean(_currentGroup, "bookm_top_menu", bookmarksInTopMenu);
     _uKeyFile->set_boolean(_currentGroup, "tree_tooltips", treeTooltips);
     _uKeyFile->set_boolean(_currentGroup, "menus_tooltips", menusTooltips);
@@ -514,6 +515,23 @@ void CtConfig::_populate_keyfile_from_data()
     // [codexec_ext]
     _currentGroup = "codexec_ext";
     _populate_current_group_from_map(customCodexecExt);
+}
+
+/*static*/void CtConfig::ensure_ui_list_has_group(std::string& rUiList,
+                                                 const std::string& probeId,
+                                                 const std::string& groupToInsert,
+                                                 const std::string& afterAnchor)
+{
+    if (rUiList.empty()) return;                             // empty means use the default
+    if (std::string::npos != rUiList.find(probeId)) return;  // already there
+    const size_t anchorPos = rUiList.find(afterAnchor);
+    if (std::string::npos != anchorPos) {
+        rUiList.insert(anchorPos + afterAnchor.size(), groupToInsert);
+    }
+    else {
+        if (',' != rUiList.back()) rUiList += ",";
+        rUiList += groupToInsert;
+    }
 }
 
 void CtConfig::_populate_data_from_keyfile()
@@ -874,6 +892,15 @@ void CtConfig::_populate_data_from_keyfile()
     _populate_string_from_keyfile("popup_codebox_ui_list", &popupCodeboxUiList);
     _populate_string_from_keyfile("popup_table_cell_ui_list", &popupTableCellUiList);
     _populate_string_from_keyfile("popup_node_ui_list", &popupNodeUiList);
+
+    // make the password protection entries appear for configs written before them
+    {
+        const std::string protectGroup{"{TreeProtectSubMenu,tree_node_protect,tree_node_change_password,"
+                                       "tree_node_unprotect,separator,tree_lock_protected,},separator,"};
+        const std::string protectAnchor{"child_nodes_inherit_syntax,separator,"};
+        ensure_ui_list_has_group(menubarTreeUiList, "tree_node_protect", protectGroup, protectAnchor);
+        ensure_ui_list_has_group(popupNodeUiList, "tree_node_protect", protectGroup, protectAnchor);
+    }
     _populate_bool_from_keyfile("systray", &systrayOn);
     _populate_bool_from_keyfile("start_on_systray", &startOnSystray);
     if (savedFromPyGtk) {
@@ -883,6 +910,7 @@ void CtConfig::_populate_data_from_keyfile()
     }
     _populate_bool_from_keyfile("autosave_on", &autosaveOn);
     _populate_int_from_keyfile("autosave_val", &autosaveMinutes);
+    _populate_int_from_keyfile("protected_area_lock_val", &protectedAreaLockMinutes);
     _populate_bool_from_keyfile("bookm_top_menu", &bookmarksInTopMenu);
     _populate_bool_from_keyfile("tree_tooltips", &treeTooltips);
     _populate_bool_from_keyfile("menus_tooltips", &menusTooltips);

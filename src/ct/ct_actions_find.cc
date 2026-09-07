@@ -220,6 +220,7 @@ void CtActions::find_in_multiple_nodes_ok_clicked()
         _s_state.match_store->deep_clear();
     }
     CtTreeIter::clear_hit_exclusion_from_search();
+    CtProtectedAreas::clear_hit_locked_area();
 
     // searching start
     bool user_active_restore = _pCtMainWin->user_active();
@@ -428,6 +429,12 @@ CtMatchType CtActions::_parse_given_node_content(CtTreeIter node_iter,
     else {
         // not first_fromsel or first_fromsel with first_node already parsed
         optFirstNode = false;
+    }
+    // A locked protected area has no descendants in the tree, so nothing of it
+    // can be reached from here; count it so the user can be told it was skipped.
+    if (_pCtMainWin->get_protected_areas().is_locked(node_iter.get_node_id())) {
+        CtProtectedAreas::note_hit_locked_area();
+        return CtMatchType::None;
     }
     if (optFirstNode.has_value() and (not node_iter.get_node_is_excluded_from_search() or _s_options.override_exclusions)) {
         if (_s_options.node_content) {

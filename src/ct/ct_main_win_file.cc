@@ -308,6 +308,16 @@ bool CtMainWin::file_open(const fs::path& filepath,
         _ctTextview.mm().grab_focus();
     }
 
+    // The tree selection is restored with user_active() still false, so the
+    // handler's own gate does not run; ask here instead, otherwise the document
+    // would open parked on a locked area with no explanation.
+    if (not _no_gui) {
+        CtTreeIter selectedIter = curr_tree_iter();
+        if (selectedIter) {
+            (void)prompt_unlock_if_locked(selectedIter);
+        }
+    }
+
     if (iterDocsRestore != _pCtConfig->recentDocsRestore.end()) {
         window_header_update();
     }

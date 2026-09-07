@@ -41,6 +41,20 @@ Gtk::Widget* CtPrefDlg::build_tab_misc()
     hbox_autosave->append(*spinbutton_autosave);
     hbox_autosave->append(*label_autosave);
 #endif
+    auto hbox_protected_lock = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 4/*spacing*/});
+    auto label_protected_lock = Gtk::manage(new Gtk::Label{_("Lock Password Protected Areas After")});
+    Glib::RefPtr<Gtk::Adjustment> adjustment_protected_lock = Gtk::Adjustment::create(_pConfig->protectedAreaLockMinutes, 1, 1440, 1);
+    auto spinbutton_protected_lock = Gtk::manage(new Gtk::SpinButton{adjustment_protected_lock});
+    auto label_protected_lock_min = Gtk::manage(new Gtk::Label{_("Minutes of Inactivity")});
+#if GTKMM_MAJOR_VERSION < 4
+    hbox_protected_lock->pack_start(*label_protected_lock, false, false);
+    hbox_protected_lock->pack_start(*spinbutton_protected_lock, false, false);
+    hbox_protected_lock->pack_start(*label_protected_lock_min, false, false);
+#else
+    hbox_protected_lock->append(*label_protected_lock);
+    hbox_protected_lock->append(*spinbutton_protected_lock);
+    hbox_protected_lock->append(*label_protected_lock_min);
+#endif
     auto checkbutton_autosave_on_quit = Gtk::manage(new Gtk::CheckButton{_("Autosave on Quit")});
     auto checkbutton_backup_before_saving = Gtk::manage(new Gtk::CheckButton{_("Create a Backup Copy Before Saving")});
     auto hbox_num_backups = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 4/*spacing*/});
@@ -66,6 +80,7 @@ Gtk::Widget* CtPrefDlg::build_tab_misc()
     hbox_custom_backup_dir->pack_start(*checkbutton_custom_backup_dir, false, false);
     hbox_custom_backup_dir->pack_start(*file_chooser_button_backup_dir);
     vbox_saving->pack_start(*hbox_autosave, false, false);
+    vbox_saving->pack_start(*hbox_protected_lock, false, false);
     vbox_saving->pack_start(*checkbutton_autosave_on_quit, false, false);
     vbox_saving->pack_start(*checkbutton_backup_before_saving, false, false);
     vbox_saving->pack_start(*hbox_num_backups, false, false);
@@ -77,6 +92,7 @@ Gtk::Widget* CtPrefDlg::build_tab_misc()
     hbox_custom_backup_dir->append(*checkbutton_custom_backup_dir);
     hbox_custom_backup_dir->append(*file_chooser_button_backup_dir);
     vbox_saving->append(*hbox_autosave);
+    vbox_saving->append(*hbox_protected_lock);
     vbox_saving->append(*checkbutton_autosave_on_quit);
     vbox_saving->append(*checkbutton_backup_before_saving);
     vbox_saving->append(*hbox_num_backups);
@@ -308,6 +324,10 @@ Gtk::Widget* CtPrefDlg::build_tab_misc()
     spinbutton_autosave->signal_value_changed().connect([this, pSpinbutton_autosave=spinbutton_autosave](){
         _pConfig->autosaveMinutes = pSpinbutton_autosave->get_value_as_int();
         _pCtMainWin->file_autosave_restart();
+    });
+    spinbutton_protected_lock->signal_value_changed().connect([this, pSpinbutton_protected_lock=spinbutton_protected_lock](){
+        _pConfig->protectedAreaLockMinutes = pSpinbutton_protected_lock->get_value_as_int();
+        apply_for_each_window([](CtMainWin* pWin){ pWin->get_protected_areas().timer_restart(); });
     });
     checkbutton_autosave_on_quit->signal_toggled().connect([this, pCheckbutton_autosave_on_quit=checkbutton_autosave_on_quit](){
         _pConfig->autosaveOnQuit = pCheckbutton_autosave_on_quit->get_active();

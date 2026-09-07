@@ -23,6 +23,8 @@
 
 #include <sigc++/sigc++.h>
 #include "ct_actions.h"
+#include "ct_storage_sqlite.h"
+#include "ct_storage_control.h"
 #include "ct_image.h"
 #include "ct_dialogs.h"
 #include "ct_clipboard.h"
@@ -551,6 +553,53 @@ Gtk::TreeModel::iterator CtActions::node_child_exist_or_create(Gtk::TreeModel::i
     return _node_add_with_data(parentIter, nodeData, true/*add_as_child*/);
 }
 
+// Guards a move against the boundary of a password protected area. Returns
+// false when the move must not happen.
+bool CtActions::_node_move_protected_check(Gtk::TreeModel::iterator iter_to_move,
+                                           Gtk::TreeModel::iterator father_iter)
+{
+    CtTreeStore& ctTreeStore = _pCtMainWin->get_tree_store();
+    CtProtectedAreas& areas = _pCtMainWin->get_protected_areas();
+    if (not areas.has_any()) return true;
+
+    CtTreeIter moveCtIter = ctTreeStore.to_ct_tree_iter(iter_to_move);
+    CtTreeIter fatherCtIter = father_iter ? ctTreeStore.to_ct_tree_iter(father_iter) : CtTreeIter{};
+    const gint64 sourceAreaId = areas.enclosing_area_id(moveCtIter);
+    const gint64 targetAreaId = fatherCtIter ? areas.enclosing_area_id(fatherCtIter) : 0;
+    if (sourceAreaId == targetAreaId) return true; // stays on the same side
+
+    // a protected root may not end up inside another area
+    if (0 != targetAreaId and areas.is_protected_root(moveCtIter.get_node_id())) {
+        CtDialogs::error_dialog(_("A password protected area cannot contain another one."), *_pCtMainWin);
+        return false;
+    }
+    // moving a whole area into another one is refused for the same reason
+    if (0 != targetAreaId) {
+        bool subtreeHasArea{false};
+        std::function<void(CtTreeIter)> f_scan;
+        f_scan = [&](CtTreeIter iter) {
+            while (iter and not subtreeHasArea) {
+                if (areas.is_protected_root(iter.get_node_id())) subtreeHasArea = true;
+                f_scan(iter.first_child());
+                ++iter;
+            }
+        };
+        f_scan(moveCtIter.first_child());
+        if (subtreeHasArea) {
+            CtDialogs::error_dialog(_("A password protected area cannot contain another one."), *_pCtMainWin);
+            return false;
+        }
+    }
+    if (0 != sourceAreaId and 0 == targetAreaId) {
+        if (not CtDialogs::question_dialog(
+                Glib::ustring{"<b>"} + _("Move out of the Password Protected Area?") + "</b>\n\n" +
+                _("This node and its subnodes will no longer be encrypted."), *_pCtMainWin)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 // Move a node to a parent and after a sibling
 void CtActions::node_move_after(Gtk::TreeModel::iterator iter_to_move,
                                 Gtk::TreeModel::iterator father_iter,
@@ -559,6 +608,12 @@ void CtActions::node_move_after(Gtk::TreeModel::iterator iter_to_move,
                                 bool keep_focus/*= false*/)
 {
     CtTreeStore& ctTreeStore = _pCtMainWin->get_tree_store();
+
+    // A move that crosses the boundary of a password protected area changes
+    // whether the node is encrypted at rest, so it needs checking first.
+    if (not _node_move_protected_check(iter_to_move, father_iter)) {
+        return;
+    }
 
     auto pBridge = _pCtMainWin->get_command_bridge();
     auto* pModel = (pBridge && pBridge->isActive()) ? pBridge->getDocumentModel().get() : nullptr;
@@ -846,6 +901,19 @@ void CtActions::node_delete()
 
     if (not _is_there_selected_node_or_error()) return;
     if (not _is_curr_node_not_read_only_or_error()) return;
+
+    // Deleting a locked area would throw away content nobody can see, and the
+    // confirmation below could not even name the nodes it is about to remove.
+    {
+        CtProtectedAreas& areas = _pCtMainWin->get_protected_areas();
+        CtTreeIter currIter = _pCtMainWin->curr_tree_iter();
+        if (currIter and areas.is_locked(currIter.get_node_id())) {
+            CtDialogs::error_dialog(Glib::ustring{"<b>"} +
+                _("This Password Protected Area is Locked.") + "</b>\n\n" +
+                _("Unlock it first, so that you can see what would be deleted."), *_pCtMainWin);
+            return;
+        }
+    }
 
     CtTreeStore& ctTreeStore = _pCtMainWin->get_tree_store();
 
@@ -1555,4 +1623,136 @@ void CtActions::node_link_to_clipboard()
 {
     if (not _is_there_selected_node_or_error()) return;
     CtClipboard(_pCtMainWin).node_link_to_clipboard(_pCtMainWin->curr_tree_iter());
+}
+
+// ── password protected areas ───────────────────────────────────────────────
+
+// Only the SQLite backend can store the encrypted blobs. Saving or exporting to
+// XML or MultiFile would silently drop the protected content, so it is allowed
+// only after every area has been unlocked and the user has confirmed that the
+// target will hold that content unencrypted.
+bool CtActions::_protected_areas_allow_doc_type(const CtDocType targetDocType)
+{
+    CtProtectedAreas& areas = _pCtMainWin->get_protected_areas();
+    if (not areas.has_any()) return true;
+    if (CtDocType::SQLite == targetDocType) return true;
+
+    std::vector<Glib::ustring> lockedNames;
+    for (const gint64 nodeId : areas.area_ids()) {
+        if (not areas.is_unlocked(nodeId)) {
+            CtTreeIter iter = _pCtMainWin->get_tree_store().get_node_from_node_id(nodeId);
+            lockedNames.push_back(iter ? iter.get_node_name() : Glib::ustring{std::to_string(nodeId)});
+        }
+    }
+    if (not lockedNames.empty()) {
+        Glib::ustring message = Glib::ustring{"<b>"} +
+            _("This format cannot store password protected areas.") + "</b>\n\n" +
+            _("Unlock these areas first, or save as a SQLite document:") + "\n";
+        for (const Glib::ustring& name : lockedNames) message += "\n\t\u2022 " + name;
+        CtDialogs::error_dialog(message, *_pCtMainWin);
+        return false;
+    }
+    return CtDialogs::question_dialog(Glib::ustring{"<b>"} +
+        _("Save the Protected Content Unencrypted?") + "</b>\n\n" +
+        _("This format cannot store password protected areas. The content of every "
+          "protected area will be written to the new document unencrypted, and the "
+          "protection will not carry over."), *_pCtMainWin);
+}
+
+void CtActions::node_protect()
+{
+    if (not _is_there_selected_node_or_error()) return;
+    CtTreeIter treeIter = _pCtMainWin->curr_tree_iter();
+    CtProtectedAreas& areas = _pCtMainWin->get_protected_areas();
+
+    if (areas.is_protected_root(treeIter.get_node_id())) {
+        CtDialogs::error_dialog(_("This node is already password protected."), *_pCtMainWin);
+        return;
+    }
+    if (0 != areas.enclosing_area_id(treeIter)) {
+        CtDialogs::error_dialog(_("This node is already inside a password protected area."), *_pCtMainWin);
+        return;
+    }
+    if (not dynamic_cast<CtStorageSqlite*>(_pCtMainWin->get_ct_storage()->get_storage_entity())) {
+        CtDialogs::error_dialog(_("Password protected areas require the SQLite document format."), *_pCtMainWin);
+        return;
+    }
+    const Glib::ustring password = CtDialogs::new_area_password_dialog(treeIter.get_node_name(), *_pCtMainWin);
+    if (password.empty()) return;
+
+    Glib::ustring error;
+    if (not areas.protect(treeIter, password.raw(), error)) {
+        CtDialogs::error_dialog(error, *_pCtMainWin);
+        return;
+    }
+    _pCtMainWin->get_tree_store().update_node_aux_icon(treeIter);
+    _pCtMainWin->window_header_update();
+}
+
+void CtActions::node_unprotect()
+{
+    if (not _is_there_selected_node_or_error()) return;
+    CtTreeIter treeIter = _pCtMainWin->curr_tree_iter();
+    CtProtectedAreas& areas = _pCtMainWin->get_protected_areas();
+    const gint64 nodeId = treeIter.get_node_id();
+
+    if (not areas.is_protected_root(nodeId)) {
+        CtDialogs::error_dialog(_("This node is not password protected."), *_pCtMainWin);
+        return;
+    }
+    if (not CtDialogs::question_dialog(Glib::ustring{"<b>"} +
+            _("Remove the Password Protection?") + "</b>\n\n" +
+            _("This node and its subnodes will no longer be encrypted."), *_pCtMainWin)) {
+        return;
+    }
+    const Glib::ustring password = CtDialogs::ask_area_password_dialog(treeIter.get_node_name(), *_pCtMainWin);
+    if (password.empty()) return;
+
+    Glib::ustring error;
+    if (not areas.unprotect(nodeId, password.raw(), error)) {
+        CtDialogs::error_dialog(error, *_pCtMainWin);
+        return;
+    }
+    _pCtMainWin->get_tree_store().update_node_aux_icon(treeIter);
+    _pCtMainWin->window_header_update();
+}
+
+void CtActions::node_change_password()
+{
+    if (not _is_there_selected_node_or_error()) return;
+    CtTreeIter treeIter = _pCtMainWin->curr_tree_iter();
+    CtProtectedAreas& areas = _pCtMainWin->get_protected_areas();
+    const gint64 nodeId = treeIter.get_node_id();
+
+    if (not areas.is_protected_root(nodeId)) {
+        CtDialogs::error_dialog(_("This node is not password protected."), *_pCtMainWin);
+        return;
+    }
+    const Glib::ustring oldPassword = CtDialogs::ask_area_password_dialog(treeIter.get_node_name(), *_pCtMainWin);
+    if (oldPassword.empty()) return;
+
+    Glib::ustring error;
+    if (not areas.unlock(nodeId, oldPassword.raw(), error)) {
+        CtDialogs::error_dialog(error, *_pCtMainWin);
+        return;
+    }
+    const Glib::ustring newPassword = CtDialogs::new_area_password_dialog(treeIter.get_node_name(), *_pCtMainWin);
+    if (newPassword.empty()) return;
+
+    if (not areas.change_password(nodeId, newPassword.raw(), error)) {
+        CtDialogs::error_dialog(error, *_pCtMainWin);
+        return;
+    }
+    _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::npro, false/*new_machine_state*/, &treeIter);
+}
+
+void CtActions::tree_lock_protected_areas()
+{
+    CtProtectedAreas& areas = _pCtMainWin->get_protected_areas();
+    if (not areas.has_any()) {
+        CtDialogs::info_dialog(_("This document has no password protected areas."), *_pCtMainWin);
+        return;
+    }
+    areas.lock_all();
+    _pCtMainWin->window_header_update();
 }

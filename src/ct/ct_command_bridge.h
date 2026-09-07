@@ -60,6 +60,10 @@ public:
     // Initialize the document model from existing tree
     void initializeFromExistingDocument();
 
+    // Register a subtree (properties only) in the document model. Used when a
+    // password protected area is unlocked and its nodes reappear in the tree.
+    void registerSubtreeInModel(CtTreeIter ctTreeIter, gint64 parentId);
+
     // Synchronize model with current GTK tree state
     void syncModelFromTree();
 

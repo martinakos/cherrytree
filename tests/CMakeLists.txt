@@ -67,6 +67,7 @@ endif()
 package_add_test(run_tests_no_x
   tests_main.cpp
   tests_clipboard.cpp
+  tests_crypto.cpp
   tests_encoding.cpp
   tests_filesystem.cpp
   tests_imports.cpp
@@ -102,6 +103,7 @@ package_add_test(run_tests_with_x_2
   tests_main.cpp
   tests_read_write.cpp
   tests_command_undo_redo.cpp
+  tests_protected_area.cpp
   tests_command_gui_simulation.cpp
   tests_all_command_descriptions.cpp
   ../src/ct/icons.gresource.cc

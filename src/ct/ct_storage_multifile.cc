@@ -46,6 +46,18 @@ bool CtStorageMultiFile::save_treestore(const fs::path& dir_path,
                                         const int start_offset/*= 0*/,
                                         const int end_offset/*= -1*/)
 {
+    // A locked area exists only as an encrypted blob, which this format cannot
+    // store. Writing the tree as it stands would silently drop that content, so
+    // refuse instead. The UI unlocks and confirms before ever getting here.
+    {
+        CtProtectedAreas& areas = _pCtMainWin->get_protected_areas();
+        for (const gint64 nodeId : areas.area_ids()) {
+            if (not areas.is_unlocked(nodeId)) {
+                error = _("This format cannot store password protected areas. Unlock them first.");
+                return false;
+            }
+        }
+    }
     try {
         CtTreeStore& ct_tree_store = _pCtMainWin->get_tree_store();
         if (_dir_path.empty()) {

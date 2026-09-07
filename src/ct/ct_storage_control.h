@@ -74,6 +74,7 @@ public:
     fs::path get_file_dir()  { return _file_path.empty() ? "" : _file_path.parent_path(); }
 
     const CtStorageSyncPending* get_storage_sync_pending() { return &_syncPending; }
+    CtStorageEntity*            get_storage_entity() { return _storage.get(); }
 
     void pending_edit_db_node_prop(const gint64 node_id);
     void pending_edit_db_node_buff(const gint64 node_id);
