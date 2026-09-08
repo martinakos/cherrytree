@@ -1,19 +1,56 @@
 cherrytree-docmodel (1.7.2+docmodel17-1) plucky; urgency=low
 
-  * Password protect any subtree, encrypted inside the same document
-  * Locked areas are hidden from the tree, from searches and from exports
-  * Areas re-lock automatically after a configurable idle time, 5 minutes by default
-  * Several independent password protected areas per document
-  * Change the password or remove the protection, and lock every area with Ctrl+Shift+L
-  * AES-256-CBC with HMAC-SHA256 and PBKDF2-HMAC-SHA256, built on the bundled 7-Zip primitives, no new dependency
-  * The encrypted content is authenticated before decryption, so a wrong password and a tampered document fail alike
-  * Encrypted subtrees live in a new protected_area table and their nodes leave no rows of their own
-  * Save As and Export to XML or MultiFile refuse while an area is locked, so protected content is never silently dropped
-  * Tree menu and node context menu entries for password protection, with a Show Password option in the dialogs
-  * Locked and unlocked areas are marked in the tree, and node properties shows the protection state
-  * Search reports areas skipped because they are locked, and export warns before leaving them out
-  * Bookmarks inside an area survive a lock, and undo entries for locked nodes are discarded
-  * Fix new menu entries staying invisible for users with a menu layout saved by an earlier version
+  * Password protected areas - new feature:
+    - Any node can be made the root of a password protected subtree
+    - While locked, the subtree is absent from the tree entirely: not visible,
+      not searchable, not exportable
+    - Selecting a locked area asks for the password; also asked on document open
+      when the restored node is inside one
+    - Automatic re-lock after a configurable idle time, 5 minutes by default
+    - Several independent areas per document
+    - Change the password, remove the protection, or lock every area now with
+      Ctrl+Shift+L
+  * Encryption:
+    - AES-256-CBC with HMAC-SHA256, key from PBKDF2-HMAC-SHA256 at 600000
+      iterations
+    - Built on the AES-256 and SHA-256 primitives already bundled with the
+      7-Zip sources, so no new dependency
+    - The MAC is checked before anything is decrypted, so a wrong password and a
+      tampered document fail the same way
+    - An unlocked area keeps its derived key, so re-sealing costs about 3 ms
+      instead of 670 ms
+    - Keys and plaintext are wiped from memory when an area locks
+  * Storage:
+    - New protected_area table holds the encrypted subtree in the same document
+    - The protected root keeps its row so it stays visible, but its own content
+      is written empty
+    - Descendants own no rows at all while protected, nothing about them is left
+      in the file
+    - Leftover blobs from a removed protection are detected on load and cleared
+      on the next save
+    - Save As and Export to XML or MultiFile refuse while any area is locked, and
+      ask for confirmation once they are unlocked, so protected content is never
+      silently dropped
+  * User interface:
+    - Tree -> Password Protection submenu, also on the node context menu
+    - Password dialogs with a Show Password option, also on the document open
+      prompt
+    - Shield and keys icons in the tree for locked and unlocked areas
+    - Node properties shows the protection state, and names the enclosing area
+      for nodes inside one
+    - Preferences: idle time before areas lock
+    - Search reports when a locked area was skipped; export warns and can be
+      cancelled
+  * Editing and undo:
+    - Locking removes the undo entries that touch the area
+    - Moving a node across an area boundary is validated, and confirmed before it
+      leaves protection
+    - Bookmarks inside an area survive a lock and unlock
+    - Deleting a locked area is refused until it is unlocked
+  * Fix:
+    - New menu entries now appear for users who already have a saved menu layout.
+      Previously the saved layout won over the defaults with no migration, so any
+      newly added menu item stayed invisible
 
  -- Giuseppe Penone <giuspen@gmail.com>  Tue, 08 Sep 2026 08:09:17 +0100
 
