@@ -64,7 +64,9 @@ public:
     static std::string get_user_style_id(const unsigned num);
 
     Gdk::RGBA get_rt_bg_color() const;
+    Gdk::RGBA get_rt_fg_color() const;
     Gdk::RGBA get_style_scheme_bg_color(const std::string& scheme_name) const;
+    Gdk::RGBA get_style_scheme_fg_color(const std::string& scheme_name) const;
 
     // [state]
     CtRecentDocsRestore                         recentDocsRestore;

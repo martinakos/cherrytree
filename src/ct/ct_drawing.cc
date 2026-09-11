@@ -1339,6 +1339,41 @@ bool CtDrawingOverlay::_onDraw(const Cairo::RefPtr<Cairo::Context>& cr)
     return false;
 }
 
+/*static*/void CtDrawingOverlay::render_for_export(const Cairo::RefPtr<Cairo::Context>& cr,
+                                                  const CtDrawingCanvas& canvas,
+                                                  const double originX,
+                                                  const double originY,
+                                                  const double scale)
+{
+    const double cx = originX;
+    const double cy = originY;
+    const double cw = canvas.width * scale;
+    const double ch = canvas.height * scale;
+    const double radius = canvas.cornerRadius * scale;
+
+    // background, the whole box: on screen the top strip is reserved for the
+    // header chrome, which an export does not draw
+    {
+        double bgR, bgG, bgB;
+        parseColor(canvas.bgColor, bgR, bgG, bgB);
+        cr->save();
+        _drawRoundedRect(cr, cx, cy, cw, ch, radius);
+        cr->clip();
+        cr->rectangle(cx, cy, cw, ch);
+        cr->set_source_rgba(bgR, bgG, bgB, canvas.bgOpacity);
+        cr->fill();
+        cr->restore();
+    }
+
+    cr->save();
+    _drawRoundedRect(cr, cx, cy, cw, ch, radius);
+    cr->clip();
+    for (const auto& stroke : canvas.strokes) {
+        _drawStroke(cr, stroke, cx, cy, scale);
+    }
+    cr->restore();
+}
+
 void CtDrawingOverlay::_drawCanvas(const Cairo::RefPtr<Cairo::Context>& cr,
                                     const CtDrawingCanvas& canvas,
                                     int idx, double hScroll, double vScroll, double zoom)
@@ -1556,11 +1591,17 @@ void CtDrawingOverlay::_drawCanvas(const Cairo::RefPtr<Cairo::Context>& cr,
     cr->restore();
 }
 
-void CtDrawingOverlay::_strokeCenter(const CtDrawingStroke& stroke, double& centerX, double& centerY)
+/*static*/void CtDrawingOverlay::_strokeCenter(const CtDrawingStroke& stroke, double& centerX, double& centerY)
 {
     if (stroke.points.empty()) { centerX = centerY = 0.0; return; }
     if (stroke.type == CtDrawingElementType::Text && !stroke.textContent.empty()) {
-        auto layout = _drawingArea.create_pango_layout(stroke.textContent);
+        // A standalone pango context, so this can measure text without a widget
+        // and be shared with the export painter. Created once.
+        static Cairo::RefPtr<Cairo::Surface> s_measureSurface =
+            Cairo::ImageSurface::create(Cairo::FORMAT_ARGB32, 1, 1);
+        static Cairo::RefPtr<Cairo::Context> s_measureCr = Cairo::Context::create(s_measureSurface);
+        auto layout = Glib::wrap(pango_cairo_create_layout(s_measureCr->cobj()));
+        layout->set_text(stroke.textContent);
         Pango::FontDescription fd;
         fd.set_family(stroke.fontFamily);
         fd.set_size(static_cast<int>(stroke.fontSize * Pango::SCALE));
@@ -1591,7 +1632,7 @@ void CtDrawingOverlay::_strokeCenter(const CtDrawingStroke& stroke, double& cent
     }
 }
 
-void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
+/*static*/void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
                                     const CtDrawingStroke& stroke,
                                     double cx, double cy, double zoom)
 {
@@ -1847,7 +1888,7 @@ void CtDrawingOverlay::_drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
     }
 }
 
-void CtDrawingOverlay::_drawArrowHead(const Cairo::RefPtr<Cairo::Context>& cr,
+/*static*/void CtDrawingOverlay::_drawArrowHead(const Cairo::RefPtr<Cairo::Context>& cr,
                                        double tipX, double tipY,
                                        double fromX, double fromY,
                                        double lineWidth, double zoom,
@@ -1885,7 +1926,7 @@ void CtDrawingOverlay::_drawArrowHead(const Cairo::RefPtr<Cairo::Context>& cr,
     }
 }
 
-void CtDrawingOverlay::_drawRoundedRect(const Cairo::RefPtr<Cairo::Context>& cr,
+/*static*/void CtDrawingOverlay::_drawRoundedRect(const Cairo::RefPtr<Cairo::Context>& cr,
                                          double x, double y, double w, double h, double r)
 {
     r = std::min(r, std::min(w / 2.0, h / 2.0));

@@ -1004,6 +1004,52 @@ Gdk::RGBA CtConfig::get_rt_bg_color() const
     return get_style_scheme_bg_color(rtStyleScheme);
 }
 
+Gdk::RGBA CtConfig::get_rt_fg_color() const
+{
+    return get_style_scheme_fg_color(rtStyleScheme);
+}
+
+Gdk::RGBA CtConfig::get_style_scheme_fg_color(const std::string& scheme_name) const
+{
+    if (g_str_has_prefix(scheme_name.c_str(), "user-")) {
+        try {
+            int num = std::stoi(scheme_name.substr(5));
+            if (num >= 1 && num <= static_cast<int>(CtConst::NUM_USER_STYLES)) {
+                Gdk::RGBA rgba;
+                if (rgba.set(userStyleTextFg[num - 1])) {
+                    return rgba;
+                }
+            }
+        }
+        catch (...) {}
+    }
+
+    GtkSourceStyleSchemeManager* pGtkSourceStyleSchemeManager = gtk_source_style_scheme_manager_get_default();
+    if (pGtkSourceStyleSchemeManager) {
+        GtkSourceStyleScheme* pScheme = gtk_source_style_scheme_manager_get_scheme(pGtkSourceStyleSchemeManager, scheme_name.c_str());
+        if (pScheme) {
+            GtkSourceStyle* pStyle = gtk_source_style_scheme_get_style(pScheme, "text");
+            if (pStyle) {
+                gchar* fg_str = nullptr;
+                gboolean fg_set = FALSE;
+                g_object_get(pStyle, "foreground", &fg_str, "foreground-set", &fg_set, NULL);
+                if (fg_set && fg_str) {
+                    Gdk::RGBA rgba;
+                    bool ok = rgba.set(fg_str);
+                    g_free(fg_str);
+                    if (ok) {
+                        return rgba;
+                    }
+                }
+            }
+        }
+    }
+
+    Gdk::RGBA default_fg;
+    default_fg.set("#000000");
+    return default_fg;
+}
+
 Gdk::RGBA CtConfig::get_style_scheme_bg_color(const std::string& scheme_name) const
 {
     if (g_str_has_prefix(scheme_name.c_str(), "user-")) {

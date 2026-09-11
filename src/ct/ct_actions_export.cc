@@ -267,6 +267,12 @@ bool CtActions::_protected_areas_warn_before_export()
         }
     }
     if (lockedNames.empty()) return true;
+    if (_pCtMainWin->no_gui()) {
+        // Automated export: nobody can answer a dialog, and blocking on one hangs
+        // the run for ever. Carry on without the locked areas and say so.
+        spdlog::warn("export: {} locked password protected area(s) left out", lockedNames.size());
+        return true;
+    }
     Glib::ustring message = Glib::ustring{"<b>"} +
         _("Some Password Protected Areas are Locked.") + "</b>\n\n" +
         _("Their content will be left out of the export:") + "\n";

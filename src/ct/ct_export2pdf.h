@@ -24,6 +24,7 @@
 #pragma once
 
 #include "ct_main_win.h"
+#include "ct_drawing.h"
 #include "ct_dialogs.h"
 #include <iterator>
 
@@ -50,6 +51,10 @@ struct CtPangoText : public CtPangoObject
     const Glib::ustring     synt_highl;
     const int               indent{0};
     const PangoDirection    pango_dir{PANGO_DIRECTION_NEUTRAL};
+    // Paragraph justification. Not markup — it is applied to the layout in
+    // _process_pango_text. Set after construction so the derived slot types
+    // (link, dest) inherit it without touching their constructors.
+    Pango::Alignment        alignment{Pango::ALIGN_LEFT};
 };
 
 struct CtPangoLink : public CtPangoText
@@ -73,6 +78,19 @@ struct CtPangoDest : public CtPangoText
      : CtPangoText{text, synt_highl, indent, pango_dir}
      , dest{dest_} {}
     const Glib::ustring dest;
+};
+
+// A drawing canvas to be exported. Canvases are document-model objects, not
+// anchored widgets, so they never reach the widget dispatch and used to be
+// dropped from every export.
+struct CtPangoCanvas : public CtPangoObject
+{
+    CtPangoCanvas(const CtDrawingCanvas& canvas_, const int indent_)
+     : canvas{canvas_}, indent{indent_} {}
+    // by value: get_drawing_canvases() hands back a copy, so a pointer into it
+    // would dangle the moment the temporary died
+    const CtDrawingCanvas canvas;
+    const int             indent{0};
 };
 
 struct CtPangoWidget : public CtPangoObject
@@ -143,10 +161,20 @@ public:
                            const CtExportOptions& options);
 
 private:
+    // one line of the table of contents: what to show, where to jump, how deep
+    struct CtTocEntry {
+        Glib::ustring name;
+        gint64        node_id;
+        int           depth;
+    };
     void             _nodes_all_export_print_iter(CtTreeIter tree_iter,
                                                   const CtExportOptions& options,
                                                   std::vector<CtPangoObjectPtr>& tree_pango_slots);
+    void             _collect_toc_entries(CtTreeIter tree_iter, int depth, std::vector<CtTocEntry>& entries);
+    void             _prepend_pango_toc(const std::vector<CtTocEntry>& entries,
+                                        std::vector<CtPangoObjectPtr>& tree_pango_slots);
     CtPangoObjectPtr _generate_pango_node_name(CtTreeIter tree_iter);
+    CtPangoObjectPtr _generate_pango_node_dest(CtTreeIter tree_iter);
 
 private:
     CtMainWin* const _pCtMainWin;
@@ -196,6 +224,14 @@ struct CtPageImage : public CtPageElement
     const double   scale;
 };
 
+struct CtPageCanvas : public CtPageElement
+{
+    CtPageCanvas(const int x_, Glib::RefPtr<Gdk::Pixbuf> pixbuf_, const double scale_)
+     : CtPageElement{x_}, pixbuf{pixbuf_}, scale{scale_} {}
+    Glib::RefPtr<Gdk::Pixbuf> pixbuf;
+    const double              scale{1.0};
+};
+
 struct CtPageCodebox : public CtPageElement
 {
     CtPageCodebox(const int x_,
@@ -227,12 +263,14 @@ struct CtPageTable : public CtPageElement
                 const double page_dpi_scale,
                 const class CtTableCommon* table_,
                 int first_row_,
-                const double fit_scale_ = 1.0)
+                const double fit_scale_ = 1.0,
+                const double doc_scale_ = 1.0)
      : CtPageElement{x_}
      , layouts{layouts_}
      , pTable{table_}
      , first_row{first_row_}
      , fit_scale{fit_scale_}
+     , doc_scale{doc_scale_}
     {
         for (auto col_width : col_widths) {
             colWidths.push_back(col_width*page_dpi_scale*fit_scale_);
@@ -243,6 +281,11 @@ struct CtPageTable : public CtPageElement
     const class CtTableCommon* pTable{nullptr};
     int first_row{1}; // first body row included in this slice (header is always in row 0 of layouts)
     double fit_scale{1.0}; // <1.0 means the table is scaled down to fit the page width
+    // The shrink this table was laid out with. Drawing reads _doc_scale for
+    // borders, cell padding and embedded images, so it must be put back to this
+    // value while the table is drawn or the drawn table will not match the
+    // vertical space the paginator reserved for it.
+    double doc_scale{1.0};
     std::vector<EmbeddedImage> embeddedImages;
 };
 
@@ -385,6 +428,15 @@ private:
     // by _doc_scale. Must be called after set_markup / set_text on the layout.
     void _apply_doc_scale_to_layout(Glib::RefPtr<Pango::Layout> layout);
 
+    void _process_pango_canvas(CtPrintData* print_data, const CtPangoCanvas* pango_canvas);
+
+    // The shrink factor this one table needs to fit the printable width, or 1.0
+    // when it already fits. Scoped to the table: it must never affect the text,
+    // images or codeboxes around it.
+    double _table_fit_scale(const CtTableCommon* table,
+                            const double indent,
+                            Glib::RefPtr<Gtk::PrintContext> context);
+
 private:
     CtMainWin* const _pCtMainWin;
     const CtConfig* const _pCtConfig;
@@ -407,5 +459,11 @@ private:
     // (sum(col_widths) > printable width), the whole document — fonts, images,
     // codeboxes, table cells, table borders — is scaled down by the same factor
     // so all content keeps consistent proportions.
+    // Scale in force while ONE table is being laid out; 1.0 everywhere else.
+    // Never let this reach 0: pango_attr_scale_new(0) yields zero-sized text and
+    // a PDF that will not open.
+    // Only a guard against degenerate values, not a readability floor: clamping
+    // higher than the table actually needs makes it overflow the page edge.
+    static constexpr double          MIN_TABLE_FIT_SCALE{0.02};
     double                           _doc_scale{1.0};
 };

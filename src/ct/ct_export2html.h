@@ -23,6 +23,8 @@
 
 #pragma once
 
+#include <set>
+
 #include "ct_table.h"
 #include "ct_codebox.h"
 #include "ct_image.h"
@@ -39,8 +41,8 @@ private:
   <meta http-equiv="content-type" content="text/html; charset=utf-8">
   <title>%s</title>
   <meta name="generator" content="CherryTree">
-  <link rel="stylesheet" href="res/styles4.css" type="text/css" />
-</head>
+  <link rel="stylesheet" href="res/styles5.css" type="text/css" />
+%s</head>
 <body>
 )HTML"; // after <body> should not be any whitespaces
     const Glib::ustring HTML_HEADER_CLIPBOARD = R"HTML(<!doctype html>
@@ -86,6 +88,9 @@ private:
                                   int& images_count,
                                   CtTreeIter* tree_iter,
                                   const bool single_file);
+    Glib::ustring _wrap_html_line(const Glib::ustring& line, const bool is_rtl);
+    Glib::ustring _get_canvases_html(CtTreeIter tree_iter, const fs::path& images_dir, int& images_count);
+    Glib::ustring _get_doc_css();
     Glib::ustring _get_codebox_html(CtCodebox* codebox);
     Glib::ustring _get_table_html(CtTableCommon* table,
                                   CtTreeIter* pTreeIter = nullptr,
@@ -121,6 +126,7 @@ private:
                                                     const bool single_file);
     Glib::ustring _get_object_alignment_string(Glib::ustring alignment);
 
+    Glib::ustring _get_node_icon_html(CtTreeIter& tree_iter);
     void _tree_links_text_iter(CtTreeIter tree_iter, Glib::ustring& tree_links_text, int tree_count_level, bool index_in_page);
 
     static Glib::ustring _get_html_filename(CtTreeIter tree_iter);
@@ -134,6 +140,7 @@ private:
     const CtConfig* const _pCtConfig;
     fs::path _export_dir;
     fs::path _images_dir;
+    std::set<std::string> _exported_icon_names;
     fs::path _embed_dir;
     fs::path _res_dir;
 };
