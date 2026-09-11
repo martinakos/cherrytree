@@ -1,3 +1,60 @@
+cherrytree-docmodel (1.7.2+docmodel18-1) plucky; urgency=low
+
+  * Export - PDF and HTML now match what the editor shows:
+    - PDF: fix large exports producing a file that will not open. A link uri
+      with non-ASCII characters made cairo reject the tag at document finish,
+      leaving a file with no xref and no trailer while the export still
+      reported success. Link uris are trimmed and percent encoded; a still
+      invalid tag attribute drops that link only, not the document
+    - PDF: scale only the table that overflows rather than the whole document,
+      so one wide table no longer shrinks the text, images and codeboxes
+      around it
+    - PDF: draw tables at the scale they were laid out with, so they no longer
+      spill over the line above, and stop reserving a blank line above them
+    - PDF: table of contents of linked node names in multi node exports
+    - PDF: emit each node destination once, and also when node names are left
+      out, so links to it still resolve
+    - PDF: render drawing canvases and paragraph justification
+    - PDF: export at 100% whatever the editor zoom
+    - HTML: style the monospace tag as the character style it is on screen
+      instead of as a codebox (no frame, no grey background)
+    - HTML: one buffer line is one paragraph; the paragraph margin comes from
+      the configured space around lines, removing the blank line between
+      every pair of lines
+    - HTML: page, codebox and tree colours come from the editor configuration
+      instead of a fixed palette
+    - HTML: node icons in the index tree
+    - HTML: render drawing canvases, keep block elements out of paragraphs
+    - HTML: styles4.css becomes styles5.css so the fixes reach existing users
+    - Headless exports no longer wait forever on a protected area password
+      dialog
+  * Undo and document model fixes:
+    - Replacing a selection with text of the same length (select "a", type
+      "b") could never be undone: the edit was wrongly discarded as a no-op
+    - Editing a codebox or table after typing text before it lost its undo
+      entry, the model looked the widget up by a stale offset
+    - Drawing canvases were lost when undoing a node delete, duplicating a
+      node or moving a node, and the loss was persisted on the next save
+    - Nodes added by any Import were unknown to the document model until the
+      file was reopened, so delete, move, properties and add child on them
+      silently did nothing
+    - Undo/redo bookkeeping was shared between windows and could skip a
+      buffer rebuild in a second window
+    - A compound command that fails half way is rolled back instead of
+      leaving the model partially applied
+  * Password protected areas:
+    - Drawings on a protected root stayed visible after locking and were
+      saved unencrypted. They are cleared from memory on lock and stored only
+      inside the encrypted blob
+  * Internal:
+    - Undo and redo share one implementation
+    - Span merging is bounded to the edited range instead of walking the
+      whole node on every keystroke
+    - Command stacks trimmed in O(1); node metadata copying consolidated;
+      dead command group API removed
+
+ -- Giuseppe Penone <giuspen@gmail.com>  Fri, 11 Sep 2026 22:55:45 +0100
+
 cherrytree-docmodel (1.7.2+docmodel17-1) plucky; urgency=low
 
   * Password protected areas - new feature:
