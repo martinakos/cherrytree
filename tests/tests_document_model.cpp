@@ -881,3 +881,88 @@ TEST(NodeCommandsTest, DeleteNodeCmd_OnlyTargetSubtreeDeleteNotifications)
     EXPECT_NE(nullptr, model.getNodeById(1));
     EXPECT_NE(nullptr, model.getNodeById(3));
 }
+
+// ─── Drawing canvases travel with subtree snapshots and AddNodeCommand ─────────
+// The storage writes canvases from the model, so losing them on delete→undo or
+// on duplicate would persist the loss at the next save.
+
+namespace {
+
+CtDrawingCanvas makeCanvas(const std::string& name)
+{
+    CtDrawingCanvas canvas;
+    canvas.x = 10.0; canvas.y = 20.0; canvas.width = 100.0; canvas.height = 50.0;
+    canvas.name = name;
+    CtDrawingStroke stroke;
+    stroke.points = {{1.0, 1.0}, {2.0, 2.0}};
+    canvas.strokes.push_back(std::move(stroke));
+    return canvas;
+}
+
+} // namespace
+
+TEST(CtDocumentModelTest, SnapshotAndRestoreSubtree_PreservesDrawingCanvases)
+{
+    CtDocumentModel model;
+    build3LevelTree(model);  // root → 1 → 2 → 3
+    model.getNodeById(1)->getDrawingCanvasesMut().push_back(makeCanvas("top"));
+    model.getNodeById(3)->getDrawingCanvasesMut().push_back(makeCanvas("leaf"));
+
+    SubtreeSnapshot snap = model.snapshotSubtree(1);
+    ASSERT_TRUE(model.removeNodeWithChildren(1));
+    ASSERT_TRUE(model.restoreSubtree(snap));
+
+    ASSERT_EQ(1u, model.getNodeById(1)->getDrawingCanvases().size());
+    EXPECT_EQ("top", model.getNodeById(1)->getDrawingCanvases()[0].name);
+    EXPECT_TRUE(model.getNodeById(2)->getDrawingCanvases().empty());
+    ASSERT_EQ(1u, model.getNodeById(3)->getDrawingCanvases().size());
+    EXPECT_EQ("leaf", model.getNodeById(3)->getDrawingCanvases()[0].name);
+    EXPECT_EQ(1u, model.getNodeById(3)->getDrawingCanvases()[0].strokes.size());
+}
+
+TEST(NodeCommandsTest, AddNodeCmd_CarriesDrawingCanvasesThroughUndoRedo)
+{
+    CtDocumentModel model;
+    AddNodeCommand cmd(&model, 10, 0, -1, makeProps("with-drawing"), CtNodeContent{}, 0,
+                       std::vector<CtDrawingCanvas>{makeCanvas("dup")});
+    cmd.execute();
+    ASSERT_NE(nullptr, model.getNodeById(10));
+    ASSERT_EQ(1u, model.getNodeById(10)->getDrawingCanvases().size());
+
+    cmd.undo();
+    EXPECT_EQ(nullptr, model.getNodeById(10));
+
+    cmd.redo();
+    ASSERT_NE(nullptr, model.getNodeById(10));
+    ASSERT_EQ(1u, model.getNodeById(10)->getDrawingCanvases().size());
+    EXPECT_EQ("dup", model.getNodeById(10)->getDrawingCanvases()[0].name);
+}
+
+// ─── restoreSubtree must not re-attach a node that is still in the tree ───────
+
+TEST(CtDocumentModelTest, RestoreSubtree_SkipsNodesStillAttached)
+{
+    CtDocumentModel model;
+    build3LevelTree(model);  // root → 1 → 2 → 3
+    SubtreeSnapshot snap = model.snapshotSubtree(1);
+
+    // nothing removed: a restore must leave the tree exactly as it is
+    ASSERT_TRUE(model.restoreSubtree(snap));
+    EXPECT_EQ(1u, model.getRootNode()->getChildren().size());
+    EXPECT_EQ(1u, model.getNodeById(1)->getChildren().size());
+    EXPECT_EQ(1u, model.getNodeById(2)->getChildren().size());
+}
+
+// ─── removeNode drops the descendants from the id map too ─────────────────────
+
+TEST(CtDocumentModelTest, RemoveNode_DropsDescendantsFromMap)
+{
+    CtDocumentModel model;
+    build3LevelTree(model);  // root → 1 → 2 → 3
+    ASSERT_TRUE(model.removeNode(1));
+    EXPECT_EQ(nullptr, model.getNodeById(1));
+    EXPECT_EQ(nullptr, model.getNodeById(2));
+    EXPECT_EQ(nullptr, model.getNodeById(3));
+    // the ids are free again
+    EXPECT_NE(nullptr, model.createNode(2));
+}

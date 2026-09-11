@@ -26,6 +26,7 @@
 #include <set>
 
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <vector>
 #include <string>
@@ -137,6 +138,8 @@ public:
     // Check if undo/redo is available
     bool canUndo() const;
     bool canRedo() const;
+    size_t undoStackSize() const { return _undoStack.size(); }
+    size_t redoStackSize() const { return _redoStack.size(); }
 
     // Get description of next undo/redo action
     std::string getUndoDescription() const;
@@ -154,10 +157,6 @@ public:
     void undo(size_t count);
     void redo(size_t count);
 
-    // Command grouping
-    void beginCommandGroup(const std::string& description);
-    void endCommandGroup();
-
     // Clear all history
     void clear();
 
@@ -174,8 +173,8 @@ public:
 private:
     void trimUndoStack();
 
-    std::vector<std::unique_ptr<CtCommand>> _undoStack;
-    std::vector<std::unique_ptr<CtCommand>> _redoStack;
-    std::unique_ptr<CompoundCommand> _activeGroup;
+    // deque: trimUndoStack drops the oldest entry from the front
+    std::deque<std::unique_ptr<CtCommand>> _undoStack;
+    std::deque<std::unique_ptr<CtCommand>> _redoStack;
     size_t _maxUndoDepth;
 };

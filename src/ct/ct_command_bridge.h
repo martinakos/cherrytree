@@ -30,6 +30,7 @@
 #include "ct_node_content.h"
 #include <gtkmm.h>
 #include <memory>
+#include <set>
 
 // Forward declarations
 class CtMainWin;
@@ -63,12 +64,12 @@ public:
     // Register a subtree (properties only) in the document model. Used when a
     // password protected area is unlocked and its nodes reappear in the tree.
     void registerSubtreeInModel(CtTreeIter ctTreeIter, gint64 parentId);
+    // Registers every child of parentIter (root level when invalid) that the
+    // model does not know yet. Used after imports, which create GTK rows only.
+    void registerNewChildrenInModel(Gtk::TreeModel::iterator parentIter);
 
     // Synchronize model with current GTK tree state
     void syncModelFromTree();
-
-    // Synchronize GTK tree with model state
-    void syncTreeFromModel();
 
     // Get the command manager
     CtCommandManager& getCommandManager() { return _commandManager; }
@@ -211,6 +212,8 @@ public:
     void setLiveWidgetTsLastSave(gint64 nodeId, int charOffset, gint64 ts);
 
 private:
+    // Shared implementation of undo() and redo()
+    void _undoRedo(bool isUndo);
 
     // Helper to update buffer from XML
     void updateBufferFromXml(Glib::RefPtr<Gtk::TextBuffer> buffer, const Glib::ustring& xml, const std::string& syntax = "custom-colors", const CtTreeIter* treeIter = nullptr);
@@ -249,6 +252,13 @@ private:
                                 bool attachToView = true);
 
         CtCommandBridge* _bridge;
+
+        // onNodeChanged state: nodes already rebuilt during the current
+        // undo/redo (keyed by _bridge->_undoRedoGeneration) and a reentrancy
+        // guard. Per observer, so several windows do not share them.
+        std::set<gint64> _nodesUpdatedThisUndoRedo;
+        int _lastUndoRedoGeneration{-1};
+        bool _inOnNodeChanged{false};
     };
 
     CtMainWin* _pMainWin;
@@ -302,6 +312,10 @@ private:
     // Connection that keeps restoring scroll as widget layout changes vadjustment bounds.
     // Connected during buffer rebuild in onNodeChanged, disconnected by the idle callback.
     sigc::connection _scrollFixupConnection;
+
+    // Deferred cursor/scroll restore scheduled by _undoRedo; disconnected in
+    // the destructor because the callback dereferences this bridge.
+    sigc::connection _scrollRestoreConnection;
 
     // Scroll position captured at beginTextEditSession (before-edit state)
     double _sessionScrollPosOld{-1.0};

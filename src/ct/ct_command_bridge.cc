@@ -28,6 +28,7 @@
 #include "ct_gtk_compat.h"
 #include "ct_text_commands.h"
 #include "ct_widget_commands.h"
+#include "ct_node_commands.h"
 #include "ct_const.h"
 #include "ct_misc_utils.h"
 #include <libxml++/libxml++.h>
@@ -70,6 +71,7 @@ CtCommandBridge::~CtCommandBridge()
     spdlog::debug("CtCommandBridge: destroying");
 
     _scrollFixupConnection.disconnect();
+    _scrollRestoreConnection.disconnect();
     if (_docModel && _observer) {
         _docModel->removeObserver(_observer.get());
     }
@@ -109,18 +111,7 @@ void CtCommandBridge::registerSubtreeInModel(CtTreeIter ctTreeIter, gint64 paren
 
     if (!_docModel->getNodeById(nid)) {
         auto nodeModel = std::make_shared<CtNodeModel>(nid);
-        nodeModel->setName(ctTreeIter.get_node_name());
-        nodeModel->setSyntax(ctTreeIter.get_node_syntax_highlighting());
-        nodeModel->setTags(ctTreeIter.get_node_tags());
-        nodeModel->setReadOnly(ctTreeIter.get_node_read_only());
-        nodeModel->setBold(ctTreeIter.get_node_is_bold());
-        nodeModel->setCustomIconId(ctTreeIter.get_node_custom_icon_id());
-        nodeModel->setForegroundRgb24(ctTreeIter.get_node_foreground());
-        nodeModel->setExcludedFromSearch(ctTreeIter.get_node_is_excluded_from_search());
-        nodeModel->setChildrenExcludedFromSearch(ctTreeIter.get_node_children_are_excluded_from_search());
-        nodeModel->setLineWrap(ctTreeIter.get_node_line_wrap());
-        nodeModel->setCreationTime(ctTreeIter.get_node_creating_time());
-        nodeModel->setLastSaveTime(ctTreeIter.get_node_modification_time());
+        nodeModel->applyProps(nodePropsFromIter(ctTreeIter));
         nodeModel->setSharedMasterId(ctTreeIter.get_node_shared_master_id());
         nodeModel->setSequence(ctTreeIter.get_node_sequence());
         // Content is NOT loaded here — it is captured lazily when a snapshot
@@ -131,6 +122,26 @@ void CtCommandBridge::registerSubtreeInModel(CtTreeIter ctTreeIter, gint64 paren
 
     for (CtTreeIter child = ctTreeIter.first_child(); child; ++child) {
         registerSubtreeInModel(child, nid);
+    }
+}
+
+void CtCommandBridge::registerNewChildrenInModel(Gtk::TreeModel::iterator parentIter)
+{
+    if (!_active || !_pMainWin) return;
+    auto& treeStore = _pMainWin->get_tree_store();
+    gint64 parentId = 0;
+    CtTreeIter child;
+    if (parentIter) {
+        CtTreeIter parentCtIter = treeStore.to_ct_tree_iter(parentIter);
+        if (parentCtIter) parentId = parentCtIter.get_node_id();
+        child = parentCtIter.first_child();
+    } else {
+        child = treeStore.to_ct_tree_iter(treeStore.get_iter_first());
+    }
+    for (; child; ++child) {
+        if (!_docModel->getNodeById(child.get_node_id())) {
+            registerSubtreeInModel(child, parentId);
+        }
     }
 }
 
@@ -174,18 +185,7 @@ void CtCommandBridge::syncModelFromTree()
 
         // Create node model and sync ALL properties from GTK
         auto nodeModel = std::make_shared<CtNodeModel>(nodeId);
-        nodeModel->setName(treeIter.get_node_name());
-        nodeModel->setSyntax(treeIter.get_node_syntax_highlighting());
-        nodeModel->setTags(treeIter.get_node_tags());
-        nodeModel->setReadOnly(treeIter.get_node_read_only());
-        nodeModel->setBold(treeIter.get_node_is_bold());
-        nodeModel->setCustomIconId(treeIter.get_node_custom_icon_id());
-        nodeModel->setForegroundRgb24(treeIter.get_node_foreground());
-        nodeModel->setExcludedFromSearch(treeIter.get_node_is_excluded_from_search());
-        nodeModel->setChildrenExcludedFromSearch(treeIter.get_node_children_are_excluded_from_search());
-        nodeModel->setLineWrap(treeIter.get_node_line_wrap());
-        nodeModel->setCreationTime(treeIter.get_node_creating_time());
-        nodeModel->setLastSaveTime(treeIter.get_node_modification_time());
+        nodeModel->applyProps(nodePropsFromIter(treeIter));
         nodeModel->setSharedMasterId(treeIter.get_node_shared_master_id());
         nodeModel->setSequence(treeIter.get_node_sequence());
 
@@ -226,16 +226,6 @@ void CtCommandBridge::syncModelFromTree()
     }
 
     spdlog::info("CtCommandBridge: model sync complete");
-}
-
-void CtCommandBridge::syncTreeFromModel()
-{
-    if (!_active) {
-        return;
-    }
-
-    // TODO: Sync GTK tree with model state
-    spdlog::debug("CtCommandBridge: syncTreeFromModel called");
 }
 
 void CtCommandBridge::resetForNewDocument()
@@ -337,214 +327,60 @@ void CtCommandBridge::pushNodeCommand(std::unique_ptr<CtCommand> cmd)
 
 void CtCommandBridge::undo()
 {
-    if (!_active) {
-        spdlog::debug("CtCommandBridge: not active, undo skipped");
-        return;
-    }
-
-    // Reentrancy guard - prevent nested undo/redo calls during GTK event processing
-    if (isInUndoRedo()) {
-        spdlog::warn("CtCommandBridge: undo called while another undo/redo is in progress, ignoring");
-        return;
-    }
-    _currentOp = BridgeOp::ExecutingUndo;
-
-    // Flush any active widget edit before undo so it becomes a distinct undo entry
-    if (_widgetEditNodeId != 0) {
-        endWidgetEdit();
-    }
-
-    // End any active edit session before undo so intermediate edits become
-    // a separate undo entry.  Using cancel() would discard the edits from the
-    // command history while leaving the model/buffer modified, desynchronizing
-    // the redo stack's expected model state.
-    endTextEditSession();
-
-    // Get the node ID and cursor position from command being undone
-    auto cmd = _commandManager.peekUndoCommand();
-    if (!cmd) {
-        spdlog::debug("CtCommandBridge: no command to undo");
-        _currentOp = BridgeOp::None;
-        return;
-    }
-
-    gint64 affectedNodeId = cmd->getNodeId();
-    _pendingCursorPos = cmd->getOldCursorPos();
-    // Save before the undo runs: the observer consumes _pendingCursorPos, and the
-    // node-switch handler resets the cursor to 0 during undo, so scrollTargetOffset
-    // is the only reliable record of where we need to scroll after undo.
-    int const scrollTargetOffset = _pendingCursorPos;
-    // Use the command's stored scroll position if available (reliable for all command types).
-    double const cmdScrollPos = cmd->getOldScrollPos();
-
-    // Save current scroll position as fallback before the buffer gets rebuilt
-    double savedScrollVal = 0;
-    if (not _pMainWin->no_gui()) {
-        savedScrollVal = _pMainWin->getScrolledwindowText().get_vadjustment()->get_value();
-    }
-    // Prefer command's stored scroll position over current vadjustment
-    if (cmdScrollPos >= 0) {
-        savedScrollVal = cmdScrollPos;
-    }
-
-    // Pass scroll position to the observer so it can restore it synchronously
-    // after rebuilding the buffer, preventing a visible flash to the top of the node.
-    _pendingScrollPos = _pMainWin->no_gui() ? -1.0 : savedScrollVal;
-
-    // Switch to the affected node if it's different from current
-    auto curr_iter = _pMainWin->curr_tree_iter();
-    if (affectedNodeId != -1 && curr_iter && curr_iter.get_node_id() != affectedNodeId) {
-        auto& treeStore = _pMainWin->get_tree_store();
-        auto affectedIter = treeStore.get_node_from_node_id(affectedNodeId);
-        if (affectedIter) {
-            _pMainWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(affectedIter));
-        }
-    }
-
-    spdlog::debug("CtCommandBridge::undo - about to undo '{}' for node {}",
-                  cmd->getDescription(), affectedNodeId);
-
-    _inCommandExecution = true;
-    _undoRedoGeneration++;
-
-    bool undoSuccess = false;
-    try {
-        undoSuccess = _commandManager.undo();
-    } catch (const std::exception& e) {
-        spdlog::error("CtCommandBridge: exception during undo: {}", e.what());
-        _inCommandExecution = false;
-        _currentOp = BridgeOp::None;
-        return;
-    } catch (...) {
-        spdlog::error("CtCommandBridge: unknown exception during undo");
-        _inCommandExecution = false;
-        _currentOp = BridgeOp::None;
-        return;
-    }
-    _inCommandExecution = false;
-
-    // Clear the in-progress op BEFORE restarting the session so that
-    // beginTextEditSession will actually connect signals and re-sync the model.
-    _currentOp = BridgeOp::None;
-
-    // Only skip re-sync when undo succeeded — on failure the model may be
-    // out of sync with the buffer, so we need the re-sync to recover.
-    if (undoSuccess) {
-        _skipNextModelSync = true;
-    }
-
-    // Restart edit session after undo with the affected node.
-    // If the affected node was deleted by the undo (e.g. undoing AddNodeCommand),
-    // fall back to whatever node is currently selected.
-    auto restartSession = [&](gint64 nodeId) {
-        auto& ts = _pMainWin->get_tree_store();
-        if (nodeId != -1 && ts.get_node_from_node_id(nodeId)) {
-            beginTextEditSession(nodeId);
-        } else {
-            curr_iter = _pMainWin->curr_tree_iter();
-            if (curr_iter) beginTextEditSession(curr_iter.get_node_id());
-        }
-    };
-    restartSession(affectedNodeId);
-
-    // Restore cursor and scroll after layout settles.
-    // Use PRIORITY_LOW so this runs after GTK's size-allocation pass — for nodes
-    // with many anchored widgets, PRIORITY_DEFAULT_IDLE fires too early and
-    // scroll_to computes the wrong pixel position.
-    if (not _pMainWin->no_gui()) {
-        int const drawingCanvasIdx = cmd->getDrawingCanvasIdx();
-        Glib::signal_idle().connect_once([this, pMainWin = _pMainWin, scrollTargetOffset, savedScrollVal, cmdScrollPos, drawingCanvasIdx, affectedNodeId](){
-            // Disconnect the signal_changed fixup — this idle callback takes over
-            _scrollFixupConnection.disconnect();
-            if (auto buf = pMainWin->curr_buffer()) {
-                Gtk::TextView& tv = pMainWin->get_text_view().mm();
-                auto adj = pMainWin->getScrolledwindowText().get_vadjustment();
-                if (drawingCanvasIdx >= 0) {
-                    // Drawing command: center viewport on the affected canvas
-                    adj->set_value(savedScrollVal);
-                    auto docModel = _docModel;
-                    if (docModel) {
-                        auto nodeModel = docModel->getNodeById(affectedNodeId);
-                        if (nodeModel) {
-                            const auto& canvases = nodeModel->getDrawingCanvases();
-                            if (static_cast<size_t>(drawingCanvasIdx) < canvases.size()) {
-                                double zoom = pMainWin->get_rt_zoom_scale_factor();
-                                const auto& canvas = canvases[drawingCanvasIdx];
-                                double canvasTopY = canvas.y * zoom;
-                                double canvasBotY = (canvas.y + canvas.height) * zoom;
-                                double viewTop = adj->get_value();
-                                double viewBot = viewTop + adj->get_page_size();
-                                if (canvasTopY < viewTop || canvasBotY > viewBot) {
-                                    double canvasCenterY = (canvas.y + canvas.height / 2.0) * zoom;
-                                    double targetScroll = canvasCenterY - adj->get_page_size() / 2.0;
-                                    targetScroll = std::clamp(targetScroll, 0.0, adj->get_upper() - adj->get_page_size());
-                                    adj->set_value(targetScroll);
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // Text command: place cursor and verify it's visible
-                    if (cmdScrollPos < 0 && scrollTargetOffset >= 0) {
-                        int maxOff = buf->get_char_count();
-                        auto targetIter = buf->get_iter_at_offset(std::min(scrollTargetOffset, maxOff));
-                        buf->place_cursor(targetIter);
-                    }
-                    adj->set_value(savedScrollVal);
-                    Gdk::Rectangle iterRect, visibleRect;
-                    auto cursorIter = buf->get_iter_at_mark(buf->get_insert());
-                    tv.get_iter_location(cursorIter, iterRect);
-                    tv.get_visible_rect(visibleRect);
-                    if (iterRect.get_y() < visibleRect.get_y() ||
-                        iterRect.get_y() + iterRect.get_height() > visibleRect.get_y() + visibleRect.get_height())
-                    {
-                        tv.scroll_to(cursorIter, CtTextView::TEXT_SCROLL_MARGIN);
-                    }
-                }
-            }
-            pMainWin->get_text_view().mm().queue_draw();
-        }, Glib::PRIORITY_LOW);
-    }
+    _undoRedo(true/*isUndo*/);
 }
 
 void CtCommandBridge::redo()
 {
+    _undoRedo(false/*isUndo*/);
+}
+
+// Shared body of undo() and redo(): the two differ only in which stack is
+// peeked, which cursor/scroll positions of the command are restored and which
+// CtCommandManager call runs.
+void CtCommandBridge::_undoRedo(const bool isUndo)
+{
+    const char* const opName = isUndo ? "undo" : "redo";
+
     if (!_active) {
-        spdlog::debug("CtCommandBridge: not active, redo skipped");
+        spdlog::debug("CtCommandBridge: not active, {} skipped", opName);
         return;
     }
 
     // Reentrancy guard - prevent nested undo/redo calls during GTK event processing
     if (isInUndoRedo()) {
-        spdlog::warn("CtCommandBridge: redo called while another undo/redo is in progress, ignoring");
+        spdlog::warn("CtCommandBridge: {} called while another undo/redo is in progress, ignoring", opName);
         return;
     }
-    _currentOp = BridgeOp::ExecutingRedo;
+    _currentOp = isUndo ? BridgeOp::ExecutingUndo : BridgeOp::ExecutingRedo;
 
-    // Flush any active widget edit before redo so it becomes a distinct undo entry
+    // Flush any active widget edit first so it becomes a distinct undo entry
     if (_widgetEditNodeId != 0) {
         endWidgetEdit();
     }
 
-    // End any active edit session before redo so intermediate edits become
-    // a separate undo entry.  Using cancel() would discard the edits from the
-    // command history while leaving the model/buffer modified, desynchronizing
-    // the redo stack's expected model state.
+    // End any active edit session so intermediate edits become a separate
+    // undo entry.  Using cancel() would discard the edits from the command
+    // history while leaving the model/buffer modified, desynchronizing the
+    // redo stack's expected model state.
     endTextEditSession();
 
-    // Get the node ID and cursor position from command being redone
-    auto cmd = _commandManager.peekRedoCommand();
+    // Get the node ID and cursor position from the command about to run
+    auto cmd = isUndo ? _commandManager.peekUndoCommand() : _commandManager.peekRedoCommand();
     if (!cmd) {
-        spdlog::debug("CtCommandBridge: no command to redo");
+        spdlog::debug("CtCommandBridge: no command to {}", opName);
         _currentOp = BridgeOp::None;
         return;
     }
 
     gint64 affectedNodeId = cmd->getNodeId();
-    _pendingCursorPos = cmd->getNewCursorPos();
+    _pendingCursorPos = isUndo ? cmd->getOldCursorPos() : cmd->getNewCursorPos();
+    // Save before the command runs: the observer consumes _pendingCursorPos, and the
+    // node-switch handler resets the cursor to 0 during undo, so scrollTargetOffset
+    // is the only reliable record of where we need to scroll afterwards.
     int const scrollTargetOffset = _pendingCursorPos;
     // Use the command's stored scroll position if available (reliable for all command types).
-    double const cmdScrollPos = cmd->getNewScrollPos();
+    double const cmdScrollPos = isUndo ? cmd->getOldScrollPos() : cmd->getNewScrollPos();
 
     // Save current scroll position as fallback before the buffer gets rebuilt
     double savedScrollVal = 0;
@@ -570,40 +406,41 @@ void CtCommandBridge::redo()
         }
     }
 
-    spdlog::debug("CtCommandBridge::redo - about to redo '{}' for node {}",
-                  cmd->getDescription(), affectedNodeId);
+    spdlog::debug("CtCommandBridge::{} - about to {} '{}' for node {}",
+                  opName, opName, cmd->getDescription(), affectedNodeId);
 
     _inCommandExecution = true;
     _undoRedoGeneration++;
 
-    bool redoSuccess = false;
+    bool success = false;
     try {
-        redoSuccess = _commandManager.redo();
+        success = isUndo ? _commandManager.undo() : _commandManager.redo();
     } catch (const std::exception& e) {
-        spdlog::error("CtCommandBridge: exception during redo: {}", e.what());
-        _inCommandExecution = false;
-        _currentOp = BridgeOp::None;
-        return;
+        spdlog::error("CtCommandBridge: exception during {}: {}", opName, e.what());
     } catch (...) {
-        spdlog::error("CtCommandBridge: unknown exception during redo");
-        _inCommandExecution = false;
-        _currentOp = BridgeOp::None;
-        return;
+        spdlog::error("CtCommandBridge: unknown exception during {}", opName);
     }
     _inCommandExecution = false;
+
+    // Whatever the observer did not consume (commands that emit no
+    // onNodeChanged, or a failed command) must not leak into a later rebuild.
+    _pendingCursorPos = -1;
+    _pendingScrollPos = -1.0;
 
     // Clear the in-progress op BEFORE restarting the session so that
     // beginTextEditSession will actually connect signals and re-sync the model.
     _currentOp = BridgeOp::None;
 
-    // Only skip re-sync when redo succeeded — on failure the model may be
-    // out of sync with the buffer, so we need the re-sync to recover.
-    if (redoSuccess) {
-        _skipNextModelSync = true;
+    if (!success) {
+        // On failure the model may be out of sync with the buffer; the next
+        // beginTextEditSession re-syncs it, so no _skipNextModelSync here.
+        return;
     }
+    _skipNextModelSync = true;
 
-    // Restart edit session after redo with the affected node.
-    // Fall back to curr_tree_iter if the node was deleted by the redo.
+    // Restart the edit session with the affected node.  If that node was
+    // deleted by the command (e.g. undoing AddNodeCommand), fall back to
+    // whatever node is currently selected.
     {
         auto& ts = _pMainWin->get_tree_store();
         if (affectedNodeId != -1 && ts.get_node_from_node_id(affectedNodeId)) {
@@ -614,10 +451,17 @@ void CtCommandBridge::redo()
         }
     }
 
-    // Restore cursor and scroll — see undo() for rationale.
+    // Restore cursor and scroll after layout settles.
+    // Use PRIORITY_LOW so this runs after GTK's size-allocation pass — for nodes
+    // with many anchored widgets, PRIORITY_DEFAULT_IDLE fires too early and
+    // scroll_to computes the wrong pixel position.
+    // The connection is kept so the destructor can cancel it: the callback
+    // dereferences this bridge and the main window.
     if (not _pMainWin->no_gui()) {
         int const drawingCanvasIdx = cmd->getDrawingCanvasIdx();
-        Glib::signal_idle().connect_once([this, pMainWin = _pMainWin, scrollTargetOffset, savedScrollVal, cmdScrollPos, drawingCanvasIdx, affectedNodeId](){
+        _scrollRestoreConnection.disconnect();
+        _scrollRestoreConnection = Glib::signal_idle().connect(
+            [this, pMainWin = _pMainWin, scrollTargetOffset, savedScrollVal, cmdScrollPos, drawingCanvasIdx, affectedNodeId]() -> bool {
             // Disconnect the signal_changed fixup — this idle callback takes over
             _scrollFixupConnection.disconnect();
             if (auto buf = pMainWin->curr_buffer()) {
@@ -667,6 +511,7 @@ void CtCommandBridge::redo()
                 }
             }
             pMainWin->get_text_view().mm().queue_draw();
+            return false; // run once
         }, Glib::PRIORITY_LOW);
     }
 }
@@ -694,16 +539,16 @@ void CtCommandBridge::undo(size_t count)
     }
 
     // Limit count to available undo stack size
-    size_t actualCount = std::min(count, _commandManager.getUndoStackDescriptions().size());
+    size_t actualCount = std::min(count, _commandManager.undoStackSize());
 
     spdlog::debug("CtCommandBridge: undoing {} command(s)", actualCount);
 
     // Call single-step undo() for each operation to ensure proper UI updates.
     // Stop on first failure to avoid cascading errors and command loss.
     for (size_t i = 0; i < actualCount; ++i) {
-        size_t stackBefore = _commandManager.getUndoStackDescriptions().size();
+        size_t stackBefore = _commandManager.undoStackSize();
         undo();
-        if (_commandManager.getUndoStackDescriptions().size() >= stackBefore) break;
+        if (_commandManager.undoStackSize() >= stackBefore) break;
     }
 
     // Update undo/redo menus after all operations complete
@@ -717,16 +562,16 @@ void CtCommandBridge::redo(size_t count)
     }
 
     // Limit count to available redo stack size
-    size_t actualCount = std::min(count, _commandManager.getRedoStackDescriptions().size());
+    size_t actualCount = std::min(count, _commandManager.redoStackSize());
 
     spdlog::debug("CtCommandBridge: redoing {} command(s)", actualCount);
 
     // Call single-step redo() for each operation to ensure proper UI updates.
     // Stop on first failure to avoid cascading errors and command loss.
     for (size_t i = 0; i < actualCount; ++i) {
-        size_t stackBefore = _commandManager.getRedoStackDescriptions().size();
+        size_t stackBefore = _commandManager.redoStackSize();
         redo();
-        if (_commandManager.getRedoStackDescriptions().size() >= stackBefore) break;
+        if (_commandManager.redoStackSize() >= stackBefore) break;
     }
 
     // Update undo/redo menus after all operations complete
@@ -814,8 +659,15 @@ void CtCommandBridge::beginTextEditSession(gint64 nodeId)
             newNode->setSyntax(treeIter.get_node_syntax_highlighting());
             newNode->setContent(buildContentFromBuffer(buffer, treeIter.get_anchored_widgets()));
             newNode->getDrawingCanvasesMut() = treeIter.get_drawing_canvases();
-            _docModel->addNode(newNode, 0 /* flat model — no hierarchy needed for undo */);
-            spdlog::info("CtCommandBridge: lazy-added node {} to model on first edit visit", nodeId);
+            // Attach under the real parent when the model knows it, so that
+            // position-based node commands stay correct; root otherwise.
+            gint64 parentId = 0;
+            CtTreeIter parentIter = treeIter.parent();
+            if (parentIter && _docModel->getNodeById(parentIter.get_node_id())) {
+                parentId = parentIter.get_node_id();
+            }
+            _docModel->addNode(newNode, parentId);
+            spdlog::info("CtCommandBridge: lazy-added node {} to model on first edit visit (parent {})", nodeId, parentId);
         } else if (nodeId == _lastSyncedNodeId) {
             // The previous session for this node ended cleanly — delta commands kept
             // the model in sync.  Verify model/buffer agree before skipping re-sync:
@@ -2377,26 +2229,22 @@ void CtCommandBridge::BridgeObserver::onNodeChanged(gint64 nodeId)
     }
 
     // Track which nodes have already been updated during this undo/redo operation
-    // to prevent duplicate updates from cascading model changes within a single operation
-    static std::set<gint64> nodesUpdatedThisUndoRedo;
-    static int lastUndoRedoGeneration = -1;
-
+    // to prevent duplicate updates from cascading model changes within a single operation.
     // Clear the tracking set when a NEW undo/redo operation starts
     // (detected by generation counter changing)
     if (!_bridge->_inCommandExecution) {
-        nodesUpdatedThisUndoRedo.clear();
-        lastUndoRedoGeneration = -1;
-    } else if (_bridge->_undoRedoGeneration != lastUndoRedoGeneration) {
-        nodesUpdatedThisUndoRedo.clear();
-        lastUndoRedoGeneration = _bridge->_undoRedoGeneration;
-    } else if (nodesUpdatedThisUndoRedo.count(nodeId) > 0) {
+        _nodesUpdatedThisUndoRedo.clear();
+        _lastUndoRedoGeneration = -1;
+    } else if (_bridge->_undoRedoGeneration != _lastUndoRedoGeneration) {
+        _nodesUpdatedThisUndoRedo.clear();
+        _lastUndoRedoGeneration = _bridge->_undoRedoGeneration;
+    } else if (_nodesUpdatedThisUndoRedo.count(nodeId) > 0) {
         spdlog::warn("BridgeObserver::onNodeChanged: skipping duplicate update for node {} during undo/redo", nodeId);
         return;
     }
 
     // Reentrancy guard - prevent recursive calls during buffer updates
-    static bool inOnNodeChanged = false;
-    if (inOnNodeChanged) {
+    if (_inOnNodeChanged) {
         spdlog::warn("BridgeObserver::onNodeChanged: ignoring recursive call for node {}", nodeId);
         return;
     }
@@ -2407,10 +2255,10 @@ void CtCommandBridge::BridgeObserver::onNodeChanged(gint64 nodeId)
         ReentrancyGuard(bool& f) : flag(f) { flag = true; }
         ~ReentrancyGuard() { flag = false; }
     };
-    ReentrancyGuard guard(inOnNodeChanged);
+    ReentrancyGuard guard(_inOnNodeChanged);
 
     if (_bridge->_inCommandExecution) {
-        nodesUpdatedThisUndoRedo.insert(nodeId);
+        _nodesUpdatedThisUndoRedo.insert(nodeId);
     }
 
     spdlog::debug("BridgeObserver::onNodeChanged: node {} changed, inCommandExecution={}, pendingCursorPos={}",
@@ -2628,21 +2476,7 @@ void CtCommandBridge::BridgeObserver::onNodeAdded(gint64 nodeId, gint64 parentId
     }
 
     CtNodeData nodeData;
-    nodeData.nodeId           = nodeId;
-    nodeData.sharedNodesMasterId = node->getSharedMasterId();
-    nodeData.sequence         = node->getSequence();
-    nodeData.name             = node->getName();
-    nodeData.syntax           = node->getSyntax();
-    nodeData.tags             = node->getTags();
-    nodeData.isReadOnly       = node->isReadOnly();
-    nodeData.isBold           = node->isBold();
-    nodeData.customIconId     = node->getCustomIconId();
-    nodeData.foregroundRgb24  = node->getForegroundRgb24();
-    nodeData.excludeMeFromSearch       = node->isExcludedFromSearch();
-    nodeData.excludeChildrenFromSearch = node->areChildrenExcludedFromSearch();
-    nodeData.lineWrap         = node->isLineWrap();
-    nodeData.tsCreation       = node->getCreationTime();
-    nodeData.tsLastSave       = node->getLastSaveTime();
+    nodeDataFromModel(*node, nodeData);
 
     // Create text buffer from model content so the node is immediately usable
     // without falling back to (not-yet-saved) storage.
@@ -2836,21 +2670,7 @@ void CtCommandBridge::BridgeObserver::onNodeMoved(gint64 nodeId, gint64 newParen
     // Build CtNodeData helper — restores saved buffer and widget list for the row.
     auto makeNodeData = [&](const std::shared_ptr<CtNodeModel>& n) {
         CtNodeData d;
-        d.nodeId              = n->getNodeId();
-        d.sharedNodesMasterId = n->getSharedMasterId();
-        d.sequence            = n->getSequence();
-        d.name                = n->getName();
-        d.syntax              = n->getSyntax();
-        d.tags                = n->getTags();
-        d.isReadOnly          = n->isReadOnly();
-        d.isBold              = n->isBold();
-        d.customIconId        = n->getCustomIconId();
-        d.foregroundRgb24     = n->getForegroundRgb24();
-        d.excludeMeFromSearch       = n->isExcludedFromSearch();
-        d.excludeChildrenFromSearch = n->areChildrenExcludedFromSearch();
-        d.lineWrap            = n->isLineWrap();
-        d.tsCreation          = n->getCreationTime();
-        d.tsLastSave          = n->getLastSaveTime();
+        nodeDataFromModel(*n, d);
         auto it = savedState.find(n->getNodeId());
         if (it != savedState.end()) {
             d.pTextBuffer    = it->second.buffer;

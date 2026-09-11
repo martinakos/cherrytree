@@ -45,8 +45,27 @@ void CompoundCommand::addCommand(std::unique_ptr<CtCommand> cmd)
 void CompoundCommand::execute()
 {
     spdlog::debug("Executing CompoundCommand: {}", _description);
-    for (auto& cmd : _commands) {
-        cmd->execute();
+    size_t numExecuted = 0;
+    try {
+        for (auto& cmd : _commands) {
+            cmd->execute();
+            ++numExecuted;
+        }
+    }
+    catch (...) {
+        // Undo the steps that did run, in reverse, so a failure in the middle
+        // does not leave the model with a partially applied group.
+        spdlog::error("CompoundCommand '{}': step {} of {} failed, rolling back",
+                      _description, numExecuted + 1, _commands.size());
+        for (size_t i = numExecuted; i > 0; --i) {
+            try {
+                _commands[i - 1]->undo();
+            }
+            catch (const std::exception& e) {
+                spdlog::error("CompoundCommand '{}': rollback of step {} failed: {}", _description, i, e.what());
+            }
+        }
+        throw;
     }
 }
 
@@ -123,12 +142,6 @@ void CtCommandManager::executeCommand(std::unique_ptr<CtCommand> cmd)
 
     // Note: We don't log command description here to avoid expensive XML parsing on every keystroke
 
-    // If we're building a command group, add to it instead of executing directly
-    if (_activeGroup) {
-        _activeGroup->addCommand(std::move(cmd));
-        return;
-    }
-
     try {
         cmd->execute();
 
@@ -140,7 +153,9 @@ void CtCommandManager::executeCommand(std::unique_ptr<CtCommand> cmd)
         trimUndoStack();
     }
     catch (const std::exception& e) {
-        spdlog::error("Command execution failed: {}", e.what());
+        // CompoundCommand::execute rolls back the steps it had applied before
+        // rethrowing, so the model is not left half way; the command is dropped.
+        spdlog::error("Command execution failed: {} - {}", cmd->getDescription(), e.what());
     }
 }
 
@@ -152,12 +167,6 @@ void CtCommandManager::addCommandToStack(std::unique_ptr<CtCommand> cmd)
     }
 
     spdlog::debug("Adding command to stack without executing: {}", cmd->getDescription());
-
-    // If we're building a command group, add to it
-    if (_activeGroup) {
-        _activeGroup->addCommand(std::move(cmd));
-        return;
-    }
 
     // Clear redo stack (new action invalidates redo history)
     _redoStack.clear();
@@ -326,34 +335,6 @@ void CtCommandManager::redo(size_t count)
     }
 }
 
-void CtCommandManager::beginCommandGroup(const std::string& description)
-{
-    if (_activeGroup) {
-        spdlog::warn("beginCommandGroup called while group already active");
-        endCommandGroup();
-    }
-
-    spdlog::debug("Beginning command group: {}", description);
-    _activeGroup = std::make_unique<CompoundCommand>(description);
-}
-
-void CtCommandManager::endCommandGroup()
-{
-    if (!_activeGroup) {
-        spdlog::warn("endCommandGroup called with no active group");
-        return;
-    }
-
-    spdlog::debug("Ending command group: {}", _activeGroup->getDescription());
-
-    // Only add the group if it contains commands
-    if (!_activeGroup->isEmpty()) {
-        executeCommand(std::move(_activeGroup));
-    }
-
-    _activeGroup.reset();
-}
-
 void CompoundCommand::collectNodeIds(std::set<gint64>& rNodeIds) const
 {
     const gint64 nodeId = getNodeId();
@@ -376,7 +357,7 @@ size_t CtCommandManager::purgeCommandsForNodes(const std::set<gint64>& nodeIds)
         }
         return false;
     };
-    for (std::vector<std::unique_ptr<CtCommand>>* pStack : {&_undoStack, &_redoStack}) {
+    for (std::deque<std::unique_ptr<CtCommand>>* pStack : {&_undoStack, &_redoStack}) {
         const size_t sizeBefore = pStack->size();
         pStack->erase(std::remove_if(pStack->begin(), pStack->end(), f_touchesAny), pStack->end());
         numPurged += sizeBefore - pStack->size();
@@ -393,7 +374,6 @@ void CtCommandManager::clear()
     spdlog::debug("Clearing command history");
     _undoStack.clear();
     _redoStack.clear();
-    _activeGroup.reset();
 }
 
 void CtCommandManager::setMaxUndoDepth(size_t depth)
@@ -410,6 +390,6 @@ void CtCommandManager::trimUndoStack()
 
     while (_undoStack.size() > _maxUndoDepth) {
         spdlog::debug("Trimming undo stack (max depth: {})", _maxUndoDepth);
-        _undoStack.erase(_undoStack.begin());
+        _undoStack.pop_front();
     }
 }

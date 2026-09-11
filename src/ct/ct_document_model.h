@@ -60,6 +60,7 @@ struct SubtreeSnapshot {
         gint64 sequence{-1};
         CtNodeProps props;
         CtNodeContent content; // empty for shared non-masters
+        std::vector<CtDrawingCanvas> drawingCanvases;
     };
     std::vector<Entry> entries; // depth-first order; restore in this order
 };
@@ -199,12 +200,12 @@ public:
 
     // Node properties changed (name, syntax, tags, read-only, bold, icon, color, exclude flags)
     // Separate from onNodeChanged so property-only changes don't trigger a buffer rebuild.
-    virtual void onNodePropertiesChanged(gint64 nodeId,
-                                         const CtNodeProps& oldProps,
-                                         const CtNodeProps& newProps) {}
+    virtual void onNodePropertiesChanged(gint64 /*nodeId*/,
+                                         const CtNodeProps& /*oldProps*/,
+                                         const CtNodeProps& /*newProps*/) {}
 
     // Drawing canvases changed (strokes added/removed, canvas moved/resized)
-    virtual void onNodeDrawingChanged(gint64 nodeId) {}
+    virtual void onNodeDrawingChanged(gint64 /*nodeId*/) {}
 };
 
 // The document model - represents the entire document tree
