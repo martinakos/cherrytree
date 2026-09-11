@@ -507,3 +507,60 @@ TEST(CtNodeContentTest, RichTable_PlainTableUnchanged)
     EXPECT_FALSE(parsedDesc.hasRichTableData());
     EXPECT_TRUE(parsedDesc.hasTableData());
 }
+
+// ── widget lookups resolve by position, not by the stale char_offset property ─
+// Delta commands shift elements but never rewrite the "char_offset" property
+// stored in the desc, so lookups keyed on it broke after typing before a widget.
+
+TEST(CtNodeContentTest, WidgetLookupByPositionAfterInsertBefore)
+{
+    CtWidgetDesc codebox(CtAnchWidgType::CodeBox);
+    codebox.setProperty("char_offset", "3");
+    codebox.setProperty("syntax_highlighting", "python");
+    codebox.contentData = "print(1)";
+
+    CtNodeContent nc;
+    nc.insertText(0, "abc", {});
+    nc.insertWidget(3, codebox);
+    ASSERT_EQ(CtAnchWidgType::CodeBox, nc.getWidgetDescAt(3).type);
+
+    // type two chars before the widget: it now sits at offset 5
+    nc.insertText(0, "XY", {});
+    EXPECT_EQ(6u, nc.length());
+
+    EXPECT_EQ(CtAnchWidgType::None, nc.getWidgetDescAt(3).type) << "stale offset must not match";
+    EXPECT_EQ(CtAnchWidgType::CodeBox, nc.getWidgetDescAt(5).type);
+
+    EXPECT_FALSE(nc.setWidgetContentData(3, "x = 2"));
+    EXPECT_TRUE(nc.setWidgetContentData(5, "x = 2"));
+    EXPECT_EQ("x = 2", nc.getWidgetDescAt(5).getContent());
+
+    EXPECT_EQ(0, nc.setWidgetTsLastSave(3, 42));
+    nc.setWidgetTsLastSave(5, 42);
+    EXPECT_EQ(42, nc.getWidgetDescAt(5).getTsLastSave());
+
+    CtWidgetDesc replacement(CtAnchWidgType::CodeBox);
+    replacement.contentData = "replaced";
+    EXPECT_EQ(CtAnchWidgType::None, nc.replaceWidget(3, replacement).type);
+    EXPECT_EQ(CtAnchWidgType::CodeBox, nc.replaceWidget(5, replacement).type);
+    EXPECT_EQ("replaced", nc.getWidgetDescAt(5).getContent());
+
+    // a text offset is not a widget
+    EXPECT_EQ(CtAnchWidgType::None, nc.getWidgetDescAt(1).type);
+}
+
+TEST(CtNodeContentTest, TableCellLookupByPositionAfterInsertBefore)
+{
+    CtWidgetDesc table(CtAnchWidgType::TableHeavy);
+    table.setProperty("char_offset", "0");
+    table.tableData = {{"H1", "H2"}, {"A", "B"}};
+
+    CtNodeContent nc;
+    nc.insertWidget(0, table);
+    nc.insertText(0, "intro ", {});
+
+    EXPECT_FALSE(nc.setWidgetTableCell(0, 1, 0, "changed"));
+    EXPECT_TRUE(nc.setWidgetTableCell(6, 1, 0, "changed"));
+    EXPECT_EQ(Glib::ustring("changed"), nc.getWidgetDescAt(6).tableData[1][0]);
+    EXPECT_FALSE(nc.setWidgetTableCell(6, 5, 0, "out of range"));
+}

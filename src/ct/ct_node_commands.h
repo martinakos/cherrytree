@@ -33,6 +33,22 @@
 #include <utility>
 
 class CtMainWin;  // for DeleteNodeCommand bookmark/nav restore
+class CtTreeIter;
+struct CtNodeData;
+
+// ─── Conversions between the GTK tree row types and the model types ─────────
+// Kept here so that every place that copies node metadata (command
+// construction, model registration, GTK row creation) uses one definition.
+
+// Capture all metadata from a GTK tree iterator into CtNodeProps.
+CtNodeProps nodePropsFromIter(const CtTreeIter& iter);
+
+// Fill CtNodeProps from a CtNodeData struct (dialog output / get_node_data).
+CtNodeProps nodePropsFromData(const CtNodeData& d);
+
+// Fill the metadata fields of a CtNodeData from a model node (ids, sequence,
+// properties, drawing canvases). Buffer and anchored widgets are left alone.
+void nodeDataFromModel(const CtNodeModel& node, CtNodeData& d);
 
 // Captures the shared-master promotion that happens when a master node is deleted
 // while other group members survive.  Stored in DeleteNodeCommand for undo.
@@ -80,7 +96,8 @@ public:
                    int position,
                    const CtNodeProps& props,
                    const CtNodeContent& initialContent,
-                   gint64 sharedMasterId = 0);
+                   gint64 sharedMasterId = 0,
+                   std::vector<CtDrawingCanvas> drawingCanvases = {});
 
     void execute() override;
     void undo() override;
@@ -95,6 +112,7 @@ private:
     CtNodeProps _props;
     CtNodeContent _initialContent;
     gint64 _sharedMasterId;
+    std::vector<CtDrawingCanvas> _drawingCanvases;
 };
 
 // ─── DeleteNodeCommand ────────────────────────────────────────────────────────

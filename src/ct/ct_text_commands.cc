@@ -175,10 +175,6 @@ void CtTextEditSession::begin(gint64 nodeId, const Glib::RefPtr<Gtk::TextBuffer>
     _suppressCapture = false;
     _capturedCommands.clear();
 
-    // Snapshot content length for cheap deduplication (detect net-zero sessions)
-    auto node = _docModel->getNodeById(nodeId);
-    _initialLength = node ? node->getContent().length() : 0;
-
     startSignalCapture(buffer);
 }
 
@@ -198,14 +194,18 @@ std::unique_ptr<CtCommand> CtTextEditSession::end(const Glib::RefPtr<Gtk::TextBu
         return nullptr;
     }
 
-    // Cheap deduplication: if content length hasn't changed AND all captured
-    // commands are insert+delete pairs, the session likely netted to zero.
-    // This replaces the expensive toXml() serialization + comparison.
-    if (!_skipModelSync) {
-        auto node = _docModel->getNodeById(_nodeId);
-        const size_t currentLength = node ? node->getContent().length() : 0;
-        if (currentLength == _initialLength && _capturedCommands.size() == 2) {
-            // Common case: type a char then delete it (or vice versa)
+    // Deduplication: a session that typed some text and then deleted exactly
+    // that text again (type then backspace) netted to zero and needs no undo
+    // entry.  Only this exact insert+delete shape qualifies: a delete followed
+    // by an insert of the same length (overtyping a selection) changes the
+    // content and must stay undoable.
+    if (_capturedCommands.size() == 2) {
+        auto* ins = dynamic_cast<InsertTextCommand*>(_capturedCommands[0].get());
+        auto* del = dynamic_cast<DeleteRangeCommand*>(_capturedCommands[1].get());
+        if (ins && del &&
+            del->getStart() == ins->getOffset() &&
+            del->getLength() == static_cast<int>(ins->getText().length()))
+        {
             _active = false;
             _capturedCommands.clear();
             return nullptr;

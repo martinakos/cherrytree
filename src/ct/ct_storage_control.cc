@@ -28,6 +28,7 @@
 #include "ct_storage_multifile.h"
 #include "ct_p7za_iface.h"
 #include "ct_main_win.h"
+#include "ct_command_bridge.h"
 #include "ct_logging.h"
 #include <glib/gstdio.h>
 
@@ -868,6 +869,10 @@ void CtStorageControl::add_nodes_from_storage(const fs::path& file_path,
     pStorage->import_nodes(extracted_file_path, parent_iter);
 
     _pCtMainWin->get_tree_store().nodes_sequences_fix(parent_iter, false);
+    // import_nodes created GTK rows only; register them in the document model
+    if (auto* pBridge = _pCtMainWin->get_command_bridge()) {
+        pBridge->registerNewChildrenInModel(parent_iter);
+    }
     _pCtMainWin->update_window_save_needed();
 }
 

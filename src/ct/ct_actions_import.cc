@@ -27,6 +27,7 @@
 #include "ct_storage_control.h"
 #include "ct_export2html.h"
 #include "ct_storage_xml.h"
+#include "ct_command_bridge.h"
 #include "ct_logging.h"
 #include "ct_gtk_compat.h"
 #include <optional>
@@ -402,5 +403,10 @@ void CtActions::_create_imported_nodes(CtImportedNode* imported_nodes, const boo
     }
 
     ct_treestore.nodes_sequences_fix(parent_iter.value(), true);
+    // The rows were created directly in the GTK tree; the model must know them
+    // too, otherwise node commands (delete, move, edit) on them fail silently.
+    if (auto* pBridge = _pCtMainWin->get_command_bridge()) {
+        pBridge->registerNewChildrenInModel(parent_iter.value());
+    }
     _pCtMainWin->update_window_save_needed();
 }

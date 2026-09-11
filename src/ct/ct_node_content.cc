@@ -436,9 +436,10 @@ CtFormatChange CtNodeContent::applyFormat(int start, int length, const std::stri
         ++currentIndex;
     }
 
-    // Merge adjacent spans with same attributes
-    if (startLoc.elementIndex > 0) {
-        _mergeAdjacentSpans(startLoc.elementIndex - 1);
+    // Merge adjacent spans with same attributes across the whole touched range
+    {
+        const size_t firstIndex = startLoc.elementIndex > 0 ? startLoc.elementIndex - 1 : 0;
+        _mergeAdjacentSpans(firstIndex, currentIndex - firstIndex + 1);
     }
 
     return change;
@@ -501,9 +502,10 @@ CtFormatChange CtNodeContent::removeFormat(int start, int length, const std::str
         ++currentIndex;
     }
 
-    // Merge adjacent spans with same attributes
-    if (startLoc.elementIndex > 0) {
-        _mergeAdjacentSpans(startLoc.elementIndex - 1);
+    // Merge adjacent spans with same attributes across the whole touched range
+    {
+        const size_t firstIndex = startLoc.elementIndex > 0 ? startLoc.elementIndex - 1 : 0;
+        _mergeAdjacentSpans(firstIndex, currentIndex - firstIndex + 1);
     }
 
     return change;
@@ -547,81 +549,77 @@ bool CtNodeContent::hasAttributeValueInRange(int start, int length, const std::s
     return false;
 }
 
+// Helper: widget element whose anchor sits exactly at charOffset.
+// Resolved by position, not by the desc's "char_offset" property — that
+// property is only refreshed by buildContentFromBuffer and goes stale as soon
+// as delta commands insert or delete text before the widget.
+CtWidgetDesc* CtNodeContent::_widgetAt(int charOffset)
+{
+    auto loc = getElementAtOffset(charOffset);
+    if (!loc.valid || loc.elementIndex >= _elements.size() || loc.offsetInElement != 0) {
+        return nullptr;
+    }
+    auto& elem = _elements[loc.elementIndex];
+    return elem.isWidget() ? &elem.widget : nullptr;
+}
+
+const CtWidgetDesc* CtNodeContent::_widgetAt(int charOffset) const
+{
+    return const_cast<CtNodeContent*>(this)->_widgetAt(charOffset);
+}
+
 bool CtNodeContent::setWidgetContentData(int charOffset, const std::string& newContent)
 {
-    for (auto& elem : _elements) {
-        if (elem.isWidget() && elem.widget.getCharOffset() == charOffset) {
-            elem.widget.contentData = newContent;
-            return true;
-        }
-    }
-    return false;
+    CtWidgetDesc* w = _widgetAt(charOffset);
+    if (!w) return false;
+    w->contentData = newContent;
+    return true;
 }
 
 bool CtNodeContent::setWidgetTableCell(int charOffset, size_t row, size_t col, const Glib::ustring& newText)
 {
-    for (auto& elem : _elements) {
-        if (elem.isWidget() && elem.widget.getCharOffset() == charOffset) {
-            if (elem.widget.hasTableData() &&
-                row < elem.widget.tableData.size() &&
-                col < elem.widget.tableData[row].size()) {
-                elem.widget.tableData[row][col] = newText;
-                return true;
-            }
-            return false;
-        }
+    CtWidgetDesc* w = _widgetAt(charOffset);
+    if (!w || !w->hasTableData() ||
+        row >= w->tableData.size() || col >= w->tableData[row].size()) {
+        return false;
     }
-    return false;
+    w->tableData[row][col] = newText;
+    return true;
 }
 
 bool CtNodeContent::setWidgetRichTableCell(int charOffset, size_t row, size_t col, const CtCellContent& newContent)
 {
-    for (auto& elem : _elements) {
-        if (elem.isWidget() && elem.widget.getCharOffset() == charOffset) {
-            if (elem.widget.hasRichTableData() &&
-                row < elem.widget.richTableData.size() &&
-                col < elem.widget.richTableData[row].size()) {
-                elem.widget.richTableData[row][col] = newContent;
-                return true;
-            }
-            return false;
-        }
+    CtWidgetDesc* w = _widgetAt(charOffset);
+    if (!w || !w->hasRichTableData() ||
+        row >= w->richTableData.size() || col >= w->richTableData[row].size()) {
+        return false;
     }
-    return false;
+    w->richTableData[row][col] = newContent;
+    return true;
 }
 
 CtWidgetDesc CtNodeContent::replaceWidget(int charOffset, const CtWidgetDesc& newWidget)
 {
-    for (auto& elem : _elements) {
-        if (elem.isWidget() && elem.widget.getCharOffset() == charOffset) {
-            CtWidgetDesc old = elem.widget;
-            elem.widget = newWidget;
-            return old;
-        }
-    }
-    return CtWidgetDesc(); // not found — type==None
+    CtWidgetDesc* w = _widgetAt(charOffset);
+    if (!w) return CtWidgetDesc(); // not found — type==None
+    CtWidgetDesc old = *w;
+    *w = newWidget;
+    return old;
 }
 
 gint64 CtNodeContent::setWidgetTsLastSave(int charOffset, gint64 ts)
 {
-    for (auto& elem : _elements) {
-        if (elem.isWidget() && elem.widget.getCharOffset() == charOffset) {
-            gint64 old = elem.widget.getTsLastSave();
-            elem.widget.setProperty("ts_lastsave", std::to_string(ts));
-            return old;
-        }
-    }
-    return 0;
+    CtWidgetDesc* w = _widgetAt(charOffset);
+    if (!w) return 0;
+    gint64 old = w->getTsLastSave();
+    w->setProperty("ts_lastsave", std::to_string(ts));
+    return old;
 }
 
 CtWidgetDesc CtNodeContent::getWidgetDescAt(int charOffset) const
 {
-    for (const auto& elem : _elements) {
-        if (elem.isWidget() && elem.widget.getCharOffset() == charOffset) {
-            return elem.widget;
-        }
-    }
-    return CtWidgetDesc(); // not found — type==None
+    const CtWidgetDesc* w = _widgetAt(charOffset);
+    return w ? *w : CtWidgetDesc(); // not found — type==None
 }
 
 // Insert widget
@@ -711,14 +709,15 @@ void CtNodeContent::reinsertContent(const CtDeletedContent& deleted)
         offset += static_cast<int>(elem.length());
     }
 
-    // Merge adjacent spans
+    // Merge adjacent spans across the whole reinserted range
+    const size_t maxPairs = deleted.elements.size() + 1;
     if (deleted.startOffset > 0) {
         auto loc = getElementAtOffset(deleted.startOffset - 1);
         if (loc.valid) {
-            _mergeAdjacentSpans(loc.elementIndex);
+            _mergeAdjacentSpans(loc.elementIndex, maxPairs);
         }
     } else {
-        _mergeAdjacentSpans(0);
+        _mergeAdjacentSpans(0, maxPairs);
     }
 }
 
@@ -763,21 +762,20 @@ void CtNodeContent::restoreFormat(int start, int /*length*/, const std::string& 
         }
     }
 
-    // Merge adjacent spans
+    // Merge adjacent spans across the whole restored range
     auto loc = getElementAtOffset(start);
-    if (loc.valid && loc.elementIndex > 0) {
-        _mergeAdjacentSpans(loc.elementIndex - 1);
+    if (loc.valid) {
+        const size_t firstIndex = loc.elementIndex > 0 ? loc.elementIndex - 1 : 0;
+        _mergeAdjacentSpans(firstIndex, change.changes.size() * 2 + 2);
     }
 }
 
-// Helper: Merge adjacent text spans with same attributes
-void CtNodeContent::_mergeAdjacentSpans(size_t startIndex)
+// Helper: Merge adjacent text spans with same attributes around an edit.
+// Only maxPairs non-merging boundaries are inspected from startIndex on;
+// walking to the end of the document would make every keystroke O(spans).
+void CtNodeContent::_mergeAdjacentSpans(size_t startIndex, size_t maxPairs)
 {
-    if (startIndex >= _elements.size()) {
-        return;
-    }
-
-    while (startIndex < _elements.size() - 1) {
+    for (size_t pairsLeft = maxPairs; pairsLeft > 0 && startIndex + 1 < _elements.size(); ) {
         auto& current = _elements[startIndex];
         auto& next = _elements[startIndex + 1];
 
@@ -787,6 +785,7 @@ void CtNodeContent::_mergeAdjacentSpans(size_t startIndex)
             _elements.erase(_elements.begin() + startIndex + 1);
         } else {
             ++startIndex;
+            --pairsLeft;
         }
     }
 }

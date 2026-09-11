@@ -26,6 +26,64 @@
 #include "ct_treestore.h"
 #include "ct_logging.h"
 
+// ─── Conversions ──────────────────────────────────────────────────────────────
+
+CtNodeProps nodePropsFromIter(const CtTreeIter& iter)
+{
+    CtNodeProps p;
+    p.name                    = iter.get_node_name();
+    p.syntax                  = iter.get_node_syntax_highlighting();
+    p.tags                    = iter.get_node_tags();
+    p.isReadOnly               = iter.get_node_read_only();
+    p.isBold                  = iter.get_node_is_bold();
+    p.customIconId             = iter.get_node_custom_icon_id();
+    p.foregroundRgb24          = iter.get_node_foreground();
+    p.excludeMeFromSearch      = iter.get_node_is_excluded_from_search();
+    p.excludeChildrenFromSearch = iter.get_node_children_are_excluded_from_search();
+    p.lineWrap                 = iter.get_node_line_wrap();
+    p.tsCreation               = iter.get_node_creating_time();
+    p.tsLastSave               = iter.get_node_modification_time();
+    return p;
+}
+
+CtNodeProps nodePropsFromData(const CtNodeData& d)
+{
+    CtNodeProps p;
+    p.name                    = d.name;
+    p.syntax                  = d.syntax;
+    p.tags                    = d.tags;
+    p.isReadOnly               = d.isReadOnly;
+    p.isBold                  = d.isBold;
+    p.customIconId             = d.customIconId;
+    p.foregroundRgb24          = d.foregroundRgb24;
+    p.excludeMeFromSearch      = d.excludeMeFromSearch;
+    p.excludeChildrenFromSearch = d.excludeChildrenFromSearch;
+    p.lineWrap                 = d.lineWrap;
+    p.tsCreation               = d.tsCreation;
+    p.tsLastSave               = d.tsLastSave;
+    return p;
+}
+
+void nodeDataFromModel(const CtNodeModel& node, CtNodeData& d)
+{
+    d.nodeId              = node.getNodeId();
+    d.sharedNodesMasterId = node.getSharedMasterId();
+    d.sequence            = node.getSequence();
+    d.name                = node.getName();
+    d.syntax              = node.getSyntax();
+    d.tags                = node.getTags();
+    d.isReadOnly          = node.isReadOnly();
+    d.isBold              = node.isBold();
+    d.customIconId        = node.getCustomIconId();
+    d.foregroundRgb24     = node.getForegroundRgb24();
+    d.excludeMeFromSearch       = node.isExcludedFromSearch();
+    d.excludeChildrenFromSearch = node.areChildrenExcludedFromSearch();
+    d.lineWrap            = node.isLineWrap();
+    d.tsCreation          = node.getCreationTime();
+    d.tsLastSave          = node.getLastSaveTime();
+    d.drawingCanvases     = node.getDrawingCanvases();
+}
+
 // ─── EditNodePropertiesCommand ────────────────────────────────────────────────
 
 EditNodePropertiesCommand::EditNodePropertiesCommand(CtDocumentModel* model,
@@ -70,9 +128,11 @@ AddNodeCommand::AddNodeCommand(CtDocumentModel* model,
                                int position,
                                const CtNodeProps& props,
                                const CtNodeContent& initialContent,
-                               gint64 sharedMasterId)
+                               gint64 sharedMasterId,
+                               std::vector<CtDrawingCanvas> drawingCanvases)
     : _model(model), _nodeId(nodeId), _parentId(parentId), _position(position),
-      _props(props), _initialContent(initialContent), _sharedMasterId(sharedMasterId)
+      _props(props), _initialContent(initialContent), _sharedMasterId(sharedMasterId),
+      _drawingCanvases(std::move(drawingCanvases))
 {}
 
 void AddNodeCommand::execute()
@@ -87,6 +147,7 @@ void AddNodeCommand::execute()
         node->applyProps(_props);
         node->setContent(_initialContent);
         node->setSharedMasterId(_sharedMasterId);
+        node->getDrawingCanvasesMut() = _drawingCanvases;
     }
     auto node = _model->getNodeById(_nodeId);
     if (!node) return;

@@ -24,6 +24,7 @@
 #include "ct_document_model.h"
 #include "ct_logging.h"
 #include <algorithm>
+#include <functional>
 
 // CtNodeModel implementation
 
@@ -251,11 +252,17 @@ bool CtDocumentModel::removeNode(gint64 nodeId)
         parent->removeChild(node);
     }
 
-    // Remove from map
+    // Remove the node and its descendants from the map. No notifications are
+    // sent for any of them; removeNodeWithChildren is the notifying variant.
+    std::function<void(const CtNodeModel*)> f_eraseDescendants;
+    f_eraseDescendants = [&](const CtNodeModel* n) {
+        for (const auto& c : n->getChildren()) {
+            f_eraseDescendants(c.get());
+            _nodeMap.erase(c->getNodeId());
+        }
+    };
+    f_eraseDescendants(node.get());
     _nodeMap.erase(nodeId);
-
-    // Note: children are not automatically removed
-    // Caller must handle recursion if needed
 
     spdlog::debug("Removed node {}", nodeId);
     return true;
@@ -482,6 +489,7 @@ static void snapshotWalk(const CtNodeModel* node, gint64 parentId, SubtreeSnapsh
     e.sequence      = node->getSequence();
     e.props         = node->captureProps();
     e.content       = node->getContent();
+    e.drawingCanvases = node->getDrawingCanvases();
 
     // Determine position among parent's children
     const CtNodeModel* parent = node->getParent();
@@ -531,9 +539,15 @@ bool CtDocumentModel::restoreSubtree(const SubtreeSnapshot& snap)
         }
         existing->applyProps(e.props);
         existing->setContent(e.content);
+        existing->getDrawingCanvasesMut() = e.drawingCanvases;
         existing->setSharedMasterId(e.sharedMasterId);
         existing->setSequence(e.sequence);
 
+        // A node that is still attached (partial restore) must not be appended
+        // to its parent a second time.
+        if (existing->getParent()) {
+            continue;
+        }
         if (!addNode(existing, e.parentId, e.position)) {
             spdlog::error("restoreSubtree: failed to add node {} to parent {}", e.nodeId, e.parentId);
             return false;

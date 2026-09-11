@@ -183,9 +183,6 @@ private:
 
     // Captured commands during the session
     std::vector<std::unique_ptr<CtCommand>> _capturedCommands;
-
-    // Initial content length for cheap deduplication (detect net-zero sessions)
-    size_t _initialLength{0};
 };
 
 // Delta-based commands: store only the operation delta instead of full XML snapshots.
@@ -250,6 +247,8 @@ public:
     gint64 getNodeId() const override { return _nodeId; }
     int getOldCursorPos() const override { return _oldCursorPos; }
     int getNewCursorPos() const override { return _newCursorPos; }
+    int getStart() const { return _start; }
+    int getLength() const { return _length; }
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;

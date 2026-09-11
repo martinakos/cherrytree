@@ -304,6 +304,61 @@ TEST(CommandUndoRedoTests, SpaceOnlySession_ProducesCommand)
     ASSERT_FALSE(cmd->getDescription().empty());
 }
 
+// ─── Overtyping a selection must stay undoable ──────────────────────────────
+// Regression: a session ending with exactly two commands and an unchanged
+// content length was dropped as "net zero". Select "b", type "X": delete 1 +
+// insert 1, same length — the edit was real but could never be undone.
+
+TEST(CommandUndoRedoTests, OvertypeSelectionSameLength_ProducesCommand)
+{
+    auto model = std::make_shared<CtDocumentModel>();
+    auto node = model->createNode(1);
+    node->setSyntax("custom-colors");
+    model->addNode(node, 0);
+    node->getContent().insertText(0, "abc", {});
+
+    auto buffer = Gtk::TextBuffer::create();
+    buffer->set_text("abc");
+
+    CtTextEditSession session(model);
+    session.begin(1, buffer, nullptr);
+
+    // GTK does this on overtype: erase the selection, then insert the char
+    buffer->erase(buffer->get_iter_at_offset(1), buffer->get_iter_at_offset(2));
+    buffer->insert(buffer->get_iter_at_offset(1), "X");
+    ASSERT_EQ(Glib::ustring("aXc"), node->getContent().getText()) << "session keeps the model in sync";
+
+    auto cmd = session.end(buffer, {}, 2);
+    ASSERT_NE(cmd, nullptr) << "same-length replacement must produce an undo entry";
+
+    cmd->undo();
+    EXPECT_EQ(Glib::ustring("abc"), node->getContent().getText());
+    cmd->redo();
+    EXPECT_EQ(Glib::ustring("aXc"), node->getContent().getText());
+}
+
+TEST(CommandUndoRedoTests, TypeThenBackspaceSameText_IsNetZero)
+{
+    auto model = std::make_shared<CtDocumentModel>();
+    auto node = model->createNode(1);
+    node->setSyntax("custom-colors");
+    model->addNode(node, 0);
+    node->getContent().insertText(0, "abc", {});
+
+    auto buffer = Gtk::TextBuffer::create();
+    buffer->set_text("abc");
+
+    CtTextEditSession session(model);
+    session.begin(1, buffer, nullptr);
+
+    buffer->insert(buffer->end(), "xyz");
+    buffer->erase(buffer->get_iter_at_offset(3), buffer->end());
+    ASSERT_EQ(Glib::ustring("abc"), node->getContent().getText());
+
+    auto cmd = session.end(buffer, {}, 3);
+    EXPECT_EQ(cmd, nullptr) << "typing then deleting the same text needs no undo entry";
+}
+
 // ─── pushNodeCommand restarts edit session ──────────────────────────────────
 // Regression: after pushNodeCommand, no edit session was active. Characters
 // typed before the next cursor-change event went into the GTK buffer untracked,

@@ -462,6 +462,22 @@ bool CtProtectedAreas::lock(const gint64 nodeId, Glib::ustring& rError)
     // and the root keeps its row but not its content
     rootIter.remove_all_embedded_widgets();
     rootIter.set_node_text_buffer(_pCtMainWin->get_new_text_buffer(), rootIter.get_node_syntax_highlighting());
+    // The model node of the root must be emptied as well: the drawing overlay
+    // renders the canvases from the model and the storage writes them from
+    // there, so leaving them in place would keep the drawings on screen and
+    // save them outside the encrypted blob.
+    {
+        auto* pBridge = _pCtMainWin->get_command_bridge();
+        if (pBridge and pBridge->isActive()) {
+            auto pDocModel = pBridge->getDocumentModel();
+            auto pNodeModel = pDocModel->getNodeById(nodeId);
+            if (pNodeModel) {
+                pNodeModel->setContent(CtNodeContent{});
+                pNodeModel->getDrawingCanvasesMut().clear();
+                pDocModel->notifyNodeDrawingChanged(nodeId);
+            }
+        }
+    }
 
     auto itKey = _derivedKeys.find(nodeId);
     if (_derivedKeys.end() != itKey) {

@@ -1120,13 +1120,19 @@ void CtStorageSqlite::_write_node_to_db(const CtTreeIter* ct_tree_iter,
         }
     }
 
-    // write drawing canvases from the document model
+    // write drawing canvases from the document model; a protected root keeps
+    // its canvases inside the encrypted blob only, so its rows are cleared
     if (node_state.buff) {
-        auto* bridge = _pCtMainWin->get_command_bridge();
-        if (bridge && bridge->isActive()) {
-            auto nodeModel = bridge->getDocumentModel()->getNodeById(node_id);
-            if (nodeModel) {
-                _write_drawing_canvases_to_db(node_id, nodeModel->getDrawingCanvases());
+        if (isProtectedRoot) {
+            _write_drawing_canvases_to_db(node_id, {});
+        }
+        else {
+            auto* bridge = _pCtMainWin->get_command_bridge();
+            if (bridge && bridge->isActive()) {
+                auto nodeModel = bridge->getDocumentModel()->getNodeById(node_id);
+                if (nodeModel) {
+                    _write_drawing_canvases_to_db(node_id, nodeModel->getDrawingCanvases());
+                }
             }
         }
     }

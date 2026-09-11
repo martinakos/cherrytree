@@ -325,7 +325,12 @@ private:
     std::vector<CtContentElement> _elements;
 
     // Helper methods
-    void _mergeAdjacentSpans(size_t startIndex);
+    CtWidgetDesc* _widgetAt(int charOffset);
+    const CtWidgetDesc* _widgetAt(int charOffset) const;
+    // Merge adjacent same-attribute spans starting at startIndex, checking at
+    // most maxPairs non-merging boundaries (an edit creates two; a format
+    // change over N elements creates up to N+1).
+    void _mergeAdjacentSpans(size_t startIndex, size_t maxPairs = 2);
     void _splitSpanAtOffset(size_t elementIndex, size_t offsetInElement);
     bool _spansHaveSameAttributes(const CtTextSpan& a, const CtTextSpan& b) const;
 };

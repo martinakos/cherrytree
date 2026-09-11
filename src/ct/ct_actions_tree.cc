@@ -38,44 +38,6 @@
 
 // ─── Helpers used by node-operation command construction ─────────────────────
 
-// Capture all metadata from a GTK tree iterator into CtNodeProps.
-static CtNodeProps nodePropsFromIter(const CtTreeIter& iter)
-{
-    CtNodeProps p;
-    p.name                    = iter.get_node_name();
-    p.syntax                  = iter.get_node_syntax_highlighting();
-    p.tags                    = iter.get_node_tags();
-    p.isReadOnly               = iter.get_node_read_only();
-    p.isBold                  = iter.get_node_is_bold();
-    p.customIconId             = iter.get_node_custom_icon_id();
-    p.foregroundRgb24          = iter.get_node_foreground();
-    p.excludeMeFromSearch      = iter.get_node_is_excluded_from_search();
-    p.excludeChildrenFromSearch = iter.get_node_children_are_excluded_from_search();
-    p.lineWrap                 = iter.get_node_line_wrap();
-    p.tsCreation               = iter.get_node_creating_time();
-    p.tsLastSave               = iter.get_node_modification_time();
-    return p;
-}
-
-// Fill CtNodeProps from a CtNodeData struct (dialog output).
-static CtNodeProps nodePropsFromData(const CtNodeData& d)
-{
-    CtNodeProps p;
-    p.name                    = d.name;
-    p.syntax                  = d.syntax;
-    p.tags                    = d.tags;
-    p.isReadOnly               = d.isReadOnly;
-    p.isBold                  = d.isBold;
-    p.customIconId             = d.customIconId;
-    p.foregroundRgb24          = d.foregroundRgb24;
-    p.excludeMeFromSearch      = d.excludeMeFromSearch;
-    p.excludeChildrenFromSearch = d.excludeChildrenFromSearch;
-    p.lineWrap                 = d.lineWrap;
-    p.tsCreation               = d.tsCreation;
-    p.tsLastSave               = d.tsLastSave;
-    return p;
-}
-
 // Return the 0-based position of iter among its siblings.
 static int gtkIterPos(const Gtk::TreeModel::iterator& iter)
 {
@@ -366,7 +328,8 @@ void CtActions::node_subnodes_paste2(CtTreeIter& other_ct_tree_iter,
             nd.pTextBuffer = _pCtMainWin->get_new_text_buffer();
         CtNodeContent content = buildContentFromBuffer(nd.pTextBuffer, nd.anchoredWidgets);
         compound->addCommand(std::make_unique<AddNodeCommand>(
-            pModel, nd.nodeId, parentId, position, nodePropsFromData(nd), std::move(content), 0));
+            pModel, nd.nodeId, parentId, position, nodePropsFromData(nd), std::move(content), 0,
+            nd.drawingCanvases));
         return nd.nodeId;
     };
 
@@ -501,7 +464,7 @@ Gtk::TreeModel::iterator CtActions::_node_add_with_data(Gtk::TreeModel::iterator
 
         pBridge->pushNodeCommand(std::make_unique<AddNodeCommand>(
             pModel, nodeData.nodeId, parentId, position, props, initialContent,
-            nodeData.sharedNodesMasterId));
+            nodeData.sharedNodesMasterId, nodeData.drawingCanvases));
 
         // Look up the GTK iter that onNodeAdded created
         CtTreeIter nodeCtIter = ct_treestore.get_node_from_node_id(nodeData.nodeId);
@@ -975,6 +938,7 @@ void CtActions::node_delete()
                 auto buf = iter.get_node_text_buffer();
                 if (buf) e.content = buildContentFromBuffer(buf, iter.get_anchored_widgets());
             }
+            e.drawingCanvases = iter.get_drawing_canvases();
             gint64 thisId = e.nodeId; // capture before move
             snap.entries.push_back(std::move(e));
             #if GTKMM_MAJOR_VERSION >= 4

@@ -1183,3 +1183,92 @@ TEST(ProtectedAreaUnprotect, StaleBlobIsIgnoredAndCleanedUp)
     StaleBlobRepairApp app;
     app.run(0, nullptr);
 }
+
+// ── the drawings of a protected root stay inside the blob ───────────────────
+// Regression: lock() emptied the root's buffer but left the model node alone.
+// The overlay renders the canvases from the model and the storage writes them
+// from there, so the drawings stayed on screen and were saved unencrypted.
+
+class LockedRootCanvasApp : public CtApp
+{
+public:
+    LockedRootCanvasApp() : CtApp{"_test_locked_root_canvas"} { _no_gui = true; }
+private:
+    void on_activate() override;
+};
+
+void LockedRootCanvasApp::on_activate()
+{
+    _on_startup();
+    auto quitGuard = scope_guard([this](void*) { quit(); });
+
+    CtMainWin* pWin = _create_window(true/*start_hidden*/);
+    ASSERT_TRUE(pWin->file_open(UT::testCtbDocPath, ""/*node*/, ""/*anchor*/));
+    fs::path tmpDoc = pWin->get_ct_tmp()->getHiddenDirPath("UT_ROOTCANVAS") / "root_canvas.ctb";
+    pWin->file_save_as(tmpDoc.string(), CtDocType::SQLite, ""/*password*/);
+
+    CtTreeStore& ctTreeStore = pWin->get_tree_store();
+    CtProtectedAreas& areas = pWin->get_protected_areas();
+    auto* pBridge = pWin->get_command_bridge();
+    ASSERT_TRUE(pBridge and pBridge->isActive());
+
+    CtTreeIter rootIter = ctTreeStore.get_node_from_node_name("b");
+    ASSERT_TRUE(rootIter);
+    const gint64 rootNodeId = rootIter.get_node_id();
+
+    auto pNodeModel = pBridge->getDocumentModel()->getNodeById(rootNodeId);
+    ASSERT_TRUE(pNodeModel);
+    {
+        CtDrawingCanvas canvas;
+        canvas.x = 5.0; canvas.y = 6.0; canvas.width = 70.0; canvas.height = 80.0;
+        canvas.name = "secret sketch";
+        CtDrawingStroke stroke;
+        stroke.points = {{1.0, 2.0}, {3.0, 4.0}};
+        canvas.strokes.push_back(std::move(stroke));
+        pNodeModel->getDrawingCanvasesMut().push_back(std::move(canvas));
+    }
+    // make the storage rewrite the root's rows, as a real drawing edit would
+    rootIter.pending_edit_db_node_buff();
+    pWin->update_window_save_needed(CtSaveNeededUpdType::nbuf, false/*new_machine_state*/, &rootIter);
+    ASSERT_TRUE(pWin->file_save(false/*need_vacuum*/));
+
+    auto f_countCanvasRows = [&tmpDoc](const gint64 nodeId)->int{
+        sqlite3* pDb{nullptr};
+        if (SQLITE_OK != sqlite3_open_v2(tmpDoc.c_str(), &pDb, SQLITE_OPEN_READONLY, nullptr)) return -1;
+        sqlite3_stmt* pStmt{nullptr};
+        int count{-1};
+        if (SQLITE_OK == sqlite3_prepare_v2(pDb, "SELECT COUNT(*) FROM drawing_canvas WHERE node_id=?", -1, &pStmt, nullptr)) {
+            sqlite3_bind_int64(pStmt, 1, nodeId);
+            if (SQLITE_ROW == sqlite3_step(pStmt)) count = sqlite3_column_int(pStmt, 0);
+            sqlite3_finalize(pStmt);
+        }
+        sqlite3_close(pDb);
+        return count;
+    };
+    ASSERT_EQ(1, f_countCanvasRows(rootNodeId)) << "unprotected: the canvas is stored in its own row";
+
+    Glib::ustring error;
+    ASSERT_TRUE(areas.protect(rootIter, "swordfish", error)) << error.raw();
+    ASSERT_TRUE(pWin->file_save(false/*need_vacuum*/));
+    EXPECT_EQ(0, f_countCanvasRows(rootNodeId)) << "protected: the canvas must live in the blob only";
+
+    ASSERT_TRUE(areas.lock(rootNodeId, error)) << error.raw();
+    EXPECT_TRUE(pNodeModel->getDrawingCanvases().empty()) << "locked: the model must not keep the drawings";
+    EXPECT_TRUE(pNodeModel->getContent().isEmpty()) << "locked: the model must not keep the text";
+    EXPECT_TRUE(ctTreeStore.get_node_from_node_id(rootNodeId).get_drawing_canvases().empty());
+    ASSERT_TRUE(pWin->file_save(false/*need_vacuum*/));
+    EXPECT_EQ(0, f_countCanvasRows(rootNodeId));
+
+    ASSERT_TRUE(areas.unlock(rootNodeId, "swordfish", error)) << error.raw();
+    ASSERT_EQ(1u, pNodeModel->getDrawingCanvases().size()) << "unlock must bring the drawing back";
+    EXPECT_EQ("secret sketch", pNodeModel->getDrawingCanvases()[0].name);
+
+    pWin->force_exit() = true;
+    remove_window(*pWin);
+}
+
+TEST(ProtectedAreaCanvas, LockedRootKeepsDrawingsInBlobOnly)
+{
+    LockedRootCanvasApp app;
+    app.run(0, nullptr);
+}
