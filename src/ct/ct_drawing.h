@@ -202,11 +202,21 @@ private:
     bool _onMotionNotify(GdkEventMotion* event);
     bool _onScroll(GdkEventScroll* event);
 
+public:
+    // Paint a canvas with no editing chrome: background then strokes. Shared
+    // with the on-screen painter below so the exported picture cannot drift
+    // away from what the editor shows.
+    static void render_for_export(const Cairo::RefPtr<Cairo::Context>& cr,
+                                  const CtDrawingCanvas& canvas,
+                                  const double originX,
+                                  const double originY,
+                                  const double scale);
+private:
     void _drawCanvas(const Cairo::RefPtr<Cairo::Context>& cr,
                      const CtDrawingCanvas& canvas,
                      int idx, double hScroll, double vScroll, double zoom);
-    void _drawRoundedRect(const Cairo::RefPtr<Cairo::Context>& cr,
-                          double x, double y, double w, double h, double r);
+    static void _drawRoundedRect(const Cairo::RefPtr<Cairo::Context>& cr,
+                                 double x, double y, double w, double h, double r);
 
     CtDrawingHitZone _hitTest(double mx, double my, const CtDrawingCanvas& canvas,
                               double hScroll, double vScroll, double zoom);
@@ -243,16 +253,16 @@ private:
     void _showTextDialog(double canvasX, double canvasY, size_t canvasIdx,
                          const CtDrawingStroke* existingStroke = nullptr, int existingIdx = -1);
 
-    void _drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
-                     const CtDrawingStroke& stroke,
-                     double cx, double cy, double zoom);
-    void _drawArrowHead(const Cairo::RefPtr<Cairo::Context>& cr,
+    static void _drawStroke(const Cairo::RefPtr<Cairo::Context>& cr,
+                            const CtDrawingStroke& stroke,
+                            double cx, double cy, double zoom);
+    static void _drawArrowHead(const Cairo::RefPtr<Cairo::Context>& cr,
                         double tipX, double tipY,
                         double fromX, double fromY,
                         double lineWidth, double zoom,
                         CtDrawingArrowStyle style);
 
-    void _strokeCenter(const CtDrawingStroke& stroke, double& centerX, double& centerY);
+    static void _strokeCenter(const CtDrawingStroke& stroke, double& centerX, double& centerY);
 
     static std::optional<CtDrawingCanvas> _clipboard;
     static std::vector<CtDrawingStroke> _strokeClipboard;

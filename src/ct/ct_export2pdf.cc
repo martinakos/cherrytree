@@ -49,6 +49,13 @@ CtExport2Pango::CtExport2Pango(CtMainWin* pCtMainWin)
 void CtExport2Pango::pango_get_from_treestore_node(CtTreeIter node_iter, int sel_start, int sel_end, std::vector<CtPangoObjectPtr>& out_slots)
 {
     Glib::RefPtr<Gtk::TextBuffer> curr_buffer = node_iter.get_node_text_buffer();
+    // Canvases float over the text view rather than sitting in the text flow, so
+    // they are appended after the node's content rather than interleaved.
+    auto f_append_canvases = [&node_iter, &out_slots]() {
+        for (const CtDrawingCanvas& canvas : node_iter.get_drawing_canvases()) {
+            out_slots.push_back(std::make_shared<CtPangoCanvas>(canvas, 0/*indent*/));
+        }
+    };
 
     std::list<CtAnchoredWidget*> out_widgets = node_iter.get_anchored_widgets(sel_start, sel_end);
     int start_text_offset = sel_start < 1 ? 0 : sel_start;
@@ -83,6 +90,7 @@ void CtExport2Pango::pango_get_from_treestore_node(CtTreeIter node_iter, int sel
 
     int end_offset = sel_end < 0 ? curr_buffer->end().get_offset() : sel_end;
     _pango_process_slot(start_text_offset, end_offset, curr_buffer, out_slots);
+    f_append_canvases();
 }
 
 // Get rich text from syntax highlighted code node
@@ -260,9 +268,21 @@ void CtExport2Pango::_pango_text_serialize(const Gtk::TextIter& start_iter,
     Glib::ustring pango_attrs;
     int indent{0};
     std::string link_url;
+    // Justification is a paragraph property, not an inline span, so it is not
+    // emitted as markup; it is carried on the slot and applied to the layout.
+    Pango::Alignment slot_alignment{Pango::ALIGN_LEFT};
+    {
+        const std::string& just = curr_attributes.at(CtConst::TAG_JUSTIFICATION);
+        if (CtConst::TAG_PROP_VAL_CENTER == just) slot_alignment = Pango::ALIGN_CENTER;
+        else if (CtConst::TAG_PROP_VAL_RIGHT == just) slot_alignment = Pango::ALIGN_RIGHT;
+    }
     for (auto tag_property : CtConst::TAG_PROPERTIES) {
+        // TAG_INVISIBLE is skipped as well: "invisible" is not a pango markup
+        // attribute, so emitting it makes set_markup throw and the whole export
+        // fail on any node holding a collapsed or protected span.
         if (tag_property != CtConst::TAG_JUSTIFICATION and
             tag_property != CtConst::TAG_LINK and
+            tag_property != CtConst::TAG_INVISIBLE and
             not curr_attributes.at(tag_property).empty())
         {
             auto property_value = curr_attributes.at(tag_property);
@@ -289,7 +309,10 @@ void CtExport2Pango::_pango_text_serialize(const Gtk::TextIter& start_iter,
                     continue;
                 }
                 tag_property = "font_size";
-                const auto fontSize = Pango::FontDescription{_pCtConfig->rtFont}.get_size();
+                // un-zoomed, to match _rich_font above
+                const auto fontSize = _pCtConfig->rtResetFontSize > 0
+                    ? _pCtConfig->rtResetFontSize * Pango::SCALE
+                    : Pango::FontDescription{_pCtConfig->rtFont}.get_size();
                 const auto pCtScalableTag = _pCtConfig->scalablesTags.at(sIdx);
                 property_value = std::to_string(static_cast<unsigned>(fontSize * pCtScalableTag->scale));
                 // check if other optional configuration is applied to this scalable tag
@@ -318,7 +341,10 @@ void CtExport2Pango::_pango_text_serialize(const Gtk::TextIter& start_iter,
                     pango_attrs += std::string{" "} + CtConst::TAG_BACKGROUND + "=\"" + _pCtConfig->monospaceBg + "\"";
                 }
                 if (_pCtConfig->msDedicatedFont and not _pCtConfig->monospaceFont.empty()) {
-                    auto fontDesc = Pango::FontDescription{_pCtConfig->monospaceFont};
+                    auto fontDesc = Pango::FontDescription{_pCtConfig->msResetFontSize > 0
+                        ? CtFontUtil::get_font_str(CtFontUtil::get_font_family(_pCtConfig->monospaceFont),
+                                                   _pCtConfig->msResetFontSize)
+                        : _pCtConfig->monospaceFont};
                     property_value = fontDesc.get_family();
                     pango_attrs += std::string{" font_size=\""} + std::to_string(fontDesc.get_size()) + "\"";
                 }
@@ -369,7 +395,11 @@ void CtExport2Pango::_pango_text_serialize(const Gtk::TextIter& start_iter,
                     //spdlog::debug("PANGO link={} indent={} pango_dir={}", tagged_text, indent, pango_dir);
                 }
                 else {
-                    out_slots.emplace_back(std::make_shared<CtPangoText>(tagged_text, CtConst::RICH_TEXT_ID, indent, pango_dir));
+                    {
+                        auto text_slot = std::make_shared<CtPangoText>(tagged_text, CtConst::RICH_TEXT_ID, indent, pango_dir);
+                        text_slot->alignment = slot_alignment;
+                        out_slots.emplace_back(text_slot);
+                    }
                     //spdlog::debug("PANGO txt={} indent={} pango_dir={}", tagged_text, indent, pango_dir);
                 }
 
@@ -387,11 +417,49 @@ void CtExport2Pango::_pango_text_serialize(const Gtk::TextIter& start_iter,
 
         // add '\n' between lines
         if (lines.size() > 1 && i < lines.size() - 1) {
-            out_slots.emplace_back(std::make_shared<CtPangoText>(CtConst::CHAR_NEWLINE, CtConst::RICH_TEXT_ID, indent, pango_dir));
+            {
+                auto nl_slot = std::make_shared<CtPangoText>(CtConst::CHAR_NEWLINE, CtConst::RICH_TEXT_ID, indent, pango_dir);
+                nl_slot->alignment = slot_alignment;
+                out_slots.emplace_back(nl_slot);
+            }
             //spdlog::debug("PANGO nl indent={} pango_dir={}", indent, pango_dir);
         }
     }
 }
+
+namespace {
+
+// cairo only accepts ASCII in a link uri= attribute and rejects the whole
+// attribute otherwise. That rejection is sticky on the pdf surface: cairo stops
+// emitting and the finished file has no xref and no trailer, so the document
+// will not open at all. Trailing non breaking spaces pasted along with a url are
+// enough to trigger it. Trim the surrounding whitespace and percent encode what
+// is left of the non ASCII bytes, which keeps the link working.
+Glib::ustring f_uri_to_ascii(const Glib::ustring& uri)
+{
+    const std::string trimmed = str::trim(uri).raw();
+    bool all_ascii{true};
+    for (const char c : trimmed) {
+        if (static_cast<unsigned char>(c) >= 0x80u) { all_ascii = false; break; }
+    }
+    if (all_ascii) return trimmed;
+    std::string escaped;
+    escaped.reserve(trimmed.size());
+    for (const char c : trimmed) {
+        const auto byte = static_cast<unsigned char>(c);
+        if (byte < 0x80u) {
+            escaped += c;
+        }
+        else {
+            char hex[4];
+            snprintf(hex, sizeof hex, "%%%02X", byte);
+            escaped += hex;
+        }
+    }
+    return escaped;
+}
+
+} // anonymous namespace
 
 std::shared_ptr<CtPangoText> CtExport2Pango::_pango_link_url(const Glib::ustring& tagged_text, const Glib::ustring& link, const int indent, const PangoDirection pango_dir)
 {
@@ -401,7 +469,7 @@ std::shared_ptr<CtPangoText> CtExport2Pango::_pango_link_url(const Glib::ustring
         uri = "dest='" + generate_tag(link_entry.node_id, link_entry.anch) + "'";
     }
     else if (CtLinkType::Webs == link_entry.type) {
-        uri = "uri='" + str::xml_escape(link_entry.webs) + "'";
+        uri = "uri='" + str::xml_escape(f_uri_to_ascii(link_entry.webs)) + "'";
     }
     else if (CtLinkType::File == link_entry.type or
              CtLinkType::Fold == link_entry.type)
@@ -410,13 +478,13 @@ std::shared_ptr<CtPangoText> CtExport2Pango::_pango_link_url(const Glib::ustring
 #if defined(_WIN32) || defined(__APPLE__)
         const std::string encoding = CtStrUtil::get_encoding(fileOrFold.c_str(), fileOrFold.size());
         if (encoding == "ASCII") {
-            uri = (Glib::path_is_absolute(fileOrFold) ? "uri='file://":"uri='") + str::xml_escape(fs::path{fileOrFold}.string_unix()) + "'";
+            uri = (Glib::path_is_absolute(fileOrFold) ? "uri='file://":"uri='") + str::xml_escape(f_uri_to_ascii(fs::path{fileOrFold}.string_unix())) + "'";
         }
         else {
             uri = "uri='file://non_supported_encoding_" + encoding + "'";
         }
 #else /* !_WIN32 && !__APPLE__ */
-        uri = (Glib::path_is_absolute(fileOrFold) ? "uri='file://":"uri='") + str::xml_escape(fileOrFold) + "'";
+        uri = (Glib::path_is_absolute(fileOrFold) ? "uri='file://":"uri='") + str::xml_escape(f_uri_to_ascii(fileOrFold)) + "'";
 #endif /* !_WIN32 && !__APPLE__ */
     }
     else {
@@ -452,19 +520,30 @@ void CtExport2Pdf::node_export_print(const fs::path& pdf_filepath, CtTreeIter tr
 
 void CtExport2Pdf::node_and_subnodes_export_print(const fs::path& pdf_filepath, CtTreeIter tree_iter, const CtExportOptions& options)
 {
+    std::vector<CtTocEntry> toc_entries;
+    _collect_toc_entries(tree_iter, 0/*depth*/, toc_entries);
+
     std::vector<CtPangoObjectPtr> tree_pango_slots;
     _nodes_all_export_print_iter(tree_iter, options, tree_pango_slots);
+    _prepend_pango_toc(toc_entries, tree_pango_slots);
 
     _pCtMainWin->get_ct_print().print_text(pdf_filepath, tree_pango_slots);
 }
 
 void CtExport2Pdf::tree_export_print(const fs::path& pdf_filepath, CtTreeIter tree_iter, const CtExportOptions& options)
 {
+    std::vector<CtTocEntry> toc_entries;
+    for (CtTreeIter toc_iter = tree_iter; toc_iter; ++toc_iter) {
+        _collect_toc_entries(toc_iter, 0/*depth*/, toc_entries);
+    }
+
     std::vector<CtPangoObjectPtr> tree_pango_slots;
     while (tree_iter) {
         _nodes_all_export_print_iter(tree_iter, options, tree_pango_slots);
         ++tree_iter;
     }
+    _prepend_pango_toc(toc_entries, tree_pango_slots);
+
     _pCtMainWin->get_ct_print().print_text(pdf_filepath, tree_pango_slots);
 }
 
@@ -486,9 +565,12 @@ void CtExport2Pdf::_nodes_all_export_print_iter(CtTreeIter tree_iter,
         node_pango_slots.push_back(std::make_shared<CtPangoText>(text, tree_iter.get_node_syntax_highlighting(), 0/*indent*/, PANGO_DIRECTION_LTR));
     }
 
-    if (options.include_node_name) {
-        node_pango_slots.emplace(node_pango_slots.begin(), _generate_pango_node_name(tree_iter));
-    }
+    // The destination has to exist either way, or a link aimed at this node --
+    // from the table of contents or from another node -- is dropped at draw time
+    // and silently comes out as plain text.
+    node_pango_slots.emplace(node_pango_slots.begin(),
+                             options.include_node_name ? _generate_pango_node_name(tree_iter)
+                                                       : _generate_pango_node_dest(tree_iter));
     if (tree_pango_slots.empty()) {
         tree_pango_slots = node_pango_slots;
     }
@@ -518,6 +600,72 @@ CtPangoObjectPtr CtExport2Pdf::_generate_pango_node_name(CtTreeIter tree_iter)
         "name='" + generate_tag(tree_iter.get_node_id(), "") + "'",
         pango_dir);
     return slot;
+}
+
+CtPangoObjectPtr CtExport2Pdf::_generate_pango_node_dest(CtTreeIter tree_iter)
+{
+    // a superscript space: it has to occupy a character for cairo to anchor the
+    // destination on, but it should not look like one
+    return std::make_shared<CtPangoDest>(
+        "<sup> </sup>",
+        tree_iter.get_node_syntax_highlighting(),
+        0/*indent*/,
+        "name='" + generate_tag(tree_iter.get_node_id(), "") + "'",
+        PANGO_DIRECTION_NEUTRAL);
+}
+
+void CtExport2Pdf::_collect_toc_entries(CtTreeIter tree_iter, int depth, std::vector<CtTocEntry>& entries)
+{
+    entries.push_back(CtTocEntry{tree_iter.get_node_name(), tree_iter.get_node_id(), depth});
+    for (auto child_iter = tree_iter->children().begin(); child_iter != tree_iter->children().end(); ++child_iter) {
+        _collect_toc_entries(_pCtMainWin->get_tree_store().to_ct_tree_iter(child_iter), depth + 1, entries);
+    }
+}
+
+void CtExport2Pdf::_prepend_pango_toc(const std::vector<CtTocEntry>& entries,
+                                      std::vector<CtPangoObjectPtr>& tree_pango_slots)
+{
+    if (entries.size() < 2) {
+        return; // a single node has nothing to navigate to
+    }
+    // Narrower than the editor's indent, and capped: the tree can be deeper than
+    // the page is wide, and an entry pushed off the right edge helps nobody.
+    constexpr int TOC_INDENT_STEP{18};
+    constexpr int TOC_INDENT_MAX_DEPTH{8};
+
+    std::vector<CtPangoObjectPtr> toc_slots;
+    toc_slots.reserve(2 * entries.size() + 2);
+    const Glib::ustring title = _("Table of Contents");
+    toc_slots.push_back(std::make_shared<CtPangoText>(
+        "<b><i><span size=\"xx-large\">" + str::xml_escape(title) + "</span></i></b>" +
+            CtConst::CHAR_NEWLINE + CtConst::CHAR_NEWLINE,
+        CtConst::RICH_TEXT_ID,
+        0/*indent*/,
+        CtStrUtil::gtk_pango_find_base_dir(title.c_str(), -1)));
+
+    auto f_indent_of = [&](size_t idx)->int {
+        return idx < entries.size()
+            ? std::min(entries[idx].depth, TOC_INDENT_MAX_DEPTH) * TOC_INDENT_STEP
+            : 0;
+    };
+    for (size_t idx = 0; idx < entries.size(); ++idx) {
+        const CtTocEntry& entry = entries[idx];
+        const PangoDirection pango_dir = CtStrUtil::gtk_pango_find_base_dir(entry.name.c_str(), -1);
+        toc_slots.push_back(std::make_shared<CtPangoLink>(
+            "<span fgcolor='blue'><u>" + str::xml_escape(entry.name) + "</u></span>",
+            f_indent_of(idx),
+            "dest='" + generate_tag(entry.node_id, "") + "'",
+            pango_dir));
+        // The newline is what opens the next line, and the line takes its
+        // starting x from whichever slot lands on it first -- this one. So it
+        // has to carry the indent of the entry that follows, or every entry
+        // comes out wearing the depth of the one above it.
+        toc_slots.push_back(std::make_shared<CtPangoText>(
+            CtConst::CHAR_NEWLINE, CtConst::RICH_TEXT_ID, f_indent_of(idx + 1), pango_dir));
+    }
+    toc_slots.push_back(std::make_shared<CtPangoNewPage>());
+
+    tree_pango_slots.insert(tree_pango_slots.begin(), toc_slots.begin(), toc_slots.end());
 }
 
 CtPrint::CtPrint(CtMainWin* pCtMainWin)
@@ -642,9 +790,20 @@ void CtPrint::_on_begin_print_text(const Glib::RefPtr<Gtk::PrintContext>& contex
     };
 
     print_data->context = context;
-    _rich_font = get_font_with_fallback_(Pango::FontDescription(_pCtConfig->rtFont), _pCtConfig->fallbackFontFamily);
-    _plain_font = get_font_with_fallback_(Pango::FontDescription(_pCtConfig->ptFont), _pCtConfig->fallbackFontFamily);
-    _code_font = get_font_with_fallback_(Pango::FontDescription(_pCtConfig->codeFont), "monospace");
+    // Text zoom is applied by rewriting the config font sizes in place
+    // (CtTextView::zoom_text), so reading them here would make the exported file
+    // depend on whatever zoom happened to be set. Export at the un-zoomed size:
+    // zoom is a viewing aid, not a property of the document.
+    auto f_unzoomed_ = [](const Glib::ustring& fontStr, const int resetSize)->Glib::ustring{
+        if (resetSize <= 0) return fontStr; // never zoomed, the config size is the real one
+        return CtFontUtil::get_font_str(CtFontUtil::get_font_family(fontStr), resetSize);
+    };
+    _rich_font = get_font_with_fallback_(Pango::FontDescription(
+        f_unzoomed_(_pCtConfig->rtFont, _pCtConfig->rtResetFontSize)), _pCtConfig->fallbackFontFamily);
+    _plain_font = get_font_with_fallback_(Pango::FontDescription(
+        f_unzoomed_(_pCtConfig->ptFont, _pCtConfig->ptResetFontSize)), _pCtConfig->fallbackFontFamily);
+    _code_font = get_font_with_fallback_(Pango::FontDescription(
+        f_unzoomed_(_pCtConfig->codeFont, _pCtConfig->codeResetFontSize)), "monospace");
     _text_window_width = _pCtMainWin->get_text_view().mm().get_allocation().get_width();
     _table_line_thickness = 6; // will be scaled by _doc_scale where it's used
     // standard - 72, but MS print to pdf - 600
@@ -653,61 +812,12 @@ void CtPrint::_on_begin_print_text(const Glib::RefPtr<Gtk::PrintContext>& contex
     _page_width = context->get_width();
     _page_height = context->get_height() * 1.02; // tolerance at bottom of the page
 
-    // Pre-scan slots to find the most restrictive table fit_scale, then use it as
-    // a uniform document-wide content scale so text, images, codeboxes, and table
-    // cells all share the same visual proportions. We do a natural-width pango
-    // pass per table so wrap-off cells (which expand their column to the text's
-    // natural width in the editor) are accounted for here, not just stored
-    // col_widths.
-    {
-        const double TABLE_SIDE_MARGIN_PRESCAN = 36.0; // matches _process_pango_table
-        _doc_scale = 1.0;
-        for (auto slot : print_data->slots) {
-            auto pango_widget = std::dynamic_pointer_cast<CtPangoWidget>(slot);
-            if (!pango_widget) continue;
-            auto* pTable = dynamic_cast<const CtTableCommon*>(pango_widget->widget);
-            if (!pTable) continue;
-            // Lay out all cells at fit_scale=1 (untouched font) to discover the
-            // widest natural line of any wrap-off cell per column.
-            const auto natural_layouts = _table_get_layouts(pTable, 1, -1, context, 1.0);
-            const CtTableStyle& tStyle = pTable->getTableStyle();
-            auto isWrapOff = [&](size_t r, size_t c) -> bool {
-                const auto it = tStyle.cellWrap.find({r, c});
-                if (it != tStyle.cellWrap.end()) return !it->second;
-                if (tStyle.tableWrapDefaultSet) return !tStyle.tableWrapDefault;
-                return false;
-            };
-            const auto* pRichTable = dynamic_cast<const CtTableRich*>(pTable);
-            double natural_w = 0.0;
-            for (size_t c = 0; c < pTable->get_num_columns(); ++c) {
-                double w_pts = pTable->get_col_width(c) * _page_dpi_scale;
-                for (size_t lr = 0; lr < natural_layouts.size(); ++lr) {
-                    size_t srcR = lr;
-                    if (pRichTable && lr > 0) srcR = lr; // first_row was 1 in our call
-                    if (!isWrapOff(srcR, c)) continue;
-                    if (c >= natural_layouts[lr].size()) continue;
-                    auto& cl = natural_layouts[lr][c];
-                    double mx = 0;
-                    for (int li = 0; li < cl->get_line_count(); ++li) {
-                        const double lw = _get_width_height_from_layout_line(cl->get_line(li)).width;
-                        if (lw > mx) mx = lw;
-                    }
-                    if (mx > w_pts) w_pts = mx;
-                }
-                natural_w += w_pts;
-            }
-            const double avail = std::max(0.0, _page_width - pango_widget->indent - 2 * TABLE_SIDE_MARGIN_PRESCAN);
-            if (natural_w > avail and natural_w > 0) {
-                const double s = avail / natural_w;
-                if (s < _doc_scale) _doc_scale = s;
-            }
-        }
-        // We don't pre-scale font descriptions — that would only shrink the layout
-        // base font, and explicit font_size attrs in the markup (H1, H2, monospace,
-        // etc.) would keep their full size, throwing off the H/body ratio. Instead
-        // every text layout gets a pango_attr_scale applied uniformly at the end of
-        // its construction; see the helper below.
-    }
+    // No document-wide scale. A table that is too wide is shrunk on its own, in
+    // _process_pango_table; it must not drag the surrounding text, images and
+    // codeboxes down with it, which is what the editor does and what a global
+    // factor here used to break.
+    _doc_scale = 1.0;
+
     _table_text_row_height = _rich_font.get_size()/Pango::SCALE;
     _layout_newline_height = [&](){
         Glib::RefPtr<Pango::Layout> layout_newline = context->create_pango_layout();
@@ -724,6 +834,9 @@ void CtPrint::_on_begin_print_text(const Glib::RefPtr<Gtk::PrintContext>& contex
         }
         else if (auto pango_text = dynamic_cast<CtPangoText*>(slot.get())) {
             _process_pango_text(print_data, pango_text);
+        }
+        else if (auto pango_canvas = dynamic_cast<CtPangoCanvas*>(slot.get())) {
+            _process_pango_canvas(print_data, pango_canvas);
         }
         else if (auto pango_widget = dynamic_cast<CtPangoWidget*>(slot.get())) {
             if (auto image = dynamic_cast<const CtImage*>(pango_widget->widget)) {
@@ -747,6 +860,15 @@ void CtPrint::_on_begin_print_text(const Glib::RefPtr<Gtk::PrintContext>& contex
 
 bool CtPrint::_cairo_tag_can_apply(const Glib::ustring& tag_name, const Glib::ustring& tag_attr, const CtPrintData* print_data)
 {
+    // a tag cairo refuses puts the pdf surface into a permanent error state: it
+    // stops emitting and the file ends without an xref or a trailer, so nothing
+    // can open it. One bad link must cost that link, not the whole document.
+    for (const char c : tag_attr.raw()) {
+        if (static_cast<unsigned char>(c) >= 0x80u) {
+            spdlog::warn("pdf export: link tag dropped, non ascii attribute {}", tag_attr.raw());
+            return false;
+        }
+    }
     if (CAIRO_TAG_DEST == tag_name or not str::startswith(tag_attr, "dest=")) {
         return true;
     }
@@ -811,12 +933,22 @@ void CtPrint::_on_draw_page_text(const Glib::RefPtr<Gtk::PrintContext>& context,
                     scale /= CtImageLatex::PrintZoom;
                 }
                 else {
-                    pPixbuf = page_image->image->get_pixbuf();;
+                    pPixbuf = page_image->image->get_export_pixbuf();;
                 }
                 double pixbuf_height = pPixbuf->get_height() * scale;
                 cairo_context->save();
                 cairo_context->scale(scale, scale);
                 Gdk::Cairo::set_source_pixbuf(cairo_context, pPixbuf, page_image->x / scale, (line.y - pixbuf_height) / scale);
+                cairo_context->paint();
+                cairo_context->restore();
+            }
+            else if (auto page_canvas = dynamic_cast<const CtPageCanvas*>(element.get())) {
+                const double sc = page_canvas->scale;
+                const double h = page_canvas->pixbuf->get_height() * sc;
+                cairo_context->save();
+                cairo_context->scale(sc, sc);
+                Gdk::Cairo::set_source_pixbuf(cairo_context, page_canvas->pixbuf,
+                                              page_canvas->x / sc, (line.y - h) / sc);
                 cairo_context->paint();
                 cairo_context->restore();
             }
@@ -832,6 +964,10 @@ void CtPrint::_on_draw_page_text(const Glib::RefPtr<Gtk::PrintContext>& context,
                 _draw_codebox_code(cairo_context, page_codebox->layout, page_codebox->x, line.y - codebox_height);
             }
             else if (auto page_table = dynamic_cast<const CtPageTable*>(element.get())) {
+                // put back the shrink this table was laid out with, otherwise the
+                // grid is redrawn at full size and spills over the line above it
+                _doc_scale = page_table->doc_scale;
+                auto doc_scale_restore = scope_guard([this](void*) { _doc_scale = 1.0; });
                 std::vector<double> rows_h, cols_w;
                 _table_get_grid(page_table->layouts, page_table->colWidths, rows_h, cols_w, page_table->pTable, page_table->first_row, page_table->fit_scale);
                 double table_width = _table_get_width_height(cols_w);
@@ -905,6 +1041,12 @@ void CtPrint::_process_pango_text(CtPrintData* print_data, CtPangoText* text_slo
     //spdlog::debug("{}", text_slot->text.c_str());
 
     int layout_count = layout->get_line_count();
+    // A destination marks one spot, so it belongs on the first line only. The
+    // node title slot ends in two newlines and so spans three layout lines;
+    // tagging each of them put the same name in the pdf name tree three times
+    // over, which the spec does not allow and a strict reader need not resolve.
+    // A link is different: every line of it has to stay clickable.
+    bool dest_emitted{false};
     for (int i = 0; i < layout_count; ++i) {
         auto layout_line = layout->get_line(i);
         auto size = _get_width_height_from_layout_line(layout_line);
@@ -955,11 +1097,29 @@ void CtPrint::_process_pango_text(CtPrintData* print_data, CtPangoText* text_slo
             pages.last_line().cur_x -= size.width;
         }
         pages.last_line().set_max_height(size.height);
-        if (tag_name.empty()) {
-            pages.last_line().elements.push_back(std::make_shared<CtPageText>(pages.last_line().cur_x, layout_line));
+        // Paragraph justification. Each line is drawn at an explicit x, so the
+        // layout's own alignment would be thrown away; shift x instead. Only for
+        // a line that starts at the indent, otherwise this run continues a line
+        // that already has content on it and must not be moved.
+        double draw_x = pages.last_line().cur_x;
+        if (PANGO_DIRECTION_RTL != text_slot->pango_dir and
+            Pango::ALIGN_LEFT != text_slot->alignment and
+            pages.last_line().cur_x == text_slot->indent)
+        {
+            const double avail = _page_width - text_slot->indent;
+            if (avail > size.width) {
+                draw_x = (Pango::ALIGN_CENTER == text_slot->alignment)
+                       ? text_slot->indent + (avail - size.width) / 2.0
+                       : text_slot->indent + (avail - size.width);
+            }
+        }
+        const bool skip_repeat_dest = dest_emitted and Glib::ustring{CAIRO_TAG_DEST} == tag_name;
+        if (tag_name.empty() or skip_repeat_dest) {
+            pages.last_line().elements.push_back(std::make_shared<CtPageText>(draw_x, layout_line));
         }
         else {
-            pages.last_line().elements.push_back(std::make_shared<CtPageTag>(pages.last_line().cur_x, layout_line, tag_name, tag_attr));
+            pages.last_line().elements.push_back(std::make_shared<CtPageTag>(draw_x, layout_line, tag_name, tag_attr));
+            if (Glib::ustring{CAIRO_TAG_DEST} == tag_name) dest_emitted = true;
         }
         if (i < (layout_count - 1)) { // the paragragh was wrapped, so it's multiline
             pages.new_line();
@@ -975,7 +1135,7 @@ void CtPrint::_process_pango_image(CtPrintData* print_data, const CtImage* image
 {
     auto context = print_data->context;
     CtPrintPages& pages = print_data->pages;
-    auto pixbuf = image->get_pixbuf();
+    auto pixbuf = image->get_export_pixbuf();
 
     for (int i = 0; i < 2; ++i) {
         // first loop we try and fit the image in line with existing text
@@ -1081,6 +1241,49 @@ void CtPrint::_process_pango_image(CtPrintData* print_data, const CtImage* image
         }
         break; // if we reach the end of the first loop, we don't want to start another
     }
+}
+
+// Render a drawing canvas into the page. The canvas is painted by the same code
+// the editor uses (CtDrawingOverlay::render_for_export) onto an image surface,
+// then placed like an image, so what is exported is what is on screen.
+void CtPrint::_process_pango_canvas(CtPrintData* print_data, const CtPangoCanvas* pango_canvas)
+{
+    if (not pango_canvas) return;
+    const CtDrawingCanvas& canvas = pango_canvas->canvas;
+    if (canvas.width <= 0.0 or canvas.height <= 0.0) return;
+
+    CtPrintPages& pages = print_data->pages;
+
+    // Render at print resolution so the strokes stay crisp on paper.
+    const double render_scale = std::max(1.0, _page_dpi_scale);
+    const int surf_w = std::max(1, static_cast<int>(std::ceil(canvas.width * render_scale)));
+    const int surf_h = std::max(1, static_cast<int>(std::ceil(canvas.height * render_scale)));
+    auto surface = Cairo::ImageSurface::create(Cairo::FORMAT_ARGB32, surf_w, surf_h);
+    auto cr = Cairo::Context::create(surface);
+    CtDrawingOverlay::render_for_export(cr, canvas, 0.0, 0.0, render_scale);
+    surface->flush();
+    auto pixbuf = Gdk::Pixbuf::create(surface, 0, 0, surf_w, surf_h);
+    if (not pixbuf) return;
+
+    // Shrink to the printable width if the canvas is wider than the page.
+    double scale = 1.0;
+    const double avail_w = _page_width - pango_canvas->indent;
+    const double drawn_w = canvas.width * _page_dpi_scale;
+    if (drawn_w > avail_w and drawn_w > 0.0) scale = avail_w / drawn_w;
+    const double h_pts = canvas.height * _page_dpi_scale * scale;
+
+    // A canvas always starts its own line: it floats over the text on screen and
+    // has no meaningful position within the text flow.
+    if (-1 != pages.last_line().cur_x) pages.new_line();
+    if (not pages.last_line().test_element_height(h_pts, _page_height)) {
+        pages.line_on_new_page();
+    }
+    pages.last_line().cur_x = pango_canvas->indent;
+    pages.last_line().set_max_height(h_pts);
+    const double pixbuf_scale = (canvas.width * _page_dpi_scale * scale) / pixbuf->get_width();
+    pages.last_line().elements.push_back(
+        std::make_shared<CtPageCanvas>(pages.last_line().cur_x, pixbuf, pixbuf_scale));
+    pages.new_line();
 }
 
 void CtPrint::_process_pango_codebox(CtPrintData* print_data, const CtCodebox* codebox, const CtPangoWidget* pango_widget)
@@ -1260,12 +1463,65 @@ void CtPrint::_codebox_split_content(const CtCodebox* codebox,
     }
 }
 
+// How much this one table must shrink to fit the printable width. Measured at
+// full size (_doc_scale must be 1.0 on entry), so the answer describes the table
+// alone. Returns 1.0 when it already fits.
+double CtPrint::_table_fit_scale(const CtTableCommon* table,
+                                 const double indent,
+                                 Glib::RefPtr<Gtk::PrintContext> context)
+{
+    const double TABLE_SIDE_MARGIN = 36.0; // points, ~0.5 inch, matches the layout below
+    const double avail = _page_width - indent - 2 * TABLE_SIDE_MARGIN;
+    if (avail <= 0.0) {
+        // No usable width at this indent. Shrinking cannot help and the ratio
+        // would be 0, which would render every glyph at zero size.
+        return 1.0;
+    }
+
+    const auto natural_layouts = _table_get_layouts(table, 1, -1, context, 1.0);
+    const CtTableStyle& tStyle = table->getTableStyle();
+    auto isWrapOff = [&](size_t r, size_t c) -> bool {
+        const auto it = tStyle.cellWrap.find({r, c});
+        if (it != tStyle.cellWrap.end()) return !it->second;
+        if (tStyle.tableWrapDefaultSet) return !tStyle.tableWrapDefault;
+        return false;
+    };
+
+    double natural_w = 0.0;
+    for (size_t c = 0; c < table->get_num_columns(); ++c) {
+        double w_pts = table->get_col_width(c) * _page_dpi_scale;
+        // A wrap-off cell widens its column to its longest line.
+        for (size_t lr = 0; lr < natural_layouts.size(); ++lr) {
+            if (not isWrapOff(lr, c)) continue;
+            if (c >= natural_layouts[lr].size()) continue;
+            auto& cl = natural_layouts[lr][c];
+            for (int li = 0; li < cl->get_line_count(); ++li) {
+                const double lw = _get_width_height_from_layout_line(cl->get_line(li)).width;
+                if (lw > w_pts) w_pts = lw;
+            }
+        }
+        natural_w += w_pts;
+    }
+
+    if (natural_w <= avail or natural_w <= 0.0 or not std::isfinite(natural_w)) return 1.0;
+    // Clamped: a pathologically wide table shrinks only so far. Without a floor a
+    // huge table drives this towards 0 and the output becomes unreadable, or an
+    // unopenable file.
+    return std::max(MIN_TABLE_FIT_SCALE, avail / natural_w);
+}
+
 void CtPrint::_process_pango_table(CtPrintData *print_data,
                                    const CtTableCommon* table,
                                    const CtPangoWidget* pango_widget)
 {
     auto context = print_data->context;
     CtPrintPages& pages = print_data->pages;
+
+    // This table's own shrink factor, in force only while it is laid out. The
+    // table code below reads _doc_scale throughout; restoring it on the way out
+    // keeps the surrounding text, images and codeboxes at full size.
+    _doc_scale = _table_fit_scale(table, pango_widget->indent, context);
+    auto doc_scale_restore = scope_guard([this](void*) { _doc_scale = 1.0; });
 
     int first_row = 1;
 
@@ -1286,6 +1542,21 @@ void CtPrint::_process_pango_table(CtPrintData *print_data,
             else {
                 pages.last_line().cur_x = pango_widget->indent;
             }
+        }
+
+        // A table is a block: never share a line with text that precedes it.
+        // Sharing one drew the table over that text and left only the tail of
+        // the line to fit into, so a wide table still ran off the page edge.
+        // The test is whether anything has advanced the line, not whether the
+        // line holds an element: an empty run carrying only justification adds
+        // a zero width element, and breaking on that left a blank line above
+        // every table that followed one.
+        if (0 == i and
+            PANGO_DIRECTION_RTL != pango_widget->pango_dir and
+            pages.last_line().cur_x > pango_widget->indent)
+        {
+            pages.new_line();
+            continue;
         }
 
         int available_width{0};
@@ -1358,7 +1629,15 @@ void CtPrint::_process_pango_table(CtPrintData *print_data,
         // _doc_scale is already baked into both fonts and effective col widths,
         // so the per-table fit_scale here is 1.0 — no further compression.
         double fit_scale = 1.0;
-        if (0 == i) {
+        // Retrying on a new line only helps when this line already carries
+        // something. On a fresh line the retry gains no width and just leaves a
+        // blank line above the table -- which it did, because available_width is
+        // an int and truncating the page width made fit_avail a fraction of a
+        // point smaller than max_line_width.
+        const bool lineIsFresh = PANGO_DIRECTION_RTL == pango_widget->pango_dir
+            ? pages.last_line().cur_x >= _page_width - pango_widget->indent
+            : pages.last_line().cur_x <= pango_widget->indent;
+        if (0 == i and not lineIsFresh) {
             if (natural_table_width > fit_avail and fit_avail < max_line_width) {
                 pages.new_line();
                 continue; // restart loop from a new line
@@ -1370,9 +1649,24 @@ void CtPrint::_process_pango_table(CtPrintData *print_data,
         // expansion at the scaled font, so dividing by dpi_scale gives the final
         // per-column width that _table_get_layouts will multiply back by dpi_scale.
         CtTableColWidths effective_col_widths;
+        // Final clamp: whatever the natural measurement concluded, the drawn
+        // table must fit between the page edges. The earlier estimate can come
+        // out short once wrap-off columns and borders are added in.
+        double widths_total_pts = 0.0;
+        for (size_t col = 0; col < table->get_num_columns(); ++col) widths_total_pts += natural_col_widths_pts[col];
+        const double borders_pts = (table->get_num_columns() + 1) * _table_line_thickness * _page_dpi_scale * _doc_scale;
+        const double room_pts = std::max(0.0, _page_width - pango_widget->indent - 2 * TABLE_SIDE_MARGIN - borders_pts);
+        double clamp = 1.0;
+        if (widths_total_pts > room_pts and widths_total_pts > 0.0 and room_pts > 0.0) {
+            clamp = room_pts / widths_total_pts;
+        }
         for (size_t col = 0; col < table->get_num_columns(); ++col) {
-            const double w_px = natural_col_widths_pts[col] / std::max(1e-9, _page_dpi_scale);
-            effective_col_widths.push_back(int(std::ceil(w_px)));
+            const double w_px = (natural_col_widths_pts[col] * clamp) / std::max(1e-9, _page_dpi_scale);
+            effective_col_widths.push_back(std::max(1, int(std::floor(w_px))));
+        }
+        if (clamp < 1.0) {
+            // shrink the text with the columns, or it will not fit in them
+            _doc_scale *= clamp;
         }
 
         // use table is length is ok
@@ -1394,7 +1688,7 @@ void CtPrint::_process_pango_table(CtPrintData *print_data,
             }
 
             pages.last_line().set_max_height(table_height + (BOX_OFFSET * _page_dpi_scale));
-            pages.last_line().elements.push_back(std::make_shared<CtPageTable>(pages.last_line().cur_x + table_x_offset, table_layouts, effective_col_widths, _page_dpi_scale, table, first_row, fit_scale));
+            pages.last_line().elements.push_back(std::make_shared<CtPageTable>(pages.last_line().cur_x + table_x_offset, table_layouts, effective_col_widths, _page_dpi_scale, table, first_row, fit_scale, _doc_scale));
 
             if (PANGO_DIRECTION_RTL != pango_widget->pango_dir) {
                 // increase x after if not RTL
@@ -1419,7 +1713,7 @@ void CtPrint::_process_pango_table(CtPrintData *print_data,
             }
 
             pages.last_line().set_max_height(table_height + (BOX_OFFSET * _page_dpi_scale));
-            pages.last_line().elements.push_back(std::make_shared<CtPageTable>(pages.last_line().cur_x + table_x_offset, split_layouts, effective_col_widths, _page_dpi_scale, table, first_row, fit_scale));
+            pages.last_line().elements.push_back(std::make_shared<CtPageTable>(pages.last_line().cur_x + table_x_offset, split_layouts, effective_col_widths, _page_dpi_scale, table, first_row, fit_scale, _doc_scale));
 
             // no need to increase x after if not RTL as we will move to a new page
             pages.new_page();
@@ -1573,7 +1867,7 @@ CtPageTable::TableLayouts CtPrint::_table_get_layouts(const CtTableCommon* table
                     const size_t common_n = std::min(ufffc_offsets.size(), ordered_images.size());
                     for (size_t k = 0; k < common_n; ++k) {
                         const CtImage* pImg = ordered_images[k];
-                        auto pixbuf = pImg->get_pixbuf();
+                        auto pixbuf = pImg->get_export_pixbuf();
                         if (!pixbuf) continue;
                         // Image dimensions in points, scaled by _doc_scale, but
                         // additionally capped to fit the cell's inner width/height
@@ -1701,7 +1995,7 @@ void CtPrint::_table_get_grid(const CtPageTable::TableLayouts& table_layouts,
                     for (CtAnchoredWidget* pW : pCell->getEmbeddedWidgets()) {
                         auto* pImg = dynamic_cast<CtImage*>(pW);
                         if (!pImg) continue;
-                        auto pixbuf = pImg->get_pixbuf();
+                        auto pixbuf = pImg->get_export_pixbuf();
                         if (!pixbuf) continue;
                         const double srcW = pixbuf->get_width();
                         const double srcH = pixbuf->get_height();
@@ -2135,7 +2429,7 @@ void CtPrint::_draw_table_text(Cairo::RefPtr<Cairo::Context> cairo_context,
                         const size_t common_n = std::min(ufffc_offsets.size(), ordered_images.size());
                         for (size_t k = 0; k < common_n; ++k) {
                             const CtImage* pImg = ordered_images[k];
-                            auto pixbuf = pImg->get_pixbuf();
+                            auto pixbuf = pImg->get_export_pixbuf();
                             if (!pixbuf) continue;
                             const double srcW = pixbuf->get_width();
                             const double srcH = pixbuf->get_height();

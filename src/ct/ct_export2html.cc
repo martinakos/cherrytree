@@ -58,13 +58,18 @@ bool CtExport2Html::prepare_html_folder(fs::path dir_place,
     g_mkdir_with_parents(_embed_dir.c_str(), 0777);
     g_mkdir_with_parents(_res_dir.c_str(), 0777);
 
+    // The stylesheet is copied to the config dir once and reused from there so
+    // that a user can customise it. That also means a shipped fix never reaches
+    // anyone who already has a copy, so the file is versioned: bump the number
+    // when data/*.css changes and existing users pick the new one up, keeping
+    // any edits they made to the old file.
     fs::path config_dir = fs::get_cherrytree_configdir();
-    fs::path styles_css_filepath = config_dir / "styles4.css";
+    fs::path styles_css_filepath = config_dir / "styles5.css";
     if (not fs::is_regular_file(styles_css_filepath)) {
-        fs::path styles_css_original = fs::path(fs::get_cherrytree_datadir()) / fs::path("data") / "styles4.css";
+        fs::path styles_css_original = fs::path(fs::get_cherrytree_datadir()) / fs::path("data") / "styles5.css";
         fs::copy_file(styles_css_original, styles_css_filepath);
     }
-    fs::copy_file(styles_css_filepath, _res_dir / "styles4.css");
+    fs::copy_file(styles_css_filepath, _res_dir / "styles5.css");
 
     fs::path styles_js_filepath = config_dir / "script3.js";
     if (not fs::is_regular_file(styles_js_filepath)) {
@@ -88,7 +93,7 @@ void CtExport2Html::node_export_to_html(CtTreeIter tree_iter,
     if (not pTextBuffer) {
         throw std::runtime_error(str::format(_("Failed to retrieve the content of the node '%s'"), tree_iter.get_node_name().raw()));
     }
-    Glib::ustring html_text = str::format(HTML_HEADER, tree_iter.get_node_name().raw());
+    Glib::ustring html_text = str::format(HTML_HEADER, tree_iter.get_node_name().raw(), _get_doc_css().raw());
     if (not index.empty() and options.index_in_page) {
         auto script = R"HTML(
             <script type='text/javascript'>
@@ -142,10 +147,10 @@ void CtExport2Html::node_export_to_html(CtTreeIter tree_iter,
             const size_t lastIdx = node_lines.size() - 1;
             for (size_t i = 0; i <= lastIdx; ++i) {
                 if (i < lastIdx or not node_lines.at(i).empty()) {
-                    if (rtl_for_lines.at(i)) html_text += "<p dir=\"rtl\">" + node_lines.at(i) + "</p>";
-                    else html_text += "<p>" + node_lines.at(i) + "</p>";
+                    html_text += _wrap_html_line(node_lines.at(i), rtl_for_lines.at(i));
                 }
             }
+            html_text += _get_canvases_html(tree_iter, _images_dir, images_count);
         }
     }
     else {
@@ -185,7 +190,7 @@ void CtExport2Html::nodes_all_export_to_multiple_html(bool all_tree,
     tree_links_text += "</div>\n";
 
     // create index html page
-    Glib::ustring html_text = str::format(HTML_HEADER, _pCtMainWin->get_ct_storage()->get_file_name().string());
+    Glib::ustring html_text = str::format(HTML_HEADER, _pCtMainWin->get_ct_storage()->get_file_name().string(), _get_doc_css().raw());
     if (options.index_in_page) {
         html_text += "<div class='two-panels'>\n<div class='tree-panel'>\n";
         html_text += tree_links_text;
@@ -268,10 +273,10 @@ void CtExport2Html::nodes_all_export_to_single_html(bool all_tree, const CtExpor
                 const size_t lastIdx = node_lines.size() - 1;
                 for (size_t i = 0; i <= lastIdx; ++i) {
                     if (i < lastIdx or not node_lines.at(i).empty()) {
-                        if (rtl_for_lines.at(i)) html_text += "<p dir=\"rtl\">" + node_lines.at(i) + "</p>";
-                        else html_text += "<p>" + node_lines.at(i) + "</p>";
+                        html_text += _wrap_html_line(node_lines.at(i), rtl_for_lines.at(i));
                     }
                 }
+                html_text += _get_canvases_html(tree_iter, _images_dir, images_count);
             }
         }
         else {
@@ -290,7 +295,7 @@ void CtExport2Html::nodes_all_export_to_single_html(bool all_tree, const CtExpor
         }
     };
 
-    Glib::ustring html_header = str::format(HTML_HEADER, _pCtMainWin->get_ct_storage()->get_file_name().string());
+    Glib::ustring html_header = str::format(HTML_HEADER, _pCtMainWin->get_ct_storage()->get_file_name().string(), _get_doc_css().raw());
     rFileStream->write(html_header.c_str(), html_header.bytes());
 
     // start to iterarte nodes
@@ -304,13 +309,38 @@ void CtExport2Html::nodes_all_export_to_single_html(bool all_tree, const CtExpor
     rFileStream->close();
 }
 
+Glib::ustring CtExport2Html::_get_node_icon_html(CtTreeIter& tree_iter)
+{
+    CtTreeStore& treeStore = _pCtMainWin->get_tree_store();
+    const char* icon_name = treeStore.get_node_icon(treeStore.get_store()->iter_depth(tree_iter),
+                                                    tree_iter.get_node_syntax_highlighting(),
+                                                    tree_iter.get_node_custom_icon_id());
+    if (not icon_name) return {};
+    const std::string filename = std::string{"icon_"} + icon_name + ".png";
+    // The icons live in the compiled gresource, not as installable files, so
+    // take the same pixbuf the tree draws and write it out once per distinct
+    // icon rather than trying to copy an svg that is not on disk.
+    if (_exported_icon_names.insert(icon_name).second) {
+        try {
+            auto rPixbuf = _pCtMainWin->get_icon_theme()->load_icon(icon_name, treeStore.get_tree_icon_size());
+            if (rPixbuf) rPixbuf->save((_images_dir / filename).string(), "png");
+        }
+        catch (const Glib::Error& ex) {
+            spdlog::warn("html export: node icon {} not exported, {}", icon_name, ex.what().raw());
+            return {};
+        }
+    }
+    return "<img src='" + Glib::ustring{Glib::build_filename("images", filename)} +
+           "' class='ct-node-icon' alt=''/> ";
+}
+
 void CtExport2Html::_tree_links_text_iter(CtTreeIter tree_iter,
                                           Glib::ustring& tree_links_text,
                                           int tree_count_level,
                                           bool index_in_page)
 {
     Glib::ustring href = str::replace(_get_html_filename(tree_iter), "'", "\\'");
-    Glib::ustring node_name = tree_iter.get_node_name();
+    Glib::ustring node_name = _get_node_icon_html(tree_iter) + tree_iter.get_node_name();
     if (tree_iter->children().empty()) {
         if (index_in_page)
             tree_links_text += "<li class='leaf'><a href='#' onclick=\"changeFrame('" + href + "')\">" + node_name + "</a></li>\n";
@@ -441,7 +471,7 @@ Glib::ustring CtExport2Html::_get_image_html(CtImage* image,
         // Clipboard path: embed as base64 data URI so external apps can paste the image
         g_autofree gchar* pBuffer{NULL};
         gsize buffer_size;
-        image->get_pixbuf()->save_to_buffer(pBuffer, buffer_size, "png");
+        image->get_export_pixbuf()->save_to_buffer(pBuffer, buffer_size, "png");
         Glib::ustring data_uri = "data:image/png;base64," + Glib::Base64::encode(std::string(pBuffer, buffer_size));
         Glib::ustring image_html = "<img src=\"" + data_uri + "\" />";
         CtImagePng* png = dynamic_cast<CtImagePng*>(image);
@@ -459,8 +489,141 @@ Glib::ustring CtExport2Html::_get_image_html(CtImage* image,
         image_html = "<a href=\"" + href + "\">" + image_html + "</a>";
     }
 
-    image->save(images_dir / image_name, "png");
+    image->get_export_pixbuf()->save((images_dir / image_name).string(), "png");
     return image_html;
+}
+
+// The shipped stylesheet pins a font so an export looks the same everywhere, but
+// that also means it never looks like the editor. Emit the user's configured
+// fonts as an override. Sizes are the un-zoomed ones, so the exported file does
+// not depend on the zoom level in force when it was made.
+// Wrap one line of node content for output.
+//
+// Two things this gets right that the plain "<p>" + line + "</p>" did not:
+//  - A line holding a block element (table, div, hr, list, pre) must not go
+//    inside a <p>: the browser closes the paragraph at the block start, which
+//    splits lists and breaks table nesting. Such a line is wrapped in a <div>.
+//  - Paragraph alignment arrives as a marker class on a span, because
+//    text-align does nothing on an inline element. Move it onto the wrapper.
+Glib::ustring CtExport2Html::_wrap_html_line(const Glib::ustring& line, const bool is_rtl)
+{
+    Glib::ustring style;
+    Glib::ustring content = line;
+    if (content.find("<!--ct-align-center-->") != Glib::ustring::npos)       style = " style=\"text-align: center;\"";
+    else if (content.find("<!--ct-align-right-->") != Glib::ustring::npos)   style = " style=\"text-align: right;\"";
+    else if (content.find("<!--ct-align-justify-->") != Glib::ustring::npos) style = " style=\"text-align: justify;\"";
+    for (const char* marker : {"<!--ct-align-center-->", "<!--ct-align-right-->", "<!--ct-align-justify-->"}) {
+        content = str::replace(content, marker, "");
+    }
+
+    bool has_block = false;
+    for (const char* tag : {"<table", "<div", "<hr", "<ul", "<ol", "<pre"}) {
+        if (content.find(tag) != Glib::ustring::npos) { has_block = true; break; }
+    }
+    const Glib::ustring tag = has_block ? "div" : "p";
+    const Glib::ustring dir = is_rtl ? " dir=\"rtl\"" : "";
+    return "<" + tag + dir + style + ">" + content + "</" + tag + ">";
+}
+
+// Drawing canvases are document-model objects rather than anchored widgets, so
+// they never reach the widget dispatch and used to be dropped from every export.
+// Render each with the same painter the editor uses and emit it as an image.
+Glib::ustring CtExport2Html::_get_canvases_html(CtTreeIter tree_iter, const fs::path& images_dir, int& images_count)
+{
+    Glib::ustring html;
+    const auto canvases = tree_iter.get_drawing_canvases();
+    for (size_t i = 0; i < canvases.size(); ++i) {
+        const CtDrawingCanvas& canvas = canvases[i];
+        if (canvas.width <= 0.0 or canvas.height <= 0.0) continue;
+        const int w = std::max(1, static_cast<int>(std::ceil(canvas.width)));
+        const int h = std::max(1, static_cast<int>(std::ceil(canvas.height)));
+        auto surface = Cairo::ImageSurface::create(Cairo::FORMAT_ARGB32, w, h);
+        auto cr = Cairo::Context::create(surface);
+        CtDrawingOverlay::render_for_export(cr, canvas, 0.0, 0.0, 1.0);
+        surface->flush();
+        auto pixbuf = Gdk::Pixbuf::create(surface, 0, 0, w, h);
+        if (not pixbuf) continue;
+        ++images_count;
+        const std::string name = std::to_string(tree_iter.get_node_id_data_holder()) + "-canvas-" +
+                                 std::to_string(i + 1) + ".png";
+        pixbuf->save((images_dir / name).string(), "png");
+        html += "<div><img src=\"" + Glib::ustring{(fs::path("images") / name).string_unix()} +
+                "\" alt=\"" + str::xml_escape(canvas.name.empty() ? Glib::ustring{"drawing"} : Glib::ustring{canvas.name}) +
+                "\" /></div>";
+    }
+    return html;
+}
+
+Glib::ustring CtExport2Html::_get_doc_css()
+{
+    auto f_size = [](const Glib::ustring& fontStr, const int resetSize)->int{
+        return resetSize > 0 ? resetSize : CtFontUtil::get_font_size(fontStr);
+    };
+    auto f_hex = [](const Gdk::RGBA& rgba)->std::string{
+        char buf[8];
+        snprintf(buf, sizeof buf, "#%02x%02x%02x",
+                 static_cast<int>(rgba.get_red()   * 255),
+                 static_cast<int>(rgba.get_green() * 255),
+                 static_cast<int>(rgba.get_blue()  * 255));
+        return buf;
+    };
+    const CtConfig* cfg = _pCtMainWin->get_ct_config();
+    // The monospace tag and a codebox look nothing alike on screen. The tag is a
+    // character style -- family and colours, and GTK cannot draw a border on a
+    // text tag at all -- while a codebox really is a framed box. Give each its
+    // own rule here, with a div.page prefix so these beat the shipped stylesheet
+    // even when an installed copy of it is older than this build.
+    const bool msDedicated = cfg->msDedicatedFont and not cfg->monospaceFont.empty();
+    const Glib::ustring msFamily = CtFontUtil::get_font_family(msDedicated ? cfg->monospaceFont : cfg->codeFont);
+    const int msSize = msDedicated ? f_size(cfg->monospaceFont, cfg->msResetFontSize)
+                                   : f_size(cfg->codeFont, cfg->codeResetFontSize);
+    // Colours come from the editor rather than from the stylesheet's own fixed
+    // palette: pages from the rich text style scheme, codeboxes from the code
+    // one, and the index tree from the tree colours. The node title banner has
+    // no counterpart on screen, so it follows the tree -- it names the node the
+    // way a tree row does.
+    const std::string pageBg = f_hex(cfg->get_rt_bg_color());
+    const std::string pageFg = f_hex(cfg->get_rt_fg_color());
+    const std::string codeBg = f_hex(cfg->get_style_scheme_bg_color(cfg->taStyleScheme));
+    const std::string codeFg = f_hex(cfg->get_style_scheme_fg_color(cfg->taStyleScheme));
+
+    Glib::ustring css = "  <style type=\"text/css\">\n";
+    css += "    body, div.page { font-family: \"" + CtFontUtil::get_font_family(cfg->rtFont) +
+           "\", sans-serif; font-size: " + std::to_string(f_size(cfg->rtFont, cfg->rtResetFontSize)) + "pt;"
+           " color: " + pageFg + "; background-color: " + pageBg + "; }\n";
+    css += "    div.page pre, div.page .codebox { font-family: \"" + CtFontUtil::get_font_family(cfg->codeFont) +
+           "\", monospace; font-size: " + std::to_string(f_size(cfg->codeFont, cfg->codeResetFontSize)) + "pt;"
+           " color: " + codeFg + "; background-color: " + codeBg + "; }\n";
+    css += "    div.page code { font-family: \"" + msFamily +
+           "\", monospace; font-size: " + std::to_string(msSize) + "pt;"
+           " border: none; padding: 0;";
+    // Colours travel as a pair or not at all. The configured monospace
+    // foreground defaults to a light grey meant for the editor's dark theme --
+    // emitting that on its own over a light page would render the text
+    // invisible. With no configured background, inherit the page colours the
+    // way every other run of exported text does.
+    if (not cfg->monospaceBg.empty()) {
+        css += " background-color: " + cfg->monospaceBg + ";";
+        if (not cfg->monospaceFg.empty()) css += " color: " + cfg->monospaceFg + ";";
+    }
+    else {
+        // stated rather than left out: an installed stylesheet older than this
+        // build paints a codebox grey behind every monospace run
+        css += " background-color: transparent;";
+    }
+    css += " }\n";
+    // One buffer line becomes one <p>, so the browser's default paragraph margin
+    // would open a blank line between every pair of lines. The editor puts the
+    // configured space around lines there, nothing more.
+    css += "    div.page p { margin: " + std::to_string(cfg->spaceAroundLines) + "px 0; }\n";
+    css += "    div.page h1.title { color: " + cfg->ttDefFg + "; background: " + cfg->ttDefBg + "; }\n";
+    css += "    .tree, .tree-panel { color: " + cfg->ttDefFg +
+           "; background: " + cfg->ttDefBg + "; }\n";
+    css += "    .page-panel, .page-panel iframe { background: " + pageBg + "; }\n";
+    css += "    .tree li:hover { color: " + cfg->ttSelFg + "; background: " + cfg->ttSelBg + "; }\n";
+    css += "    img.ct-node-icon { vertical-align: text-bottom; border: none; }\n";
+    css += "  </style>\n";
+    return css;
 }
 
 Glib::ustring CtExport2Html::_get_codebox_html(CtCodebox* codebox)
@@ -1017,6 +1180,9 @@ void CtExport2Html::_html_get_from_treestore_node(CtTreeIter tree_iter,
     bool italic_active{false};
     Glib::ustring hN_active;
     Glib::ustring href;
+    // Paragraph alignment cannot be applied to an inline span, so it is carried
+    // out on a marker class and moved onto the enclosing <p> by the wrapper.
+    Glib::ustring justify_marker;
     for (auto tag_property : CtConst::TAG_PROPERTIES) {
         if (curr_attributes.at(tag_property).empty()) {
             continue;
@@ -1089,8 +1255,16 @@ void CtExport2Html::_html_get_from_treestore_node(CtTreeIter tree_iter,
             continue;
         }
         else if (tag_property == CtConst::TAG_JUSTIFICATION) {
-            // text-align:center/left/right
-            // tag_property = "text-align"
+            // Paragraph alignment: text-align does nothing on an inline span, so
+            // it cannot be emitted here. Mark the run instead and let the
+            // paragraph wrapper move it onto the enclosing <p>.
+            if (CtConst::TAG_PROP_VAL_CENTER == property_value) justify_marker = "ct-align-center";
+            else if (CtConst::TAG_PROP_VAL_RIGHT == property_value) justify_marker = "ct-align-right";
+            else if (CtConst::TAG_PROP_VAL_FILL == property_value) justify_marker = "ct-align-justify";
+            continue;
+        }
+        else if (tag_property == CtConst::TAG_INVISIBLE) {
+            // not a CSS property; emitting it produced a bogus "invisible:...;"
             continue;
         }
         else if (tag_property == CtConst::TAG_LINK) {
@@ -1129,6 +1303,11 @@ void CtExport2Html::_html_get_from_treestore_node(CtTreeIter tree_iter,
         if (monospace_active) tagged_text = "<code>" + tagged_text + "</code>";
         if (bold_active) tagged_text = "<strong>" + tagged_text + "</strong>";
         if (italic_active) tagged_text = "<em>" + tagged_text + "</em>";
+        if (not justify_marker.empty() and not tagged_text.empty()) {
+            // A comment, not a span: it cannot affect rendering, and the wrapper
+            // strips it once the alignment has been moved onto the paragraph.
+            tagged_text = "<!--" + justify_marker + "-->" + tagged_text;
+        }
         html_text += tagged_text;
 
         // add '\n' between lines

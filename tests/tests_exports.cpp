@@ -125,6 +125,17 @@ TEST_P(ExportsMultipleParametersTests, ChecksExports)
                                               Glib::path_get_basename(inDocPath));
         std::string resultHtml = Glib::file_get_contents(tmpFilepath.string());
         ASSERT_FALSE(resultHtml.empty());
+        // The exported <style> block carries the user's configured fonts, so it
+        // differs between machines. The body markup is what this test is about.
+        auto f_strip_style = [](std::string html)->std::string{
+            const size_t b = html.find("  <style type=\"text/css\">");
+            if (std::string::npos == b) return html;
+            const size_t e = html.find("</style>\n", b);
+            if (std::string::npos == e) return html;
+            return html.erase(b, e + std::strlen("</style>\n") - b);
+        };
+        expectHtml = f_strip_style(expectHtml);
+        resultHtml = f_strip_style(resultHtml);
         //g_file_set_contents(Glib::build_filename(UT::unitTestsDataDir, "test.export.htmll").c_str(), resultHtml.c_str(), -1, NULL);
         ASSERT_STREQ(expectHtml.c_str(), resultHtml.c_str());
     }

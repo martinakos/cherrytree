@@ -1636,6 +1636,12 @@ bool CtActions::_protected_areas_allow_doc_type(const CtDocType targetDocType)
     CtProtectedAreas& areas = _pCtMainWin->get_protected_areas();
     if (not areas.has_any()) return true;
     if (CtDocType::SQLite == targetDocType) return true;
+    if (_pCtMainWin->no_gui()) {
+        // Automated export: there is nobody to answer a dialog, and blocking on
+        // one hangs the run for ever. Refuse instead, with the reason logged.
+        spdlog::warn("export refused: this format cannot store the document's password protected areas");
+        return false;
+    }
 
     std::vector<Glib::ustring> lockedNames;
     for (const gint64 nodeId : areas.area_ids()) {

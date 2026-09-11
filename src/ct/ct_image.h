@@ -56,6 +56,12 @@ public:
     Glib::RefPtr<Gdk::Pixbuf> get_orig_pixbuf() const { return _rOrigPixbuf; }
     virtual void set_orig_pixbuf(Glib::RefPtr<Gdk::Pixbuf> pixbuf) { _rOrigPixbuf = pixbuf; }
     Glib::RefPtr<Gdk::Pixbuf> get_zoom_base_pixbuf() const { return _rZoomBasePixbuf; }
+    // The pixbuf an export should use: the display size before text zoom, so a
+    // PDF or HTML never depends on the zoom level in force when it was made.
+    // Falls back to the live pixbuf if no zoom base was ever recorded.
+    Glib::RefPtr<Gdk::Pixbuf> get_export_pixbuf() const {
+        return _rZoomBasePixbuf ? _rZoomBasePixbuf : _rPixbuf;
+    }
     void set_display_size(int w, int h);
     void apply_zoom(double scaleFactor);
 
