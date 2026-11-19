@@ -373,8 +373,6 @@ void CtHistoryPanel::_on_row_activated(const Gtk::TreeModel::Path& path, Gtk::Tr
     auto iter = _rTreeStore->get_iter(path);
     if (!iter) return;
 
-    bool isParent = (*iter)[_columns.colIsParent];
-
     // If clicking expand arrow on a parent, don't navigate (GTK handles expand/collapse)
     // But row_activated fires on click, not expand arrow specifically.
     // We navigate on click for both parent and child rows.
@@ -438,7 +436,6 @@ void CtHistoryPanel::_replayEntry(const CtHistoryEntry& entry)
     _stopReplay();
 
     std::string actionType = entry.actionType;
-    int canvasIdx = entry.canvasIdx;
 
     if (actionType == "INS" || actionType == "DEL" || actionType == "FMT" ||
         actionType == "RFM" || actionType == "TED" || actionType == "WIns" ||
@@ -448,7 +445,7 @@ void CtHistoryPanel::_replayEntry(const CtHistoryEntry& entry)
         _replayViaModel(entry);
     }
     else if (actionType == "DSt" || actionType == "ESt" || actionType == "RSt" ||
-             actionType == "MSt" || actionType == "ACv" || actionType == "DCv" ||
+             actionType == "MSt" || actionType == "SPr" || actionType == "ACv" || actionType == "DCv" ||
              actionType == "MCv" || actionType == "RCv" || actionType == "PCv")
     {
         _replayViaDrawingModel(entry);
@@ -611,7 +608,7 @@ void CtHistoryPanel::_replayViaDrawingModel(const CtHistoryEntry& entry)
     if (!node) return;
 
     static const std::unordered_set<std::string> kDrawingTypes{
-        "DSt", "ESt", "RSt", "MSt", "ACv", "DCv", "MCv", "RCv", "PCv"
+        "DSt", "ESt", "RSt", "MSt", "SPr", "ACv", "DCv", "MCv", "RCv", "PCv"
     };
 
     std::vector<CtHistoryEntry> drawingEntries;

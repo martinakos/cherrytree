@@ -25,6 +25,8 @@ cmake_test_discovery_*.json
 build_output*.txt
 Testing/Temporary/
 tests/data_данные/.test_*
+tests/data_данные/*.history
+tests/data_данные/*/history.db
 data/ocr_models/ct_ocr_config.json
 data/net.giuspen.cherrytree-docmodel.metainfo.xml
 tmp

@@ -37,9 +37,6 @@ std::string makeDEL(int start, const std::vector<std::pair<Glib::ustring, std::m
                      const std::vector<CtWidgetDesc>& widgets = {})
 {
     std::string result = "DEL|" + std::to_string(start);
-    size_t spanIdx = 0;
-    size_t widgetIdx = 0;
-
     for (const auto& [text, attrs] : textSpans) {
         result += "|T" + Glib::Base64::encode(text) + "|" + serializeAttrs(attrs);
     }
@@ -553,4 +550,65 @@ TEST(DeltaEngineEdge, CompoundIsReplayable)
 
     std::string broken = "INS|0|dGVzdA==|\nGARBAGE";
     EXPECT_FALSE(CtDeltaEngine::isReplayable(broken));
+}
+
+// ─── Drawing ─────────────────────────────────────────────────────────
+
+TEST(DeltaEngineDrawing, StrokeRoundTripKeepsFillAndFontTransform)
+{
+    CtDrawingStroke s;
+    s.type = CtDrawingElementType::Text;
+    s.color = "#112233";
+    s.fillColor = "#aabbcc";
+    s.textContent = "hello";
+    s.fontTransform = CtFontTransform{1.5, 0.25, -0.125, 0.75};
+    s.points = {{1.0, 2.0}, {3.0, 4.0}};
+
+    CtDrawingStroke r = CtDeltaEngine::deserializeStroke(CtDeltaEngine::serializeStroke(s));
+    EXPECT_EQ(r.color, s.color);
+    EXPECT_EQ(r.fillColor, s.fillColor);
+    EXPECT_EQ(r.textContent, s.textContent);
+    EXPECT_EQ(r.fontTransform, s.fontTransform);
+    EXPECT_EQ(r.points, s.points);
+}
+
+TEST(DeltaEngineDrawing, StrokeWithoutFillAndFontTransformFields)
+{
+    // entries written before fill colour and font transform were serialized
+    const std::string legacy = "#112233\t2.0\t1.0\t0\t0\t0\t0.0\t0\t0\tSans\t14.0\t\t1.0,2.0";
+    CtDrawingStroke r = CtDeltaEngine::deserializeStroke(legacy);
+    EXPECT_EQ(r.color, "#112233");
+    EXPECT_EQ(r.fillColor, CtDrawingStroke{}.fillColor);
+    EXPECT_TRUE(r.fontTransform.isIdentity());
+    ASSERT_EQ(r.points.size(), 1u);
+}
+
+TEST(DeltaEngineDrawing, SPr)
+{
+    CtDrawingStroke oldStroke;
+    oldStroke.color = "#000000";
+    oldStroke.fillColor = "#ffffff";
+    oldStroke.points = {{0.0, 0.0}, {10.0, 10.0}};
+    CtDrawingStroke newStroke = oldStroke;
+    newStroke.color = "#ff0000";
+    newStroke.fillColor = "#00ff00";
+    newStroke.lineWidth = 5.0;
+
+    std::vector<CtDrawingCanvas> canvases(1);
+    canvases[0].strokes = {newStroke};
+
+    const std::string delta = "SPr|0|0|"
+        + Glib::Base64::encode(CtDeltaEngine::serializeStroke(oldStroke)) + "|"
+        + Glib::Base64::encode(CtDeltaEngine::serializeStroke(newStroke));
+    EXPECT_TRUE(CtDeltaEngine::isDrawingDelta(delta));
+
+    ASSERT_TRUE(CtDeltaEngine::applyReverseDrawing(canvases, delta));
+    EXPECT_EQ(canvases[0].strokes[0].color, "#000000");
+    EXPECT_EQ(canvases[0].strokes[0].fillColor, "#ffffff");
+    EXPECT_DOUBLE_EQ(canvases[0].strokes[0].lineWidth, oldStroke.lineWidth);
+
+    ASSERT_TRUE(CtDeltaEngine::applyForwardDrawing(canvases, delta));
+    EXPECT_EQ(canvases[0].strokes[0].color, "#ff0000");
+    EXPECT_EQ(canvases[0].strokes[0].fillColor, "#00ff00");
+    EXPECT_DOUBLE_EQ(canvases[0].strokes[0].lineWidth, 5.0);
 }

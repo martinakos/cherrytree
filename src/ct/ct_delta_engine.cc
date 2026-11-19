@@ -479,6 +479,26 @@ bool forwardMSt(std::vector<CtDrawingCanvas>& canvases, const std::vector<std::s
     return true;
 }
 
+bool reverseSPr(std::vector<CtDrawingCanvas>& canvases, const std::vector<std::string>& parts)
+{
+    if (parts.size() < 5) return false;
+    size_t ci = std::stoul(parts[1]);
+    size_t si = std::stoul(parts[2]);
+    if (ci >= canvases.size() || si >= canvases[ci].strokes.size()) return false;
+    canvases[ci].strokes[si] = CtDeltaEngine::deserializeStroke(Glib::Base64::decode(parts[3]));
+    return true;
+}
+
+bool forwardSPr(std::vector<CtDrawingCanvas>& canvases, const std::vector<std::string>& parts)
+{
+    if (parts.size() < 5) return false;
+    size_t ci = std::stoul(parts[1]);
+    size_t si = std::stoul(parts[2]);
+    if (ci >= canvases.size() || si >= canvases[ci].strokes.size()) return false;
+    canvases[ci].strokes[si] = CtDeltaEngine::deserializeStroke(Glib::Base64::decode(parts[4]));
+    return true;
+}
+
 bool reverseACv(std::vector<CtDrawingCanvas>& canvases, const std::vector<std::string>& parts)
 {
     if (parts.size() < 3) return false;
@@ -604,6 +624,7 @@ bool applySingleReverseDrawing(std::vector<CtDrawingCanvas>& canvases, const std
     if (type == "ESt") return reverseESt(canvases, parts);
     if (type == "RSt") return reverseRSt(canvases, parts);
     if (type == "MSt") return reverseMSt(canvases, parts);
+    if (type == "SPr") return reverseSPr(canvases, parts);
     if (type == "ACv") return reverseACv(canvases, parts);
     if (type == "DCv") return reverseDCv(canvases, parts);
     if (type == "MCv") return reverseMCv(canvases, parts);
@@ -621,6 +642,7 @@ bool applySingleForwardDrawing(std::vector<CtDrawingCanvas>& canvases, const std
     if (type == "ESt") return forwardESt(canvases, parts);
     if (type == "RSt") return forwardRSt(canvases, parts);
     if (type == "MSt") return forwardMSt(canvases, parts);
+    if (type == "SPr") return forwardSPr(canvases, parts);
     if (type == "ACv") return forwardACv(canvases, parts);
     if (type == "DCv") return forwardDCv(canvases, parts);
     if (type == "MCv") return forwardMCv(canvases, parts);
@@ -698,7 +720,7 @@ bool CtDeltaEngine::isDrawingDelta(const std::string& deltaData)
     auto parts = splitPipe(deltaData);
     if (parts.empty()) return false;
     const std::string& type = parts[0];
-    return type == "DSt" || type == "ESt" || type == "RSt" || type == "MSt" ||
+    return type == "DSt" || type == "ESt" || type == "RSt" || type == "MSt" || type == "SPr" ||
            type == "ACv" || type == "DCv" || type == "MCv" || type == "RCv" || type == "PCv";
 }
 
@@ -739,7 +761,9 @@ std::string CtDeltaEngine::serializeStroke(const CtDrawingStroke& s)
          + (s.filled ? "1" : "0") + "\t" + std::to_string(s.rotation) + "\t"
          + std::to_string(static_cast<int>(s.arrowHead)) + "\t" + std::to_string(static_cast<int>(s.arrowStyle)) + "\t"
          + s.fontFamily + "\t" + std::to_string(s.fontSize) + "\t"
-         + Glib::Base64::encode(s.textContent) + "\t" + pts;
+         + Glib::Base64::encode(s.textContent) + "\t" + pts + "\t"
+         + s.fillColor + "\t" + std::to_string(s.fontTransform.a) + "\t" + std::to_string(s.fontTransform.b) + "\t"
+         + std::to_string(s.fontTransform.c) + "\t" + std::to_string(s.fontTransform.d);
 }
 
 CtDrawingStroke CtDeltaEngine::deserializeStroke(const std::string& data)
@@ -770,6 +794,14 @@ CtDrawingStroke CtDeltaEngine::deserializeStroke(const std::string& data)
     s.fontSize = std::stod(fields[10]);
     s.textContent = Glib::Base64::decode(fields[11]);
     s.points = deserializePoints(fields[12]);
+    // fill colour and font transform, absent from entries written before they existed
+    if (fields.size() >= 18) {
+        s.fillColor = fields[13];
+        s.fontTransform.a = std::stod(fields[14]);
+        s.fontTransform.b = std::stod(fields[15]);
+        s.fontTransform.c = std::stod(fields[16]);
+        s.fontTransform.d = std::stod(fields[17]);
+    }
     return s;
 }
 

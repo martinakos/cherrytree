@@ -298,6 +298,13 @@ public:
     std::string getDescription() const override { return "Change stroke properties"; }
     gint64 getNodeId() const override { return _nodeId; }
     int getDrawingCanvasIdx() const override { return static_cast<int>(_canvasIdx); }
+    std::string getActionType() const override { return "SPr"; }
+    int getCanvasIndex() const override { return static_cast<int>(_canvasIdx); }
+    std::string serializeDelta() const override {
+        return "SPr|" + std::to_string(_canvasIdx) + "|" + std::to_string(_strokeIdx) + "|"
+             + Glib::Base64::encode(CtDeltaEngine::serializeStroke(_oldStroke)) + "|"
+             + Glib::Base64::encode(CtDeltaEngine::serializeStroke(_newStroke));
+    }
 
 private:
     std::shared_ptr<CtDocumentModel> _docModel;
