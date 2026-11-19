@@ -145,7 +145,7 @@ public:
 
     // Flash animation: set/clear the Replay bridge op to suppress signal handling
     void beginReplay() { _currentOp = BridgeOp::Replay; }
-    void endReplay() { _currentOp = BridgeOp::None; }
+    void endReplay();
 
     // Create a local history entry from a command and apply offset shifts to older entries
     void createHistoryEntry(CtCommand* cmd, gint64 nodeId, bool isUndo = false);
@@ -210,6 +210,7 @@ public:
     std::shared_ptr<CtDocumentModel> getDocumentModel() const { return _docModel; }
 
     void setPendingCursorPos(int pos) { _pendingCursorPos = pos; }
+    void setPendingScrollPos(double pos) { _pendingScrollPos = pos; }
 
     // Apply a rich-cell content change to both the model and the live cell widget
     // in-place, bypassing the full buffer/widget rebuild path. Used by

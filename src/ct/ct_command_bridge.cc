@@ -330,6 +330,18 @@ void CtCommandBridge::pushNodeCommand(std::unique_ptr<CtCommand> cmd)
     }
 }
 
+void CtCommandBridge::endReplay()
+{
+    _currentOp = BridgeOp::None;
+    // The last replay rebuild left the scroll fixup connected; drop it once
+    // layout has settled so it does not fight later user scrolling
+    _scrollRestoreConnection.disconnect();
+    _scrollRestoreConnection = Glib::signal_idle().connect([this]() -> bool {
+        _scrollFixupConnection.disconnect();
+        return false;
+    }, Glib::PRIORITY_LOW);
+}
+
 void CtCommandBridge::undo()
 {
     _undoRedo(true/*isUndo*/);

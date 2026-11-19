@@ -133,7 +133,7 @@ private:
         int maxCycles{3};
         bool showingBefore{true};
         int cursorPos{0};
-        int scrollPos{0};
+        double scrollPos{-1.0};
         // Drawing model replay
         std::vector<CtDrawingCanvas> restoreCanvases;
         std::vector<CtDrawingCanvas> beforeCanvases;

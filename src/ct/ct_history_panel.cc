@@ -555,13 +555,16 @@ void CtHistoryPanel::_replayViaModel(const CtHistoryEntry& entry)
     _replayState.maxCycles = _pCtMainWin->get_ct_config()->localHistoryReplayCycles;
     _replayState.showingBefore = true;
     _replayState.cursorPos = entry.cursorPos;
-    _replayState.scrollPos = entry.scrollPos;
+    // keep the view where it is while the buffer is rebuilt on every cycle
+    auto vAdj = _pCtMainWin->getScrolledwindowText().get_vadjustment();
+    _replayState.scrollPos = vAdj ? vAdj->get_value() : -1.0;
 
     bridge->endTextEditSession();
     bridge->beginReplay();
 
     // Show "before" state first
     bridge->setPendingCursorPos(_replayState.cursorPos);
+    bridge->setPendingScrollPos(_replayState.scrollPos);
     docModel->setNodeContent(entry.nodeId, _replayState.beforeContent, true);
 
     constexpr int kCycleMs = 700;
@@ -576,6 +579,7 @@ void CtHistoryPanel::_replayViaModel(const CtHistoryEntry& entry)
         if (_replayState.showingBefore) {
             // Switch to "after"
             br->setPendingCursorPos(_replayState.cursorPos);
+            br->setPendingScrollPos(_replayState.scrollPos);
             dm->setNodeContent(_replayState.replayNodeId, _replayState.afterContent, true);
             _replayState.showingBefore = false;
         } else {
@@ -584,6 +588,7 @@ void CtHistoryPanel::_replayViaModel(const CtHistoryEntry& entry)
             if (_replayState.cycleCount >= _replayState.maxCycles) {
                 // Done cycling — restore original
                 br->setPendingCursorPos(_replayState.cursorPos);
+                br->setPendingScrollPos(_replayState.scrollPos);
                 dm->setNodeContent(_replayState.replayNodeId, _replayState.restoreContent, true);
                 br->endReplay();
                 _replayState.replayNodeId = -1;
@@ -591,6 +596,7 @@ void CtHistoryPanel::_replayViaModel(const CtHistoryEntry& entry)
                 return false;
             }
             br->setPendingCursorPos(_replayState.cursorPos);
+            br->setPendingScrollPos(_replayState.scrollPos);
             dm->setNodeContent(_replayState.replayNodeId, _replayState.beforeContent, true);
             _replayState.showingBefore = true;
         }
@@ -824,6 +830,7 @@ void CtHistoryPanel::_stopReplay()
                     docModel->notifyNodeDrawingChanged(_replayState.replayNodeId);
                 } else {
                     bridge->setPendingCursorPos(_replayState.cursorPos);
+                    bridge->setPendingScrollPos(_replayState.scrollPos);
                     docModel->setNodeContent(_replayState.replayNodeId, _replayState.restoreContent, true);
                 }
             }

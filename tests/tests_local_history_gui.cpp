@@ -1287,3 +1287,116 @@ TEST(LocalHistoryGUI, AllTests)
     TestLocalHistoryApp app;
     app.run(0, nullptr);
 }
+
+// Replay rebuilds the buffer on every flash cycle; the view must stay where it
+// is. Needs a mapped window so the text view has a real layout to scroll.
+class TestLocalHistoryScrollApp : public CtApp
+{
+public:
+    TestLocalHistoryScrollApp() : CtApp{"_test_local_history_scroll", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
+
+private:
+    void on_activate() final;
+};
+
+void TestLocalHistoryScrollApp::on_activate()
+{
+    _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
+
+    CtMainWin* pWin = _create_window(true/*start_hidden*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+    auto on_scope_exit = scope_guard([&](void*) {
+        pWin->force_exit() = true;
+        remove_window(*pWin);
+    });
+
+    auto drainEvents = [](){
+        while (gtk_events_pending()) gtk_main_iteration_do(false);
+    };
+    pWin->resize(800, 600);
+    pWin->show_all();
+    drainEvents();
+
+    auto* pBridge = pWin->get_command_bridge();
+    auto* pActions = pWin->get_ct_actions();
+    auto* panel = pWin->get_history_panel();
+    pWin->get_ct_config()->localHistoryEnabled = true;
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    drainEvents();
+
+    auto buffer = pWin->curr_buffer();
+    ASSERT_TRUE(buffer);
+    Glib::ustring lines;
+    for (int i = 0; i < 300; ++i) lines += "scroll test line " + std::to_string(i) + "\n";
+    buffer->place_cursor(buffer->end());
+    buffer->insert_at_cursor(lines);
+    drainEvents();
+    pBridge->onCursorMoved();
+    drainEvents();
+
+    auto vAdj = pWin->getScrolledwindowText().get_vadjustment();
+    ASSERT_GT(vAdj->get_upper() - vAdj->get_page_size(), 1000.0) << "node must be long enough to scroll";
+
+    // bold a word in a line visible in the middle of the node
+    const double viewScroll = std::floor((vAdj->get_upper() - vAdj->get_page_size()) / 2);
+    vAdj->set_value(viewScroll);
+    drainEvents();
+    Gdk::Rectangle visibleRect;
+    pWin->get_text_view().mm().get_visible_rect(visibleRect);
+    Gtk::TextIter lineIter;
+    int lineTop{0};
+    pWin->get_text_view().mm().get_line_at_y(lineIter, visibleRect.get_y() + visibleRect.get_height() / 2, lineTop);
+    auto wordEnd = lineIter;
+    wordEnd.forward_chars(6);
+    panel->clear();
+    buffer->select_range(lineIter, wordEnd);
+    pActions->apply_tag_bold();
+    drainEvents();
+
+    const double scrollBefore = vAdj->get_value();
+    auto entries = panel->get_all_entries();
+    ASSERT_FALSE(entries.empty());
+
+    auto& tv = panel->getTreeView();
+    auto store = tv.get_model();
+    tv.row_activated(store->get_path(store->children().begin()), *tv.get_column(0));
+
+    // sample the scroll value through the whole replay
+    double maxDeviation{0};
+    bool sawReplay{false};
+    const gint64 deadline = g_get_monotonic_time() + 10 * G_USEC_PER_SEC;
+    while (g_get_monotonic_time() < deadline) {
+        while (gtk_events_pending()) {
+            gtk_main_iteration_do(false);
+            maxDeviation = std::max(maxDeviation, std::abs(vAdj->get_value() - scrollBefore));
+        }
+        if (panel->isReplaying()) sawReplay = true;
+        else if (sawReplay) break;
+        g_usleep(5000);
+    }
+    drainEvents();
+    EXPECT_TRUE(sawReplay) << "activating the FMT entry should start a replay";
+    EXPECT_FALSE(panel->isReplaying()) << "replay should finish";
+    EXPECT_LE(maxDeviation, 1.0) << "scroll moved during replay (scroll before: " << scrollBefore << ")";
+    EXPECT_NEAR(vAdj->get_value(), scrollBefore, 1.0) << "scroll should be unchanged after replay";
+
+    // after the replay the view must scroll freely again
+    vAdj->set_value(0);
+    drainEvents();
+    EXPECT_NEAR(vAdj->get_value(), 0.0, 1.0) << "scroll fixup still pinning the view after replay";
+
+    panel->clear();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    drainEvents();
+}
+
+TEST(LocalHistoryGUI, ReplayKeepsScrollPosition)
+{
+    TestLocalHistoryScrollApp app;
+    app.run(0, nullptr);
+}
