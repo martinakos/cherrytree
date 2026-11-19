@@ -33,7 +33,7 @@ class TestCtApp : public CtApp
 public:
     TestCtApp(const std::vector<std::string>& vec_args,
               const bool test_save)
-     : CtApp{"_test_read_write"}
+     : CtApp{"_test_read_write", Gio::APPLICATION_NON_UNIQUE}
      , _vec_args{vec_args}
      , _test_save{test_save}
     {
@@ -738,7 +738,7 @@ INSTANTIATE_TEST_CASE_P(
 class DrawingRoundTripApp : public CtApp
 {
 public:
-    DrawingRoundTripApp() : CtApp{"_test_drawing_rt"} { _no_gui = true; }
+    DrawingRoundTripApp() : CtApp{"_test_drawing_rt", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() override;
 };
@@ -890,7 +890,7 @@ class LineWrapRoundTripApp : public CtApp
 {
 public:
     LineWrapRoundTripApp(CtDocType docType, const char* ext)
-     : CtApp{"_test_linewrap_rt"}, _docType{docType}, _ext{ext} { _no_gui = true; }
+     : CtApp{"_test_linewrap_rt", Gio::APPLICATION_NON_UNIQUE}, _docType{docType}, _ext{ext} { _no_gui = true; }
 private:
     void on_activate() override;
     CtDocType   _docType;

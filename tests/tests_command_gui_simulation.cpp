@@ -212,105 +212,105 @@ static void _test_rich_table_wrap_reflow_immediate(CtMainWin* pWin);
 
 class TestRandomizedStressApp : public CtApp {
 public:
-    TestRandomizedStressApp() : CtApp{"_test_gui_randomized"} { _no_gui = true; }
+    TestRandomizedStressApp() : CtApp{"_test_gui_randomized", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() final;
 };
 
 class TestBufferAndSessionApp : public CtApp {
 public:
-    TestBufferAndSessionApp() : CtApp{"_test_gui_buffer_session"} { _no_gui = true; }
+    TestBufferAndSessionApp() : CtApp{"_test_gui_buffer_session", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() final;
 };
 
 class TestCutPasteApp : public CtApp {
 public:
-    TestCutPasteApp() : CtApp{"_test_gui_cut_paste"} { _no_gui = true; }
+    TestCutPasteApp() : CtApp{"_test_gui_cut_paste", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() final;
 };
 
 class TestWidgetEditApp : public CtApp {
 public:
-    TestWidgetEditApp() : CtApp{"_test_gui_widget_edit"} { _no_gui = true; }
+    TestWidgetEditApp() : CtApp{"_test_gui_widget_edit", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() final;
 };
 
 class TestRichTableApp : public CtApp {
 public:
-    TestRichTableApp() : CtApp{"_test_gui_rich_table"} { _no_gui = true; }
+    TestRichTableApp() : CtApp{"_test_gui_rich_table", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() final;
 };
 
 class TestFormatApp : public CtApp {
 public:
-    TestFormatApp() : CtApp{"_test_gui_format"} { _no_gui = true; }
+    TestFormatApp() : CtApp{"_test_gui_format", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() final;
 };
 
 class TestRichCellListIndentApp : public CtApp {
 public:
-    TestRichCellListIndentApp() : CtApp{"_test_gui_rich_cell_list"} { _no_gui = true; }
+    TestRichCellListIndentApp() : CtApp{"_test_gui_rich_cell_list", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() final;
 };
 
 class TestLinkAnchorApp : public CtApp {
 public:
-    TestLinkAnchorApp() : CtApp{"_test_gui_link_anchor"} { _no_gui = true; }
+    TestLinkAnchorApp() : CtApp{"_test_gui_link_anchor", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() final;
 };
 
 class TestWidgetInsertRoutingApp : public CtApp {
 public:
-    TestWidgetInsertRoutingApp() : CtApp{"_test_gui_widget_routing"} { _no_gui = true; }
+    TestWidgetInsertRoutingApp() : CtApp{"_test_gui_widget_routing", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() final;
 };
 
 class TestRichTableStyleApp : public CtApp {
 public:
-    TestRichTableStyleApp() : CtApp{"_test_gui_rich_table_style"} { _no_gui = true; }
+    TestRichTableStyleApp() : CtApp{"_test_gui_rich_table_style", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() final;
 };
 
 class TestCursorPositionApp : public CtApp {
 public:
-    TestCursorPositionApp() : CtApp{"_test_gui_cursor_pos"} { _no_gui = true; }
+    TestCursorPositionApp() : CtApp{"_test_gui_cursor_pos", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() final;
 };
 
 class TestRichCellImageCopyPasteApp : public CtApp {
 public:
-    TestRichCellImageCopyPasteApp() : CtApp{"_test_gui_rich_cell_img_copy_paste"} { _no_gui = true; }
+    TestRichCellImageCopyPasteApp() : CtApp{"_test_gui_rich_cell_img_copy_paste", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() final;
 };
 
 class TestRichTableCopyPasteApp : public CtApp {
 public:
-    TestRichTableCopyPasteApp() : CtApp{"_test_gui_rich_table_copy_paste"} { _no_gui = true; }
+    TestRichTableCopyPasteApp() : CtApp{"_test_gui_rich_table_copy_paste", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() final;
 };
 
 class TestRichTableAlignApp : public CtApp {
 public:
-    TestRichTableAlignApp() : CtApp{"_test_gui_rich_table_align"} { _no_gui = true; }
+    TestRichTableAlignApp() : CtApp{"_test_gui_rich_table_align", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() final;
 };
 
 class TestRichCellClipboardApp : public CtApp {
 public:
-    TestRichCellClipboardApp() : CtApp{"_test_gui_rich_cell_clipboard"} { _no_gui = true; }
+    TestRichCellClipboardApp() : CtApp{"_test_gui_rich_cell_clipboard", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() final;
 };

@@ -13,7 +13,7 @@
 class TestAllCommandDescriptionsApp : public CtApp
 {
 public:
-    TestAllCommandDescriptionsApp() : CtApp{"_test_all_cmd_desc"} { _no_gui = true; }
+    TestAllCommandDescriptionsApp() : CtApp{"_test_all_cmd_desc", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 
 private:
     void on_activate() final;

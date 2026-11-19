@@ -46,7 +46,7 @@
 class ProtectedFlagRoundTripApp : public CtApp
 {
 public:
-    ProtectedFlagRoundTripApp() : CtApp{"_test_protflag_rt"} { _no_gui = true; }
+    ProtectedFlagRoundTripApp() : CtApp{"_test_protflag_rt", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() override;
 };
@@ -116,7 +116,7 @@ TEST(ProtectedAreaFlag, SqliteSaveAndReload)
 class ProtectedAreaTableApp : public CtApp
 {
 public:
-    ProtectedAreaTableApp() : CtApp{"_test_protarea_tbl"} { _no_gui = true; }
+    ProtectedAreaTableApp() : CtApp{"_test_protarea_tbl", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() override;
 };
@@ -208,7 +208,7 @@ TEST(ProtectedAreaTable, WriteReadDelete)
 class SubtreeSerialisationApp : public CtApp
 {
 public:
-    SubtreeSerialisationApp() : CtApp{"_test_subtree_serial"} { _no_gui = true; }
+    SubtreeSerialisationApp() : CtApp{"_test_subtree_serial", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() override;
 };
@@ -324,7 +324,7 @@ TEST(ProtectedAreaSerial, SubtreeRoundTrip)
 class WidgetPayloadApp : public CtApp
 {
 public:
-    WidgetPayloadApp() : CtApp{"_test_widget_payload"} { _no_gui = true; }
+    WidgetPayloadApp() : CtApp{"_test_widget_payload", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() override;
 };
@@ -413,7 +413,7 @@ TEST(ProtectedAreaSerial, WidgetsAndCanvasesRoundTrip)
 class EndToEndPayloadApp : public CtApp
 {
 public:
-    EndToEndPayloadApp() : CtApp{"_test_e2e_payload"} { _no_gui = true; }
+    EndToEndPayloadApp() : CtApp{"_test_e2e_payload", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() override;
 };
@@ -521,7 +521,7 @@ TEST(ProtectedAreaEndToEnd, SealStoreReadUnsealRestore)
 class ProtectLifecycleApp : public CtApp
 {
 public:
-    ProtectLifecycleApp() : CtApp{"_test_protect_lifecycle"} { _no_gui = true; }
+    ProtectLifecycleApp() : CtApp{"_test_protect_lifecycle", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() override;
 };
@@ -680,7 +680,7 @@ TEST(ProtectedAreaLifecycle, ProtectSaveReopenUnlock)
 class LockPurgesUndoApp : public CtApp
 {
 public:
-    LockPurgesUndoApp() : CtApp{"_test_lock_purge_undo"} { _no_gui = true; }
+    LockPurgesUndoApp() : CtApp{"_test_lock_purge_undo", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() override;
 };
@@ -749,7 +749,7 @@ TEST(ProtectedAreaUndo, LockPurgesHistoryOfLockedNodes)
 class ChangePasswordApp : public CtApp
 {
 public:
-    ChangePasswordApp() : CtApp{"_test_change_password"} { _no_gui = true; }
+    ChangePasswordApp() : CtApp{"_test_change_password", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() override;
 };
@@ -800,7 +800,7 @@ TEST(ProtectedAreaPassword, ChangePasswordInvalidatesTheOldOne)
 class MenuActionIdsApp : public CtApp
 {
 public:
-    MenuActionIdsApp() : CtApp{"_test_menu_action_ids"} { _no_gui = true; }
+    MenuActionIdsApp() : CtApp{"_test_menu_action_ids", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() override;
 };
@@ -854,7 +854,7 @@ TEST(ProtectedAreaMenu, DefaultMenuActionIdsAllResolve)
 class NonSqliteRefusalApp : public CtApp
 {
 public:
-    NonSqliteRefusalApp() : CtApp{"_test_nonsqlite_refuse"} { _no_gui = true; }
+    NonSqliteRefusalApp() : CtApp{"_test_nonsqlite_refuse", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() override;
 };
@@ -917,7 +917,7 @@ TEST(ProtectedAreaFormats, XmlRefusesWhileLockedAndAcceptsWhenUnlocked)
 class BookmarkSurvivalApp : public CtApp
 {
 public:
-    BookmarkSurvivalApp() : CtApp{"_test_bookmark_survival"} { _no_gui = true; }
+    BookmarkSurvivalApp() : CtApp{"_test_bookmark_survival", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() override;
 };
@@ -969,7 +969,7 @@ TEST(ProtectedAreaBookmarks, SurviveALockUnlockCycle)
 class LockStopsShowingApp : public CtApp
 {
 public:
-    LockStopsShowingApp() : CtApp{"_test_cursormove"} { _no_gui = true; }
+    LockStopsShowingApp() : CtApp{"_test_cursormove", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() override;
 };
@@ -1027,7 +1027,7 @@ TEST(ProtectedAreaLock, LockStopsShowingTheContent)
 class UnprotectPersistsApp : public CtApp
 {
 public:
-    UnprotectPersistsApp() : CtApp{"_test_unprotect_persists"} { _no_gui = true; }
+    UnprotectPersistsApp() : CtApp{"_test_unprotect_persists", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() override;
 };
@@ -1119,7 +1119,7 @@ TEST(ProtectedAreaUnprotect, RemovingProtectionSurvivesAReopen)
 class StaleBlobRepairApp : public CtApp
 {
 public:
-    StaleBlobRepairApp() : CtApp{"_test_stale_blob_repair"} { _no_gui = true; }
+    StaleBlobRepairApp() : CtApp{"_test_stale_blob_repair", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() override;
 };
@@ -1192,7 +1192,7 @@ TEST(ProtectedAreaUnprotect, StaleBlobIsIgnoredAndCleanedUp)
 class LockedRootCanvasApp : public CtApp
 {
 public:
-    LockedRootCanvasApp() : CtApp{"_test_locked_root_canvas"} { _no_gui = true; }
+    LockedRootCanvasApp() : CtApp{"_test_locked_root_canvas", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 private:
     void on_activate() override;
 };
