@@ -1,3 +1,25 @@
+cherrytree-docmodel (1.7.3+docmodel19-1) plucky; urgency=low
+
+  * Rebase docmodel branch on upstream v1.7.3, bringing in:
+    - fixed command injection with custom link actions (#2945)
+    - fixed arbitrary local file read via crafted embedded-file name (#2944)
+    - reject symlinked multifile node directories + prevent cleanup from
+      following symlinks (#2922, #2920)
+    - reject empty tables during XML parsing (#2923)
+    - on node name header, show node icon and aux icons on the left rather
+      than on the right, just after last visited nodes buttons
+    - improved image download on HTML paste from browser (#2925)
+    - fixed crash when destroying anchored widgets (#2947)
+    - support for new language Tamil
+    - build with libxml++5 on windows/msys2, ubuntu 26.04+, flatpak (#2918)
+  * Tests:
+    - Undo/redo tests that create a text buffer directly now initialise
+      gtkmm themselves instead of relying on an earlier test
+    - All test apps are NON_UNIQUE, so parallel test runs no longer collide
+      on the D-Bus session bus (random failures and false passes)
+
+ -- Giuseppe Penone <giuspen@gmail.com>  Thu, 19 Nov 2026 21:42:40 +0000
+
 cherrytree-docmodel (1.7.2+docmodel18-1) plucky; urgency=low
 
   * Export - PDF and HTML now match what the editor shows:
