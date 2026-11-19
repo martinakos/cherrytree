@@ -282,6 +282,8 @@ TEST(CommandUndoRedoTests, InsertTextCommand_SpaceHasDescription)
 
 TEST(CommandUndoRedoTests, SpaceOnlySession_ProducesCommand)
 {
+    Gtk::Main::init_gtkmm_internals();
+
     auto model = std::make_shared<CtDocumentModel>();
     auto node = model->createNode(1);
     node->setName("test");
@@ -311,6 +313,8 @@ TEST(CommandUndoRedoTests, SpaceOnlySession_ProducesCommand)
 
 TEST(CommandUndoRedoTests, OvertypeSelectionSameLength_ProducesCommand)
 {
+    Gtk::Main::init_gtkmm_internals();
+
     auto model = std::make_shared<CtDocumentModel>();
     auto node = model->createNode(1);
     node->setSyntax("custom-colors");
@@ -339,6 +343,8 @@ TEST(CommandUndoRedoTests, OvertypeSelectionSameLength_ProducesCommand)
 
 TEST(CommandUndoRedoTests, TypeThenBackspaceSameText_IsNetZero)
 {
+    Gtk::Main::init_gtkmm_internals();
+
     auto model = std::make_shared<CtDocumentModel>();
     auto node = model->createNode(1);
     node->setSyntax("custom-colors");
