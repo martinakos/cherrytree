@@ -122,17 +122,17 @@ void CtAnchoredWidget::setFlashHighlight(bool on, const Glib::ustring& color)
                 _flashCssProvider, GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
         }
         _flashCssProvider->load_from_data(
-            "frame.history-flash > border {"
+            "frame.timeline-flash > border {"
             "  border-style: solid;"
             "  border-width: 4px;"
             "  border-color: " + color + ";"
             "  padding: 2px;"
             "}");
         _frame.set_shadow_type(Gtk::ShadowType::SHADOW_IN);
-        _frame.get_style_context()->add_class("history-flash");
+        _frame.get_style_context()->add_class("timeline-flash");
     }
     else {
-        _frame.get_style_context()->remove_class("history-flash");
+        _frame.get_style_context()->remove_class("timeline-flash");
         _frame.set_shadow_type(Gtk::ShadowType::SHADOW_NONE);
         if (_flashCssProvider) {
             _frame.get_style_context()->remove_provider(_flashCssProvider);

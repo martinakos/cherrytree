@@ -22,7 +22,7 @@
  */
 
 #include "ct_storage_multifile.h"
-#include "ct_history_storage.h"
+#include "ct_timeline_storage.h"
 #include "ct_storage_xml.h"
 #include "ct_storage_control.h"
 #include "ct_main_win.h"
@@ -33,7 +33,7 @@
 
 /*static*/const std::string CtStorageMultiFile::SUBNODES_LST{"subnodes.lst"};
 /*static*/const std::string CtStorageMultiFile::BOOKMARKS_LST{"bookmarks.lst"};
-/*static*/const std::string CtStorageMultiFile::HISTORY_LST{"history.lst"};
+/*static*/const std::string CtStorageMultiFile::LEGACY_TIMELINE_LST{"history.lst"};
 /*static*/const std::string CtStorageMultiFile::NODE_XML{"node.xml"};
 /*static*/const std::string CtStorageMultiFile::BEFORE_SAVE{".before"};
 
@@ -77,7 +77,7 @@ bool CtStorageMultiFile::save_treestore(const fs::path& dir_path,
             {
                 // save bookmarks
                 _write_bookmarks_to_disk(ct_tree_store.bookmarks_get());
-                // history is now written by CtHistoryStorage (separate file)
+                // the timeline is written by CtTimelineStorage (separate file)
             }
             CtStorageNodeState node_state;
             node_state.is_update_of_existing = false; // no need to delete the prev data
@@ -144,7 +144,7 @@ bool CtStorageMultiFile::save_treestore(const fs::path& dir_path,
             if (syncPending.bookmarks_to_write) {
                 _write_bookmarks_to_disk(ct_tree_store.bookmarks_get());
             }
-            // history is now written by CtHistoryStorage (separate file)
+            // the timeline is written by CtTimelineStorage (separate file)
             // update changed nodes
             const std::list<std::pair<CtTreeIter, CtStorageNodeState>> nodes_to_write = CtStorageControl::get_sorted_by_level_nodes_to_write(
                 &_pCtMainWin->get_tree_store(), syncPending.nodes_to_write_dict);
@@ -328,12 +328,12 @@ void CtStorageMultiFile::_write_bookmarks_to_disk(const std::list<gint64>& bookm
     }
 }
 
-std::vector<CtHistoryEntry> CtStorageMultiFile::_read_history_entries_from_disk()
+std::vector<CtTimelineEntry> CtStorageMultiFile::_read_legacy_timeline_entries_from_disk()
 {
-    std::vector<CtHistoryEntry> entries;
-    const fs::path history_filepath = _dir_path / HISTORY_LST;
-    if (!fs::is_regular_file(history_filepath)) return entries;
-    std::string content = Glib::file_get_contents(history_filepath.string());
+    std::vector<CtTimelineEntry> entries;
+    const fs::path legacy_filepath = _dir_path / LEGACY_TIMELINE_LST;
+    if (!fs::is_regular_file(legacy_filepath)) return entries;
+    std::string content = Glib::file_get_contents(legacy_filepath.string());
     if (content.empty()) return entries;
     std::istringstream iss(content);
     std::string line;
@@ -348,7 +348,7 @@ std::vector<CtHistoryEntry> CtStorageMultiFile::_read_history_entries_from_disk(
             s = p + 1;
         }
         if (parts.size() < 10) continue;
-        CtHistoryEntry e;
+        CtTimelineEntry e;
         try {
             e.nodeId = std::stoll(parts[0]);
             e.timestamp = std::stoll(parts[1]);
@@ -715,17 +715,17 @@ bool CtStorageMultiFile::populate_treestore(const fs::path& dir_path, Glib::ustr
             ct_tree_store.get_node_data(ctTreeIter, nodeData, false/*loadTextBuffer*/);
             ct_tree_store.update_node_data(ctTreeIter, nodeData);
         }
-        // migrate history from old CSV format to separate SQLite DB if needed
-        if (not _isDryRun and _pCtMainWin->get_ct_config()->localHistoryEnabled) {
-            fs::path histDb = CtHistoryStorage::get_history_file_path(_dir_path, CtDocType::MultiFile);
+        // migrate the timeline from the old CSV format (local history) to its separate SQLite DB
+        if (not _isDryRun and _pCtMainWin->get_ct_config()->timelineEnabled) {
+            fs::path histDb = CtTimelineStorage::get_timeline_file_path(_dir_path, CtDocType::MultiFile);
             if (!fs::is_regular_file(histDb)) {
-                auto oldEntries = _read_history_entries_from_disk();
+                auto oldEntries = _read_legacy_timeline_entries_from_disk();
                 if (!oldEntries.empty()) {
-                    auto histStorage = CtHistoryStorage::open(_dir_path, CtDocType::MultiFile);
+                    auto histStorage = CtTimelineStorage::open(_dir_path, CtDocType::MultiFile);
                     if (histStorage) {
                         histStorage->migrateFrom(oldEntries);
                     }
-                    (void)fs::remove(_dir_path / HISTORY_LST);
+                    (void)fs::remove(_dir_path / LEGACY_TIMELINE_LST);
                 }
             }
         }

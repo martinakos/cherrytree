@@ -94,13 +94,13 @@ void CtActions::toggle_show_hide_tree_lines()
     _pCtMainWin->show_hide_tree_lines(_pCtConfig->treeLinesVisible);
 }
 
-void CtActions::toggle_show_hide_history_panel()
+void CtActions::toggle_show_hide_timeline_panel()
 {
-    if (!_pCtConfig->localHistoryEnabled) return;
-    _pCtConfig->historyPanelVisible = not _pCtConfig->historyPanelVisible;
-    _pCtMainWin->show_hide_history_panel(_pCtConfig->historyPanelVisible);
-    if (_pCtConfig->historyPanelVisible) {
-        _pCtMainWin->get_history_panel()->refresh_names();
+    if (!_pCtConfig->timelineEnabled) return;
+    _pCtConfig->timelinePanelVisible = not _pCtConfig->timelinePanelVisible;
+    _pCtMainWin->show_hide_timeline_panel(_pCtConfig->timelinePanelVisible);
+    if (_pCtConfig->timelinePanelVisible) {
+        _pCtMainWin->get_timeline_panel()->refresh_names();
     }
 }
 

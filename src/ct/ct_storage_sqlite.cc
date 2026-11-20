@@ -22,7 +22,7 @@
  */
 
 #include "ct_storage_sqlite.h"
-#include "ct_history_storage.h"
+#include "ct_timeline_storage.h"
 #include "ct_storage_xml.h"
 #include "ct_storage_control.h"
 #include "ct_main_win.h"
@@ -187,23 +187,6 @@ const char CtStorageSqlite::TABLE_DRAWING_STROKE_CREATE[]{"CREATE TABLE IF NOT E
 ")"
 };
 const char CtStorageSqlite::TABLE_DRAWING_STROKE_DELETE[]{"DELETE FROM drawing_stroke WHERE node_id=?"};
-
-const char CtStorageSqlite::TABLE_HISTORY_CREATE[]{"CREATE TABLE IF NOT EXISTS local_history ("
-"id INTEGER PRIMARY KEY AUTOINCREMENT,"
-"node_id INTEGER NOT NULL,"
-"timestamp INTEGER NOT NULL,"
-"use_day INTEGER DEFAULT 0,"
-"cursor_pos INTEGER DEFAULT 0,"
-"scroll_pos INTEGER DEFAULT 0,"
-"action_description TEXT DEFAULT '',"
-"action_type TEXT DEFAULT '',"
-"region_offset INTEGER DEFAULT -1,"
-"region_length INTEGER DEFAULT 0,"
-"canvas_idx INTEGER DEFAULT -1"
-")"
-};
-const char CtStorageSqlite::TABLE_HISTORY_INSERT[]{"INSERT INTO local_history(node_id,timestamp,use_day,cursor_pos,scroll_pos,action_description,action_type,region_offset,region_length,canvas_idx) VALUES(?,?,?,?,?,?,?,?,?,?)"};
-const char CtStorageSqlite::TABLE_HISTORY_DELETE[]{"DELETE FROM local_history"};
 
 /*static*/const std::string CtStorageSqlite::ERR_SQLITE_PREPV2{"!! sqlite3_prepare_v2: "};
 /*static*/const std::string CtStorageSqlite::ERR_SQLITE_STEP{"!! sqlite3_step: "};
@@ -374,13 +357,13 @@ bool CtStorageSqlite::populate_treestore(const fs::path& file_path, Glib::ustrin
             _pCtMainWin->get_protected_areas().load_records(std::move(areaRecords), staleAreaIds);
         }
 
-        // migrate embedded history to separate storage if present
-        if (not _isDryRun and _pCtMainWin->get_ct_config()->localHistoryEnabled) {
-            fs::path histFile = CtHistoryStorage::get_history_file_path(file_path, CtDocType::SQLite);
+        // migrate the timeline embedded by older versions (as local history) to its separate storage
+        if (not _isDryRun and _pCtMainWin->get_ct_config()->timelineEnabled) {
+            fs::path histFile = CtTimelineStorage::get_timeline_file_path(file_path, CtDocType::SQLite);
             if (!fs::is_regular_file(histFile)) {
-                auto oldEntries = _read_history_entries_from_db();
+                auto oldEntries = _read_legacy_timeline_entries_from_db();
                 if (!oldEntries.empty()) {
-                    auto histStorage = CtHistoryStorage::open(file_path, CtDocType::SQLite);
+                    auto histStorage = CtTimelineStorage::open(file_path, CtDocType::SQLite);
                     if (histStorage) {
                         histStorage->migrateFrom(oldEntries);
                     }
@@ -418,7 +401,7 @@ bool CtStorageSqlite::save_treestore(const fs::path& file_path,
                  CtExporting::ALL_TREE == export_type )
             {
                 _write_bookmarks_to_db(_pCtMainWin->get_tree_store().bookmarks_get());
-                // history is now written by CtHistoryStorage (separate file)
+                // the timeline is written by CtTimelineStorage (separate file)
             }
             CtStorageNodeState node_state;
             node_state.is_update_of_existing = false; // no need to delete the prev data
@@ -490,7 +473,7 @@ bool CtStorageSqlite::save_treestore(const fs::path& file_path,
             if (syncPending.bookmarks_to_write) {
                 _write_bookmarks_to_db(_pCtMainWin->get_tree_store().bookmarks_get());
             }
-            // history is now written by CtHistoryStorage (separate file)
+            // the timeline is written by CtTimelineStorage (separate file)
             // update changed nodes
             const std::list<std::pair<CtTreeIter, CtStorageNodeState>> nodes_to_write = CtStorageControl::get_sorted_by_level_nodes_to_write(
                 &_pCtMainWin->get_tree_store(), syncPending.nodes_to_write_dict);
@@ -865,7 +848,6 @@ void CtStorageSqlite::_create_all_tables_in_db()
     _exec_no_callback(TABLE_BOOKMARK_CREATE);
     _exec_no_callback(TABLE_DRAWING_CANVAS_CREATE);
     _exec_no_callback(TABLE_DRAWING_STROKE_CREATE);
-    _exec_no_callback(TABLE_HISTORY_CREATE);
     _exec_no_callback(TABLE_PROTECTED_AREA_CREATE);
 }
 
@@ -953,9 +935,9 @@ void CtStorageSqlite::_write_bookmarks_to_db(const std::list<gint64>& bookmarks)
     }
 }
 
-std::vector<CtHistoryEntry> CtStorageSqlite::_read_history_entries_from_db()
+std::vector<CtTimelineEntry> CtStorageSqlite::_read_legacy_timeline_entries_from_db()
 {
-    std::vector<CtHistoryEntry> entries;
+    std::vector<CtTimelineEntry> entries;
 
     Sqlite3StmtAuto stmt{_pDb, "SELECT node_id, timestamp, use_day, cursor_pos, scroll_pos, action_description, action_type, region_offset, region_length, canvas_idx FROM local_history ORDER BY id ASC"};
     if (stmt.is_bad()) {
@@ -963,7 +945,7 @@ std::vector<CtHistoryEntry> CtStorageSqlite::_read_history_entries_from_db()
     }
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
-        CtHistoryEntry e;
+        CtTimelineEntry e;
         e.nodeId = sqlite3_column_int64(stmt, 0);
         e.timestamp = sqlite3_column_int64(stmt, 1);
         e.useDay = sqlite3_column_int(stmt, 2);

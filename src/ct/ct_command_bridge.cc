@@ -23,7 +23,7 @@
 
 #include "ct_command_bridge.h"
 #include "ct_main_win.h"
-#include "ct_history_panel.h"
+#include "ct_timeline_panel.h"
 #include "ct_storage_xml.h"
 #include "ct_logging.h"
 #include "ct_gtk_compat.h"
@@ -270,7 +270,7 @@ void CtCommandBridge::executeCommand(std::unique_ptr<CtCommand> cmd)
     }
 
     if (!isInUndoRedo()) {
-        createHistoryEntry(cmd.get(), cmd->getNodeId());
+        createTimelineEntry(cmd.get(), cmd->getNodeId());
     }
     _commandManager.executeCommand(std::move(cmd));
 }
@@ -287,9 +287,9 @@ void CtCommandBridge::addCommandToStack(std::unique_ptr<CtCommand> cmd)
         return;
     }
 
-    // Create local history entry (only for forward commands, not during undo/redo)
+    // Create timeline entry (only for forward commands, not during undo/redo)
     if (!isInUndoRedo()) {
-        createHistoryEntry(cmd.get(), cmd->getNodeId());
+        createTimelineEntry(cmd.get(), cmd->getNodeId());
     }
 
     _commandManager.addCommandToStack(std::move(cmd));
@@ -319,7 +319,7 @@ void CtCommandBridge::pushNodeCommand(std::unique_ptr<CtCommand> cmd)
     CtCommand* rawCmd = cmd.get();
     _commandManager.executeCommand(std::move(cmd));
     _currentOp = BridgeOp::None;
-    createHistoryEntry(rawCmd, rawCmd->getNodeId());
+    createTimelineEntry(rawCmd, rawCmd->getNodeId());
 
     // Restart an edit session so subsequent keystrokes are captured.
     // Without this, characters typed before the next cursor-change or
@@ -444,11 +444,11 @@ void CtCommandBridge::_undoRedo(const bool isUndo)
     _pendingCursorPos = -1;
     _pendingScrollPos = -1.0;
 
-    // Create local history entry; the command just run now sits on the opposite stack
+    // Create timeline entry; the command just run now sits on the opposite stack
     if (success) {
         auto* doneCmd = isUndo ? _commandManager.peekRedoCommand() : _commandManager.peekUndoCommand();
         if (doneCmd) {
-            createHistoryEntry(doneCmd, affectedNodeId, isUndo);
+            createTimelineEntry(doneCmd, affectedNodeId, isUndo);
         }
     }
 
@@ -846,7 +846,7 @@ void CtCommandBridge::endTextEditSession()
             cc->setNewScrollPos(scrollPosNew);
         }
 
-        createHistoryEntry(cmd.get(), nodeId);
+        createTimelineEntry(cmd.get(), nodeId);
         _commandManager.addCommandToStack(std::move(cmd));
     } else {
         spdlog::debug("CtCommandBridge: session ended but no command created (no changes)");
@@ -1123,7 +1123,7 @@ void CtCommandBridge::endWidgetEdit()
                     cmd->setOldScrollPos(_widgetEditOldScrollPos);
                     cmd->setNewScrollPos(scrollPosNew);
                     spdlog::info("CtCommandBridge: endWidgetEdit created delta table cell command");
-                    if (!isInUndoRedo()) createHistoryEntry(cmd.get(), savedNodeId);
+                    if (!isInUndoRedo()) createTimelineEntry(cmd.get(), savedNodeId);
                     _commandManager.addCommandToStack(std::move(cmd));
                     clearState();
                     if (!isInUndoRedo()) {
@@ -1178,7 +1178,7 @@ void CtCommandBridge::endWidgetEdit()
                     cmd->setOldScrollPos(_widgetEditOldScrollPos);
                     cmd->setNewScrollPos(scrollPosNew);
                     spdlog::info("CtCommandBridge: endWidgetEdit created delta codebox command");
-                    if (!isInUndoRedo()) createHistoryEntry(cmd.get(), savedNodeId);
+                    if (!isInUndoRedo()) createTimelineEntry(cmd.get(), savedNodeId);
                     _commandManager.addCommandToStack(std::move(cmd));
                     clearState();
                     if (!isInUndoRedo()) {
@@ -1373,7 +1373,7 @@ void CtCommandBridge::flushRichCellSession()
     cmd->setNewScrollPos(scrollPosNew);
 
     spdlog::info("CtCommandBridge: flushRichCellSession — EditRichCellCommand added");
-    if (!isInUndoRedo()) createHistoryEntry(cmd.get(), _widgetEditNodeId);
+    if (!isInUndoRedo()) createTimelineEntry(cmd.get(), _widgetEditNodeId);
     _commandManager.addCommandToStack(std::move(cmd));
 
     // Update baseline for next flush
@@ -1548,7 +1548,7 @@ void CtCommandBridge::commitRichCellFormatChange(std::string description)
     cmd->setOldScrollPos(_widgetEditOldScrollPos);
     cmd->setNewScrollPos(scrollPosNew);
 
-    if (!isInUndoRedo()) createHistoryEntry(cmd.get(), _widgetEditNodeId);
+    if (!isInUndoRedo()) createTimelineEntry(cmd.get(), _widgetEditNodeId);
     _commandManager.addCommandToStack(std::move(cmd));
 
     // Update baseline so subsequent edits in the same cell track from the new state.
@@ -1733,7 +1733,7 @@ void CtCommandBridge::applyFormatV2(
     }
 
     // Add to undo stack
-    if (!isInUndoRedo()) createHistoryEntry(cmd.get(), nodeId);
+    if (!isInUndoRedo()) createTimelineEntry(cmd.get(), nodeId);
     _commandManager.addCommandToStack(std::move(cmd));
 
     spdlog::info("CtCommandBridge::applyFormatV2: format command created and executed");
@@ -3030,11 +3030,11 @@ void CtCommandBridge::BridgeObserver::onNodeDrawingChanged(gint64 nodeId)
     }
 }
 
-void CtCommandBridge::createHistoryEntry(CtCommand* cmd, gint64 nodeId, bool isUndo)
+void CtCommandBridge::createTimelineEntry(CtCommand* cmd, gint64 nodeId, bool isUndo)
 {
     if (!_pMainWin) return;
-    if (!_pMainWin->get_ct_config()->localHistoryEnabled) return;
-    auto* panel = _pMainWin->get_history_panel();
+    if (!_pMainWin->get_ct_config()->timelineEnabled) return;
+    auto* panel = _pMainWin->get_timeline_panel();
     if (!panel) return;
 
     // Extract shifts and apply to older entries
@@ -3051,10 +3051,10 @@ void CtCommandBridge::createHistoryEntry(CtCommand* cmd, gint64 nodeId, bool isU
     }
 
     // Create entry
-    CtHistoryEntry entry;
+    CtTimelineEntry entry;
     entry.nodeId = nodeId;
     entry.timestamp = std::time(nullptr);
-    entry.useDay = _pMainWin->get_ct_config()->localHistoryUseDay;
+    entry.useDay = _pMainWin->get_ct_config()->timelineUseDay;
     entry.actionDescription = desc;
     entry.actionType = cmd->getActionType();
     entry.regionOffset = cmd->getRegionOffset();

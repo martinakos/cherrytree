@@ -243,7 +243,7 @@ CtMainWin::CtMainWin(bool                            no_gui,
     _pCtCommandBridge->setActive(true);
 
     _pDrawingOverlay.reset(new CtDrawingOverlay{this});
-    _uCtHistoryPanel.reset(new CtHistoryPanel{this});
+    _uCtTimelinePanel.reset(new CtTimelinePanel{this});
 
 #ifdef HAVE_NCNN
     _ocrAvailable = not _no_gui and CtOcrManager::is_available();
@@ -265,7 +265,7 @@ CtMainWin::CtMainWin(bool                            no_gui,
     _vboxText.set_expand(true);
     _scrolledwindowTree.set_expand(false);
     _hPanedRight.set_start_child(_vboxText);
-    _hPanedRight.set_end_child(_uCtHistoryPanel->get_widget());
+    _hPanedRight.set_end_child(_uCtTimelinePanel->get_widget());
     if (_pCtConfig->treeRightSide) {
         _hPaned.set_start_child(_hPanedRight);
         _hPaned.set_end_child(_scrolledwindowTree);
@@ -287,7 +287,7 @@ CtMainWin::CtMainWin(bool                            no_gui,
     }
     _vboxText.pack_start(_pDrawingOverlay->getOverlay());
     _hPanedRight.pack1(_vboxText, Gtk::EXPAND);
-    _hPanedRight.pack2(_uCtHistoryPanel->get_widget(), Gtk::FILL);
+    _hPanedRight.pack2(_uCtTimelinePanel->get_widget(), Gtk::FILL);
     if (_pCtConfig->treeRightSide) {
         _hPaned.pack1(_hPanedRight, Gtk::EXPAND);
         _hPaned.pack2(_scrolledwindowTree, Gtk::FILL);
@@ -495,7 +495,7 @@ CtMainWin::CtMainWin(bool                            no_gui,
             if (hPanedRightW > _pCtConfig->hpanedRightPos) {
                 _hPanedRight.property_position() = hPanedRightW - _pCtConfig->hpanedRightPos;
             }
-            _uCtHistoryPanel->get_widget().property_visible() = _pCtConfig->localHistoryEnabled && _pCtConfig->historyPanelVisible;
+            _uCtTimelinePanel->get_widget().property_visible() = _pCtConfig->timelineEnabled && _pCtConfig->timelinePanelVisible;
             #if GTKMM_MAJOR_VERSION < 4
             _ctTextview.mm().signal_size_allocate().connect(sigc::mem_fun(*this, &CtMainWin::_on_textview_size_allocate));
             signal_configure_event().connect(sigc::mem_fun(*this, &CtMainWin::_on_window_configure_event), false);
@@ -637,6 +637,7 @@ void CtMainWin::connect_app_quit_window(const std::function<void(CtMainWin*)>& c
 CtMainWin::~CtMainWin()
 {
     _autosave_timout_connection.disconnect();
+    _autosave_after_replay_connection.disconnect();
     _mod_time_sentinel_timout_connection.disconnect();
     //std::cout << "~CtMainWin" << std::endl;
 }
@@ -1913,7 +1914,7 @@ void CtMainWin::reset()
     _pCtCommandBridge->resetForNewDocument();
 
     _reset_CtTreestore_CtTreeview();
-    _uCtHistoryPanel->clear();
+    _uCtTimelinePanel->clear();
 
     _latestStatusbarUpdateTime.clear();
 #if GTKMM_MAJOR_VERSION < 4

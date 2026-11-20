@@ -22,7 +22,7 @@
  */
 
 #include "ct_storage_xml.h"
-#include "ct_history_storage.h"
+#include "ct_timeline_storage.h"
 #include "ct_const.h"
 #include "ct_misc_utils.h"
 #include <type_traits>
@@ -110,14 +110,14 @@ bool CtStorageXml::populate_treestore(const fs::path& file_path, Glib::ustring& 
             ct_tree_store.get_node_data(ctTreeIter, nodeData, false/*loadTextBuffer*/);
             ct_tree_store.update_node_data(ctTreeIter, nodeData);
         }
-        // migrate embedded history to separate storage if present
-        if (not _isDryRun and _pCtMainWin->get_ct_config()->localHistoryEnabled) {
-            fs::path histFile = CtHistoryStorage::get_history_file_path(file_path, CtDocType::XML);
+        // migrate the timeline embedded by older versions (as local history) to its separate storage
+        if (not _isDryRun and _pCtMainWin->get_ct_config()->timelineEnabled) {
+            fs::path histFile = CtTimelineStorage::get_timeline_file_path(file_path, CtDocType::XML);
             if (!fs::is_regular_file(histFile)) {
-                std::vector<CtHistoryEntry> histEntries;
+                std::vector<CtTimelineEntry> histEntries;
                 for (xmlpp::Node* xml_node : parser->get_document()->get_root_node()->get_children("local_history_entry")) {
                     auto* el = static_cast<xmlpp::Element*>(xml_node);
-                    CtHistoryEntry e;
+                    CtTimelineEntry e;
                     try {
                         e.nodeId = std::stoll(el->get_attribute_value("node_id"));
                         e.timestamp = std::stoll(el->get_attribute_value("timestamp"));
@@ -138,7 +138,7 @@ bool CtStorageXml::populate_treestore(const fs::path& file_path, Glib::ustring& 
                     histEntries.push_back(e);
                 }
                 if (!histEntries.empty()) {
-                    auto histStorage = CtHistoryStorage::open(file_path, CtDocType::XML);
+                    auto histStorage = CtTimelineStorage::open(file_path, CtDocType::XML);
                     if (histStorage) {
                         histStorage->migrateFrom(histEntries);
                     }
@@ -185,7 +185,7 @@ bool CtStorageXml::save_treestore(const fs::path& file_path,
             xmlpp::Element* p_bookmarks_node = xml_doc.get_root_node()->add_child("bookmarks");
             p_bookmarks_node->set_attribute("list", str::join_numbers(_pCtMainWin->get_tree_store().bookmarks_get(), ","));
 
-            // history is now written by CtHistoryStorage (separate file)
+            // the timeline is written by CtTimelineStorage (separate file)
         }
 
         CtStorageCache storage_cache;

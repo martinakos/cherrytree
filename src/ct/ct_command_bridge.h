@@ -50,7 +50,7 @@ enum class BridgeOp {
     ExecutingUndo,   // undo() scope
     ExecutingRedo,   // redo() scope
     ExecutingNodeOp, // pushNodeCommand() scope
-    Replay,          // history replay animation
+    Replay,          // timeline replay animation
 };
 
 // Bridge class to integrate new command system with existing code
@@ -147,8 +147,8 @@ public:
     void beginReplay() { _currentOp = BridgeOp::Replay; }
     void endReplay();
 
-    // Create a local history entry from a command and apply offset shifts to older entries
-    void createHistoryEntry(CtCommand* cmd, gint64 nodeId, bool isUndo = false);
+    // Create a timeline entry from a command and apply offset shifts to older entries
+    void createTimelineEntry(CtCommand* cmd, gint64 nodeId, bool isUndo = false);
 
     // Execute a node-structure command (add/delete/move/properties).
     // Flushes any active text/widget session first, then executes the command

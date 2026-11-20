@@ -1,5 +1,5 @@
 /*
- * ct_history_storage.h
+ * ct_timeline_storage.h
  *
  * Copyright 2009-2025
  * Giuseppe Penone <giuspen@gmail.com>
@@ -28,21 +28,21 @@
 #include <sqlite3.h>
 #include <memory>
 
-class CtHistoryStorage
+class CtTimelineStorage
 {
 public:
-    static std::unique_ptr<CtHistoryStorage> open(const fs::path& docPath, CtDocType type);
-    static fs::path get_history_file_path(const fs::path& docPath, CtDocType type);
+    static std::unique_ptr<CtTimelineStorage> open(const fs::path& docPath, CtDocType type);
+    static fs::path get_timeline_file_path(const fs::path& docPath, CtDocType type);
 
-    ~CtHistoryStorage();
+    ~CtTimelineStorage();
 
-    void writeEntries(const std::vector<CtHistoryEntry>& entries);
-    std::vector<CtHistoryEntry> readEntries();
-    void migrateFrom(const std::vector<CtHistoryEntry>& oldEntries);
+    void writeEntries(const std::vector<CtTimelineEntry>& entries);
+    std::vector<CtTimelineEntry> readEntries();
+    void migrateFrom(const std::vector<CtTimelineEntry>& oldEntries);
     void close();
 
 private:
-    CtHistoryStorage() = default;
+    CtTimelineStorage() = default;
     bool _open_db(const fs::path& dbPath);
     void _create_table();
 

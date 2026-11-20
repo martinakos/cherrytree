@@ -69,16 +69,16 @@ public:
         const gint64 nodeId = getNodeId();
         if (nodeId > 0) rNodeIds.insert(nodeId);
     }
-    // Local history position accessors
+    // Timeline position accessors
     virtual std::string getActionType() const { return ""; }
     virtual int getRegionOffset() const { return -1; }
     virtual int getRegionLength() const { return 0; }
     virtual int getCanvasIndex() const { return -1; }
 
-    // Serialize delta data for local history replay
+    // Serialize delta data for timeline replay
     virtual std::string serializeDelta() const { return ""; }
 
-    // Offset shift extraction for history offset correction
+    // Offset shift extraction for timeline offset correction
     struct OffsetShift { int offset; int delta; };
     virtual void appendShifts(std::vector<OffsetShift>& /*log*/, bool /*isUndo*/) const {}
 };

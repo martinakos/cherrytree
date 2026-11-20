@@ -1,5 +1,5 @@
 /*
- * ct_history_storage.cc
+ * ct_timeline_storage.cc
  *
  * Copyright 2009-2025
  * Giuseppe Penone <giuspen@gmail.com>
@@ -21,11 +21,11 @@
  * MA 02110-1301, USA.
  */
 
-#include "ct_history_storage.h"
+#include "ct_timeline_storage.h"
 #include "ct_logging.h"
 
 static const char TABLE_CREATE[]{
-    "CREATE TABLE IF NOT EXISTS local_history ("
+    "CREATE TABLE IF NOT EXISTS timeline ("
     "id INTEGER PRIMARY KEY AUTOINCREMENT,"
     "node_id INTEGER NOT NULL,"
     "timestamp INTEGER NOT NULL,"
@@ -42,22 +42,31 @@ static const char TABLE_CREATE[]{
 };
 
 static const char TABLE_INSERT[]{
-    "INSERT INTO local_history("
+    "INSERT INTO timeline("
     "node_id,timestamp,use_day,cursor_pos,scroll_pos,"
     "action_description,action_type,region_offset,region_length,"
     "canvas_idx,delta_data) VALUES(?,?,?,?,?,?,?,?,?,?,?)"
 };
 
-static const char TABLE_DELETE[]{"DELETE FROM local_history"};
+static const char TABLE_DELETE[]{"DELETE FROM timeline"};
 
 static const char TABLE_SELECT[]{
     "SELECT node_id, timestamp, use_day, cursor_pos, scroll_pos,"
     " action_description, action_type, region_offset, region_length,"
     " canvas_idx, delta_data"
-    " FROM local_history ORDER BY id ASC"
+    " FROM timeline ORDER BY id ASC"
 };
 
-/*static*/fs::path CtHistoryStorage::get_history_file_path(const fs::path& docPath, CtDocType type)
+/*static*/fs::path CtTimelineStorage::get_timeline_file_path(const fs::path& docPath, CtDocType type)
+{
+    if (CtDocType::MultiFile == type) {
+        return docPath / "timeline.db";
+    }
+    return fs::path{docPath.string() + ".timeline"};
+}
+
+// The timeline was called local history and was stored under these names
+static fs::path get_legacy_file_path(const fs::path& docPath, CtDocType type)
 {
     if (CtDocType::MultiFile == type) {
         return docPath / "history.db";
@@ -65,10 +74,16 @@ static const char TABLE_SELECT[]{
     return fs::path{docPath.string() + ".history"};
 }
 
-/*static*/std::unique_ptr<CtHistoryStorage> CtHistoryStorage::open(const fs::path& docPath, CtDocType type)
+/*static*/std::unique_ptr<CtTimelineStorage> CtTimelineStorage::open(const fs::path& docPath, CtDocType type)
 {
-    auto storage = std::unique_ptr<CtHistoryStorage>(new CtHistoryStorage());
-    fs::path dbPath = get_history_file_path(docPath, type);
+    auto storage = std::unique_ptr<CtTimelineStorage>(new CtTimelineStorage());
+    fs::path dbPath = get_timeline_file_path(docPath, type);
+    const fs::path legacyPath = get_legacy_file_path(docPath, type);
+    if (not fs::exists(dbPath) and fs::is_regular_file(legacyPath)) {
+        if (fs::move_file(legacyPath, dbPath)) {
+            spdlog::info("CtTimelineStorage: renamed {} to {}", legacyPath.string(), dbPath.string());
+        }
+    }
     if (!storage->_open_db(dbPath)) {
         return nullptr;
     }
@@ -76,17 +91,17 @@ static const char TABLE_SELECT[]{
     return storage;
 }
 
-CtHistoryStorage::~CtHistoryStorage()
+CtTimelineStorage::~CtTimelineStorage()
 {
     close();
 }
 
-bool CtHistoryStorage::_open_db(const fs::path& dbPath)
+bool CtTimelineStorage::_open_db(const fs::path& dbPath)
 {
     _dbPath = dbPath;
     int rc = sqlite3_open(dbPath.string().c_str(), &_pDb);
     if (rc != SQLITE_OK) {
-        spdlog::error("CtHistoryStorage: cannot open {}: {}", dbPath.string(),
+        spdlog::error("CtTimelineStorage: cannot open {}: {}", dbPath.string(),
                       _pDb ? sqlite3_errmsg(_pDb) : "allocation failed");
         if (_pDb) { sqlite3_close(_pDb); _pDb = nullptr; }
         return false;
@@ -94,28 +109,41 @@ bool CtHistoryStorage::_open_db(const fs::path& dbPath)
     return true;
 }
 
-void CtHistoryStorage::_create_table()
+void CtTimelineStorage::_create_table()
 {
     if (!_pDb) return;
     char* errMsg = nullptr;
+    // table of a file written when the timeline was called local history
+    sqlite3_stmt* legacyStmt = nullptr;
+    if (sqlite3_prepare_v2(_pDb, "SELECT 1 FROM local_history LIMIT 0", -1, &legacyStmt, nullptr) == SQLITE_OK) {
+        sqlite3_finalize(legacyStmt);
+        legacyStmt = nullptr;
+        sqlite3_exec(_pDb, "ALTER TABLE local_history RENAME TO timeline", nullptr, nullptr, &errMsg);
+        if (errMsg) {
+            spdlog::error("CtTimelineStorage: rename table failed: {}", errMsg);
+            sqlite3_free(errMsg);
+            errMsg = nullptr;
+        }
+    }
+    if (legacyStmt) sqlite3_finalize(legacyStmt);
     int rc = sqlite3_exec(_pDb, TABLE_CREATE, nullptr, nullptr, &errMsg);
     if (rc != SQLITE_OK) {
-        spdlog::error("CtHistoryStorage: create table failed: {}", errMsg ? errMsg : "unknown");
+        spdlog::error("CtTimelineStorage: create table failed: {}", errMsg ? errMsg : "unknown");
         if (errMsg) sqlite3_free(errMsg);
     }
 
-    // Add delta_data column if missing (upgrade from older history DB)
+    // Add delta_data column if missing (upgrade from an older timeline DB)
     sqlite3_stmt* stmt = nullptr;
-    rc = sqlite3_prepare_v2(_pDb, "SELECT delta_data FROM local_history LIMIT 0", -1, &stmt, nullptr);
+    rc = sqlite3_prepare_v2(_pDb, "SELECT delta_data FROM timeline LIMIT 0", -1, &stmt, nullptr);
     if (rc != SQLITE_OK) {
         char* err2 = nullptr;
-        sqlite3_exec(_pDb, "ALTER TABLE local_history ADD COLUMN delta_data BLOB", nullptr, nullptr, &err2);
+        sqlite3_exec(_pDb, "ALTER TABLE timeline ADD COLUMN delta_data BLOB", nullptr, nullptr, &err2);
         if (err2) sqlite3_free(err2);
     }
     if (stmt) sqlite3_finalize(stmt);
 }
 
-void CtHistoryStorage::writeEntries(const std::vector<CtHistoryEntry>& entries)
+void CtTimelineStorage::writeEntries(const std::vector<CtTimelineEntry>& entries)
 {
     if (!_pDb) return;
 
@@ -129,7 +157,7 @@ void CtHistoryStorage::writeEntries(const std::vector<CtHistoryEntry>& entries)
     sqlite3_stmt* stmt = nullptr;
     int rc = sqlite3_prepare_v2(_pDb, TABLE_INSERT, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) {
-        spdlog::error("CtHistoryStorage: prepare insert failed: {}", sqlite3_errmsg(_pDb));
+        spdlog::error("CtTimelineStorage: prepare insert failed: {}", sqlite3_errmsg(_pDb));
         sqlite3_exec(_pDb, "ROLLBACK", nullptr, nullptr, nullptr);
         return;
     }
@@ -152,7 +180,7 @@ void CtHistoryStorage::writeEntries(const std::vector<CtHistoryEntry>& entries)
             sqlite3_bind_null(stmt, 11);
         }
         if (sqlite3_step(stmt) != SQLITE_DONE) {
-            spdlog::error("CtHistoryStorage: insert step failed: {}", sqlite3_errmsg(_pDb));
+            spdlog::error("CtTimelineStorage: insert step failed: {}", sqlite3_errmsg(_pDb));
         }
         sqlite3_reset(stmt);
     }
@@ -162,20 +190,20 @@ void CtHistoryStorage::writeEntries(const std::vector<CtHistoryEntry>& entries)
     if (errMsg) sqlite3_free(errMsg);
 }
 
-std::vector<CtHistoryEntry> CtHistoryStorage::readEntries()
+std::vector<CtTimelineEntry> CtTimelineStorage::readEntries()
 {
-    std::vector<CtHistoryEntry> entries;
+    std::vector<CtTimelineEntry> entries;
     if (!_pDb) return entries;
 
     sqlite3_stmt* stmt = nullptr;
     int rc = sqlite3_prepare_v2(_pDb, TABLE_SELECT, -1, &stmt, nullptr);
     if (rc != SQLITE_OK) {
-        spdlog::error("CtHistoryStorage: prepare select failed: {}", sqlite3_errmsg(_pDb));
+        spdlog::error("CtTimelineStorage: prepare select failed: {}", sqlite3_errmsg(_pDb));
         return entries;
     }
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
-        CtHistoryEntry e;
+        CtTimelineEntry e;
         e.nodeId = sqlite3_column_int64(stmt, 0);
         e.timestamp = sqlite3_column_int64(stmt, 1);
         e.useDay = sqlite3_column_int(stmt, 2);
@@ -199,13 +227,13 @@ std::vector<CtHistoryEntry> CtHistoryStorage::readEntries()
     return entries;
 }
 
-void CtHistoryStorage::migrateFrom(const std::vector<CtHistoryEntry>& oldEntries)
+void CtTimelineStorage::migrateFrom(const std::vector<CtTimelineEntry>& oldEntries)
 {
     if (oldEntries.empty()) return;
     writeEntries(oldEntries);
 }
 
-void CtHistoryStorage::close()
+void CtTimelineStorage::close()
 {
     if (_pDb) {
         sqlite3_close(_pDb);

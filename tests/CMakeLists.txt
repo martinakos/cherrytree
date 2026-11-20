@@ -82,7 +82,7 @@ package_add_test(run_tests_no_x
   tests_drawing.cpp
   tests_widget_timestamps.cpp
   tests_ocr.cpp
-  tests_local_history.cpp
+  tests_timeline.cpp
   tests_delta_engine.cpp
 )
 
@@ -108,7 +108,7 @@ package_add_test(run_tests_with_x_2
   tests_protected_area.cpp
   tests_command_gui_simulation.cpp
   tests_all_command_descriptions.cpp
-  tests_local_history_gui.cpp
+  tests_timeline_gui.cpp
   ../src/ct/icons.gresource.cc
 )
 

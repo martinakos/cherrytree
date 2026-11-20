@@ -80,7 +80,7 @@ public:
     bool                                        treeVisible{true};
     bool                                        vteVisible{false};
     bool                                        menubarVisible{true};
-    bool                                        historyPanelVisible{false};
+    bool                                        timelinePanelVisible{false};
     int                                         hpanedRightPos{250};
     CtRecentDocsFilepaths                       recentDocsFilepaths;
     CtLatestSearches                            latestSearches;
@@ -106,11 +106,11 @@ public:
     bool                                        nodesOnNodeNameHeaderAutoSize{false};
     bool                                        nodesOnNodeNameHeaderFIFO{false};
     bool                                        nodeNameHeaderFullWidth{true};
-    bool                                        localHistoryEnabled{false};
-    int                                         localHistoryMaxUseDays{30};
-    int                                         localHistoryReplayCycles{3};
-    int                                         localHistoryUseDay{0};
-    std::string                                 localHistoryLastOpenDate;
+    bool                                        timelineEnabled{false};
+    int                                         timelineMaxUseDays{30};
+    int                                         timelineReplayCycles{3};
+    int                                         timelineUseDay{0};
+    std::string                                 timelineLastOpenDate;
     int                                         maxMatchesInPage{500};
     int                                         toolbarIconSize{1};
     int                                         multipleWordsSearchType{0}; // 0: exact match, 1: disregard order (AND), 2: match any (OR)

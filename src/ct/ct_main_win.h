@@ -51,7 +51,7 @@
 #else
 class CtOcrManager;
 #endif
-#include "ct_history_panel.h"
+#include "ct_timeline_panel.h"
 
 struct CtStatusBar
 {
@@ -289,8 +289,8 @@ public:
     void         restart_vte(const char* first_cmd_passed);
 
     void show_hide_win_header(bool visible) { _ctWinHeader.headerBox.property_visible() = visible; }
-    void show_hide_history_panel(bool visible) { _uCtHistoryPanel->get_widget().property_visible() = visible; }
-    CtHistoryPanel* get_history_panel() { return _uCtHistoryPanel.get(); }
+    void show_hide_timeline_panel(bool visible) { _uCtTimelinePanel->get_widget().property_visible() = visible; }
+    CtTimelinePanel* get_timeline_panel() { return _uCtTimelinePanel.get(); }
 
     void resetPrevTreeIter()                { _prevTreeIter = CtTreeIter(); }
 
@@ -457,7 +457,7 @@ private:
     void _on_ocr_result_ready();
     void _process_one_ocr_result();
 #endif
-    std::unique_ptr<CtHistoryPanel>   _uCtHistoryPanel;
+    std::unique_ptr<CtTimelinePanel>   _uCtTimelinePanel;
 
     Glib::RefPtr<Gtk::CssProvider> _css_provider_theme;
 
@@ -475,6 +475,7 @@ private:
     int                 _savedXpos{-1};
     int                 _savedYpos{-1};
     sigc::connection    _autosave_timout_connection;
+    sigc::connection    _autosave_after_replay_connection;
     sigc::connection    _mod_time_sentinel_timout_connection;
     sigc::connection    _startDialogShowConn;
     bool                _tree_just_auto_expanded{false};

@@ -1,5 +1,5 @@
 /*
- * ct_history_panel.h
+ * ct_timeline_panel.h
  *
  * Copyright 2009-2026
  * Giuseppe Penone <giuspen@gmail.com>
@@ -28,23 +28,24 @@
 #include "ct_command.h"
 #include "ct_node_content.h"
 #include "ct_drawing.h"
+#include <unordered_set>
 
 class CtMainWin;
 class CtAnchoredWidget;
 
-class CtHistoryPanel
+class CtTimelinePanel
 {
 public:
-    CtHistoryPanel(CtMainWin* pCtMainWin);
+    CtTimelinePanel(CtMainWin* pCtMainWin);
 
     Gtk::ScrolledWindow& get_widget() { return _scrolledWindow; }
 
-    void add_entry(const CtHistoryEntry& entry);
+    void add_entry(const CtTimelineEntry& entry);
     void remove_entries_for_node(gint64 nodeId);
     void clear();
 
-    std::vector<CtHistoryEntry> get_all_entries() const;
-    void load_entries(const std::vector<CtHistoryEntry>& entries);
+    std::vector<CtTimelineEntry> get_all_entries() const;
+    void load_entries(const std::vector<CtTimelineEntry>& entries);
 
     void refresh_names();
 
@@ -62,18 +63,27 @@ public:
 
 private:
     void _on_row_activated(const Gtk::TreeModel::Path& path, Gtk::TreeViewColumn* column);
-    void _navigate_to_entry(const CtHistoryEntry& entry);
-    void _replayEntry(const CtHistoryEntry& entry);
+    void _navigate_to_entry(const CtTimelineEntry& entry);
+    void _replayEntry(const CtTimelineEntry& entry);
     void _stopReplay();
+    void _restoreBufferModified();
 
-    // Find or create a top-level parent row for a node
-    Gtk::TreeModel::iterator _findOrCreateParent(gint64 nodeId);
+    // Centre the text view on what an entry changed; each returns the new scroll value
+    double _scroll_to_span(double top, double height);
+    double _center_view_on_offset(int offset, int length);
+    double _center_view_on_canvas(const CtDrawingCanvas& canvas);
+
+    void _set_row(const Gtk::TreeModel::Row& row, const CtTimelineEntry& entry);
+    CtTimelineEntry _get_row(const Gtk::TreeModel::Row& row) const;
+    // Entries of a node with one of the given action types, newest first
+    std::vector<CtTimelineEntry> _collect_node_entries(gint64 nodeId, const std::unordered_set<std::string>& actionTypes) const;
+    static int _find_entry(const std::vector<CtTimelineEntry>& entries, const CtTimelineEntry& entry);
 
     CtMainWin* _pCtMainWin;
 
-    class ColumnsHistory : public Gtk::TreeModel::ColumnRecord {
+    class ColumnsTimeline : public Gtk::TreeModel::ColumnRecord {
     public:
-        ColumnsHistory() {
+        ColumnsTimeline() {
             add(colIcon);
             add(colName);
             add(colOperation);
@@ -87,7 +97,6 @@ private:
             add(colRegionLength);
             add(colCanvasIdx);
             add(colUseDay);
-            add(colIsParent);
             add(colDeltaData);
         }
         Gtk::TreeModelColumn<Glib::RefPtr<Gdk::Pixbuf>> colIcon;
@@ -103,19 +112,19 @@ private:
         Gtk::TreeModelColumn<int>                        colRegionLength;
         Gtk::TreeModelColumn<int>                        colCanvasIdx;
         Gtk::TreeModelColumn<int>                        colUseDay;
-        Gtk::TreeModelColumn<bool>                       colIsParent;
         Gtk::TreeModelColumn<std::string>                colDeltaData;
     };
 
-    ColumnsHistory               _columns;
+    ColumnsTimeline               _columns;
     Glib::RefPtr<Gtk::TreeStore> _rTreeStore;
     Gtk::TreeView                _treeView;
     Gtk::ScrolledWindow          _scrolledWindow;
     bool                         _updatingList{false};
+    bool                         _centeringView{false};
 
-    void _replayViaModel(const CtHistoryEntry& entry);
-    void _replayViaDrawingModel(const CtHistoryEntry& entry);
-    void _replayFallbackHighlight(const CtHistoryEntry& entry);
+    void _replayViaModel(const CtTimelineEntry& entry);
+    void _replayViaDrawingModel(const CtTimelineEntry& entry);
+    void _replayFallbackHighlight(const CtTimelineEntry& entry);
     void _replayCanvas(int canvasIdx);
     void _replayTreeRow(gint64 nodeId);
 
@@ -141,6 +150,9 @@ private:
         bool replayingDrawing{false};
         // Fallback highlight
         Glib::RefPtr<Gtk::TextTag> highlightTag;
+        // Buffer changed only for display; its modified flag is put back at the end
+        Glib::RefPtr<Gtk::TextBuffer> displayBuffer;
+        bool displayBufferWasModified{false};
     };
     ReplayState _replayState;
 };

@@ -25,7 +25,7 @@
 
 #include "ct_types.h"
 #include "ct_widgets.h"
-#include "ct_history_storage.h"
+#include "ct_timeline_storage.h"
 #include <glibmm/miscutils.h>
 #include <thread>
 
@@ -83,7 +83,7 @@ public:
     void pending_new_db_node(const gint64 node_id);
     void pending_rm_db_nodes(const std::vector<gint64>& node_ids);
     void pending_edit_db_bookmarks();
-    void pending_edit_db_history();
+    void pending_edit_db_timeline();
 
     /**
      * @brief Add the nodes from an external CT file to the current tree
@@ -107,7 +107,7 @@ private:
     Glib::ustring                    _password;
     fs::path                         _extracted_file_path;
     std::unique_ptr<CtStorageEntity>  _storage;
-    std::unique_ptr<CtHistoryStorage> _historyStorage;
+    std::unique_ptr<CtTimelineStorage> _timelineStorage;
     CtStorageSyncPending             _syncPending;
 
     std::unique_ptr<std::thread> _pThreadBackupEncrypt;

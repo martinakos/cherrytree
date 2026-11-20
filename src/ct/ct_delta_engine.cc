@@ -235,6 +235,8 @@ bool reverseWMod(CtNodeContent& content, const std::vector<std::string>& parts)
     int offset = std::stoi(parts[1]);
     std::string oldXml = Glib::Base64::decode(parts[2]);
     CtWidgetDesc oldDesc = CtWidgetDesc::fromXml(oldXml);
+    // unparsable XML (e.g. unescaped attributes in older entries) would replace the widget with nothing
+    if (oldDesc.type == CtAnchWidgType::None) return false;
     content.replaceWidget(offset, oldDesc);
     return true;
 }
@@ -245,6 +247,7 @@ bool forwardWMod(CtNodeContent& content, const std::vector<std::string>& parts)
     int offset = std::stoi(parts[1]);
     std::string newXml = Glib::Base64::decode(parts[3]);
     CtWidgetDesc newDesc = CtWidgetDesc::fromXml(newXml);
+    if (newDesc.type == CtAnchWidgType::None) return false;
     content.replaceWidget(offset, newDesc);
     return true;
 }

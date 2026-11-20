@@ -137,7 +137,7 @@ struct CtTextRange
     int leading_chars_num{0};
 };
 
-struct CtHistoryEntry
+struct CtTimelineEntry
 {
     gint64      nodeId{0};
     gint64      timestamp{0};
@@ -314,7 +314,7 @@ struct CtStorageSyncPending
 {
     bool                                           fix_db_tables{true};
     bool                                           bookmarks_to_write{false};
-    bool                                           history_to_write{false};
+    bool                                           timeline_to_write{false};
     std::unordered_map<gint64, CtStorageNodeState> nodes_to_write_dict;
     std::unordered_set<gint64>                     nodes_to_rm_set;
 };

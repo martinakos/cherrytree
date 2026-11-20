@@ -111,9 +111,9 @@ bool CtConfig::_load_from_file()
             char dateBuf[11];
             std::strftime(dateBuf, sizeof(dateBuf), "%Y-%m-%d", std::localtime(&now));
             std::string today(dateBuf);
-            if (today != localHistoryLastOpenDate) {
-                localHistoryUseDay++;
-                localHistoryLastOpenDate = today;
+            if (today != timelineLastOpenDate) {
+                timelineUseDay++;
+                timelineLastOpenDate = today;
             }
         }
         // Always start at 100% zoom: restore each font to its reset (default) size
@@ -272,7 +272,7 @@ void CtConfig::_populate_keyfile_from_data()
     _uKeyFile->set_boolean(_currentGroup, "tree_visible", treeVisible);
     _uKeyFile->set_boolean(_currentGroup, "vte_visible", vteVisible);
     _uKeyFile->set_boolean(_currentGroup, "menubar_visible", menubarVisible);
-    _uKeyFile->set_boolean(_currentGroup, "history_panel_visible", historyPanelVisible);
+    _uKeyFile->set_boolean(_currentGroup, "timeline_panel_visible", timelinePanelVisible);
     _uKeyFile->set_integer(_currentGroup, "hpaned_right_pos", hpanedRightPos);
     _uKeyFile->set_string(_currentGroup, "pick_dir_import", pickDirImport);
     _uKeyFile->set_string(_currentGroup, "pick_dir_export", pickDirExport);
@@ -288,11 +288,11 @@ void CtConfig::_populate_keyfile_from_data()
     _uKeyFile->set_boolean(_currentGroup, "nodes_on_node_name_header_auto_size", nodesOnNodeNameHeaderAutoSize);
     _uKeyFile->set_boolean(_currentGroup, "nodes_on_node_name_header_fifo", nodesOnNodeNameHeaderFIFO);
     _uKeyFile->set_boolean(_currentGroup, "node_name_header_full_width", nodeNameHeaderFullWidth);
-    _uKeyFile->set_boolean(_currentGroup, "local_history_enabled", localHistoryEnabled);
-    _uKeyFile->set_integer(_currentGroup, "local_history_max_use_days", localHistoryMaxUseDays);
-    _uKeyFile->set_integer(_currentGroup, "local_history_replay_cycles", localHistoryReplayCycles);
-    _uKeyFile->set_integer(_currentGroup, "local_history_use_day", localHistoryUseDay);
-    _uKeyFile->set_string(_currentGroup, "local_history_last_open_date", localHistoryLastOpenDate);
+    _uKeyFile->set_boolean(_currentGroup, "timeline_enabled", timelineEnabled);
+    _uKeyFile->set_integer(_currentGroup, "timeline_max_use_days", timelineMaxUseDays);
+    _uKeyFile->set_integer(_currentGroup, "timeline_replay_cycles", timelineReplayCycles);
+    _uKeyFile->set_integer(_currentGroup, "timeline_use_day", timelineUseDay);
+    _uKeyFile->set_string(_currentGroup, "timeline_last_open_date", timelineLastOpenDate);
     _uKeyFile->set_integer(_currentGroup, "max_matches_in_page", maxMatchesInPage);
     _uKeyFile->set_integer(_currentGroup, "toolbar_icon_size", toolbarIconSize);
     _uKeyFile->set_integer(_currentGroup, "search_multi_words", multipleWordsSearchType);
@@ -619,7 +619,10 @@ void CtConfig::_populate_data_from_keyfile()
     _populate_bool_from_keyfile("tree_visible", &treeVisible);
     _populate_bool_from_keyfile("vte_visible", &vteVisible);
     _populate_bool_from_keyfile("menubar_visible", &menubarVisible);
-    _populate_bool_from_keyfile("history_panel_visible", &historyPanelVisible);
+    // the timeline was called local history; its keys are read when the new ones are missing
+    if (not _populate_bool_from_keyfile("timeline_panel_visible", &timelinePanelVisible)) {
+        _populate_bool_from_keyfile("history_panel_visible", &timelinePanelVisible);
+    }
     _populate_int_from_keyfile("hpaned_right_pos", &hpanedRightPos);
     if (savedFromPyGtk) {
         CtRecentDocRestore recentDocRestore;
@@ -649,11 +652,21 @@ void CtConfig::_populate_data_from_keyfile()
     _populate_bool_from_keyfile("nodes_on_node_name_header_auto_size", &nodesOnNodeNameHeaderAutoSize);
     _populate_bool_from_keyfile("nodes_on_node_name_header_fifo", &nodesOnNodeNameHeaderFIFO);
     _populate_bool_from_keyfile("node_name_header_full_width", &nodeNameHeaderFullWidth);
-    _populate_bool_from_keyfile("local_history_enabled", &localHistoryEnabled);
-    _populate_int_from_keyfile("local_history_max_use_days", &localHistoryMaxUseDays);
-    _populate_int_from_keyfile("local_history_replay_cycles", &localHistoryReplayCycles);
-    _populate_int_from_keyfile("local_history_use_day", &localHistoryUseDay);
-    _populate_string_from_keyfile("local_history_last_open_date", &localHistoryLastOpenDate);
+    if (not _populate_bool_from_keyfile("timeline_enabled", &timelineEnabled)) {
+        _populate_bool_from_keyfile("local_history_enabled", &timelineEnabled);
+    }
+    if (not _populate_int_from_keyfile("timeline_max_use_days", &timelineMaxUseDays)) {
+        _populate_int_from_keyfile("local_history_max_use_days", &timelineMaxUseDays);
+    }
+    if (not _populate_int_from_keyfile("timeline_replay_cycles", &timelineReplayCycles)) {
+        _populate_int_from_keyfile("local_history_replay_cycles", &timelineReplayCycles);
+    }
+    if (not _populate_int_from_keyfile("timeline_use_day", &timelineUseDay)) {
+        _populate_int_from_keyfile("local_history_use_day", &timelineUseDay);
+    }
+    if (not _populate_string_from_keyfile("timeline_last_open_date", &timelineLastOpenDate)) {
+        _populate_string_from_keyfile("local_history_last_open_date", &timelineLastOpenDate);
+    }
     _populate_int_from_keyfile("max_matches_in_page", &maxMatchesInPage);
     _populate_int_from_keyfile("toolbar_icon_size", &toolbarIconSize);
     _populate_int_from_keyfile("search_multi_words", &multipleWordsSearchType);
@@ -886,8 +899,12 @@ void CtConfig::_populate_data_from_keyfile()
             toolbarUiList.insert(pos, "act_undo,act_redo,separator,");
         }
     }
-    if (toolbarUiList.find("toggle_show_history_panel") == std::string::npos) {
-        toolbarUiList += ",separator,toggle_show_history_panel";
+    // the timeline panel toggle was named toggle_show_history_panel
+    static const std::string oldTimelineToggle{"toggle_show_history_panel"};
+    static const std::string newTimelineToggle{"toggle_show_timeline_panel"};
+    toolbarUiList = str::replace(toolbarUiList, oldTimelineToggle, newTimelineToggle);
+    if (toolbarUiList.find("toggle_show_timeline_panel") == std::string::npos) {
+        toolbarUiList += ",separator,toggle_show_timeline_panel";
     }
     _populate_string_from_keyfile("menubar_top_level_order", &menubarTopLevelOrder);
     _populate_string_from_keyfile("menubar_file_ui_list", &menubarFileUiList);
@@ -905,6 +922,12 @@ void CtConfig::_populate_data_from_keyfile()
     _populate_string_from_keyfile("menubar_search_ui_list", &menubarSearchUiList);
     _populate_string_from_keyfile("menubar_view_ui_list", &menubarViewUiList);
     _populate_string_from_keyfile("menubar_help_ui_list", &menubarHelpUiList);
+    for (std::string* pList : {&menubarFileUiList, &menubarEditUiList, &menubarInsertUiList, &menubarFormatUiList,
+                               &menubarToolsUiList, &menubarTreeUiList, &menubarSearchUiList, &menubarViewUiList,
+                               &menubarHelpUiList})
+    {
+        *pList = str::replace(*pList, oldTimelineToggle, newTimelineToggle);
+    }
     _populate_string_from_keyfile("popup_text_ui_list", &popupTextUiList);
     _populate_string_from_keyfile("popup_code_ui_list", &popupCodeUiList);
     _populate_string_from_keyfile("popup_image_ui_list", &popupImageUiList);

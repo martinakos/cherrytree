@@ -1,8 +1,8 @@
 /*
- * tests_local_history.cpp
+ * tests_timeline.cpp
  *
- * GTK-free unit tests for local history offset adjustment, shift extraction,
- * and CtHistoryEntry data model.
+ * GTK-free unit tests for timeline offset adjustment, shift extraction,
+ * and CtTimelineEntry data model.
  */
 
 #include "ct_filesystem.h"
@@ -13,11 +13,13 @@
 #include "ct_node_commands.h"
 #include "ct_document_model.h"
 #include "ct_types.h"
+#include "ct_timeline_storage.h"
+#include <sqlite3.h>
 #include <gtest/gtest.h>
 #include <vector>
 #include <algorithm>
 
-// Pure offset adjustment logic (mirrors CtHistoryPanel::adjustOffsetsForNode)
+// Pure offset adjustment logic (mirrors CtTimelinePanel::adjustOffsetsForNode)
 static int applyShifts(int offset, const std::vector<CtCommand::OffsetShift>& shifts)
 {
     if (offset < 0) return offset;
@@ -118,7 +120,7 @@ TEST(OffsetAdjust, MultipleEntries)
 TEST(OffsetAdjust, RegionLengthUnchanged)
 {
     // Shifts affect regionOffset but not regionLength — verify no mutation
-    CtHistoryEntry e;
+    CtTimelineEntry e;
     e.regionOffset = 10;
     e.regionLength = 5;
 
@@ -316,11 +318,11 @@ TEST_F(ShiftExtractTest, CompoundAccessors_Empty)
     EXPECT_EQ(compound->getCanvasIndex(), -1);
 }
 
-// ─── CtHistoryEntry Data Model Tests ────────────────────────────────────────
+// ─── CtTimelineEntry Data Model Tests ────────────────────────────────────────
 
-TEST(HistoryEntry, DefaultValues)
+TEST(TimelineEntry, DefaultValues)
 {
-    CtHistoryEntry e;
+    CtTimelineEntry e;
     EXPECT_EQ(e.nodeId, 0);
     EXPECT_EQ(e.timestamp, 0);
     EXPECT_EQ(e.useDay, 0);
@@ -333,9 +335,9 @@ TEST(HistoryEntry, DefaultValues)
     EXPECT_EQ(e.canvasIdx, -1);
 }
 
-TEST(HistoryEntry, FieldAssignment)
+TEST(TimelineEntry, FieldAssignment)
 {
-    CtHistoryEntry e;
+    CtTimelineEntry e;
     e.nodeId = 42;
     e.timestamp = 1722500000;
     e.useDay = 15;
@@ -357,4 +359,39 @@ TEST(HistoryEntry, FieldAssignment)
     EXPECT_EQ(e.regionOffset, 50);
     EXPECT_EQ(e.regionLength, 5);
     EXPECT_EQ(e.canvasIdx, -1);
+}
+
+TEST(TimelineStorage, MigratesLocalHistoryFile)
+{
+    // a document whose timeline was written when it was called local history
+    const fs::path dir = fs::path{Glib::get_tmp_dir()} / ("ct_timeline_" + std::to_string(g_get_monotonic_time()));
+    ASSERT_TRUE(g_mkdir_with_parents(dir.c_str(), 0755) == 0);
+    const fs::path docPath = dir / "doc.ctb";
+    const fs::path legacyPath = dir / "doc.ctb.history";
+    {
+        sqlite3* pDb{nullptr};
+        ASSERT_EQ(sqlite3_open(legacyPath.c_str(), &pDb), SQLITE_OK);
+        ASSERT_EQ(sqlite3_exec(pDb, "CREATE TABLE local_history (id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                                    "node_id INTEGER NOT NULL, timestamp INTEGER NOT NULL, use_day INTEGER DEFAULT 0,"
+                                    "cursor_pos INTEGER DEFAULT 0, scroll_pos INTEGER DEFAULT 0,"
+                                    "action_description TEXT DEFAULT '', action_type TEXT DEFAULT '',"
+                                    "region_offset INTEGER DEFAULT -1, region_length INTEGER DEFAULT 0,"
+                                    "canvas_idx INTEGER DEFAULT -1, delta_data BLOB);"
+                                    "INSERT INTO local_history(node_id,timestamp,action_description,action_type,delta_data)"
+                                    " VALUES(7,1000,'Format (bold)','FMT','FMT|0|3|weight|heavy|0,3,');",
+                               nullptr, nullptr, nullptr), SQLITE_OK);
+        sqlite3_close(pDb);
+    }
+
+    auto storage = CtTimelineStorage::open(docPath, CtDocType::SQLite);
+    ASSERT_TRUE(storage);
+    EXPECT_FALSE(fs::exists(legacyPath));
+    EXPECT_TRUE(fs::exists(CtTimelineStorage::get_timeline_file_path(docPath, CtDocType::SQLite)));
+    auto entries = storage->readEntries();
+    ASSERT_EQ(entries.size(), 1u);
+    EXPECT_EQ(entries[0].nodeId, 7);
+    EXPECT_EQ(entries[0].actionType, "FMT");
+    EXPECT_EQ(entries[0].deltaData, "FMT|0|3|weight|heavy|0,3,");
+    storage.reset();
+    (void)fs::remove_all(dir);
 }

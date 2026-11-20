@@ -91,7 +91,7 @@ CtPrefDlg::CtPrefDlg(CtMainWin* parent)
     pNotebook->append_page(*build_tab_context_menus(),      _("Context Menus"));
     pNotebook->append_page(*build_tab_kb_shortcuts(),       _("Keyboard Shortcuts"));
     pNotebook->append_page(*build_tab_misc(),               _("Miscellaneous"));
-    pNotebook->append_page(*build_tab_local_history(),      _("Local History"));
+    pNotebook->append_page(*build_tab_timeline(),      _("Timeline"));
 
 #if GTKMM_MAJOR_VERSION >= 4
     get_content_area()->append(*pNotebook);
@@ -664,18 +664,18 @@ Gtk::Widget* CtPrefDlg::build_tab_interface()
     return pMainBox;
 }
 
-Gtk::Widget* CtPrefDlg::build_tab_local_history()
+Gtk::Widget* CtPrefDlg::build_tab_timeline()
 {
     // --- Enable checkbox ---
-    auto checkbutton_enable = Gtk::manage(new Gtk::CheckButton{_("Enable Local History")});
-    checkbutton_enable->set_active(_pConfig->localHistoryEnabled);
+    auto checkbutton_enable = Gtk::manage(new Gtk::CheckButton{_("Enable Timeline")});
+    checkbutton_enable->set_active(_pConfig->timelineEnabled);
 
     // --- Retention frame ---
     auto vbox_retention = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_VERTICAL, 4});
     auto hbox_retention_days = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 4});
     auto label_retention_days = Gtk::manage(new Gtk::Label{_("Retention (days of use)")});
     label_retention_days->set_margin_start(2);
-    Glib::RefPtr<Gtk::Adjustment> adj_retention = Gtk::Adjustment::create(_pConfig->localHistoryMaxUseDays, 0, 365, 1);
+    Glib::RefPtr<Gtk::Adjustment> adj_retention = Gtk::Adjustment::create(_pConfig->timelineMaxUseDays, 0, 365, 1);
     auto spinbutton_retention = Gtk::manage(new Gtk::SpinButton{adj_retention});
     spinbutton_retention->set_tooltip_text(_("Entries are kept for this many days that CherryTree is actually used, not calendar days. 0 = unlimited."));
 #if GTKMM_MAJOR_VERSION >= 4
@@ -694,9 +694,9 @@ Gtk::Widget* CtPrefDlg::build_tab_local_history()
     auto hbox_replay_cycles = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 4});
     auto label_replay_cycles = Gtk::manage(new Gtk::Label{_("Replay cycles")});
     label_replay_cycles->set_margin_start(2);
-    Glib::RefPtr<Gtk::Adjustment> adj_replay = Gtk::Adjustment::create(_pConfig->localHistoryReplayCycles, 1, 10, 1);
+    Glib::RefPtr<Gtk::Adjustment> adj_replay = Gtk::Adjustment::create(_pConfig->timelineReplayCycles, 1, 10, 1);
     auto spinbutton_replay = Gtk::manage(new Gtk::SpinButton{adj_replay});
-    spinbutton_replay->set_tooltip_text(_("Number of times to cycle between before/after states when replaying a history entry."));
+    spinbutton_replay->set_tooltip_text(_("Number of times to cycle between before/after states when replaying a timeline entry."));
 #if GTKMM_MAJOR_VERSION >= 4
     hbox_replay_cycles->append(*label_replay_cycles);
     hbox_replay_cycles->append(*spinbutton_replay);
@@ -710,8 +710,8 @@ Gtk::Widget* CtPrefDlg::build_tab_local_history()
 
     // --- Actions frame ---
     auto vbox_actions = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_VERTICAL, 4});
-    auto button_clear_history = Gtk::manage(new Gtk::Button{_("Clear Local History")});
-    button_clear_history->set_halign(
+    auto button_clear_timeline = Gtk::manage(new Gtk::Button{_("Clear Timeline")});
+    button_clear_timeline->set_halign(
 #if GTKMM_MAJOR_VERSION >= 4
         Gtk::Align::START
 #else
@@ -719,9 +719,9 @@ Gtk::Widget* CtPrefDlg::build_tab_local_history()
 #endif
     );
 #if GTKMM_MAJOR_VERSION >= 4
-    vbox_actions->append(*button_clear_history);
+    vbox_actions->append(*button_clear_timeline);
 #else
-    vbox_actions->pack_start(*button_clear_history, false, false);
+    vbox_actions->pack_start(*button_clear_timeline, false, false);
 #endif
     Gtk::Frame* frame_actions = new_managed_frame_with_align(_("Actions"), vbox_actions);
 
@@ -742,32 +742,32 @@ Gtk::Widget* CtPrefDlg::build_tab_local_history()
 #endif
 
     // Initial sensitivity based on enabled state
-    frame_retention->set_sensitive(_pConfig->localHistoryEnabled);
-    frame_replay->set_sensitive(_pConfig->localHistoryEnabled);
-    frame_actions->set_sensitive(_pConfig->localHistoryEnabled);
+    frame_retention->set_sensitive(_pConfig->timelineEnabled);
+    frame_replay->set_sensitive(_pConfig->timelineEnabled);
+    frame_actions->set_sensitive(_pConfig->timelineEnabled);
 
     // --- Signal handlers ---
     checkbutton_enable->signal_toggled().connect([this, checkbutton_enable, frame_retention, frame_replay, frame_actions](){
-        _pConfig->localHistoryEnabled = checkbutton_enable->get_active();
-        frame_retention->set_sensitive(_pConfig->localHistoryEnabled);
-        frame_replay->set_sensitive(_pConfig->localHistoryEnabled);
-        frame_actions->set_sensitive(_pConfig->localHistoryEnabled);
+        _pConfig->timelineEnabled = checkbutton_enable->get_active();
+        frame_retention->set_sensitive(_pConfig->timelineEnabled);
+        frame_replay->set_sensitive(_pConfig->timelineEnabled);
+        frame_actions->set_sensitive(_pConfig->timelineEnabled);
         apply_for_each_window([this](CtMainWin* win) {
-            if (!_pConfig->localHistoryEnabled) {
-                win->show_hide_history_panel(false);
+            if (!_pConfig->timelineEnabled) {
+                win->show_hide_timeline_panel(false);
             }
             win->menu_rebuild_toolbars(true);
             win->menu_rebuild_menubar();
         });
     });
     spinbutton_retention->signal_value_changed().connect([this, spinbutton_retention](){
-        _pConfig->localHistoryMaxUseDays = spinbutton_retention->get_value_as_int();
+        _pConfig->timelineMaxUseDays = spinbutton_retention->get_value_as_int();
     });
     spinbutton_replay->signal_value_changed().connect([this, spinbutton_replay](){
-        _pConfig->localHistoryReplayCycles = spinbutton_replay->get_value_as_int();
+        _pConfig->timelineReplayCycles = spinbutton_replay->get_value_as_int();
     });
-    button_clear_history->signal_clicked().connect([this](){
-        apply_for_each_window([](CtMainWin* win) { win->get_history_panel()->clear(); });
+    button_clear_timeline->signal_clicked().connect([this](){
+        apply_for_each_window([](CtMainWin* win) { win->get_timeline_panel()->clear(); });
     });
 
     return pMainBox;

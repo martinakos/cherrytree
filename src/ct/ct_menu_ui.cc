@@ -35,7 +35,7 @@ std::vector<std::string> CtMenu::_get_ui_str_toolbars()
                 str_buff += "<child><object class='GtkSeparatorToolItem'/></child>";
             }
             else {
-                if (*element == "toggle_show_history_panel" and not _pCtConfig->localHistoryEnabled) continue;
+                if (*element == "toggle_show_timeline_panel" and not _pCtConfig->timelineEnabled) continue;
                 const bool isOpenRecent{*element == CtConst::CHAR_STAR};
                 const bool isUndoRedo{*element == "act_undo" or *element == "act_redo"};
                 const bool isToggle{*element == "toggle_drawing_mode"};
@@ -157,10 +157,10 @@ std::string CtMenu::_get_ui_str_menu()
         auto it = submenuConfigMap.find(menuId);
         if (it != submenuConfigMap.end()) {
             std::string configStr = *it->second;
-            if (not _pCtConfig->localHistoryEnabled) {
-                configStr = str::replace(configStr, ",toggle_show_history_panel", "");
-                configStr = str::replace(configStr, "toggle_show_history_panel,", "");
-                configStr = str::replace(configStr, "toggle_show_history_panel", "");
+            if (not _pCtConfig->timelineEnabled) {
+                configStr = str::replace(configStr, ",toggle_show_timeline_panel", "");
+                configStr = str::replace(configStr, "toggle_show_timeline_panel,", "");
+                configStr = str::replace(configStr, "toggle_show_timeline_panel", "");
             }
             xml += "<menu action='" + menuId + "'>";
             xml += generate_menu_xml(configStr);

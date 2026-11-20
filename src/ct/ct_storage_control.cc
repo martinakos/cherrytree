@@ -23,7 +23,7 @@
 
 #include "ct_dialogs.h"
 #include "ct_storage_control.h"
-#include "ct_history_storage.h"
+#include "ct_timeline_storage.h"
 #include "ct_storage_xml.h"
 #include "ct_storage_sqlite.h"
 #include "ct_storage_multifile.h"
@@ -150,13 +150,13 @@ static bool _move_dir_with_fallback(const fs::path& dir_from, const fs::path& di
         doc->_extracted_file_path = extracted_file_path;
         doc->_storage.swap(pStorage);
 
-        // Open separate history storage if enabled and not encrypted
-        if (doc->_pCtConfig->localHistoryEnabled and doc->_password.empty()) {
-            doc->_historyStorage = CtHistoryStorage::open(extracted_file_path, doc_type);
-            if (doc->_historyStorage) {
-                auto entries = doc->_historyStorage->readEntries();
+        // Open the separate timeline storage if enabled and not encrypted
+        if (doc->_pCtConfig->timelineEnabled and doc->_password.empty()) {
+            doc->_timelineStorage = CtTimelineStorage::open(extracted_file_path, doc_type);
+            if (doc->_timelineStorage) {
+                auto entries = doc->_timelineStorage->readEntries();
                 if (!entries.empty()) {
-                    pCtMainWin->get_history_panel()->load_entries(entries);
+                    pCtMainWin->get_timeline_panel()->load_entries(entries);
                 }
             }
         }
@@ -333,13 +333,13 @@ static bool _move_dir_with_fallback(const fs::path& dir_from, const fs::path& di
         doc->_extracted_file_path = extracted_file_path;
         doc->_storage.swap(storage);
 
-        // Open separate history storage if enabled and not encrypted
-        if (doc->_pCtConfig->localHistoryEnabled and password.empty()) {
-            doc->_historyStorage = CtHistoryStorage::open(extracted_file_path, doc_type);
-            if (doc->_historyStorage) {
-                auto entries = pCtMainWin->get_history_panel()->get_all_entries();
+        // Open the separate timeline storage if enabled and not encrypted
+        if (doc->_pCtConfig->timelineEnabled and password.empty()) {
+            doc->_timelineStorage = CtTimelineStorage::open(extracted_file_path, doc_type);
+            if (doc->_timelineStorage) {
+                auto entries = pCtMainWin->get_timeline_panel()->get_all_entries();
                 if (!entries.empty()) {
-                    doc->_historyStorage->writeEntries(entries);
+                    doc->_timelineStorage->writeEntries(entries);
                 }
             }
         }
@@ -446,11 +446,11 @@ bool CtStorageControl::save(bool need_vacuum, Glib::ustring& error)
 #endif // DEBUG_BACKUP_ENCRYPT
             }
         }
-        // write history to separate storage if available
-        if (_historyStorage and _syncPending.history_to_write) {
-            auto entries = _pCtMainWin->get_history_panel()->get_all_entries();
-            _historyStorage->writeEntries(entries);
-            _syncPending.history_to_write = false;
+        // write the timeline to its separate storage if available
+        if (_timelineStorage and _syncPending.timeline_to_write) {
+            auto entries = _pCtMainWin->get_timeline_panel()->get_all_entries();
+            _timelineStorage->writeEntries(entries);
+            _syncPending.timeline_to_write = false;
         }
         // save changes
         if (not _storage->save_treestore(_extracted_file_path,
@@ -489,7 +489,7 @@ bool CtStorageControl::save(bool need_vacuum, Glib::ustring& error)
         }
         _syncPending.fix_db_tables = false;
         _syncPending.bookmarks_to_write = false;
-        _syncPending.history_to_write = false;
+        _syncPending.timeline_to_write = false;
         _syncPending.nodes_to_rm_set.clear();
         _syncPending.nodes_to_write_dict.clear();
 
@@ -872,9 +872,9 @@ void CtStorageControl::pending_edit_db_bookmarks()
     _syncPending.bookmarks_to_write = true;
 }
 
-void CtStorageControl::pending_edit_db_history()
+void CtStorageControl::pending_edit_db_timeline()
 {
-    _syncPending.history_to_write = true;
+    _syncPending.timeline_to_write = true;
 }
 
 void CtStorageControl::add_nodes_from_storage(const fs::path& file_path,

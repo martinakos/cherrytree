@@ -327,6 +327,88 @@ TEST(DeltaEngineRoundTrip, WMod)
     EXPECT_EQ(content.length(), 4u);
 }
 
+TEST(DeltaEngineRoundTrip, WMod_ImageWithSpecialCharsInAttributes)
+{
+    // OCR text and links commonly contain XML special characters
+    CtWidgetDesc imgOld(CtAnchWidgType::ImagePng);
+    imgOld.setProperty("justification", "left");
+    imgOld.setProperty("link", "webs https://example.com/?a=1&b=2");
+    imgOld.setProperty("ocr_text", "Ankle & Core <pelvis> \"program\" it's");
+    imgOld.contentData = "iVBORw0KGgo=";
+    CtWidgetDesc imgNew = imgOld;
+    imgNew.setProperty("display_width", "832");
+    imgNew.setProperty("display_height", "575");
+
+    CtNodeContent content;
+    content.insertText(0, "abc", {});
+    content.insertWidget(3, imgNew);
+    const std::string delta = makeWMod(3, imgOld, imgNew);
+
+    ASSERT_TRUE(CtDeltaEngine::applyReverse(content, delta));
+    auto wdBefore = content.getWidgetDescAt(3);
+    EXPECT_EQ(wdBefore.type, CtAnchWidgType::ImagePng);
+    EXPECT_EQ(wdBefore.contentData, "iVBORw0KGgo=");
+    EXPECT_EQ(wdBefore.getProperty("ocr_text"), "Ankle & Core <pelvis> \"program\" it's");
+    EXPECT_EQ(wdBefore.getProperty("link"), "webs https://example.com/?a=1&b=2");
+    EXPECT_EQ(wdBefore.getProperty("display_width"), "");
+
+    ASSERT_TRUE(CtDeltaEngine::applyForward(content, delta));
+    auto wdAfter = content.getWidgetDescAt(3);
+    EXPECT_EQ(wdAfter.contentData, "iVBORw0KGgo=");
+    EXPECT_EQ(wdAfter.getProperty("display_width"), "832");
+}
+
+TEST(DeltaEngineRoundTrip, WMod_LegacyUnescapedAttributes)
+{
+    // entries written before attributes were escaped hold bare '&' and '<'
+    CtWidgetDesc img(CtAnchWidgType::ImagePng);
+    img.contentData = "iVBORw0KGgo=";
+    img.setProperty("display_width", "832");
+    CtNodeContent content;
+    content.insertWidget(0, img);
+
+    const std::string delta = "WMod|0|"
+        + Glib::Base64::encode("<encoded_png char_offset=\"0\" ocr_text=\"Ankle & Core <pelvis> &amp; &#38;\">iVBORw0KGgo=</encoded_png>") + "|"
+        + Glib::Base64::encode(img.toXml(0).raw());
+    ASSERT_TRUE(CtDeltaEngine::applyReverse(content, delta));
+    auto wdBefore = content.getWidgetDescAt(0);
+    EXPECT_EQ(wdBefore.type, CtAnchWidgType::ImagePng);
+    EXPECT_EQ(wdBefore.contentData, "iVBORw0KGgo=");
+    EXPECT_EQ(wdBefore.getProperty("ocr_text"), "Ankle & Core <pelvis> & &");
+    EXPECT_EQ(wdBefore.getProperty("display_width"), "");
+}
+
+TEST(DeltaEngineRoundTrip, WMod_UnparsableXmlKeepsWidget)
+{
+    // a stray quote cannot be repaired
+    CtWidgetDesc img(CtAnchWidgType::ImagePng);
+    img.contentData = "iVBORw0KGgo=";
+    CtNodeContent content;
+    content.insertWidget(0, img);
+
+    const std::string delta = "WMod|0|"
+        + Glib::Base64::encode("<encoded_png ocr_text=\"a \"quoted\" b\">iVBORw0KGgo=</encoded_png>") + "|"
+        + Glib::Base64::encode(img.toXml(0).raw());
+    EXPECT_FALSE(CtDeltaEngine::applyReverse(content, delta));
+    EXPECT_EQ(content.getWidgetDescAt(0).type, CtAnchWidgType::ImagePng);
+    EXPECT_EQ(content.getWidgetDescAt(0).contentData, "iVBORw0KGgo=");
+}
+
+TEST(DeltaEngineRoundTrip, TED_LinkWithAmpersand)
+{
+    CtNodeContent oldContent;
+    oldContent.insertText(0, "link", {{"link", "webs https://example.com/?a=1&b=2"}});
+    CtNodeContent newContent;
+    newContent.insertText(0, "text", {});
+
+    CtNodeContent content = newContent;
+    const std::string delta = "TED|" + Glib::Base64::encode(oldContent.toXml().raw()) + "|"
+                            + Glib::Base64::encode(newContent.toXml().raw());
+    ASSERT_TRUE(CtDeltaEngine::applyReverse(content, delta));
+    EXPECT_EQ(content.getText(), "link");
+    EXPECT_EQ(content, oldContent);
+}
+
 TEST(DeltaEngineRoundTrip, TCel)
 {
     CtNodeContent content;

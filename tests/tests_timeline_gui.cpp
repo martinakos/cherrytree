@@ -1,16 +1,16 @@
 /*
- * tests_local_history_gui.cpp
+ * tests_timeline_gui.cpp
  *
- * Integration tests for the local history panel: entry creation, offset
+ * Integration tests for the timeline panel: entry creation, offset
  * adjustment, grouping, flash, and persistence.
  * Cross-comparison tests: every undo/redo operation produces a matching
- * local history entry, and clicking that entry triggers a bounding box flash.
+ * timeline entry, and clicking that entry triggers a bounding box flash.
  */
 
 #include "tests_common.h"
 #include "ct_app.h"
 #include "ct_command_bridge.h"
-#include "ct_history_panel.h"
+#include "ct_timeline_panel.h"
 #include "ct_text_commands.h"
 #include "ct_widget_commands.h"
 #include "ct_actions.h"
@@ -19,17 +19,17 @@
 #include <gtest/gtest.h>
 #include <set>
 
-class TestLocalHistoryApp : public CtApp
+class TestTimelineApp : public CtApp
 {
 public:
-    TestLocalHistoryApp() : CtApp{"_test_local_history", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
+    TestTimelineApp() : CtApp{"_test_timeline", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 
 private:
     void on_activate() final;
     void _run_tests(CtMainWin* pWin);
 };
 
-void TestLocalHistoryApp::on_activate()
+void TestTimelineApp::on_activate()
 {
     _on_startup();
     auto _quitGuard = scope_guard([this](void*) { quit(); });
@@ -48,7 +48,7 @@ void TestLocalHistoryApp::on_activate()
     remove_window(*pWin);
 }
 
-void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
+void TestTimelineApp::_run_tests(CtMainWin* pWin)
 {
     auto drainEvents = [](){
         while (gtk_events_pending()) gtk_main_iteration_do(false);
@@ -58,13 +58,13 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
     ASSERT_TRUE(pBridge);
     ASSERT_TRUE(pBridge->isActive());
 
-    auto* panel = pWin->get_history_panel();
+    auto* panel = pWin->get_timeline_panel();
     ASSERT_TRUE(panel);
 
-    // Enable local history for all tests (disabled by default)
-    pWin->get_ct_config()->localHistoryEnabled = true;
+    // Enable the timeline for all tests (disabled by default)
+    pWin->get_ct_config()->timelineEnabled = true;
 
-    spdlog::info("=== Local History Panel Tests ===");
+    spdlog::info("=== Timeline Panel Tests ===");
 
     // Select a node first
     auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
@@ -72,9 +72,9 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
     pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
     drainEvents();
 
-    // --- HistoryEntry_AddAndRetrieve ---
+    // --- TimelineEntry_AddAndRetrieve ---
     {
-        spdlog::info("HistoryEntry_AddAndRetrieve");
+        spdlog::info("TimelineEntry_AddAndRetrieve");
         panel->clear();
         drainEvents();
 
@@ -82,7 +82,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
         ASSERT_TRUE(treeIter);
         gint64 nodeId = treeIter.get_node_id();
 
-        CtHistoryEntry e;
+        CtTimelineEntry e;
         e.nodeId = nodeId;
         e.timestamp = 5000;
         e.actionDescription = "Type 'hello'";
@@ -107,81 +107,63 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
         drainEvents();
     }
 
-    // --- GroupedPanel_EntriesGrouped ---
+    // --- Chronological_NewestOnTopNodesRepeated ---
     {
-        spdlog::info("GroupedPanel_EntriesGrouped");
+        spdlog::info("Chronological_NewestOnTopNodesRepeated");
         panel->clear();
         drainEvents();
 
-        auto treeIter = pWin->curr_tree_iter();
-        ASSERT_TRUE(treeIter);
-        gint64 nodeId1 = treeIter.get_node_id();
-
-        CtHistoryEntry e1;
-        e1.nodeId = nodeId1;
-        e1.timestamp = 1000;
-        e1.actionDescription = "Test action 1";
-        e1.actionType = "INS";
-        e1.regionOffset = 0;
-        e1.regionLength = 5;
-        e1.useDay = 1;
-        panel->add_entry(e1);
-
-        CtHistoryEntry e2;
-        e2.nodeId = nodeId1 + 999999;
-        e2.timestamp = 2000;
-        e2.actionDescription = "Test action 2";
-        e2.actionType = "INS";
-        e2.regionOffset = 10;
-        e2.regionLength = 3;
-        e2.useDay = 1;
-        panel->add_entry(e2);
+        auto f_entry = [](gint64 nodeId, gint64 ts, const char* desc) {
+            CtTimelineEntry e;
+            e.nodeId = nodeId;
+            e.timestamp = ts;
+            e.actionDescription = desc;
+            e.actionType = "INS";
+            e.regionOffset = 0;
+            e.regionLength = 1;
+            e.useDay = 1;
+            return e;
+        };
+        // node A, then node B, then node A again
+        panel->add_entry(f_entry(12345, 1000, "A first"));
+        panel->add_entry(f_entry(54321, 2000, "B"));
+        panel->add_entry(f_entry(12345, 3000, "A second"));
 
         auto entries = panel->get_all_entries();
-        EXPECT_EQ(entries.size(), 2u);
+        ASSERT_EQ(entries.size(), 3u);
+        EXPECT_EQ(entries[0].actionDescription, "A second");
+        EXPECT_EQ(entries[1].actionDescription, "B");
+        EXPECT_EQ(entries[2].actionDescription, "A first");
 
-        std::set<gint64> nodeIds;
-        for (const auto& e : entries) nodeIds.insert(e.nodeId);
-        EXPECT_EQ(nodeIds.size(), 2u) << "Entries for 2 nodes should produce 2 groups";
+        auto store = panel->getTreeView().get_model();
+        EXPECT_EQ(store->children().size(), 3u) << "every entry is its own row";
+        for (const auto& row : store->children()) {
+            EXPECT_TRUE(row.children().empty()) << "entries must not be nested under a node";
+        }
 
         panel->clear();
         drainEvents();
     }
 
-    // --- GroupedPanel_TopLevelShowsLatest ---
+    // --- Chronological_LoadSortsGroupedFile ---
     {
-        spdlog::info("GroupedPanel_TopLevelShowsLatest");
+        spdlog::info("Chronological_LoadSortsGroupedFile");
         panel->clear();
         drainEvents();
 
-        gint64 testNodeId = 12345;
-
-        CtHistoryEntry e1;
-        e1.nodeId = testNodeId;
-        e1.timestamp = 1000;
-        e1.actionDescription = "First action";
-        e1.actionType = "INS";
-        e1.regionOffset = 0;
-        e1.regionLength = 3;
-        e1.useDay = 1;
-        panel->add_entry(e1);
-
-        CtHistoryEntry e2;
-        e2.nodeId = testNodeId;
-        e2.timestamp = 2000;
-        e2.actionDescription = "Second action";
-        e2.actionType = "DEL";
-        e2.regionOffset = 5;
-        e2.regionLength = 0;
-        e2.useDay = 1;
-        panel->add_entry(e2);
+        // timeline files written when entries were grouped by node
+        std::vector<CtTimelineEntry> grouped(3);
+        grouped[0].nodeId = 12345; grouped[0].timestamp = 3000; grouped[0].actionDescription = "A second";
+        grouped[1].nodeId = 12345; grouped[1].timestamp = 1000; grouped[1].actionDescription = "A first";
+        grouped[2].nodeId = 54321; grouped[2].timestamp = 2000; grouped[2].actionDescription = "B";
+        for (auto& e : grouped) { e.actionType = "INS"; e.useDay = pWin->get_ct_config()->timelineUseDay; }
+        panel->load_entries(grouped);
 
         auto entries = panel->get_all_entries();
-        EXPECT_EQ(entries.size(), 2u);
-        if (!entries.empty()) {
-            EXPECT_EQ(entries[0].actionDescription, "Second action")
-                << "First child (newest) should be the latest action";
-        }
+        ASSERT_EQ(entries.size(), 3u);
+        EXPECT_EQ(entries[0].actionDescription, "A second");
+        EXPECT_EQ(entries[1].actionDescription, "B");
+        EXPECT_EQ(entries[2].actionDescription, "A first");
 
         panel->clear();
         drainEvents();
@@ -195,7 +177,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
 
         gint64 testNodeId = 54321;
 
-        CtHistoryEntry e1;
+        CtTimelineEntry e1;
         e1.nodeId = testNodeId;
         e1.timestamp = 1000;
         e1.actionDescription = "Older entry";
@@ -226,7 +208,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
 
         gint64 testNodeId = 54322;
 
-        CtHistoryEntry e1;
+        CtTimelineEntry e1;
         e1.nodeId = testNodeId;
         e1.timestamp = 1000;
         e1.actionDescription = "Older entry";
@@ -257,7 +239,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
         gint64 testNodeId = 99999;
 
         for (int i = 0; i < 5; ++i) {
-            CtHistoryEntry e;
+            CtTimelineEntry e;
             e.nodeId = testNodeId;
             e.timestamp = 1000 + i;
             e.actionDescription = "Action " + std::to_string(i);
@@ -280,15 +262,15 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
         spdlog::info("LoadEntries_PruneByUseDay");
 
         auto* config = pWin->get_ct_config();
-        int savedUseDay = config->localHistoryUseDay;
-        int savedMax = config->localHistoryMaxUseDays;
+        int savedUseDay = config->timelineUseDay;
+        int savedMax = config->timelineMaxUseDays;
 
-        config->localHistoryUseDay = 50;
-        config->localHistoryMaxUseDays = 10;
+        config->timelineUseDay = 50;
+        config->timelineMaxUseDays = 10;
 
-        std::vector<CtHistoryEntry> entries;
+        std::vector<CtTimelineEntry> entries;
 
-        CtHistoryEntry old_entry;
+        CtTimelineEntry old_entry;
         old_entry.nodeId = 1;
         old_entry.timestamp = 1000;
         old_entry.actionDescription = "Old action";
@@ -297,7 +279,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
         old_entry.useDay = 30; // 50 - 30 = 20 > maxUseDays(10) → pruned
         entries.push_back(old_entry);
 
-        CtHistoryEntry recent_entry;
+        CtTimelineEntry recent_entry;
         recent_entry.nodeId = 2;
         recent_entry.timestamp = 2000;
         recent_entry.actionDescription = "Recent action";
@@ -315,8 +297,8 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
             EXPECT_EQ(loaded[0].actionDescription, "Recent action");
         }
 
-        config->localHistoryUseDay = savedUseDay;
-        config->localHistoryMaxUseDays = savedMax;
+        config->timelineUseDay = savedUseDay;
+        config->timelineMaxUseDays = savedMax;
         panel->clear();
         drainEvents();
     }
@@ -329,7 +311,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
 
         gint64 testNodeId = 77777;
 
-        CtHistoryEntry e1;
+        CtTimelineEntry e1;
         e1.nodeId = testNodeId;
         e1.timestamp = 1000;
         e1.actionDescription = "Test";
@@ -357,7 +339,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
         panel->clear();
         drainEvents();
 
-        CtHistoryEntry e1;
+        CtTimelineEntry e1;
         e1.nodeId = 111;
         e1.timestamp = 1000;
         e1.actionDescription = "Keep";
@@ -365,7 +347,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
         e1.useDay = 1;
         panel->add_entry(e1);
 
-        CtHistoryEntry e2;
+        CtTimelineEntry e2;
         e2.nodeId = 222;
         e2.timestamp = 2000;
         e2.actionDescription = "Remove";
@@ -388,14 +370,14 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
 
     // ═══════════════════════════════════════════════════════════════════════
     // Cross-comparison tests: every undoable operation creates a matching
-    // local history entry with correct actionType/regionOffset, and clicking
+    // timeline entry with correct actionType/regionOffset, and clicking
     // the entry triggers a bounding box flash.
     // ═══════════════════════════════════════════════════════════════════════
 
     auto* pActions = pWin->get_ct_actions();
 
-    // Helper: simulate clicking a history panel row and drain idle callbacks
-    auto activateFirstEntry = [&](CtHistoryPanel* p) {
+    // Helper: simulate clicking a timeline panel row and drain idle callbacks
+    auto activateFirstEntry = [&](CtTimelinePanel* p) {
         auto& tv = p->getTreeView();
         auto store = tv.get_model();
         auto topIter = store->children().begin();
@@ -414,7 +396,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
         drainEvents();
     };
 
-    // --- InsertText creates history entry with INS and flashes ---
+    // --- InsertText creates timeline entry with INS and flashes ---
     {
         spdlog::info("CrossCompare: InsertText");
         panel->clear();
@@ -440,7 +422,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
         EXPECT_GT(newUndoCount, initialUndoCount) << "Typing should create an undo entry";
 
         auto entries = panel->get_all_entries();
-        ASSERT_GE(entries.size(), 1u) << "Typing should create a local history entry";
+        ASSERT_GE(entries.size(), 1u) << "Typing should create a timeline entry";
 
         // Find entry for this node — latest should be INS
         bool foundINS = false;
@@ -464,7 +446,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
         drainEvents();
     }
 
-    // --- DeleteText creates history entry with DEL and flashes ---
+    // --- DeleteText creates timeline entry with DEL and flashes ---
     {
         spdlog::info("CrossCompare: DeleteText");
         panel->clear();
@@ -513,7 +495,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
         drainEvents();
     }
 
-    // --- Format (bold) creates history entry with FMT and flashes ---
+    // --- Format (bold) creates timeline entry with FMT and flashes ---
     {
         spdlog::info("CrossCompare: FormatBold");
         panel->clear();
@@ -563,7 +545,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
         drainEvents();
     }
 
-    // --- Undo creates a history entry ---
+    // --- Undo creates a timeline entry ---
     {
         spdlog::info("CrossCompare: UndoCreatesEntry");
         panel->clear();
@@ -587,14 +569,14 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
 
         auto entries = panel->get_all_entries();
         EXPECT_GT(entries.size(), entriesBeforeUndo)
-            << "Undo should create a new local history entry";
+            << "Undo should create a new timeline entry";
 
         panel->clear();
         while (pBridge->canUndo()) pActions->requested_step_back();
         drainEvents();
     }
 
-    // --- Redo creates a history entry ---
+    // --- Redo creates a timeline entry ---
     {
         spdlog::info("CrossCompare: RedoCreatesEntry");
         panel->clear();
@@ -621,16 +603,16 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
 
         auto entries = panel->get_all_entries();
         EXPECT_GT(entries.size(), entriesBeforeRedo)
-            << "Redo should create a new local history entry";
+            << "Redo should create a new timeline entry";
 
         panel->clear();
         while (pBridge->canUndo()) pActions->requested_step_back();
         drainEvents();
     }
 
-    // --- Undo stack count matches local history entry count ---
+    // --- Undo stack count matches timeline entry count ---
     {
-        spdlog::info("CrossCompare: UndoStackMatchesHistory");
+        spdlog::info("CrossCompare: UndoStackMatchesTimeline");
         panel->clear();
         drainEvents();
 
@@ -661,10 +643,10 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
         drainEvents();
 
         size_t undoCount = pBridge->getUndoStackDescriptions().size();
-        size_t historyCount = panel->get_all_entries().size();
+        size_t timelineCount = panel->get_all_entries().size();
 
-        EXPECT_GE(historyCount, undoCount)
-            << "Local history should have at least as many entries as the undo stack "
+        EXPECT_GE(timelineCount, undoCount)
+            << "Timeline should have at least as many entries as the undo stack "
                "(undo/redo also creates entries)";
 
         panel->clear();
@@ -730,7 +712,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
             panel->clear();
             drainEvents();
 
-            CtHistoryEntry e;
+            CtTimelineEntry e;
             e.nodeId = nodeId;
             e.timestamp = std::time(nullptr);
             e.actionDescription = "Test " + aType;
@@ -763,7 +745,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
             panel->clear();
             drainEvents();
 
-            CtHistoryEntry e;
+            CtTimelineEntry e;
             e.nodeId = nodeId;
             e.timestamp = std::time(nullptr);
             e.actionDescription = "Test " + aType;
@@ -787,8 +769,8 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
     {
         spdlog::info("DeltaData_PopulatedForINS");
         auto* config = pWin->get_ct_config();
-        bool savedEnabled = config->localHistoryEnabled;
-        config->localHistoryEnabled = true;
+        bool savedEnabled = config->timelineEnabled;
+        config->timelineEnabled = true;
         panel->clear();
         drainEvents();
 
@@ -816,7 +798,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
         // Undo the typing
         pActions->requested_step_back();
         drainEvents();
-        config->localHistoryEnabled = savedEnabled;
+        config->timelineEnabled = savedEnabled;
         panel->clear();
         drainEvents();
     }
@@ -825,8 +807,8 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
     {
         spdlog::info("DeltaData_PopulatedForDEL");
         auto* config = pWin->get_ct_config();
-        bool savedEnabled = config->localHistoryEnabled;
-        config->localHistoryEnabled = true;
+        bool savedEnabled = config->timelineEnabled;
+        config->timelineEnabled = true;
         panel->clear();
         drainEvents();
 
@@ -866,7 +848,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
         pActions->requested_step_back();
         pActions->requested_step_back();
         drainEvents();
-        config->localHistoryEnabled = savedEnabled;
+        config->timelineEnabled = savedEnabled;
         panel->clear();
         drainEvents();
     }
@@ -875,8 +857,8 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
     {
         spdlog::info("DeltaData_LargeDeltas");
         auto* config = pWin->get_ct_config();
-        bool savedEnabled = config->localHistoryEnabled;
-        config->localHistoryEnabled = true;
+        bool savedEnabled = config->timelineEnabled;
+        config->timelineEnabled = true;
         panel->clear();
         drainEvents();
 
@@ -902,24 +884,24 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
         // Undo
         pActions->requested_step_back();
         drainEvents();
-        config->localHistoryEnabled = savedEnabled;
+        config->timelineEnabled = savedEnabled;
         panel->clear();
         drainEvents();
     }
 
-    // --- EnableDisable_ControlsHistoryCreation ---
+    // --- EnableDisable_ControlsTimelineCreation ---
     {
-        spdlog::info("EnableDisable_ControlsHistoryCreation");
+        spdlog::info("EnableDisable_ControlsTimelineCreation");
         auto* config = pWin->get_ct_config();
-        bool savedEnabled = config->localHistoryEnabled;
-        config->localHistoryEnabled = false;
+        bool savedEnabled = config->timelineEnabled;
+        config->timelineEnabled = false;
         panel->clear();
         drainEvents();
 
         auto rBuffer = pWin->curr_buffer();
         ASSERT_TRUE(rBuffer);
 
-        // Edit with history disabled — no entries should be created via bridge
+        // Edit with the timeline disabled — no entries should be created via bridge
         rBuffer->place_cursor(rBuffer->end());
         rBuffer->insert_at_cursor("disabled");
         drainEvents();
@@ -927,14 +909,14 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
         drainEvents();
 
         auto entries = panel->get_all_entries();
-        EXPECT_EQ(entries.size(), 0u) << "No entries should be created when history is disabled";
+        EXPECT_EQ(entries.size(), 0u) << "No entries should be created when the timeline is disabled";
 
         // Undo
         pActions->requested_step_back();
         drainEvents();
 
         // Enable and edit — entries should appear
-        config->localHistoryEnabled = true;
+        config->timelineEnabled = true;
         rBuffer->place_cursor(rBuffer->end());
         rBuffer->insert_at_cursor("enabled");
         drainEvents();
@@ -942,11 +924,11 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
         drainEvents();
 
         entries = panel->get_all_entries();
-        EXPECT_GT(entries.size(), 0u) << "Entries should be created when history is enabled";
+        EXPECT_GT(entries.size(), 0u) << "Entries should be created when the timeline is enabled";
 
         // Disable again — no new entries
         size_t countBefore = entries.size();
-        config->localHistoryEnabled = false;
+        config->timelineEnabled = false;
         rBuffer->place_cursor(rBuffer->end());
         rBuffer->insert_at_cursor("disabled2");
         drainEvents();
@@ -958,11 +940,11 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
             << "No new entries should appear after disabling";
 
         // Undo both inserts
-        config->localHistoryEnabled = true;
+        config->timelineEnabled = true;
         pActions->requested_step_back();
         pActions->requested_step_back();
         drainEvents();
-        config->localHistoryEnabled = savedEnabled;
+        config->timelineEnabled = savedEnabled;
         panel->clear();
         drainEvents();
     }
@@ -977,7 +959,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
         ASSERT_TRUE(treeIter);
         gint64 nodeId = treeIter.get_node_id();
 
-        CtHistoryEntry e;
+        CtTimelineEntry e;
         e.nodeId = nodeId;
         e.timestamp = 9000;
         e.actionDescription = "Test delta storage";
@@ -999,15 +981,15 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
 
     // ═══════════════════════════════════════════════════════════════════════
     // Section A: Delta serialization completeness — every document model
-    // operation produces a history entry with correctly-prefixed deltaData.
+    // operation produces a timeline entry with correctly-prefixed deltaData.
     // ═══════════════════════════════════════════════════════════════════════
 
     // --- DeltaData_PopulatedForFMT ---
     {
         spdlog::info("DeltaData_PopulatedForFMT");
         auto* config = pWin->get_ct_config();
-        bool savedEnabled = config->localHistoryEnabled;
-        config->localHistoryEnabled = true;
+        bool savedEnabled = config->timelineEnabled;
+        config->timelineEnabled = true;
         panel->clear();
         while (pBridge->canUndo()) pActions->requested_step_back();
         drainEvents();
@@ -1046,7 +1028,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
 
         while (pBridge->canUndo()) pActions->requested_step_back();
         drainEvents();
-        config->localHistoryEnabled = savedEnabled;
+        config->timelineEnabled = savedEnabled;
         panel->clear();
         drainEvents();
     }
@@ -1055,8 +1037,8 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
     {
         spdlog::info("DeltaData_PopulatedForTED");
         auto* config = pWin->get_ct_config();
-        bool savedEnabled = config->localHistoryEnabled;
-        config->localHistoryEnabled = true;
+        bool savedEnabled = config->timelineEnabled;
+        config->timelineEnabled = true;
         panel->clear();
         drainEvents();
 
@@ -1087,7 +1069,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
 
         pActions->requested_step_back();
         drainEvents();
-        config->localHistoryEnabled = savedEnabled;
+        config->timelineEnabled = savedEnabled;
         panel->clear();
         drainEvents();
     }
@@ -1096,8 +1078,8 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
     {
         spdlog::info("DeltaData_PopulatedForWIns");
         auto* config = pWin->get_ct_config();
-        bool savedEnabled = config->localHistoryEnabled;
-        config->localHistoryEnabled = true;
+        bool savedEnabled = config->timelineEnabled;
+        config->timelineEnabled = true;
         panel->clear();
         while (pBridge->canUndo()) pActions->requested_step_back();
         drainEvents();
@@ -1142,7 +1124,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
 
         pActions->requested_step_back();
         drainEvents();
-        config->localHistoryEnabled = savedEnabled;
+        config->timelineEnabled = savedEnabled;
         panel->clear();
         drainEvents();
     }
@@ -1151,8 +1133,8 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
     {
         spdlog::info("DeltaData_PopulatedForCBed");
         auto* config = pWin->get_ct_config();
-        bool savedEnabled = config->localHistoryEnabled;
-        config->localHistoryEnabled = true;
+        bool savedEnabled = config->timelineEnabled;
+        config->timelineEnabled = true;
         panel->clear();
         while (pBridge->canUndo()) pActions->requested_step_back();
         drainEvents();
@@ -1206,7 +1188,7 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
 
         while (pBridge->canUndo()) pActions->requested_step_back();
         drainEvents();
-        config->localHistoryEnabled = savedEnabled;
+        config->timelineEnabled = savedEnabled;
         panel->clear();
         drainEvents();
     }
@@ -1215,8 +1197,8 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
     {
         spdlog::info("DeltaData_PopulatedForTCel");
         auto* config = pWin->get_ct_config();
-        bool savedEnabled = config->localHistoryEnabled;
-        config->localHistoryEnabled = true;
+        bool savedEnabled = config->timelineEnabled;
+        config->timelineEnabled = true;
         panel->clear();
         while (pBridge->canUndo()) pActions->requested_step_back();
         drainEvents();
@@ -1274,32 +1256,32 @@ void TestLocalHistoryApp::_run_tests(CtMainWin* pWin)
 
         while (pBridge->canUndo()) pActions->requested_step_back();
         drainEvents();
-        config->localHistoryEnabled = savedEnabled;
+        config->timelineEnabled = savedEnabled;
         panel->clear();
         drainEvents();
     }
 
-    spdlog::info("=== All Local History Tests Passed ===");
+    spdlog::info("=== All Timeline Tests Passed ===");
 }
 
-TEST(LocalHistoryGUI, AllTests)
+TEST(TimelineGUI, AllTests)
 {
-    TestLocalHistoryApp app;
+    TestTimelineApp app;
     app.run(0, nullptr);
 }
 
-// Replay rebuilds the buffer on every flash cycle; the view must stay where it
-// is. Needs a mapped window so the text view has a real layout to scroll.
-class TestLocalHistoryScrollApp : public CtApp
+// Replay centres the view on the change and keeps it there while the buffer is
+// rebuilt on every flash cycle. Needs a mapped window so the text view has a real layout.
+class TestTimelineScrollApp : public CtApp
 {
 public:
-    TestLocalHistoryScrollApp() : CtApp{"_test_local_history_scroll", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
+    TestTimelineScrollApp() : CtApp{"_test_timeline_scroll", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
 
 private:
     void on_activate() final;
 };
 
-void TestLocalHistoryScrollApp::on_activate()
+void TestTimelineScrollApp::on_activate()
 {
     _on_startup();
     auto _quitGuard = scope_guard([this](void*) { quit(); });
@@ -1321,8 +1303,8 @@ void TestLocalHistoryScrollApp::on_activate()
 
     auto* pBridge = pWin->get_command_bridge();
     auto* pActions = pWin->get_ct_actions();
-    auto* panel = pWin->get_history_panel();
-    pWin->get_ct_config()->localHistoryEnabled = true;
+    auto* panel = pWin->get_timeline_panel();
+    pWin->get_ct_config()->timelineEnabled = true;
 
     auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
     ASSERT_TRUE(ctIter);
@@ -1342,48 +1324,57 @@ void TestLocalHistoryScrollApp::on_activate()
     auto vAdj = pWin->getScrolledwindowText().get_vadjustment();
     ASSERT_GT(vAdj->get_upper() - vAdj->get_page_size(), 1000.0) << "node must be long enough to scroll";
 
-    // bold a word in a line visible in the middle of the node
-    const double viewScroll = std::floor((vAdj->get_upper() - vAdj->get_page_size()) / 2);
-    vAdj->set_value(viewScroll);
-    drainEvents();
-    Gdk::Rectangle visibleRect;
-    pWin->get_text_view().mm().get_visible_rect(visibleRect);
-    Gtk::TextIter lineIter;
-    int lineTop{0};
-    pWin->get_text_view().mm().get_line_at_y(lineIter, visibleRect.get_y() + visibleRect.get_height() / 2, lineTop);
+    // bold a word far down the node, then scroll back to the top
+    Gtk::TextView& textView = pWin->get_text_view().mm();
+    auto lineIter = buffer->get_iter_at_line(200);
     auto wordEnd = lineIter;
     wordEnd.forward_chars(6);
+    const int changeOffset = lineIter.get_offset();
     panel->clear();
     buffer->select_range(lineIter, wordEnd);
     pActions->apply_tag_bold();
     drainEvents();
+    vAdj->set_value(0);
+    drainEvents();
 
-    const double scrollBefore = vAdj->get_value();
     auto entries = panel->get_all_entries();
     ASSERT_FALSE(entries.empty());
+    EXPECT_EQ(entries[0].regionOffset, changeOffset);
 
     auto& tv = panel->getTreeView();
     auto store = tv.get_model();
     tv.row_activated(store->get_path(store->children().begin()), *tv.get_column(0));
 
-    // sample the scroll value through the whole replay
-    double maxDeviation{0};
+    // sample the frames GTK would draw (nothing left to process) through the whole replay
+    double scrollFirst{-1}, maxScrollMove{0}, maxOffCentre{0};
+    int hidden{0};
     bool sawReplay{false};
     const gint64 deadline = g_get_monotonic_time() + 10 * G_USEC_PER_SEC;
     while (g_get_monotonic_time() < deadline) {
-        while (gtk_events_pending()) {
-            gtk_main_iteration_do(false);
-            maxDeviation = std::max(maxDeviation, std::abs(vAdj->get_value() - scrollBefore));
+        gtk_main_iteration_do(false);
+        if (gtk_events_pending()) continue;
+        if (panel->isReplaying()) {
+            sawReplay = true;
+            if (scrollFirst < 0) scrollFirst = vAdj->get_value();
+            maxScrollMove = std::max(maxScrollMove, std::abs(vAdj->get_value() - scrollFirst));
+            Gdk::Rectangle visible, change;
+            textView.get_visible_rect(visible);
+            textView.get_iter_location(textView.get_buffer()->get_iter_at_offset(changeOffset), change);
+            const double changeCentre = change.get_y() + change.get_height() / 2.0;
+            if (changeCentre < visible.get_y() or changeCentre > visible.get_y() + visible.get_height()) ++hidden;
+            maxOffCentre = std::max(maxOffCentre, std::abs(changeCentre - (visible.get_y() + visible.get_height() / 2.0)));
         }
-        if (panel->isReplaying()) sawReplay = true;
         else if (sawReplay) break;
-        g_usleep(5000);
+        g_usleep(1000);
     }
     drainEvents();
     EXPECT_TRUE(sawReplay) << "activating the FMT entry should start a replay";
     EXPECT_FALSE(panel->isReplaying()) << "replay should finish";
-    EXPECT_LE(maxDeviation, 1.0) << "scroll moved during replay (scroll before: " << scrollBefore << ")";
-    EXPECT_NEAR(vAdj->get_value(), scrollBefore, 1.0) << "scroll should be unchanged after replay";
+    EXPECT_GT(scrollFirst, 1000.0) << "the view should have scrolled down to the change";
+    EXPECT_EQ(hidden, 0) << "the change went out of view during the replay";
+    EXPECT_LE(maxOffCentre, 30.0) << "the change should be centred in the view";
+    EXPECT_LE(maxScrollMove, 1.0) << "scroll moved during replay";
+    EXPECT_NEAR(vAdj->get_value(), scrollFirst, 1.0) << "scroll should stay on the change after replay";
 
     // after the replay the view must scroll freely again
     vAdj->set_value(0);
@@ -1395,8 +1386,114 @@ void TestLocalHistoryScrollApp::on_activate()
     drainEvents();
 }
 
-TEST(LocalHistoryGUI, ReplayKeepsScrollPosition)
+TEST(TimelineGUI, ReplayCentresOnChange)
 {
-    TestLocalHistoryScrollApp app;
+    TestTimelineScrollApp app;
+    app.run(0, nullptr);
+}
+
+// Activating an entry while another replay is still flashing must not replay
+// from an unsynced model: nodes of a loaded document start in the model with
+// no content, so the replay would blank the node (text and images).
+class TestTimelineNodeSwitchApp : public CtApp
+{
+public:
+    TestTimelineNodeSwitchApp() : CtApp{"_test_timeline_node_switch", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
+
+private:
+    void on_activate() final;
+};
+
+void TestTimelineNodeSwitchApp::on_activate()
+{
+    _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
+
+    CtMainWin* pWin = _create_window(true/*start_hidden*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+    auto on_scope_exit = scope_guard([&](void*) {
+        pWin->force_exit() = true;
+        remove_window(*pWin);
+    });
+
+    auto drainEvents = [](){
+        while (gtk_events_pending()) gtk_main_iteration_do(false);
+    };
+    // shown, so the text view lays out the buffers it displays
+    pWin->resize(1200, 800);
+    pWin->show_all();
+    drainEvents();
+
+    auto* panel = pWin->get_timeline_panel();
+    pWin->get_ct_config()->timelineEnabled = true;
+
+    // start on a node without timeline entries, as after opening the document
+    auto& treeStore = pWin->get_tree_store();
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(treeStore.get_node_from_node_id(1)));
+    drainEvents();
+
+    struct NodeState { int chars; size_t widgets; };
+    auto f_state = [&](gint64 nodeId) {
+        CtTreeIter it = treeStore.get_node_from_node_id(nodeId);
+        return NodeState{it.get_node_text_buffer()->get_char_count(), it.get_anchored_widgets_fast().size()};
+    };
+    const NodeState bBefore = f_state(2);
+    const NodeState eBefore = f_state(5);
+    ASSERT_GT(bBefore.widgets, 0u);
+    ASSERT_GT(eBefore.widgets, 0u);
+    ASSERT_FALSE(pWin->get_file_save_needed());
+
+    // entries as loaded from the timeline file of a previous session
+    auto f_entry = [](gint64 nodeId, gint64 ts) {
+        CtTimelineEntry e;
+        e.nodeId = nodeId;
+        e.timestamp = ts;
+        e.useDay = 1;
+        e.actionType = "FMT";
+        e.actionDescription = "Format (bold)";
+        e.regionOffset = 0;
+        e.regionLength = 3;
+        e.deltaData = "FMT|0|3|weight|heavy|0,3,";
+        return e;
+    };
+    panel->load_entries({f_entry(2, 2000), f_entry(5, 1000)});
+    drainEvents();
+
+    auto& tv = panel->getTreeView();
+    auto store = tv.get_model();
+    // load_entries keeps the given order: row 0 is node 2, row 1 is node 5
+    ASSERT_EQ(store->children().size(), 2u);
+    auto f_activate = [&](int rowIdx) {
+        tv.row_activated(store->get_path(store->children()[rowIdx]), *tv.get_column(0));
+    };
+
+    f_activate(0);
+    drainEvents();
+    ASSERT_TRUE(panel->isReplaying());
+    ASSERT_EQ(pWin->curr_tree_iter().get_node_id(), 2);
+    f_activate(1);  // while node 2 is still flashing
+
+    const gint64 deadline = g_get_monotonic_time() + 15 * G_USEC_PER_SEC;
+    while (g_get_monotonic_time() < deadline) {
+        drainEvents();
+        if (!panel->isReplaying()) break;
+        g_usleep(5000);
+    }
+    drainEvents();
+    ASSERT_FALSE(panel->isReplaying());
+
+    const NodeState bAfter = f_state(2);
+    const NodeState eAfter = f_state(5);
+    EXPECT_EQ(bAfter.chars, bBefore.chars);
+    EXPECT_EQ(bAfter.widgets, bBefore.widgets);
+    EXPECT_EQ(eAfter.chars, eBefore.chars) << "replayed node lost its content";
+    EXPECT_EQ(eAfter.widgets, eBefore.widgets) << "replayed node lost its images";
+    EXPECT_FALSE(pWin->get_file_save_needed()) << "browsing the timeline must not mark the document modified";
+}
+
+TEST(TimelineGUI, ReplayAfterNodeSwitchDuringReplayKeepsContent)
+{
+    TestTimelineNodeSwitchApp app;
     app.run(0, nullptr);
 }

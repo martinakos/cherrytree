@@ -69,6 +69,66 @@ namespace CtConst {
     extern const char* GTKSPELLCHECK_TAG_NAME;
 }
 
+namespace {
+
+bool is_entity_at(const std::string& xml, size_t pos)
+{
+    size_t i = pos + 1;
+    if (i < xml.size() and xml[i] == '#') {
+        ++i;
+        const bool isHex = i < xml.size() and xml[i] == 'x';
+        if (isHex) ++i;
+        const size_t digitsStart = i;
+        while (i < xml.size() and (isHex ? std::isxdigit(static_cast<unsigned char>(xml[i]))
+                                         : std::isdigit(static_cast<unsigned char>(xml[i])))) ++i;
+        return i > digitsStart and i < xml.size() and xml[i] == ';';
+    }
+    const size_t nameStart = i;
+    while (i < xml.size() and std::isalnum(static_cast<unsigned char>(xml[i]))) ++i;
+    return i > nameStart and std::isalpha(static_cast<unsigned char>(xml[nameStart])) and i < xml.size() and xml[i] == ';';
+}
+
+// Escape the bare '&' anywhere and '<' inside attribute values, which older
+// timeline entries stored unescaped
+std::string repair_unescaped_xml(const std::string& xml)
+{
+    std::string out;
+    out.reserve(xml.size() + 64);
+    bool inTag{false};
+    char quote{0};
+    for (size_t i = 0; i < xml.size(); ++i) {
+        const char ch = xml[i];
+        if (quote) {
+            if (ch == quote) quote = 0;
+            else if (ch == '<') { out += "&lt;"; continue; }
+        }
+        else if (inTag) {
+            if (ch == '"' or ch == '\'') quote = ch;
+            else if (ch == '>') inTag = false;
+        }
+        else if (ch == '<') {
+            inTag = true;
+        }
+        if (ch == '&' and not is_entity_at(xml, i)) { out += "&amp;"; continue; }
+        out += ch;
+    }
+    return out;
+}
+
+// Parse, retrying once on a repaired copy if the XML is not well formed
+void parse_memory_lenient(xmlpp::DomParser& parser, const Glib::ustring& xml)
+{
+    try {
+        parser.parse_memory(xml);
+    }
+    catch (const xmlpp::exception&) {
+        spdlog::debug("parse_memory_lenient: retrying on repaired XML");
+        parser.parse_memory(Glib::ustring{repair_unescaped_xml(xml.raw())});
+    }
+}
+
+} // namespace
+
 // ============================================================================
 // CtCellContent
 // ============================================================================
@@ -883,7 +943,7 @@ CtNodeContent CtNodeContent::fromXml(const Glib::ustring& xml, CtMainWin* /*pCtM
 
         // Parse XML
         xmlpp::DomParser parser;
-        parser.parse_memory(wrappedXml);
+        parse_memory_lenient(parser, wrappedXml);
 
         if (!parser) {
             spdlog::error("CtNodeContent::fromXml: XML parsing failed");
@@ -1080,7 +1140,7 @@ Glib::ustring CtCellContent::toXml() const
         xml += "<rich_text";
         for (const auto& attr : span.attributes) {
             if (!attr.second.empty()) {
-                xml += " " + attr.first + "=\"" + attr.second + "\"";
+                xml += " " + attr.first + "=\"" + str::xml_escape(attr.second) + "\"";
             }
         }
         xml += ">";
@@ -1101,7 +1161,7 @@ CtCellContent CtCellContent::fromXml(const Glib::ustring& xml)
     try {
         Glib::ustring wrapped = "<cell>" + xml + "</cell>";
         xmlpp::DomParser parser;
-        parser.parse_memory(wrapped);
+        parse_memory_lenient(parser, wrapped);
         if (!parser) return cell;
 
         const xmlpp::Element* root = parser.get_document()->get_root_node();
@@ -1126,7 +1186,7 @@ CtCellContent CtCellContent::fromXml(const Glib::ustring& xml)
                 Glib::ustring childXml;
                 childXml += "<" + name;
                 for (const auto& attr : elem->get_attributes()) {
-                    childXml += " " + attr->get_name() + "=\"" + attr->get_value() + "\"";
+                    childXml += " " + attr->get_name() + "=\"" + str::xml_escape(attr->get_value()) + "\"";
                 }
                 const xmlpp::TextNode* tn = elem->get_child_text();
                 if (tn && !tn->get_content().empty()) {
@@ -1158,7 +1218,7 @@ Glib::ustring CtWidgetDesc::toXml(int charOffset) const
         if (prop.first == "char_offset" && !offsetStr.empty()) {
             xml += " char_offset=\"" + offsetStr + "\"";
         } else {
-            xml += " " + prop.first + "=\"" + prop.second + "\"";
+            xml += " " + prop.first + "=\"" + str::xml_escape(prop.second) + "\"";
         }
     };
 
@@ -1259,7 +1319,7 @@ CtWidgetDesc CtWidgetDesc::fromXml(const Glib::ustring& xml)
     try {
         Glib::ustring wrapped = "<root>" + xml + "</root>";
         xmlpp::DomParser parser;
-        parser.parse_memory(wrapped);
+        parse_memory_lenient(parser, wrapped);
         if (!parser) return widget;
 
         const xmlpp::Element* root = parser.get_document()->get_root_node();
@@ -1317,7 +1377,7 @@ CtWidgetDesc CtWidgetDesc::fromXml(const Glib::ustring& xml)
                             const std::string cn = childElem->get_name();
                             cellXml += "<" + cn;
                             for (const auto& a : childElem->get_attributes()) {
-                                cellXml += " " + a->get_name() + "=\"" + a->get_value() + "\"";
+                                cellXml += " " + a->get_name() + "=\"" + str::xml_escape(a->get_value()) + "\"";
                             }
                             const xmlpp::TextNode* tn = childElem->get_child_text();
                             if (tn && !tn->get_content().empty()) {
@@ -1393,7 +1453,7 @@ Glib::ustring CtNodeContent::toXml() const
             for (const auto& tag_prop : CtConst::TAG_PROPERTIES) {
                 auto it = span.attributes.find(std::string(tag_prop));
                 if (it != span.attributes.end() && !it->second.empty()) {
-                    xml += " " + it->first + "=\"" + it->second + "\"";
+                    xml += " " + it->first + "=\"" + str::xml_escape(it->second) + "\"";
                 }
             }
 
