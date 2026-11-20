@@ -2129,6 +2129,9 @@ void CtMainWin::_init_ocr_manager()
     _pOcrManager->dispatcherOcrResult.connect(sigc::mem_fun(*this, &CtMainWin::_on_ocr_result_ready));
 }
 
+// The walk goes one node per step. Each step is a short timeout, not an idle: an idle
+// chain is always pending, so the event loop run on a node switch would run the whole
+// walk, loading every node, before showing the selected one.
 void CtMainWin::_ocr_enqueue_incremental()
 {
     _ocrNodeIds.clear();
@@ -2140,7 +2143,7 @@ void CtMainWin::_ocr_enqueue_incremental()
         return false;
     });
     if (not _ocrNodeIds.empty()) {
-        Glib::signal_idle().connect_once(sigc::mem_fun(*this, &CtMainWin::_ocr_enqueue_next_node));
+        Glib::signal_timeout().connect_once(sigc::mem_fun(*this, &CtMainWin::_ocr_enqueue_next_node), 1);
     }
 }
 
@@ -2172,7 +2175,7 @@ void CtMainWin::_ocr_enqueue_next_node()
     _ocrNodeIdx++;
     _ocrImgSkip = 0;
     if (_ocrNodeIdx < _ocrNodeIds.size()) {
-        Glib::signal_idle().connect_once(sigc::mem_fun(*this, &CtMainWin::_ocr_enqueue_next_node));
+        Glib::signal_timeout().connect_once(sigc::mem_fun(*this, &CtMainWin::_ocr_enqueue_next_node), 1);
     }
     else {
         _ocrNodeIds.clear();
