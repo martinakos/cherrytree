@@ -291,6 +291,7 @@ void CtConfig::_populate_keyfile_from_data()
     _uKeyFile->set_boolean(_currentGroup, "timeline_enabled", timelineEnabled);
     _uKeyFile->set_integer(_currentGroup, "timeline_max_use_days", timelineMaxUseDays);
     _uKeyFile->set_integer(_currentGroup, "timeline_replay_cycles", timelineReplayCycles);
+    _uKeyFile->set_string(_currentGroup, "timeline_highlight_color", timelineHighlightColor);
     _uKeyFile->set_integer(_currentGroup, "timeline_use_day", timelineUseDay);
     _uKeyFile->set_string(_currentGroup, "timeline_last_open_date", timelineLastOpenDate);
     _uKeyFile->set_integer(_currentGroup, "max_matches_in_page", maxMatchesInPage);
@@ -661,6 +662,7 @@ void CtConfig::_populate_data_from_keyfile()
     if (not _populate_int_from_keyfile("timeline_replay_cycles", &timelineReplayCycles)) {
         _populate_int_from_keyfile("local_history_replay_cycles", &timelineReplayCycles);
     }
+    _populate_string_from_keyfile("timeline_highlight_color", &timelineHighlightColor);
     if (not _populate_int_from_keyfile("timeline_use_day", &timelineUseDay)) {
         _populate_int_from_keyfile("local_history_use_day", &timelineUseDay);
     }

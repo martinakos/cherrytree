@@ -697,14 +697,25 @@ Gtk::Widget* CtPrefDlg::build_tab_timeline()
     Glib::RefPtr<Gtk::Adjustment> adj_replay = Gtk::Adjustment::create(_pConfig->timelineReplayCycles, 1, 10, 1);
     auto spinbutton_replay = Gtk::manage(new Gtk::SpinButton{adj_replay});
     spinbutton_replay->set_tooltip_text(_("Number of times to cycle between before/after states when replaying a timeline entry."));
+    auto hbox_highlight_color = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 4});
+    auto label_highlight_color = Gtk::manage(new Gtk::Label{_("Highlight Color")});
+    label_highlight_color->set_margin_start(2);
+    auto colorbutton_highlight = Gtk::manage(new Gtk::ColorButton{Gdk::RGBA(_pConfig->timelineHighlightColor)});
+    colorbutton_highlight->set_tooltip_text(_("Color of the area highlighted while a timeline entry is replayed."));
 #if GTKMM_MAJOR_VERSION >= 4
     hbox_replay_cycles->append(*label_replay_cycles);
     hbox_replay_cycles->append(*spinbutton_replay);
     vbox_replay->append(*hbox_replay_cycles);
+    hbox_highlight_color->append(*label_highlight_color);
+    hbox_highlight_color->append(*colorbutton_highlight);
+    vbox_replay->append(*hbox_highlight_color);
 #else
     hbox_replay_cycles->pack_start(*label_replay_cycles, false, false);
     hbox_replay_cycles->pack_start(*spinbutton_replay, false, false);
     vbox_replay->pack_start(*hbox_replay_cycles, false, false);
+    hbox_highlight_color->pack_start(*label_highlight_color, false, false);
+    hbox_highlight_color->pack_start(*colorbutton_highlight, false, false);
+    vbox_replay->pack_start(*hbox_highlight_color, false, false);
 #endif
     Gtk::Frame* frame_replay = new_managed_frame_with_align(_("Replay"), vbox_replay);
 
@@ -765,6 +776,9 @@ Gtk::Widget* CtPrefDlg::build_tab_timeline()
     });
     spinbutton_replay->signal_value_changed().connect([this, spinbutton_replay](){
         _pConfig->timelineReplayCycles = spinbutton_replay->get_value_as_int();
+    });
+    colorbutton_highlight->signal_color_set().connect([this, colorbutton_highlight](){
+        _pConfig->timelineHighlightColor = CtRgbUtil::rgb_to_string_24(colorbutton_highlight->get_rgba());
     });
     button_clear_timeline->signal_clicked().connect([this](){
         apply_for_each_window([](CtMainWin* win) { win->get_timeline_panel()->clear(); });

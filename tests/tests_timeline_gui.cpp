@@ -18,6 +18,7 @@
 #include "ct_table.h"
 #include <gtest/gtest.h>
 #include <set>
+#include <functional>
 
 class TestTimelineApp : public CtApp
 {
@@ -1498,15 +1499,111 @@ TEST(TimelineGUI, ReplayAfterNodeSwitchDuringReplayKeepsContent)
     app.run(0, nullptr);
 }
 
+// Selecting another node in the tree while an entry replays stops the replay at once,
+// with the replayed node back as it was
+class TestTimelineStopOnNodeSwitchApp : public CtApp
+{
+public:
+    TestTimelineStopOnNodeSwitchApp() : CtApp{"_test_timeline_stop_on_node_switch", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
+
+private:
+    void on_activate() final;
+};
+
+void TestTimelineStopOnNodeSwitchApp::on_activate()
+{
+    _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
+
+    CtMainWin* pWin = _create_window(true/*no_gui*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+    auto on_scope_exit = scope_guard([&](void*) {
+        pWin->force_exit() = true;
+        remove_window(*pWin);
+    });
+
+    auto drainEvents = [](){
+        while (gtk_events_pending()) gtk_main_iteration_do(false);
+    };
+    pWin->resize(1200, 800);
+    pWin->show_all();
+    drainEvents();
+
+    auto* panel = pWin->get_timeline_panel();
+    auto* pOverlay = pWin->get_drawing_overlay();
+    pWin->get_ct_config()->timelineEnabled = true;
+    auto& treeStore = pWin->get_tree_store();
+    auto f_select = [&](gint64 nodeId) {
+        pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(treeStore.get_node_from_node_id(nodeId)));
+    };
+
+    // a word of node 2 made bold, then the user moves to node 1
+    f_select(2);
+    drainEvents();
+    panel->clear();
+    auto rBuffer2 = pWin->curr_buffer();
+    rBuffer2->select_range(rBuffer2->get_iter_at_offset(0), rBuffer2->get_iter_at_offset(4));
+    pWin->get_ct_actions()->apply_tag_bold();
+    drainEvents();
+    ASSERT_FALSE(panel->get_all_entries().empty());
+    f_select(1);
+    drainEvents();
+
+    auto f_tags_at = [&](int offset) {
+        std::vector<Glib::ustring> names;
+        for (auto& tag : rBuffer2->get_iter_at_offset(offset).get_tags()) names.push_back(tag->property_name());
+        return names;
+    };
+    const Glib::ustring textBefore = rBuffer2->get_text();
+    const auto tagsBefore = f_tags_at(1);
+    ASSERT_FALSE(rBuffer2->get_modified());
+
+    auto& tv = panel->getTreeView();
+    auto store = tv.get_model();
+    tv.row_activated(store->get_path(store->children().begin()), *tv.get_column(0));
+    const gint64 deadline = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+    while (g_get_monotonic_time() < deadline and (not panel->isReplaying() or pOverlay->getHighlightRegion().empty())) {
+        gtk_main_iteration_do(false);
+    }
+    ASSERT_TRUE(panel->isReplaying());
+    ASSERT_FALSE(pOverlay->getHighlightRegion().empty());
+    ASSERT_EQ(pWin->curr_tree_iter().get_node_id(), 2);
+
+    // the user selects another node
+    f_select(1);
+    EXPECT_FALSE(panel->isReplaying()) << "the replay should stop as soon as the node changes";
+    EXPECT_TRUE(pOverlay->getHighlightRegion().empty()) << "the highlight should be removed with the replay";
+    drainEvents();
+
+    EXPECT_EQ(pWin->curr_tree_iter().get_node_id(), 1);
+    EXPECT_EQ(rBuffer2->get_text(), textBefore) << "the replayed node should be back as it was";
+    EXPECT_EQ(f_tags_at(1), tagsBefore) << "the replayed node should be back as it was";
+    EXPECT_FALSE(rBuffer2->get_modified()) << "a replay stopped by a node change is not an edit";
+
+    panel->clear();
+    while (pWin->get_command_bridge()->canUndo()) pWin->get_ct_actions()->requested_step_back();
+    drainEvents();
+}
+
+TEST(TimelineGUI, ReplayStopsOnNodeSwitch)
+{
+    TestTimelineStopOnNodeSwitchApp app;
+    app.run(0, nullptr);
+}
+
 // Scroll values of the frames actually drawn by the text view (none while it is frozen)
 struct DrawnScrollValues
 {
     Glib::RefPtr<Gtk::Adjustment> vAdj;
     std::vector<int> values; // a value is added when it differs from the previous frame
     bool recording{false};
+    CtDrawingOverlay* pOverlay{nullptr};
     static gboolean on_draw(GtkWidget*, cairo_t*, gpointer data)
     {
         auto* p = static_cast<DrawnScrollValues*>(data);
+        // hidden under the picture of the previous frame
+        if (p->pOverlay and p->pOverlay->hasSnapshot()) return FALSE;
         const int value = static_cast<int>(p->vAdj->get_value());
         if (p->recording and (p->values.empty() or p->values.back() != value)) p->values.push_back(value);
         return FALSE;
@@ -1568,6 +1665,7 @@ void TestTimelineMinimalScrollApp::on_activate()
     Gtk::TextView& textView = pWin->get_text_view().mm();
     DrawnScrollValues drawn;
     drawn.vAdj = pWin->getScrolledwindowText().get_vadjustment();
+    drawn.pOverlay = pWin->get_drawing_overlay();
     g_signal_connect_after(GTK_WIDGET(textView.gobj()), "draw", G_CALLBACK(DrawnScrollValues::on_draw), &drawn);
 
     auto& tv = panel->getTreeView();
@@ -1647,12 +1745,14 @@ TEST(TimelineGUI, ReplayScrollsAsLittleAsPossible)
 struct DrawnBelowTable
 {
     Gtk::TextView* pTextView{nullptr};
+    CtDrawingOverlay* pOverlay{nullptr};
     std::vector<int> endY; // screen y of the buffer end, added when it differs from the previous frame
     bool recording{false};
     static gboolean on_draw(GtkWidget*, cairo_t*, gpointer data)
     {
         auto* p = static_cast<DrawnBelowTable*>(data);
-        if (not p->recording) return FALSE;
+        // hidden under the picture of the previous frame
+        if (not p->recording or (p->pOverlay and p->pOverlay->hasSnapshot())) return FALSE;
         Gdk::Rectangle visible, end;
         p->pTextView->get_visible_rect(visible);
         p->pTextView->get_iter_location(p->pTextView->get_buffer()->end(), end);
@@ -1718,6 +1818,7 @@ void TestTimelineRebuiltTableApp::on_activate()
 
     DrawnBelowTable drawn;
     drawn.pTextView = &pWin->get_text_view().mm();
+    drawn.pOverlay = pWin->get_drawing_overlay();
     g_signal_connect_after(GTK_WIDGET(drawn.pTextView->gobj()), "draw", G_CALLBACK(DrawnBelowTable::on_draw), &drawn);
     drawn.recording = true;
     auto& tv = panel->getTreeView();
@@ -1745,5 +1846,280 @@ void TestTimelineRebuiltTableApp::on_activate()
 TEST(TimelineGUI, ReplayDrawsRebuiltWidgetsSettled)
 {
     TestTimelineRebuiltTableApp app;
+    app.run(0, nullptr);
+}
+
+// Page coordinates as the timeline highlight uses them: overlay coordinates plus the scroll offsets
+static Gdk::Rectangle timeline_page_rect(CtMainWin* pWin, Gtk::TextView& view, const Gdk::Rectangle& bufferRect)
+{
+    int windowX{0}, windowY{0}, overlayX{0}, overlayY{0};
+    view.buffer_to_window_coords(Gtk::TEXT_WINDOW_WIDGET, bufferRect.get_x(), bufferRect.get_y(), windowX, windowY);
+    view.translate_coordinates(pWin->get_drawing_overlay()->getDrawingArea(), windowX, windowY, overlayX, overlayY);
+    return Gdk::Rectangle(overlayX + static_cast<int>(pWin->getScrolledwindowText().get_hadjustment()->get_value()),
+                          overlayY + static_cast<int>(pWin->getScrolledwindowText().get_vadjustment()->get_value()),
+                          bufferRect.get_width(), bufferRect.get_height());
+}
+
+static bool timeline_rects_contain(const std::vector<Gdk::Rectangle>& rects, int x, int y)
+{
+    for (const auto& r : rects) {
+        if (x >= r.get_x() and x < r.get_x() + r.get_width() and y >= r.get_y() and y < r.get_y() + r.get_height()) return true;
+    }
+    return false;
+}
+
+// Replays the top timeline entry, calling f_sample on every settled iteration of the replay
+static bool timeline_replay_top_entry(CtTimelinePanel* panel, const std::function<void()>& f_sample)
+{
+    auto& tv = panel->getTreeView();
+    auto store = tv.get_model();
+    tv.row_activated(store->get_path(store->children().begin()), *tv.get_column(0));
+    bool sawReplay{false};
+    const gint64 deadline = g_get_monotonic_time() + 10 * G_USEC_PER_SEC;
+    while (g_get_monotonic_time() < deadline) {
+        gtk_main_iteration_do(false);
+        if (gtk_events_pending()) continue;
+        if (panel->isReplaying()) {
+            sawReplay = true;
+            f_sample();
+        }
+        else if (sawReplay) break;
+        g_usleep(1000);
+    }
+    while (gtk_events_pending()) gtk_main_iteration_do(false);
+    return sawReplay;
+}
+
+// While an entry replays, the area it changes is highlighted on the overlay, shaped
+// like the change, in the colour of the preferences
+class TestTimelineHighlightTextApp : public CtApp
+{
+public:
+    TestTimelineHighlightTextApp() : CtApp{"_test_timeline_highlight_text", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
+
+private:
+    void on_activate() final;
+};
+
+void TestTimelineHighlightTextApp::on_activate()
+{
+    _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
+
+    CtMainWin* pWin = _create_window(true/*no_gui*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+    auto on_scope_exit = scope_guard([&](void*) {
+        pWin->force_exit() = true;
+        remove_window(*pWin);
+    });
+
+    auto drainEvents = [](){
+        while (gtk_events_pending()) gtk_main_iteration_do(false);
+    };
+    pWin->resize(800, 600);
+    pWin->show_all();
+    drainEvents();
+
+    auto* pBridge = pWin->get_command_bridge();
+    auto* pActions = pWin->get_ct_actions();
+    auto* panel = pWin->get_timeline_panel();
+    auto* pOverlay = pWin->get_drawing_overlay();
+    pWin->get_ct_config()->timelineEnabled = true;
+    pWin->get_ct_config()->timelineHighlightColor = "#00ff00";
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    drainEvents();
+    auto buffer = pWin->curr_buffer();
+    Gtk::TextView& textView = pWin->get_text_view().mm();
+
+    // --- a word made bold: the highlight covers the word
+    {
+        panel->clear();
+        buffer->select_range(buffer->get_iter_at_offset(0), buffer->get_iter_at_offset(4));
+        pActions->apply_tag_bold();
+        drainEvents();
+
+        size_t samples{0}, covering{0};
+        std::string color;
+        ASSERT_TRUE(timeline_replay_top_entry(panel, [&]() {
+            const auto& region = pOverlay->getHighlightRegion();
+            if (region.empty()) return;
+            ++samples;
+            color = pOverlay->getHighlightColor();
+            Gdk::Rectangle first, last;
+            textView.get_iter_location(textView.get_buffer()->get_iter_at_offset(0), first);
+            textView.get_iter_location(textView.get_buffer()->get_iter_at_offset(3), last);
+            const auto pageFirst = timeline_page_rect(pWin, textView, first);
+            const auto pageLast = timeline_page_rect(pWin, textView, last);
+            if (timeline_rects_contain(region, pageFirst.get_x() + 1, pageFirst.get_y() + pageFirst.get_height() / 2) and
+                timeline_rects_contain(region, pageLast.get_x() + pageLast.get_width() - 1, pageLast.get_y() + pageLast.get_height() / 2))
+            {
+                ++covering;
+            }
+        }));
+        EXPECT_GT(samples, 0u) << "nothing was highlighted during the replay";
+        EXPECT_EQ(covering, samples) << "the highlight does not cover the changed word";
+        EXPECT_EQ(color, "#00ff00") << "the highlight should use the colour of the preferences";
+        EXPECT_TRUE(pOverlay->getHighlightRegion().empty()) << "the highlight should be removed after the replay";
+    }
+
+    // --- lines added: one rectangle per line, shaped like the change
+    {
+        panel->clear();
+        buffer->place_cursor(buffer->end());
+        buffer->insert_at_cursor("\nfirst added line\nsecond added line, longer than the first\nthird");
+        drainEvents();
+        pBridge->onCursorMoved();
+        drainEvents();
+        ASSERT_FALSE(panel->get_all_entries().empty());
+
+        size_t maxRects{0}, samples{0}, merged{0}, stepped{0};
+        ASSERT_TRUE(timeline_replay_top_entry(panel, [&]() {
+            const auto& region = pOverlay->getHighlightRegion();
+            maxRects = std::max(maxRects, region.size());
+            const auto& outlines = pOverlay->getHighlightOutlines();
+            if (region.size() < 3u) return;
+            ++samples;
+            // the lines overlap through their margins and make one shape, with a step
+            // where lines of different length meet
+            if (outlines.size() < region.size()) ++merged;
+            for (const auto& loop : outlines) {
+                if (loop.size() > 4u) { ++stepped; break; }
+            }
+        }));
+        EXPECT_GE(maxRects, 3u) << "a change over several lines should be highlighted line by line";
+        EXPECT_GT(samples, 0u);
+        EXPECT_EQ(merged, samples) << "the lines of the change should make one shape";
+        EXPECT_EQ(stepped, samples) << "the shape should follow the lines of the change";
+        EXPECT_TRUE(pOverlay->getHighlightOutlines().empty());
+        EXPECT_TRUE(pOverlay->getHighlightRegion().empty());
+    }
+
+    panel->clear();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    drainEvents();
+}
+
+TEST(TimelineGUI, ReplayHighlightsTextChange)
+{
+    TestTimelineHighlightTextApp app;
+    app.run(0, nullptr);
+}
+
+// A change inside a rich table cell is highlighted on the changed text of the cell,
+// not on the whole table
+class TestTimelineHighlightCellApp : public CtApp
+{
+public:
+    TestTimelineHighlightCellApp() : CtApp{"_test_timeline_highlight_cell", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
+
+private:
+    void on_activate() final;
+};
+
+void TestTimelineHighlightCellApp::on_activate()
+{
+    _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
+
+    CtMainWin* pWin = _create_window(true/*no_gui*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_rich_table.ctdx";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+    auto on_scope_exit = scope_guard([&](void*) {
+        pWin->force_exit() = true;
+        remove_window(*pWin);
+    });
+
+    auto drainEvents = [](){
+        while (gtk_events_pending()) gtk_main_iteration_do(false);
+    };
+    pWin->resize(800, 1000);
+    pWin->show_all();
+    drainEvents();
+
+    auto* pBridge = pWin->get_command_bridge();
+    auto* panel = pWin->get_timeline_panel();
+    auto* pOverlay = pWin->get_drawing_overlay();
+    pWin->get_ct_config()->timelineEnabled = true;
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("rich_table_test");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    drainEvents();
+    CtTableRich* pTable{nullptr};
+    for (auto* pWidget : ctIter.get_anchored_widgets_fast()) {
+        if (pWidget->get_type() == CtAnchWidgType::TableRich) pTable = static_cast<CtTableRich*>(pWidget);
+    }
+    ASSERT_TRUE(pTable);
+    const int tableOffset = pTable->getOffset();
+
+    // make the first run of text of the first cell bold, as an entry of the timeline
+    const CtWidgetDesc tableDesc = pTable->to_widget_desc(tableOffset);
+    ASSERT_FALSE(tableDesc.richTableData.empty());
+    const CtCellContent oldCell = tableDesc.richTableData[0][0];
+    ASSERT_FALSE(oldCell.textSpans.empty());
+    CtCellContent newCell = oldCell;
+    newCell.textSpans[0].attributes["weight"] = "heavy";
+    ASSERT_FALSE(newCell == oldCell);
+    pBridge->applyRichCellInPlace(ctIter.get_node_id(), tableOffset, 0, 0, newCell);
+    drainEvents();
+    CtTimelineEntry entry;
+    entry.nodeId = ctIter.get_node_id();
+    entry.timestamp = 1000;
+    entry.useDay = pWin->get_ct_config()->timelineUseDay;
+    entry.actionType = "RCel";
+    entry.actionDescription = "Format (bold)";
+    entry.regionOffset = tableOffset;
+    entry.regionLength = 1;
+    entry.deltaData = "RCel|" + std::to_string(tableOffset) + "|0|0|" + Glib::Base64::encode(oldCell.toXml().raw())
+                    + "|" + Glib::Base64::encode(newCell.toXml().raw());
+    panel->load_entries({entry});
+    drainEvents();
+
+    size_t samples{0}, insideTable{0}, smallerThanTable{0};
+    ASSERT_TRUE(timeline_replay_top_entry(panel, [&]() {
+        const auto& region = pOverlay->getHighlightRegion();
+        if (region.empty()) return;
+        ++samples;
+        // the table being displayed now (each replay state rebuilds it)
+        CtTableRich* pShownTable{nullptr};
+        for (auto* pWidget : ctIter.get_anchored_widgets_fast()) {
+            if (pWidget->get_type() == CtAnchWidgType::TableRich) pShownTable = static_cast<CtTableRich*>(pWidget);
+        }
+        if (not pShownTable) return;
+        int overlayX{0}, overlayY{0};
+        pShownTable->translate_coordinates(pWin->get_drawing_overlay()->getDrawingArea(), 0, 0, overlayX, overlayY);
+        const int tableX = overlayX + static_cast<int>(pWin->getScrolledwindowText().get_hadjustment()->get_value());
+        const int tableY = overlayY + static_cast<int>(pWin->getScrolledwindowText().get_vadjustment()->get_value());
+        const int tableW = pShownTable->get_allocated_width();
+        const int tableH = pShownTable->get_allocated_height();
+        int minX = region.front().get_x(), minY = region.front().get_y(), maxX = minX, maxY = minY;
+        for (const auto& r : region) {
+            minX = std::min(minX, r.get_x());
+            minY = std::min(minY, r.get_y());
+            maxX = std::max(maxX, r.get_x() + r.get_width());
+            maxY = std::max(maxY, r.get_y() + r.get_height());
+        }
+        // the margin may stick out a little
+        const int slack = 40;
+        if (minX >= tableX - slack and minY >= tableY - slack and maxX <= tableX + tableW + slack and maxY <= tableY + tableH + slack) {
+            ++insideTable;
+        }
+        if ((maxX - minX) * (maxY - minY) < tableW * tableH) ++smallerThanTable;
+    }));
+    EXPECT_GT(samples, 0u) << "nothing was highlighted during the replay";
+    EXPECT_EQ(insideTable, samples) << "the highlight should be on the table";
+    EXPECT_EQ(smallerThanTable, samples) << "the highlight should cover the changed text, not the whole table";
+    EXPECT_TRUE(pOverlay->getHighlightRegion().empty());
+    panel->clear();
+    drainEvents();
+}
+
+TEST(TimelineGUI, ReplayHighlightsRichCellChange)
+{
+    TestTimelineHighlightCellApp app;
     app.run(0, nullptr);
 }

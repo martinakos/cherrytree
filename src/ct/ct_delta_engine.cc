@@ -24,6 +24,7 @@
 #include "ct_delta_engine.h"
 #include "ct_logging.h"
 #include <glibmm.h>
+#include <algorithm>
 #include <sstream>
 #include <vector>
 
@@ -861,4 +862,97 @@ CtDrawingCanvas CtDeltaEngine::deserializeCanvas(const std::string& data)
         c.strokes.push_back(deserializeStroke(strokeLine));
     }
     return c;
+}
+
+namespace {
+
+// A character with its formatting, or a widget (which occupies one character)
+struct CtDiffUnit {
+    gunichar ch{0};
+    const std::map<std::string, std::string>* pAttributes{nullptr};
+    const CtWidgetDesc* pWidget{nullptr};
+};
+
+bool same_widget(const CtWidgetDesc& a, const CtWidgetDesc& b)
+{
+    if (a.type != b.type or a.contentData != b.contentData or a.tableData != b.tableData or
+        a.richTableData != b.richTableData)
+    {
+        return false;
+    }
+    // the position follows the anchor, it is not part of the widget
+    auto propsA = a.properties;
+    auto propsB = b.properties;
+    propsA.erase("char_offset");
+    propsB.erase("char_offset");
+    return propsA == propsB;
+}
+
+bool same_unit(const CtDiffUnit& a, const CtDiffUnit& b)
+{
+    if (a.pWidget or b.pWidget) {
+        return a.pWidget and b.pWidget and same_widget(*a.pWidget, *b.pWidget);
+    }
+    return a.ch == b.ch and *a.pAttributes == *b.pAttributes;
+}
+
+void add_span_units(std::vector<CtDiffUnit>& units, const CtTextSpan& span)
+{
+    for (gunichar ch : span.text) {
+        units.push_back(CtDiffUnit{ch, &span.attributes, nullptr});
+    }
+}
+
+// The changed middle once the common start and end are skipped
+CtContentChange diff_units(const std::vector<CtDiffUnit>& before, const std::vector<CtDiffUnit>& after)
+{
+    const size_t common = std::min(before.size(), after.size());
+    size_t prefix{0};
+    while (prefix < common and same_unit(before[prefix], after[prefix])) ++prefix;
+    if (prefix == before.size() and prefix == after.size()) return CtContentChange{};
+    size_t suffix{0};
+    while (suffix < before.size() - prefix and suffix < after.size() - prefix and
+           same_unit(before[before.size() - 1 - suffix], after[after.size() - 1 - suffix]))
+    {
+        ++suffix;
+    }
+    return CtContentChange{static_cast<int>(prefix),
+                           static_cast<int>(before.size() - suffix),
+                           static_cast<int>(after.size() - suffix)};
+}
+
+std::vector<CtDiffUnit> node_units(const CtNodeContent& content)
+{
+    std::vector<CtDiffUnit> units;
+    for (const auto& elem : content.getElements()) {
+        if (elem.isTextSpan()) add_span_units(units, elem.textSpan);
+        else units.push_back(CtDiffUnit{0, nullptr, &elem.widget});
+    }
+    return units;
+}
+
+std::vector<CtDiffUnit> cell_units(const CtCellContent& cell)
+{
+    std::vector<CtDiffUnit> units;
+    for (const auto& span : cell.textSpans) add_span_units(units, span);
+    return units;
+}
+
+} // namespace
+
+CtContentChange CtDeltaEngine::changedRange(const CtNodeContent& before, const CtNodeContent& after)
+{
+    return diff_units(node_units(before), node_units(after));
+}
+
+CtContentChange CtDeltaEngine::changedCellRange(const CtCellContent& before, const CtCellContent& after)
+{
+    const auto beforeUnits = cell_units(before);
+    const auto afterUnits = cell_units(after);
+    CtContentChange change = diff_units(beforeUnits, afterUnits);
+    if (change.start < 0 and not (before.embeddedWidgets == after.embeddedWidgets)) {
+        // only the embedded widgets differ, whose place in the text is not tracked here
+        change = CtContentChange{0, static_cast<int>(beforeUnits.size()), static_cast<int>(afterUnits.size())};
+    }
+    return change;
 }

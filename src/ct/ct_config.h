@@ -109,6 +109,7 @@ public:
     bool                                        timelineEnabled{false};
     int                                         timelineMaxUseDays{30};
     int                                         timelineReplayCycles{3};
+    std::string                                 timelineHighlightColor{"#ffff00"};
     int                                         timelineUseDay{0};
     std::string                                 timelineLastOpenDate;
     int                                         maxMatchesInPage{500};

@@ -694,3 +694,60 @@ TEST(DeltaEngineDrawing, SPr)
     EXPECT_EQ(canvases[0].strokes[0].fillColor, "#00ff00");
     EXPECT_DOUBLE_EQ(canvases[0].strokes[0].lineWidth, 5.0);
 }
+
+// ─── Changed range ───────────────────────────────────────────────────
+
+TEST(DeltaEngineChangedRange, Format)
+{
+    CtNodeContent before;
+    before.insertText(0, "hello world", {});
+    CtNodeContent after = before;
+    after.applyFormat(6, 5, "weight", "heavy");
+    const CtContentChange change = CtDeltaEngine::changedRange(before, after);
+    EXPECT_EQ(change.start, 6);
+    EXPECT_EQ(change.endBefore, 11);
+    EXPECT_EQ(change.endAfter, 11);
+}
+
+TEST(DeltaEngineChangedRange, InsertBeforeWidget)
+{
+    CtWidgetDesc img(CtAnchWidgType::ImagePng);
+    img.contentData = "iVBORw0KGgo=";
+    CtNodeContent before;
+    before.insertText(0, "ab", {});
+    before.insertWidget(2, img);
+    CtNodeContent after = before;
+    after.insertText(1, "XYZ", {});
+    // the widget moves from offset 2 to 5 but is unchanged
+    const CtContentChange change = CtDeltaEngine::changedRange(before, after);
+    EXPECT_EQ(change.start, 1);
+    EXPECT_EQ(change.endBefore, 1);
+    EXPECT_EQ(change.endAfter, 4);
+}
+
+TEST(DeltaEngineChangedRange, DeleteAndEqual)
+{
+    CtNodeContent before;
+    before.insertText(0, "abcXYZdef", {});
+    CtNodeContent after = before;
+    after.deleteRange(3, 3);
+    const CtContentChange change = CtDeltaEngine::changedRange(before, after);
+    EXPECT_EQ(change.start, 3);
+    EXPECT_EQ(change.endBefore, 6);
+    EXPECT_EQ(change.endAfter, 3);
+    EXPECT_EQ(CtDeltaEngine::changedRange(before, before).start, -1);
+}
+
+TEST(DeltaEngineChangedRange, RichCell)
+{
+    CtCellContent before;
+    before.textSpans.emplace_back(Glib::ustring{"the first Sunday of the month"});
+    CtCellContent after;
+    after.textSpans.emplace_back(Glib::ustring{"the first "});
+    after.textSpans.emplace_back(Glib::ustring{"Sunday"}, std::map<std::string, std::string>{{"weight", "heavy"}});
+    after.textSpans.emplace_back(Glib::ustring{" of the month"});
+    const CtContentChange change = CtDeltaEngine::changedCellRange(before, after);
+    EXPECT_EQ(change.start, 10);
+    EXPECT_EQ(change.endBefore, 16);
+    EXPECT_EQ(change.endAfter, 16);
+}

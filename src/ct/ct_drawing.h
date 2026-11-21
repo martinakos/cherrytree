@@ -202,6 +202,21 @@ public:
     int getFlashCanvasIdx() const { return _flashCanvasIdx; }
     void setFlashColor(const std::string& color) { _flashColor = color; }
 
+    // Highlight of a timeline replay: rectangles in page coordinates (overlay
+    // coordinates plus the scroll offsets), filled as one translucent area
+    void setHighlightRegion(std::vector<Gdk::Rectangle> pageRects, const std::string& color);
+    void clearHighlightRegion();
+    const std::vector<Gdk::Rectangle>& getHighlightRegion() const { return _highlightRects; }
+    // the outlines it is drawn along, corners in page coordinates
+    const std::vector<std::vector<std::pair<double, double>>>& getHighlightOutlines() const { return _highlightOutlines; }
+
+    // A picture of the overlay drawn over everything below it, so that changes made
+    // meanwhile are not seen until it is cleared
+    void showSnapshot(Cairo::RefPtr<Cairo::ImageSurface> snapshot);
+    void clearSnapshot();
+    bool hasSnapshot() const { return static_cast<bool>(_snapshot); }
+    const std::string& getHighlightColor() const { return _highlightColor; }
+
 private:
     bool _onDraw(const Cairo::RefPtr<Cairo::Context>& cr);
     bool _onButtonPress(GdkEventButton* event);
@@ -298,6 +313,11 @@ private:
 
     int _flashCanvasIdx{-1};
     std::string _flashColor{"#FFFF00"};
+    std::vector<Gdk::Rectangle> _highlightRects;
+    // outlines of the union of _highlightRects, in page coordinates
+    std::vector<std::vector<std::pair<double, double>>> _highlightOutlines;
+    Cairo::RefPtr<Cairo::ImageSurface> _snapshot;
+    std::string _highlightColor;
 
     Gtk::Box* _pToolbarBox{nullptr};
     Gtk::EventBox* _pToolbarEventBox{nullptr};

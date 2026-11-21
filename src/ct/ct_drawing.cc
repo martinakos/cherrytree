@@ -29,6 +29,7 @@
 #include <glibmm/i18n.h>
 #include <cmath>
 #include <algorithm>
+#include <map>
 
 static void parseColor(const std::string& hex, double& r, double& g, double& b)
 {
@@ -39,6 +40,113 @@ static void parseColor(const std::string& hex, double& r, double& g, double& b)
     } else {
         r = g = b = 0.0;
     }
+}
+
+// Outlines of the union of rectangles, as closed loops of corners going clockwise
+// on screen (holes anticlockwise): the cells of the grid made by all rectangle edges
+// are marked inside or outside, and the edges between the two are linked into loops
+static std::vector<std::vector<std::pair<double, double>>> unionOutlines(const std::vector<Gdk::Rectangle>& rects)
+{
+    std::vector<int> xs, ys;
+    for (const auto& r : rects) {
+        if (r.get_width() <= 0 or r.get_height() <= 0) continue;
+        xs.push_back(r.get_x());
+        xs.push_back(r.get_x() + r.get_width());
+        ys.push_back(r.get_y());
+        ys.push_back(r.get_y() + r.get_height());
+    }
+    std::vector<std::vector<std::pair<double, double>>> loops;
+    if (xs.empty()) return loops;
+    std::sort(xs.begin(), xs.end());
+    xs.erase(std::unique(xs.begin(), xs.end()), xs.end());
+    std::sort(ys.begin(), ys.end());
+    ys.erase(std::unique(ys.begin(), ys.end()), ys.end());
+    const int nx = static_cast<int>(xs.size()) - 1;
+    const int ny = static_cast<int>(ys.size()) - 1;
+    std::vector<char> inside(static_cast<size_t>(nx) * ny, 0);
+    for (const auto& r : rects) {
+        if (r.get_width() <= 0 or r.get_height() <= 0) continue;
+        const int i0 = std::lower_bound(xs.begin(), xs.end(), r.get_x()) - xs.begin();
+        const int i1 = std::lower_bound(xs.begin(), xs.end(), r.get_x() + r.get_width()) - xs.begin();
+        const int j0 = std::lower_bound(ys.begin(), ys.end(), r.get_y()) - ys.begin();
+        const int j1 = std::lower_bound(ys.begin(), ys.end(), r.get_y() + r.get_height()) - ys.begin();
+        for (int j = j0; j < j1; ++j) {
+            for (int i = i0; i < i1; ++i) inside[static_cast<size_t>(j) * nx + i] = 1;
+        }
+    }
+    auto isInside = [&](int i, int j) {
+        return i >= 0 and j >= 0 and i < nx and j < ny and inside[static_cast<size_t>(j) * nx + i];
+    };
+    // edges between grid corners, with the inside on their right on screen
+    const int stride = nx + 1;
+    std::multimap<int, int> edges;
+    for (int j = 0; j < ny; ++j) {
+        for (int i = 0; i < nx; ++i) {
+            if (not isInside(i, j)) continue;
+            const int tl = j * stride + i, tr = tl + 1, bl = tl + stride, br = bl + 1;
+            if (not isInside(i, j - 1)) edges.emplace(tl, tr);
+            if (not isInside(i + 1, j)) edges.emplace(tr, br);
+            if (not isInside(i, j + 1)) edges.emplace(br, bl);
+            if (not isInside(i - 1, j)) edges.emplace(bl, tl);
+        }
+    }
+    // every corner has as many edges in as out, so following edges always comes back
+    while (not edges.empty()) {
+        std::vector<int> corners;
+        auto it = edges.begin();
+        const int first = it->first;
+        int next = it->second;
+        corners.push_back(first);
+        edges.erase(it);
+        while (next != first) {
+            corners.push_back(next);
+            it = edges.find(next);
+            next = it->second;
+            edges.erase(it);
+        }
+        // keep only the corners where the direction turns
+        std::vector<std::pair<double, double>> loop;
+        const size_t n = corners.size();
+        for (size_t k = 0; k < n; ++k) {
+            const int a = corners[(k + n - 1) % n], b = corners[k], c = corners[(k + 1) % n];
+            const int dx1 = b % stride - a % stride, dy1 = b / stride - a / stride;
+            const int dx2 = c % stride - b % stride, dy2 = c / stride - b / stride;
+            if (dx1 * dy2 - dy1 * dx2 != 0) {
+                loop.emplace_back(xs[b % stride], ys[b / stride]);
+            }
+        }
+        if (loop.size() >= 4) loops.push_back(std::move(loop));
+    }
+    return loops;
+}
+
+// A closed outline with every corner rounded, outward or inward alike
+static void roundedOutlinePath(const Cairo::RefPtr<Cairo::Context>& cr,
+                               const std::vector<std::pair<double, double>>& loop,
+                               double radius, double dx, double dy)
+{
+    constexpr double kappa = 0.5523; // cubic curve close to a quarter circle
+    const size_t n = loop.size();
+    cr->begin_new_sub_path();
+    for (size_t k = 0; k < n; ++k) {
+        const auto& a = loop[(k + n - 1) % n];
+        const auto& b = loop[k];
+        const auto& c = loop[(k + 1) % n];
+        const double lenIn = std::hypot(b.first - a.first, b.second - a.second);
+        const double lenOut = std::hypot(c.first - b.first, c.second - b.second);
+        // half of each edge at most, so that the curves of two corners do not cross
+        const double r = std::min({radius, lenIn / 2.0, lenOut / 2.0});
+        const double x1 = b.first - (b.first - a.first) / lenIn * r;
+        const double y1 = b.second - (b.second - a.second) / lenIn * r;
+        const double x2 = b.first + (c.first - b.first) / lenOut * r;
+        const double y2 = b.second + (c.second - b.second) / lenOut * r;
+        if (k == 0) cr->move_to(x1 - dx, y1 - dy);
+        else cr->line_to(x1 - dx, y1 - dy);
+        cr->curve_to(x1 + (b.first - x1) * kappa - dx, y1 + (b.second - y1) * kappa - dy,
+                     x2 + (b.first - x2) * kappa - dx, y2 + (b.second - y2) * kappa - dy,
+                     x2 - dx, y2 - dy);
+    }
+    cr->close_path();
 }
 
 static void applyLineStyle(const Cairo::RefPtr<Cairo::Context>& cr, CtDrawingLineStyle style, double lineWidth)
@@ -1044,6 +1152,14 @@ void CtDrawingOverlay::_updateToolButtonStates()
 
 bool CtDrawingOverlay::_onDraw(const Cairo::RefPtr<Cairo::Context>& cr)
 {
+    if (_snapshot) {
+        int x{0}, y{0};
+        _drawingArea.translate_coordinates(_overlay, 0, 0, x, y);
+        cr->set_source(_snapshot, -x, -y);
+        cr->paint();
+        return true;
+    }
+
     auto treeIter = _pMainWin->curr_tree_iter();
     if (!treeIter) return false;
 
@@ -1055,7 +1171,7 @@ bool CtDrawingOverlay::_onDraw(const Cairo::RefPtr<Cairo::Context>& cr)
     if (!nodeModel) return false;
 
     const auto& canvases = nodeModel->getDrawingCanvases();
-    if (canvases.empty() && !_drawingMode && !_targetSignActive) return false;
+    if (canvases.empty() && !_drawingMode && !_targetSignActive && _highlightRects.empty()) return false;
 
     auto hAdj = _pMainWin->getScrolledwindowText().get_hadjustment();
     auto vAdj = _pMainWin->getScrolledwindowText().get_vadjustment();
@@ -1080,6 +1196,21 @@ bool CtDrawingOverlay::_onDraw(const Cairo::RefPtr<Cairo::Context>& cr)
         cr->set_line_width(4.0);
         cr->rectangle(fx - margin, fy - margin, fw + 2 * margin, fh + 2 * margin);
         cr->stroke();
+    }
+
+    if (not _highlightRects.empty()) {
+        // the outline of the union, so overlapping parts are not darker and the
+        // corners where lines of different length meet are rounded too
+        cr->save();
+        cr->set_fill_rule(Cairo::FILL_RULE_WINDING);
+        for (const auto& loop : _highlightOutlines) {
+            roundedOutlinePath(cr, loop, 12.0, hScroll, vScroll);
+        }
+        double hr, hg, hb;
+        parseColor(_highlightColor, hr, hg, hb);
+        cr->set_source_rgba(hr, hg, hb, 0.4);
+        cr->fill();
+        cr->restore();
     }
 
     if (_dragType == CtDrawingDragType::CreateCanvas) {
@@ -1436,6 +1567,36 @@ void CtDrawingOverlay::showTargetSign(int widgetX, int widgetY)
         }
         return true;
     }, 300);
+}
+
+void CtDrawingOverlay::setHighlightRegion(std::vector<Gdk::Rectangle> pageRects, const std::string& color)
+{
+    _highlightRects = std::move(pageRects);
+    _highlightOutlines = unionOutlines(_highlightRects);
+    _highlightColor = color;
+    _drawingArea.queue_draw();
+}
+
+void CtDrawingOverlay::showSnapshot(Cairo::RefPtr<Cairo::ImageSurface> snapshot)
+{
+    _snapshot = std::move(snapshot);
+    _drawingArea.queue_draw();
+}
+
+void CtDrawingOverlay::clearSnapshot()
+{
+    if (not _snapshot) return;
+    _snapshot = Cairo::RefPtr<Cairo::ImageSurface>{};
+    // what is below the picture is not repainted by redrawing this area alone
+    _overlay.queue_draw();
+}
+
+void CtDrawingOverlay::clearHighlightRegion()
+{
+    if (_highlightRects.empty()) return;
+    _highlightRects.clear();
+    _highlightOutlines.clear();
+    _drawingArea.queue_draw();
 }
 
 void CtDrawingOverlay::cancelTargetSign()

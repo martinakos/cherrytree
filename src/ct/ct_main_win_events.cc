@@ -65,6 +65,7 @@ void CtMainWin::_on_treeview_cursor_changed()
             return;
         }
         const gint64 prevNodeIdDataHolder = _prevTreeIter.get_node_id_data_holder();
+        _uCtTimelinePanel->on_node_leaving();
         Glib::RefPtr<Gtk::TextBuffer> pTextBuffer = _prevTreeIter.get_node_text_buffer();
         if (pTextBuffer->get_modified()) {
             _fileSaveNeeded = true;
@@ -102,6 +103,7 @@ void CtMainWin::_on_treeview_cursor_changed()
         return;
     }
     _uCtTreestore->text_view_apply_textbuffer(treeIter, &_ctTextview);
+    _uCtTimelinePanel->on_node_switched();
 
     if (user_active() && !_pCtCommandBridge->isInUndoRedo()) {
         auto mapScrIter = _nodesVScrollPos.find(nodeIdDataHolder);

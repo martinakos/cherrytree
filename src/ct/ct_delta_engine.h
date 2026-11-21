@@ -27,8 +27,20 @@
 #include "ct_drawing.h"
 #include <string>
 
+// What differs between two versions of a node (or of a rich table cell), as
+// character offsets: [start, endBefore) in the earlier version replaced by
+// [start, endAfter) in the later one; start is -1 when they are equal
+struct CtContentChange {
+    int start{-1};
+    int endBefore{-1};
+    int endAfter{-1};
+};
+
 class CtDeltaEngine {
 public:
+    static CtContentChange changedRange(const CtNodeContent& before, const CtNodeContent& after);
+    static CtContentChange changedCellRange(const CtCellContent& before, const CtCellContent& after);
+
     static bool applyReverse(CtNodeContent& content, const std::string& deltaData);
     static bool applyForward(CtNodeContent& content, const std::string& deltaData);
     static bool isReplayable(const std::string& deltaData);

@@ -61,6 +61,11 @@ public:
     // Update cursor/scroll on the top-level row for a node (navigate-away path)
     void updateCursorScroll(gint64 nodeId, int cursorPos, int scrollPos);
 
+    // The tree is leaving a node: the replay's changes to its buffer are not edits
+    void on_node_leaving();
+    // The tree has switched to another node: a running replay or highlight stops
+    void on_node_switched();
+
 private:
     void _on_row_activated(const Gtk::TreeModel::Path& path, Gtk::TreeViewColumn* column);
     void _navigate_to_entry(const CtTimelineEntry& entry);
@@ -68,8 +73,20 @@ private:
     void _stopReplay();
     void _restoreBufferModified();
     void _restartEditSession(gint64 nodeId);
-    // Show one state of a model replay, drawn only once its layout is settled
-    void _show_replay_content(const CtNodeContent& content);
+    // Show one state of a model replay, drawn only once its layout is settled, with
+    // what differs from pOtherState highlighted (no highlight when nullptr)
+    void _show_replay_content(const CtNodeContent& content, const CtNodeContent* pOtherState);
+
+    // Highlight of what the replayed entry changes, in the state on display, drawn
+    // on the overlay in page coordinates (overlay coordinates plus the scroll offsets)
+    void _highlight_content_change(const CtNodeContent& shown, const CtNodeContent& other);
+    void _highlight_canvas_change(const std::vector<CtDrawingCanvas>& shown,
+                                  const std::vector<CtDrawingCanvas>& other, int canvasIdx);
+    void _highlight_page_rects(std::vector<Gdk::Rectangle> pageRects);
+    void _clear_highlight();
+    // one rectangle per display line covering [start, end) of the buffer of view
+    std::vector<Gdk::Rectangle> _text_range_page_rects(Gtk::TextView& view, int start, int end);
+    Gdk::Rectangle _widget_page_rect(Gtk::Widget& widget);
 
     // Bring what an entry changed into view, scrolling only when it is not already
     // visible; each returns the new scroll value
@@ -79,7 +96,7 @@ private:
     // Run pending events so GTK lays out the buffer, ignoring timeline clicks meanwhile
     void _settle_layout();
     void _settle_layout_until_stable();
-    // No painting of the text view between the click and the view in place
+    // What is drawn stays as it is between the click and the view in place
     // returns false when the view was already frozen (or cannot be)
     bool _freeze_text_view();
     void _thaw_text_view();
@@ -132,7 +149,6 @@ private:
     Gtk::ScrolledWindow          _scrolledWindow;
     bool                         _updatingList{false};
     bool                         _centeringView{false};
-    Glib::RefPtr<Gdk::Window>    _rFrozenWindow;
 
     void _replayViaModel(const CtTimelineEntry& entry);
     void _replayViaDrawingModel(const CtTimelineEntry& entry);

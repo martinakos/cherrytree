@@ -450,7 +450,7 @@ void CtTimelinePanel::_replayViaModel(const CtTimelineEntry& entry)
     // displayed too), so use a position both allow and the view does not move on every
     // cycle. The view is frozen meanwhile.
     for (const CtNodeContent* pState : {&_replayState.afterContent, &_replayState.beforeContent}) {
-        _show_replay_content(*pState);
+        _show_replay_content(*pState, pState == &_replayState.afterContent ? &_replayState.beforeContent : &_replayState.afterContent);
         if (auto vAdj = _pCtMainWin->getScrolledwindowText().get_vadjustment()) {
             const double maxValue = std::max(vAdj->get_lower(), vAdj->get_upper() - vAdj->get_page_size());
             _replayState.scrollPos = std::min(_replayState.scrollPos, maxValue);
@@ -464,7 +464,9 @@ void CtTimelinePanel::_replayViaModel(const CtTimelineEntry& entry)
     _replayState.timeout = Glib::signal_timeout().connect([this]() -> bool {
         auto* br = _pCtMainWin->get_command_bridge();
         auto dm = br->getDocumentModel();
-        if (!dm || !dm->getNodeById(_replayState.replayNodeId)) {
+        CtTreeIter currIter = _pCtMainWin->curr_tree_iter();
+        if (!dm || !dm->getNodeById(_replayState.replayNodeId) ||
+            !currIter || currIter.get_node_id() != _replayState.replayNodeId) {
             _stopReplay();
             return false;
         }
@@ -478,14 +480,14 @@ void CtTimelinePanel::_replayViaModel(const CtTimelineEntry& entry)
 
         if (_replayState.showingBefore) {
             // Switch to "after"
-            _show_replay_content(_replayState.afterContent);
+            _show_replay_content(_replayState.afterContent, &_replayState.beforeContent);
             _replayState.showingBefore = false;
         } else {
             // Switch to "before" and increment cycle
             _replayState.cycleCount++;
             if (_replayState.cycleCount >= _replayState.maxCycles) {
                 // Done cycling — restore original
-                _show_replay_content(_replayState.restoreContent);
+                _show_replay_content(_replayState.restoreContent, nullptr);
                 br->endReplay();
                 _restoreBufferModified();
                 _restartEditSession(_replayState.replayNodeId);
@@ -493,7 +495,7 @@ void CtTimelinePanel::_replayViaModel(const CtTimelineEntry& entry)
                 _replayState.timeout.disconnect();
                 return false;
             }
-            _show_replay_content(_replayState.beforeContent);
+            _show_replay_content(_replayState.beforeContent, &_replayState.afterContent);
             _replayState.showingBefore = true;
         }
         return true;
@@ -567,8 +569,10 @@ void CtTimelinePanel::_replayViaDrawingModel(const CtTimelineEntry& entry)
 
     bridge->beginReplay();
 
+    _replayState.canvasIdx = entry.canvasIdx;
     node->getDrawingCanvasesMut() = _replayState.beforeCanvases;
     docModel->notifyNodeDrawingChanged(entry.nodeId);
+    _highlight_canvas_change(_replayState.beforeCanvases, _replayState.afterCanvases, _replayState.canvasIdx);
 
     constexpr int kCycleMs = 700;
     _replayState.timeout = Glib::signal_timeout().connect([this]() -> bool {
@@ -577,16 +581,20 @@ void CtTimelinePanel::_replayViaDrawingModel(const CtTimelineEntry& entry)
         if (!dm) { _stopReplay(); return false; }
         auto nd = dm->getNodeById(_replayState.replayNodeId);
         if (!nd) { _stopReplay(); return false; }
+        CtTreeIter currIter = _pCtMainWin->curr_tree_iter();
+        if (!currIter || currIter.get_node_id() != _replayState.replayNodeId) { _stopReplay(); return false; }
 
         if (_replayState.showingBefore) {
             nd->getDrawingCanvasesMut() = _replayState.afterCanvases;
             dm->notifyNodeDrawingChanged(_replayState.replayNodeId);
+            _highlight_canvas_change(_replayState.afterCanvases, _replayState.beforeCanvases, _replayState.canvasIdx);
             _replayState.showingBefore = false;
         } else {
             _replayState.cycleCount++;
             if (_replayState.cycleCount >= _replayState.maxCycles) {
                 nd->getDrawingCanvasesMut() = _replayState.restoreCanvases;
                 dm->notifyNodeDrawingChanged(_replayState.replayNodeId);
+                _clear_highlight();
                 br->endReplay();
                 _replayState.replayNodeId = -1;
                 _replayState.replayingDrawing = false;
@@ -595,6 +603,7 @@ void CtTimelinePanel::_replayViaDrawingModel(const CtTimelineEntry& entry)
             }
             nd->getDrawingCanvasesMut() = _replayState.beforeCanvases;
             dm->notifyNodeDrawingChanged(_replayState.replayNodeId);
+            _highlight_canvas_change(_replayState.beforeCanvases, _replayState.afterCanvases, _replayState.canvasIdx);
             _replayState.showingBefore = true;
         }
         return true;
@@ -612,28 +621,15 @@ void CtTimelinePanel::_replayFallbackHighlight(const CtTimelineEntry& entry)
     int end = std::min(entry.regionOffset + entry.regionLength, charCount);
     if (start >= end) return;
 
-    _replayState.displayBuffer = rBuffer;
-    _replayState.displayBufferWasModified = rBuffer->get_modified();
-    auto tag = rBuffer->create_tag();
-    bool isDark = false;
-    if (auto settings = Gtk::Settings::get_default()) {
-        isDark = settings->property_gtk_application_prefer_dark_theme();
-    }
-    tag->property_background() = isDark ? "#554400" : "#FFFFAA";
-
-    auto iterStart = rBuffer->get_iter_at_offset(start);
-    auto iterEnd = rBuffer->get_iter_at_offset(end);
-    rBuffer->apply_tag(tag, iterStart, iterEnd);
-    rBuffer->place_cursor(iterStart);
+    rBuffer->place_cursor(rBuffer->get_iter_at_offset(start));
     _center_view_on_offset(start, end - start);
+    _settle_layout();
+    _highlight_page_rects(_text_range_page_rects(_pCtMainWin->get_text_view().mm(), start, end));
 
-    _replayState.highlightTag = tag;
     constexpr int kHoldMs = 2000;
     _replayState.timeout = Glib::signal_timeout().connect(
-        [this, tag, rBuffer]() -> bool {
-            rBuffer->get_tag_table()->remove(tag);
-            _replayState.highlightTag.reset();
-            _restoreBufferModified();
+        [this]() -> bool {
+            _clear_highlight();
             return false;
         }, kHoldMs);
 }
@@ -729,7 +725,7 @@ void CtTimelinePanel::_settle_layout_until_stable()
     }
 }
 
-void CtTimelinePanel::_show_replay_content(const CtNodeContent& content)
+void CtTimelinePanel::_show_replay_content(const CtNodeContent& content, const CtNodeContent* pOtherState)
 {
     auto* bridge = _pCtMainWin->get_command_bridge();
     // Rebuilt widgets such as rich tables take a few layout passes to reach their size:
@@ -742,23 +738,249 @@ void CtTimelinePanel::_show_replay_content(const CtNodeContent& content)
     if (auto vAdj = _pCtMainWin->getScrolledwindowText().get_vadjustment()) {
         vAdj->set_value(_replayState.scrollPos);
     }
+    if (pOtherState) _highlight_content_change(content, *pOtherState);
+    else _clear_highlight();
     if (frozeNow) _thaw_text_view();
 }
 
 bool CtTimelinePanel::_freeze_text_view()
 {
-    if (_rFrozenWindow) return false;
-    _rFrozenWindow = static_cast<Gtk::Widget&>(_pCtMainWin->get_text_view().mm()).get_window();
-    if (not _rFrozenWindow) return false;
-    _rFrozenWindow->freeze_updates();
+    // The view keeps being painted underneath, covered by a picture of how it looks now:
+    // freezing the GDK window instead lost what changed meanwhile after a node switch
+    auto* pOverlay = _pCtMainWin->get_drawing_overlay();
+    if (not pOverlay or pOverlay->hasSnapshot()) return false;
+    Gtk::Overlay& overlay = pOverlay->getOverlay();
+    const int width = overlay.get_allocated_width();
+    const int height = overlay.get_allocated_height();
+    if (not overlay.get_mapped() or width <= 1 or height <= 1) return false;
+    auto surface = Cairo::ImageSurface::create(Cairo::FORMAT_ARGB32, width, height);
+    auto cr = Cairo::Context::create(surface);
+    gtk_widget_draw(GTK_WIDGET(overlay.gobj()), cr->cobj());
+    pOverlay->showSnapshot(surface);
     return true;
 }
 
 void CtTimelinePanel::_thaw_text_view()
 {
-    if (not _rFrozenWindow) return;
-    _rFrozenWindow->thaw_updates();
-    _rFrozenWindow.reset();
+    if (auto* pOverlay = _pCtMainWin->get_drawing_overlay()) {
+        pOverlay->clearSnapshot();
+    }
+}
+
+void CtTimelinePanel::_highlight_content_change(const CtNodeContent& shown, const CtNodeContent& other)
+{
+    const CtContentChange change = CtDeltaEngine::changedRange(other, shown);
+    if (change.start < 0) {
+        _clear_highlight();
+        return;
+    }
+    const int start = change.start;
+    const int end = change.endAfter; // end of the change in the shown state
+    Gtk::TextView& textView = _pCtMainWin->get_text_view().mm();
+    std::vector<Gdk::Rectangle> rects;
+
+    CtTreeIter treeIter = _pCtMainWin->get_tree_store().get_node_from_node_id(_replayState.replayNodeId);
+    if (end == start + 1 and treeIter) {
+        // a single changed widget: inside a rich table, the changed text of its cells
+        const CtWidgetDesc shownWidget = shown.getWidgetDescAt(start);
+        const CtWidgetDesc otherWidget = other.getWidgetDescAt(start);
+        if (shownWidget.type == CtAnchWidgType::TableRich and otherWidget.type == CtAnchWidgType::TableRich and
+            shownWidget.richTableData.size() == otherWidget.richTableData.size())
+        {
+            for (auto* pWidget : treeIter.get_anchored_widgets_fast()) {
+                if (pWidget->getOffset() != start or pWidget->get_type() != CtAnchWidgType::TableRich) continue;
+                auto* pTable = static_cast<CtTableRich*>(pWidget);
+                for (size_t row = 0; row < shownWidget.richTableData.size(); ++row) {
+                    const auto& shownRow = shownWidget.richTableData[row];
+                    const auto& otherRow = otherWidget.richTableData[row];
+                    for (size_t col = 0; col < shownRow.size() and col < otherRow.size(); ++col) {
+                        const CtContentChange cellChange = CtDeltaEngine::changedCellRange(otherRow[col], shownRow[col]);
+                        CtRichCell* pCell = cellChange.start >= 0 ? pTable->getRichCell(row, col) : nullptr;
+                        if (not pCell) continue;
+                        auto cellRects = _text_range_page_rects(pCell->get_text_view().mm(), cellChange.start, cellChange.endAfter);
+                        rects.insert(rects.end(), cellRects.begin(), cellRects.end());
+                    }
+                }
+            }
+        }
+    }
+    if (rects.empty()) {
+        rects = _text_range_page_rects(textView, start, end);
+        // widgets in the change, whatever size their anchor reports
+        if (treeIter) {
+            for (auto* pWidget : treeIter.get_anchored_widgets_fast()) {
+                if (pWidget->getOffset() >= start and pWidget->getOffset() < end) {
+                    rects.push_back(_widget_page_rect(*pWidget));
+                }
+            }
+        }
+    }
+    _highlight_page_rects(std::move(rects));
+}
+
+void CtTimelinePanel::_highlight_canvas_change(const std::vector<CtDrawingCanvas>& shown,
+                                               const std::vector<CtDrawingCanvas>& other, int canvasIdx)
+{
+    if (canvasIdx < 0) {
+        _clear_highlight();
+        return;
+    }
+    const size_t idx = static_cast<size_t>(canvasIdx);
+    const CtDrawingCanvas* pShown = idx < shown.size() ? &shown[idx] : nullptr;
+    const CtDrawingCanvas* pOther = idx < other.size() ? &other[idx] : nullptr;
+    const CtDrawingCanvas* pCanvas = pShown ? pShown : pOther;
+    if (not pCanvas) {
+        _clear_highlight();
+        return;
+    }
+    const double zoom = _pCtMainWin->get_rt_zoom_scale_factor();
+    auto f_canvas_rect = [zoom](const CtDrawingCanvas& canvas) {
+        return Gdk::Rectangle(static_cast<int>(canvas.x * zoom), static_cast<int>(canvas.y * zoom),
+                              static_cast<int>(canvas.width * zoom), static_cast<int>(canvas.height * zoom));
+    };
+    // where a stroke lies, in page coordinates, drawn on canvas
+    auto f_stroke_rect = [zoom](const CtDrawingCanvas& canvas, const CtDrawingStroke& stroke) {
+        double minX{0}, minY{0}, maxX{0}, maxY{0};
+        for (size_t i = 0; i < stroke.points.size(); ++i) {
+            const auto& pt = stroke.points[i];
+            if (i == 0 or pt.x < minX) minX = pt.x;
+            if (i == 0 or pt.y < minY) minY = pt.y;
+            if (i == 0 or pt.x > maxX) maxX = pt.x;
+            if (i == 0 or pt.y > maxY) maxY = pt.y;
+        }
+        if (stroke.type == CtDrawingElementType::Text) {
+            maxX += stroke.fontSize * 0.6 * std::max<size_t>(1, stroke.textContent.size());
+            maxY += stroke.fontSize * 1.3;
+        }
+        const double pad = std::max(stroke.lineWidth, 2.0);
+        return Gdk::Rectangle(static_cast<int>((canvas.x + minX - pad) * zoom), static_cast<int>((canvas.y + minY - pad) * zoom),
+                              static_cast<int>((maxX - minX + 2 * pad) * zoom), static_cast<int>((maxY - minY + 2 * pad) * zoom));
+    };
+
+    std::vector<Gdk::Rectangle> rects;
+    const bool sameCanvasPlace = pShown and pOther and pShown->x == pOther->x and pShown->y == pOther->y and
+                                 pShown->width == pOther->width and pShown->height == pOther->height;
+    if (sameCanvasPlace) {
+        // strokes that are in one state and not in the other: those on display, or else
+        // the place of those the other state has
+        auto f_differing = [](const CtDrawingCanvas& a, const CtDrawingCanvas& b) {
+            std::vector<const CtDrawingStroke*> strokes;
+            for (const auto& stroke : a.strokes) {
+                const std::string serialized = CtDeltaEngine::serializeStroke(stroke);
+                bool found{false};
+                for (const auto& otherStroke : b.strokes) {
+                    if (CtDeltaEngine::serializeStroke(otherStroke) == serialized) { found = true; break; }
+                }
+                if (not found) strokes.push_back(&stroke);
+            }
+            return strokes;
+        };
+        auto strokes = f_differing(*pShown, *pOther);
+        if (strokes.empty()) strokes = f_differing(*pOther, *pShown);
+        for (const auto* pStroke : strokes) {
+            rects.push_back(f_stroke_rect(*pShown, *pStroke));
+        }
+    }
+    if (rects.empty()) {
+        rects.push_back(f_canvas_rect(*pCanvas));
+    }
+    _highlight_page_rects(std::move(rects));
+}
+
+void CtTimelinePanel::_highlight_page_rects(std::vector<Gdk::Rectangle> pageRects)
+{
+    auto* pOverlay = _pCtMainWin->get_drawing_overlay();
+    if (not pOverlay) return;
+    if (pageRects.empty()) {
+        pOverlay->clearHighlightRegion();
+        return;
+    }
+    // a margin around the whole change, as a percentage of its size
+    constexpr double kMarginPercent{20.0};
+    int minX = pageRects.front().get_x(), minY = pageRects.front().get_y();
+    int maxX = minX + pageRects.front().get_width(), maxY = minY + pageRects.front().get_height();
+    for (const auto& rect : pageRects) {
+        minX = std::min(minX, rect.get_x());
+        minY = std::min(minY, rect.get_y());
+        maxX = std::max(maxX, rect.get_x() + rect.get_width());
+        maxY = std::max(maxY, rect.get_y() + rect.get_height());
+    }
+    const double size = std::max(maxX - minX, maxY - minY);
+    const int margin = static_cast<int>(std::clamp(size * kMarginPercent / 100.0, 6.0, 30.0));
+    for (auto& rect : pageRects) {
+        rect = Gdk::Rectangle(rect.get_x() - margin, rect.get_y() - margin,
+                              rect.get_width() + 2 * margin, rect.get_height() + 2 * margin);
+    }
+    pOverlay->setHighlightRegion(std::move(pageRects), _pCtMainWin->get_ct_config()->timelineHighlightColor);
+}
+
+void CtTimelinePanel::_clear_highlight()
+{
+    if (auto* pOverlay = _pCtMainWin->get_drawing_overlay()) {
+        pOverlay->clearHighlightRegion();
+    }
+}
+
+std::vector<Gdk::Rectangle> CtTimelinePanel::_text_range_page_rects(Gtk::TextView& view, int start, int end)
+{
+    std::vector<Gdk::Rectangle> rects;
+    auto* pOverlay = _pCtMainWin->get_drawing_overlay();
+    auto rBuffer = view.get_buffer();
+    if (not pOverlay or not rBuffer) return rects;
+    auto hAdj = _pCtMainWin->getScrolledwindowText().get_hadjustment();
+    auto vAdj = _pCtMainWin->getScrolledwindowText().get_vadjustment();
+    const int hScroll = hAdj ? static_cast<int>(hAdj->get_value()) : 0;
+    const int vScroll = vAdj ? static_cast<int>(vAdj->get_value()) : 0;
+    auto f_to_page = [&](const Gdk::Rectangle& bufferRect) {
+        int windowX{0}, windowY{0}, overlayX{0}, overlayY{0};
+        view.buffer_to_window_coords(Gtk::TEXT_WINDOW_WIDGET, bufferRect.get_x(), bufferRect.get_y(), windowX, windowY);
+        view.translate_coordinates(pOverlay->getDrawingArea(), windowX, windowY, overlayX, overlayY);
+        return Gdk::Rectangle(overlayX + hScroll, overlayY + vScroll, bufferRect.get_width(), bufferRect.get_height());
+    };
+
+    const int charCount = rBuffer->get_char_count();
+    start = std::clamp(start, 0, charCount);
+    end = std::clamp(end, start, charCount);
+    if (start == end) {
+        // removed in this state: where it was
+        Gdk::Rectangle location;
+        view.get_iter_location(rBuffer->get_iter_at_offset(start), location);
+        rects.push_back(f_to_page(Gdk::Rectangle(location.get_x() - 1, location.get_y(), 3, location.get_height())));
+        return rects;
+    }
+    // one rectangle per display line, grown by each character on it
+    std::vector<Gdk::Rectangle> lineRects;
+    for (auto iter = rBuffer->get_iter_at_offset(start); iter.get_offset() < end; iter.forward_char()) {
+        Gdk::Rectangle location;
+        view.get_iter_location(iter, location);
+        const int width = std::max(location.get_width(), 2);
+        if (not lineRects.empty() and lineRects.back().get_y() == location.get_y()) {
+            auto& line = lineRects.back();
+            const int x0 = std::min(line.get_x(), location.get_x());
+            const int x1 = std::max(line.get_x() + line.get_width(), location.get_x() + width);
+            line = Gdk::Rectangle(x0, line.get_y(), x1 - x0, std::max(line.get_height(), location.get_height()));
+        }
+        else {
+            lineRects.push_back(Gdk::Rectangle(location.get_x(), location.get_y(), width, location.get_height()));
+        }
+    }
+    for (const auto& line : lineRects) {
+        rects.push_back(f_to_page(line));
+    }
+    return rects;
+}
+
+Gdk::Rectangle CtTimelinePanel::_widget_page_rect(Gtk::Widget& widget)
+{
+    auto* pOverlay = _pCtMainWin->get_drawing_overlay();
+    if (not pOverlay) return Gdk::Rectangle();
+    auto hAdj = _pCtMainWin->getScrolledwindowText().get_hadjustment();
+    auto vAdj = _pCtMainWin->getScrolledwindowText().get_vadjustment();
+    int overlayX{0}, overlayY{0};
+    widget.translate_coordinates(pOverlay->getDrawingArea(), 0, 0, overlayX, overlayY);
+    return Gdk::Rectangle(overlayX + (hAdj ? static_cast<int>(hAdj->get_value()) : 0),
+                          overlayY + (vAdj ? static_cast<int>(vAdj->get_value()) : 0),
+                          widget.get_allocated_width(), widget.get_allocated_height());
 }
 
 void CtTimelinePanel::_replayCanvas(int canvasIdx)
@@ -767,11 +989,7 @@ void CtTimelinePanel::_replayCanvas(int canvasIdx)
     auto* overlay = _pCtMainWin->get_drawing_overlay();
     if (!overlay) return;
 
-    bool isDark = false;
-    if (auto settings = Gtk::Settings::get_default()) {
-        isDark = settings->property_gtk_application_prefer_dark_theme();
-    }
-    std::string highlightColor = isDark ? "#554400" : "#FFFFAA";
+    const std::string highlightColor = _pCtMainWin->get_ct_config()->timelineHighlightColor;
 
     if (auto node = _pCtMainWin->get_command_bridge()->getDocumentModel()->getNodeById(_pCtMainWin->curr_tree_iter().get_node_id())) {
         const auto& canvases = node->getDrawingCanvases();
@@ -840,7 +1058,7 @@ void CtTimelinePanel::_stopReplay()
                 } else {
                     CtTreeIter currIter = _pCtMainWin->curr_tree_iter();
                     if (currIter and currIter.get_node_id() == _replayState.replayNodeId) {
-                        _show_replay_content(_replayState.restoreContent);
+                        _show_replay_content(_replayState.restoreContent, nullptr);
                     }
                     else {
                         // a node no longer on display: no cursor or scroll to keep
@@ -868,7 +1086,23 @@ void CtTimelinePanel::_stopReplay()
     }
     _restoreBufferModified();
     _restartEditSession(restartNodeId);
+    _clear_highlight();
     _replayState = ReplayState{};
+}
+
+void CtTimelinePanel::on_node_leaving()
+{
+    if (_replayState.displayBuffer) {
+        _replayState.displayBuffer->set_modified(_replayState.displayBufferWasModified);
+    }
+}
+
+void CtTimelinePanel::on_node_switched()
+{
+    // the node replayed is no longer on display, so it is not rebuilt in view
+    if (isReplaying()) {
+        _stopReplay();
+    }
 }
 
 void CtTimelinePanel::_restartEditSession(gint64 nodeId)
