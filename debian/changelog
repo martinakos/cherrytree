@@ -9,7 +9,8 @@ cherrytree-docmodel (1.7.3+docmodel20-1) plucky; urgency=low
       change (text lines, the text inside a table cell, drawing strokes or
       a canvas), in a colour set in Preferences
     - the view stays still and centred on the change during the replay
-    - selecting another node stops a running replay at once
+    - selecting another node stops a running replay at once, also while
+      the replay is still starting; clicking another entry replays that one
     - autosave waits for a replay to finish, so the replayed state is
       never saved
   * Preferences > Timeline: enable (off by default), retention in days of
@@ -22,6 +23,8 @@ cherrytree-docmodel (1.7.3+docmodel20-1) plucky; urgency=low
     the node never had
   * Timeline: entries keep their place in the node when text before them
     is deleted, and the replay centres on the change as it was then
+  * Shift+F9 works with configs from earlier versions: the Show/Hide
+    Timeline Panel entry is added to their View menu
   * Fixed the OCR startup walk blocking node switches after opening a
     document
   * The OCR startup walk loads only the nodes with images not scanned yet
@@ -30,7 +33,7 @@ cherrytree-docmodel (1.7.3+docmodel20-1) plucky; urgency=low
   * Tests: GUI tests for replay of text, rich table cells, drawings, image
     edits, scrolling, highlight, node switching and autosave
 
- -- Giuseppe Penone <giuspen@gmail.com>  Sat, 21 Nov 2026 14:45:24 +0000
+ -- Giuseppe Penone <giuspen@gmail.com>  Sat, 21 Nov 2026 19:35:00 +0000
 
 cherrytree-docmodel (1.7.3+docmodel19-1) plucky; urgency=low
 
