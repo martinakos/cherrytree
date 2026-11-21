@@ -2137,11 +2137,23 @@ void CtMainWin::_ocr_enqueue_incremental()
     _ocrNodeIds.clear();
     _ocrNodeIdx = 0;
     _ocrImgSkip = 0;
-    get_tree_store().get_store()->foreach_iter([this](const Gtk::TreeModel::iterator& iter) -> bool {
-        CtTreeIter ctIter = get_tree_store().to_ct_tree_iter(iter);
-        _ocrNodeIds.push_back(ctIter.get_node_id());
-        return false;
-    });
+    // Checking a node loads it: visit only the nodes the storage lists as having
+    // unscanned images when it can tell, every node otherwise
+    std::optional<std::vector<gint64>> nodesMissingOcr;
+    if (CtStorageEntity* pStorageEntity = _uCtStorage ? _uCtStorage->get_storage_entity() : nullptr) {
+        nodesMissingOcr = pStorageEntity->get_nodes_with_images_missing_ocr();
+    }
+    if (nodesMissingOcr) {
+        _ocrNodeIds = std::move(*nodesMissingOcr);
+    }
+    else {
+        get_tree_store().get_store()->foreach_iter([this](const Gtk::TreeModel::iterator& iter) -> bool {
+            CtTreeIter ctIter = get_tree_store().to_ct_tree_iter(iter);
+            _ocrNodeIds.push_back(ctIter.get_node_id());
+            return false;
+        });
+    }
+    spdlog::info("CtOcrManager: checking {} nodes for images without OCR", _ocrNodeIds.size());
     if (not _ocrNodeIds.empty()) {
         Glib::signal_timeout().connect_once(sigc::mem_fun(*this, &CtMainWin::_ocr_enqueue_next_node), 1);
     }

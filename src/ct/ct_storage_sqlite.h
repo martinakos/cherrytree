@@ -68,6 +68,7 @@ public:
                                                           std::list<CtAnchoredWidget*>& widgets) const override;
 
     fs::path get_embedded_filepath(const CtTreeIter&/*ct_tree_iter*/, const std::string&/*filename*/) const override { return ""; }
+    std::optional<std::vector<gint64>> get_nodes_with_images_missing_ocr() const override;
 
 private:
     void _open_db(const fs::path& path);

@@ -27,6 +27,8 @@
 #include "ct_drawing.h"
 #include "ct_command_bridge.h"
 #include "tests_common.h"
+#include "ct_actions.h"
+#include "ct_image.h"
 
 class TestCtApp : public CtApp
 {
@@ -953,5 +955,81 @@ TEST(LineWrapRoundTrip, SqliteSaveAndReload)
 TEST(LineWrapRoundTrip, XmlSaveAndReload)
 {
     LineWrapRoundTripApp app{CtDocType::XML, ".ctd"};
+    app.run(0, nullptr);
+}
+
+// The startup OCR walk visits only the nodes the storage lists as having PNG images
+// without OCR data; a storage that cannot tell gives no list and every node is visited
+class OcrMissingNodesApp : public CtApp
+{
+public:
+    OcrMissingNodesApp() : CtApp{"_test_ocr_missing_nodes", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
+private:
+    void on_activate() override;
+};
+
+void OcrMissingNodesApp::on_activate()
+{
+    _on_startup();
+    auto quitGuard = scope_guard([this](void*) { quit(); });
+
+    auto f_missing = [](CtMainWin* pWin) {
+        return pWin->get_ct_storage()->get_storage_entity()->get_nodes_with_images_missing_ocr();
+    };
+    auto f_sorted = [](std::vector<gint64> ids) { std::sort(ids.begin(), ids.end()); return ids; };
+
+    // test document written before the OCR columns existed
+    CtMainWin* pWin1 = _create_window(true/*start_hidden*/);
+    ASSERT_TRUE(pWin1->file_open(UT::testCtbDocPath, ""/*node*/, ""/*anchor*/));
+    EXPECT_FALSE(f_missing(pWin1).has_value()) << "without the OCR columns every node must be visited";
+    fs::path tmpDir = pWin1->get_ct_tmp()->getHiddenDirPath("UT_OCR_MISSING");
+    fs::path tmpCtb = tmpDir / "ocr_missing.ctb";
+    pWin1->file_save_as(tmpCtb.string(), CtDocType::SQLite, "");
+    pWin1->force_exit() = true;
+    remove_window(*pWin1);
+
+    // saved with the current schema, no image scanned yet: nodes "b" (2) and "e" (5)
+    CtMainWin* pWin2 = _create_window(true/*start_hidden*/);
+    ASSERT_TRUE(pWin2->file_open(tmpCtb, ""/*node*/, ""/*anchor*/));
+    auto missing = f_missing(pWin2);
+    ASSERT_TRUE(missing.has_value());
+    EXPECT_EQ(f_sorted(*missing), (std::vector<gint64>{2, 5}));
+
+    // scan the images of node 5 and save
+    CtTreeIter nodeIter = pWin2->get_tree_store().get_node_from_node_id(5);
+    ASSERT_TRUE(nodeIter);
+    int scanned{0};
+    for (CtAnchoredWidget* pWidget : nodeIter.get_anchored_widgets_fast()) {
+        if (auto* pImagePng = dynamic_cast<CtImagePng*>(pWidget)) {
+            if (pImagePng->get_type() != CtAnchWidgType::ImagePng) continue;
+            pImagePng->set_ocr_boxes("10,10");
+            ++scanned;
+        }
+    }
+    ASSERT_GT(scanned, 0);
+    pWin2->update_window_save_needed(CtSaveNeededUpdType::nbuf, false/*new_machine_state*/, &nodeIter);
+    pWin2->get_ct_actions()->file_save();
+    pWin2->force_exit() = true;
+    remove_window(*pWin2);
+
+    CtMainWin* pWin3 = _create_window(true/*start_hidden*/);
+    ASSERT_TRUE(pWin3->file_open(tmpCtb, ""/*node*/, ""/*anchor*/));
+    missing = f_missing(pWin3);
+    ASSERT_TRUE(missing.has_value());
+    EXPECT_EQ(f_sorted(*missing), (std::vector<gint64>{2}));
+    pWin3->force_exit() = true;
+    remove_window(*pWin3);
+
+    // XML documents have no image table to query
+    CtMainWin* pWin4 = _create_window(true/*start_hidden*/);
+    ASSERT_TRUE(pWin4->file_open(UT::testCtdDocPath, ""/*node*/, ""/*anchor*/));
+    EXPECT_FALSE(f_missing(pWin4).has_value());
+    pWin4->force_exit() = true;
+    remove_window(*pWin4);
+}
+
+TEST(OcrMissingNodes, SqliteListsNodesWithUnscannedImages)
+{
+    OcrMissingNodesApp app;
     app.run(0, nullptr);
 }

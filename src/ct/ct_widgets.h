@@ -32,6 +32,7 @@
 
 #include <unordered_map>
 #include <memory>
+#include <optional>
 
 class CtMDParser;
 class CtClipboard;
@@ -223,6 +224,10 @@ public:
                                                                   const std::string& syntax,
                                                                   std::list<CtAnchoredWidget*>& widgets) const = 0;
     virtual fs::path get_embedded_filepath(const CtTreeIter& ct_tree_iter, const std::string& filename) const = 0;
+
+    // Nodes holding PNG images without OCR data, or nullopt if the storage
+    // cannot tell without loading the nodes
+    virtual std::optional<std::vector<gint64>> get_nodes_with_images_missing_ocr() const { return std::nullopt; }
 
     void set_is_dry_run() { _isDryRun = true; }
 

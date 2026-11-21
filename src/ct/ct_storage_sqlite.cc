@@ -835,6 +835,22 @@ void CtStorageSqlite::_create_all_tables_in_db()
     _exec_no_callback(TABLE_PROTECTED_AREA_CREATE);
 }
 
+std::optional<std::vector<gint64>> CtStorageSqlite::get_nodes_with_images_missing_ocr() const
+{
+    // PNG images are the rows with neither a filename (latex, embedded file,
+    // horizontal line) nor an anchor; scanned ones always have ocr_boxes
+    Sqlite3StmtAuto stmt{_pDb, "SELECT DISTINCT node_id FROM image"
+                               " WHERE IFNULL(filename,'')='' AND IFNULL(anchor,'')='' AND IFNULL(ocr_boxes,'')=''"};
+    if (stmt.is_bad()) {
+        return std::nullopt;
+    }
+    std::vector<gint64> nodeIds;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        nodeIds.push_back(sqlite3_column_int64(stmt, 0));
+    }
+    return nodeIds;
+}
+
 std::vector<CtProtectedAreaRecord> CtStorageSqlite::read_protected_areas(std::vector<gint64>* pStaleIdsOut/*= nullptr*/) const
 {
     std::vector<CtProtectedAreaRecord> records;
