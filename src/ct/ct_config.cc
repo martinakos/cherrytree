@@ -927,6 +927,11 @@ void CtConfig::_populate_data_from_keyfile()
         ensure_ui_list_has_group(menubarTreeUiList, "tree_node_protect", protectGroup, protectAnchor);
         ensure_ui_list_has_group(popupNodeUiList, "tree_node_protect", protectGroup, protectAnchor);
     }
+    // make the timeline entry appear for configs written before it: in GTK3 a shortcut
+    // works through its menu item, so without it Shift+F9 does nothing
+    if (std::string::npos == menubarToolsUiList.find("toggle_show_timeline_panel")) {
+        ensure_ui_list_has_group(menubarViewUiList, "toggle_show_timeline_panel", "toggle_show_timeline_panel,", "toggle_show_vte,");
+    }
     _populate_bool_from_keyfile("systray", &systrayOn);
     _populate_bool_from_keyfile("start_on_systray", &startOnSystray);
     if (savedFromPyGtk) {

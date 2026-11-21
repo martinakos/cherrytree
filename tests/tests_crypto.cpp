@@ -367,6 +367,8 @@ TEST(CtCryptoTest, WipeClearsTheSecret)
 // new version has to be spliced into configs that predate it.
 
 #include "ct_config.h"
+#include <glib/gstdio.h>
+#include <memory>
 
 namespace {
 
@@ -433,4 +435,31 @@ TEST(CtConfigUiListTest, HandlesARealSavedConfigLayout)
     EXPECT_NE(std::string::npos, uiList.find("tree_node_protect"));
     EXPECT_NE(std::string::npos, uiList.find("tree_lock_protected"));
     EXPECT_LT(uiList.find("TreeProtectSubMenu"), uiList.find("BookmarksSubMenu"));
+}
+
+// A config written before the timeline: its saved View and Tools menus lack the
+// timeline entry, and in GTK3 its Shift+F9 shortcut only works through that entry
+TEST(CtConfigUiListTest, AddsTheTimelineEntryToAnOldConfig)
+{
+    const std::string dir = Glib::build_filename(Glib::get_tmp_dir(), "ct_config_" + std::to_string(g_get_monotonic_time()));
+    ASSERT_EQ(0, g_mkdir_with_parents(dir.c_str(), 0755));
+    auto f_load = [&](const std::string& viewList, const std::string& toolsList) {
+        const std::string filepath = Glib::build_filename(dir, "config.cfg");
+        Glib::file_set_contents(filepath, "[misc]\nmenubar_view_ui_list=" + viewList +
+                                          "\nmenubar_tools_ui_list=" + toolsList + "\n");
+        return std::make_unique<CtConfig>(filepath);
+    };
+    const std::string oldView{"toggle_show_tree,toggle_show_statusbar,toggle_show_vte,separator,toggle_fullscreen"};
+    const std::string oldTools{"spellcheck_toggle,separator,command_palette"};
+
+    auto pConfig = f_load(oldView, oldTools);
+    EXPECT_EQ(pConfig->menubarViewUiList,
+              "toggle_show_tree,toggle_show_statusbar,toggle_show_vte,toggle_show_timeline_panel,separator,toggle_fullscreen");
+
+    // already in the Tools menu: not added to View as well
+    pConfig = f_load(oldView, oldTools + ",toggle_show_timeline_panel");
+    EXPECT_EQ(pConfig->menubarViewUiList, oldView);
+
+    (void)g_remove(Glib::build_filename(dir, "config.cfg").c_str());
+    (void)g_rmdir(dir.c_str());
 }
