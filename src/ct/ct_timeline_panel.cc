@@ -31,6 +31,7 @@
 #include "ct_drawing.h"
 #include "ct_widgets.h"
 #include <algorithm>
+#include <limits>
 #include <unordered_set>
 #include <spdlog/spdlog.h>
 #include <glibmm/base64.h>
@@ -234,19 +235,7 @@ void CtTimelinePanel::adjustOffsetsForNode(gint64 nodeId, const std::vector<CtCo
 
     for (const auto& row : _rTreeStore->children()) {
         if (row[_columns.colNodeId] != nodeId) continue;
-
-        int offset = row[_columns.colRegionOffset];
-        if (offset < 0) continue;
-
-        for (const auto& shift : shifts) {
-            if (offset >= shift.offset) {
-                offset += shift.delta;
-                offset = std::max(0, offset);
-            } else if (shift.delta < 0 && offset > shift.offset + shift.delta) {
-                offset = shift.offset;
-            }
-        }
-        row[_columns.colRegionOffset] = offset;
+        row[_columns.colRegionOffset] = CtCommand::applyOffsetShifts(row[_columns.colRegionOffset], shifts);
     }
 }
 
@@ -439,8 +428,9 @@ void CtTimelinePanel::_replayViaModel(const CtTimelineEntry& entry)
     _replayState.maxCycles = _pCtMainWin->get_ct_config()->timelineReplayCycles;
     _replayState.showingBefore = true;
     _replayState.cursorPos = entry.cursorPos;
-    // centre the view on the change and keep it there while the buffer is rebuilt on every cycle
-    _replayState.scrollPos = _center_view_on_offset(entry.regionOffset, entry.regionLength);
+    // the view stays where it is while the states are laid out, then is centred on the change
+    auto vAdj = _pCtMainWin->getScrolledwindowText().get_vadjustment();
+    _replayState.scrollPos = vAdj ? vAdj->get_value() : -1.0;
 
     bridge->endTextEditSession();
     bridge->beginReplay();
@@ -449,16 +439,25 @@ void CtTimelinePanel::_replayViaModel(const CtTimelineEntry& entry)
     // the displayed one cannot scroll as far (a rebuilt state can differ from what is
     // displayed too), so use a position both allow and the view does not move on every
     // cycle. The view is frozen meanwhile.
+    const bool frozeNow = _freeze_text_view();
+    double maxBothStates = std::numeric_limits<double>::max();
     for (const CtNodeContent* pState : {&_replayState.afterContent, &_replayState.beforeContent}) {
         _show_replay_content(*pState, pState == &_replayState.afterContent ? &_replayState.beforeContent : &_replayState.afterContent);
-        if (auto vAdj = _pCtMainWin->getScrolledwindowText().get_vadjustment()) {
-            const double maxValue = std::max(vAdj->get_lower(), vAdj->get_upper() - vAdj->get_page_size());
-            _replayState.scrollPos = std::min(_replayState.scrollPos, maxValue);
+        if (vAdj) {
+            maxBothStates = std::min(maxBothStates, std::max(vAdj->get_lower(), vAdj->get_upper() - vAdj->get_page_size()));
         }
     }
-    if (auto vAdj = _pCtMainWin->getScrolledwindowText().get_vadjustment()) {
+    // Centre on the change where it is in these states: the entry's offset follows the
+    // node as it is now, where later edits may have moved the changed text
+    const CtContentChange change = CtDeltaEngine::changedRange(_replayState.afterContent, _replayState.beforeContent);
+    const double centred = change.start >= 0
+        ? _center_view_on_offset(change.start, std::max(change.endAfter - change.start, 1))
+        : _center_view_on_offset(entry.regionOffset, entry.regionLength);
+    _replayState.scrollPos = std::min(centred, maxBothStates);
+    if (vAdj) {
         vAdj->set_value(_replayState.scrollPos);
     }
+    if (frozeNow) _thaw_text_view();
 
     constexpr int kCycleMs = 700;
     _replayState.timeout = Glib::signal_timeout().connect([this]() -> bool {

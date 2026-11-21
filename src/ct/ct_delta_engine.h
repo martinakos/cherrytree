@@ -41,6 +41,10 @@ public:
     static CtContentChange changedRange(const CtNodeContent& before, const CtNodeContent& after);
     static CtContentChange changedCellRange(const CtCellContent& before, const CtCellContent& after);
 
+    // An undo runs its command backwards: its timeline entry holds the command's delta
+    // marked so that replaying the entry applies that delta the other way round
+    static std::string markUndone(const std::string& deltaData);
+
     static bool applyReverse(CtNodeContent& content, const std::string& deltaData);
     static bool applyForward(CtNodeContent& content, const std::string& deltaData);
     static bool isReplayable(const std::string& deltaData);

@@ -355,6 +355,16 @@ bool applySingleForward(CtNodeContent& content, const std::string& line)
     return false;
 }
 
+const std::string kUndoneMark{"UNDO\n"};
+
+// The delta without the undo mark, and whether it had one
+bool stripUndoneMark(const std::string& deltaData, std::string& rest)
+{
+    if (deltaData.compare(0, kUndoneMark.size(), kUndoneMark) != 0) return false;
+    rest = deltaData.substr(kUndoneMark.size());
+    return true;
+}
+
 std::vector<std::string> splitLines(const std::string& s)
 {
     std::vector<std::string> lines;
@@ -657,9 +667,15 @@ bool applySingleForwardDrawing(std::vector<CtDrawingCanvas>& canvases, const std
 
 } // anonymous namespace
 
+/*static*/std::string CtDeltaEngine::markUndone(const std::string& deltaData)
+{
+    return deltaData.empty() ? deltaData : kUndoneMark + deltaData;
+}
+
 bool CtDeltaEngine::applyReverse(CtNodeContent& content, const std::string& deltaData)
 {
     if (deltaData.empty()) return false;
+    if (std::string rest; stripUndoneMark(deltaData, rest)) return applyForward(content, rest);
 
     try {
         auto lines = splitLines(deltaData);
@@ -684,6 +700,7 @@ bool CtDeltaEngine::applyReverse(CtNodeContent& content, const std::string& delt
 bool CtDeltaEngine::applyForward(CtNodeContent& content, const std::string& deltaData)
 {
     if (deltaData.empty()) return false;
+    if (std::string rest; stripUndoneMark(deltaData, rest)) return applyReverse(content, rest);
 
     try {
         auto lines = splitLines(deltaData);
@@ -703,6 +720,7 @@ bool CtDeltaEngine::applyForward(CtNodeContent& content, const std::string& delt
 bool CtDeltaEngine::isReplayable(const std::string& deltaData)
 {
     if (deltaData.empty()) return false;
+    if (std::string rest; stripUndoneMark(deltaData, rest)) return isReplayable(rest);
 
     auto lines = splitLines(deltaData);
     for (const auto& line : lines) {
@@ -721,6 +739,7 @@ bool CtDeltaEngine::isReplayable(const std::string& deltaData)
 bool CtDeltaEngine::isDrawingDelta(const std::string& deltaData)
 {
     if (deltaData.empty()) return false;
+    if (std::string rest; stripUndoneMark(deltaData, rest)) return isDrawingDelta(rest);
     auto parts = splitPipe(deltaData);
     if (parts.empty()) return false;
     const std::string& type = parts[0];
@@ -731,6 +750,7 @@ bool CtDeltaEngine::isDrawingDelta(const std::string& deltaData)
 bool CtDeltaEngine::applyReverseDrawing(std::vector<CtDrawingCanvas>& canvases, const std::string& deltaData)
 {
     if (deltaData.empty()) return false;
+    if (std::string rest; stripUndoneMark(deltaData, rest)) return applyForwardDrawing(canvases, rest);
     try {
         return applySingleReverseDrawing(canvases, deltaData);
     }
@@ -743,6 +763,7 @@ bool CtDeltaEngine::applyReverseDrawing(std::vector<CtDrawingCanvas>& canvases, 
 bool CtDeltaEngine::applyForwardDrawing(std::vector<CtDrawingCanvas>& canvases, const std::string& deltaData)
 {
     if (deltaData.empty()) return false;
+    if (std::string rest; stripUndoneMark(deltaData, rest)) return applyReverseDrawing(canvases, rest);
     try {
         return applySingleForwardDrawing(canvases, deltaData);
     }

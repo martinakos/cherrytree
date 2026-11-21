@@ -157,6 +157,24 @@ std::string CompoundCommand::serializeDelta() const
     return result;
 }
 
+/*static*/int CtCommand::applyOffsetShifts(int offset, const std::vector<OffsetShift>& shifts)
+{
+    if (offset < 0) return offset;
+    for (const auto& shift : shifts) {
+        if (shift.delta >= 0) {
+            // text inserted at or before the offset pushes it on
+            if (offset >= shift.offset) offset += shift.delta;
+        }
+        else {
+            // text deleted: [shift.offset, shift.offset - shift.delta)
+            const int deletedEnd = shift.offset - shift.delta;
+            if (offset >= deletedEnd) offset += shift.delta;
+            else if (offset > shift.offset) offset = shift.offset;
+        }
+    }
+    return offset;
+}
+
 void CompoundCommand::appendShifts(std::vector<OffsetShift>& log, bool isUndo) const
 {
     if (isUndo) {

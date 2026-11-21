@@ -579,6 +579,69 @@ void TestTimelineApp::_run_tests(CtMainWin* pWin)
         drainEvents();
     }
 
+    // --- An undo entry records what the undo did, so replaying older entries is right ---
+    {
+        spdlog::info("CrossCompare: UndoEntryReplaysCorrectly");
+        panel->clear();
+        drainEvents();
+
+        auto buffer = pWin->curr_buffer();
+        ASSERT_TRUE(buffer);
+        buffer->place_cursor(buffer->begin());
+        buffer->insert_at_cursor("ABCDEF ");
+        drainEvents();
+        pBridge->onCursorMoved();
+        drainEvents();
+
+        // format, then delete a character and undo the deletion
+        buffer->select_range(buffer->begin(), buffer->get_iter_at_offset(6));
+        pActions->apply_tag_bold();
+        drainEvents();
+        const Glib::ustring textNow = buffer->get_text();
+        buffer->erase(buffer->get_iter_at_offset(1), buffer->get_iter_at_offset(2));
+        drainEvents();
+        pBridge->onCursorMoved();
+        drainEvents();
+        pActions->requested_step_back();
+        drainEvents();
+        ASSERT_EQ(buffer->get_text(), textNow);
+
+        auto entries = panel->get_all_entries();
+        ASSERT_GE(entries.size(), 3u);
+        EXPECT_EQ(entries[0].actionDescription.rfind("Undo: ", 0), 0u) << entries[0].actionDescription;
+        int fmtRow{-1};
+        for (size_t i = 0; i < entries.size(); ++i) {
+            if (entries[i].actionType == "FMT") { fmtRow = static_cast<int>(i); break; }
+        }
+        ASSERT_GE(fmtRow, 1);
+        EXPECT_EQ(entries[fmtRow].regionOffset, 0) << "the deletion and its undo must leave the format entry in place";
+
+        // replaying the format must show this text, only bold or not
+        auto& tv = panel->getTreeView();
+        auto store = tv.get_model();
+        tv.row_activated(store->get_path(store->children()[fmtRow]), *tv.get_column(0));
+        bool sawReplay{false};
+        int wrongText{0};
+        const gint64 deadline = g_get_monotonic_time() + 10 * G_USEC_PER_SEC;
+        while (g_get_monotonic_time() < deadline) {
+            gtk_main_iteration_do(false);
+            if (panel->isReplaying()) {
+                sawReplay = true;
+                if (pWin->curr_buffer()->get_text() != textNow) ++wrongText;
+            }
+            else if (sawReplay) break;
+            g_usleep(1000);
+        }
+        drainEvents();
+        EXPECT_TRUE(sawReplay);
+        EXPECT_EQ(wrongText, 0) << "the replay showed text the node never had at that point";
+        EXPECT_EQ(pWin->curr_buffer()->get_text(), textNow);
+
+        panel->clear();
+        while (pBridge->canUndo()) pActions->requested_step_back();
+        drainEvents();
+    }
+
     // --- Redo creates a timeline entry ---
     {
         spdlog::info("CrossCompare: RedoCreatesEntry");

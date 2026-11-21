@@ -751,3 +751,49 @@ TEST(DeltaEngineChangedRange, RichCell)
     EXPECT_EQ(change.endBefore, 16);
     EXPECT_EQ(change.endAfter, 16);
 }
+
+// ─── Undo entries ────────────────────────────────────────────────────
+
+TEST(DeltaEngineUndo, UndoneDeltaAppliesTheOtherWay)
+{
+    // "Does BACOPA": the B deleted, then the deletion undone
+    CtNodeContent content;
+    content.insertText(0, "Does BACOPA", {});
+    const std::string delB = makeDEL(5, {{"B", {}}});
+    const std::string undoDelB = CtDeltaEngine::markUndone(delB);
+    EXPECT_TRUE(CtDeltaEngine::isReplayable(undoDelB));
+
+    // stepping back through the undo deletes the B again
+    ASSERT_TRUE(CtDeltaEngine::applyReverse(content, undoDelB));
+    EXPECT_EQ(content.getText(), "Does ACOPA");
+    // stepping back through the deletion puts it back
+    ASSERT_TRUE(CtDeltaEngine::applyReverse(content, delB));
+    EXPECT_EQ(content.getText(), "Does BACOPA");
+    // and forward again
+    ASSERT_TRUE(CtDeltaEngine::applyForward(content, delB));
+    ASSERT_TRUE(CtDeltaEngine::applyForward(content, undoDelB));
+    EXPECT_EQ(content.getText(), "Does BACOPA");
+}
+
+TEST(DeltaEngineUndo, UndoneDrawingDelta)
+{
+    CtDrawingStroke stroke;
+    stroke.points = {{0.0, 0.0}, {10.0, 10.0}};
+    std::vector<CtDrawingCanvas> canvases(1);
+    canvases[0].strokes = {stroke};
+    const std::string draw = "DSt|0|" + Glib::Base64::encode(CtDeltaEngine::serializeStroke(stroke));
+    const std::string undoDraw = CtDeltaEngine::markUndone(draw);
+    EXPECT_TRUE(CtDeltaEngine::isDrawingDelta(undoDraw));
+
+    // the stroke is there now: stepping back through the undo of drawing it draws it again
+    canvases[0].strokes.clear();
+    ASSERT_TRUE(CtDeltaEngine::applyReverseDrawing(canvases, undoDraw));
+    EXPECT_EQ(canvases[0].strokes.size(), 1u);
+    ASSERT_TRUE(CtDeltaEngine::applyForwardDrawing(canvases, undoDraw));
+    EXPECT_TRUE(canvases[0].strokes.empty());
+}
+
+TEST(DeltaEngineUndo, EmptyDeltaStaysEmpty)
+{
+    EXPECT_EQ(CtDeltaEngine::markUndone(""), "");
+}

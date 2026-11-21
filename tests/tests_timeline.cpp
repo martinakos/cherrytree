@@ -18,19 +18,9 @@
 #include <vector>
 #include <algorithm>
 
-// Pure offset adjustment logic (mirrors CtTimelinePanel::adjustOffsetsForNode)
 static int applyShifts(int offset, const std::vector<CtCommand::OffsetShift>& shifts)
 {
-    if (offset < 0) return offset;
-    for (const auto& shift : shifts) {
-        if (offset >= shift.offset) {
-            offset += shift.delta;
-            offset = std::max(0, offset);
-        } else if (shift.delta < 0 && offset > shift.offset + shift.delta) {
-            offset = shift.offset;
-        }
-    }
-    return offset;
+    return CtCommand::applyOffsetShifts(offset, shifts);
 }
 
 // ─── Offset Adjustment Tests ────────────────────────────────────────────────
@@ -72,27 +62,41 @@ TEST(OffsetAdjust, DeleteAfter)
 
 TEST(OffsetAdjust, DeleteOverlapping)
 {
-    // Delete [8,12] (offset=8, delta=-4), entry at offset 10
-    // 10 >= 8 → 10 + (-4) = 6
+    // Delete [8,12) (offset=8, delta=-4), entry at offset 10 inside it → start of the deletion
     std::vector<CtCommand::OffsetShift> shifts = {{8, -4}};
-    EXPECT_EQ(applyShifts(10, shifts), 6);
+    EXPECT_EQ(applyShifts(10, shifts), 8);
 }
 
 TEST(OffsetAdjust, DeleteAtEntry)
 {
-    // Delete [10,15] (offset=10, delta=-5), entry at offset 10 → entry stays at 10
+    // Delete [10,15) (offset=10, delta=-5), entry at offset 10 → entry stays at 10
     std::vector<CtCommand::OffsetShift> shifts = {{10, -5}};
-    EXPECT_EQ(applyShifts(10, shifts), 5);
+    EXPECT_EQ(applyShifts(10, shifts), 10);
 }
 
 TEST(OffsetAdjust, MultipleShifts)
 {
     // Insert at 0 (+5), delete at 20 (-3), insert at 10 (+2) → entry at 15
     // Step 1: 15 >= 0, so 15+5=20
-    // Step 2: 20 >= 20, so 20+(-3)=17
-    // Step 3: 17 >= 10, so 17+2=19
+    // Step 2: deletion [20,23) starts at the entry, so it stays at 20
+    // Step 3: 20 >= 10, so 20+2=22
     std::vector<CtCommand::OffsetShift> shifts = {{0, 5}, {20, -3}, {10, 2}};
-    EXPECT_EQ(applyShifts(15, shifts), 19);
+    EXPECT_EQ(applyShifts(15, shifts), 22);
+}
+
+TEST(OffsetAdjust, DeleteShortlyAfter)
+{
+    // Delete [12,17), entry at offset 10 before it → unchanged
+    std::vector<CtCommand::OffsetShift> shifts = {{12, -5}};
+    EXPECT_EQ(applyShifts(10, shifts), 10);
+}
+
+TEST(OffsetAdjust, DeleteAndUndoAfter)
+{
+    // a long deletion after the entry and its undo leave the entry where it was
+    std::vector<CtCommand::OffsetShift> shifts = {{107, -212}, {107, 212}};
+    EXPECT_EQ(applyShifts(5, shifts), 5);
+    EXPECT_EQ(applyShifts(400, shifts), 400);
 }
 
 TEST(OffsetAdjust, NegativeClamp)

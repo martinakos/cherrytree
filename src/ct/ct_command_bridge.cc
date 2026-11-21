@@ -24,6 +24,7 @@
 #include "ct_command_bridge.h"
 #include "ct_main_win.h"
 #include "ct_timeline_panel.h"
+#include "ct_delta_engine.h"
 #include "ct_storage_xml.h"
 #include "ct_logging.h"
 #include "ct_gtk_compat.h"
@@ -448,7 +449,7 @@ void CtCommandBridge::_undoRedo(const bool isUndo)
     if (success) {
         auto* doneCmd = isUndo ? _commandManager.peekRedoCommand() : _commandManager.peekUndoCommand();
         if (doneCmd) {
-            createTimelineEntry(doneCmd, affectedNodeId, isUndo);
+            createTimelineEntry(doneCmd, affectedNodeId, isUndo ? TimelineStep::Undo : TimelineStep::Redo);
         }
     }
 
@@ -3030,8 +3031,9 @@ void CtCommandBridge::BridgeObserver::onNodeDrawingChanged(gint64 nodeId)
     }
 }
 
-void CtCommandBridge::createTimelineEntry(CtCommand* cmd, gint64 nodeId, bool isUndo)
+void CtCommandBridge::createTimelineEntry(CtCommand* cmd, gint64 nodeId, TimelineStep step)
 {
+    const bool isUndo = step == TimelineStep::Undo;
     if (!_pMainWin) return;
     if (!_pMainWin->get_ct_config()->timelineEnabled) return;
     auto* panel = _pMainWin->get_timeline_panel();
@@ -3049,6 +3051,8 @@ void CtCommandBridge::createTimelineEntry(CtCommand* cmd, gint64 nodeId, bool is
     if (auto pos = desc.find("] "); pos != std::string::npos) {
         desc = desc.substr(pos + 2);
     }
+    if (step == TimelineStep::Undo) desc = "Undo: " + desc;
+    else if (step == TimelineStep::Redo) desc = "Redo: " + desc;
 
     // Create entry
     CtTimelineEntry entry;
@@ -3063,6 +3067,7 @@ void CtCommandBridge::createTimelineEntry(CtCommand* cmd, gint64 nodeId, bool is
 
     // Serialize delta data for replay
     entry.deltaData = cmd->serializeDelta();
+    if (isUndo) entry.deltaData = CtDeltaEngine::markUndone(entry.deltaData);
 
     // Capture cursor/scroll
     auto rBuffer = _pMainWin->curr_buffer();

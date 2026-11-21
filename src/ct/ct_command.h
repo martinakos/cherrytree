@@ -81,6 +81,8 @@ public:
     // Offset shift extraction for timeline offset correction
     struct OffsetShift { int offset; int delta; };
     virtual void appendShifts(std::vector<OffsetShift>& /*log*/, bool /*isUndo*/) const {}
+    // Where an offset ends up after the shifts; negative offsets (no position) are kept
+    static int applyOffsetShifts(int offset, const std::vector<OffsetShift>& shifts);
 };
 
 // Compound command that groups multiple commands together
