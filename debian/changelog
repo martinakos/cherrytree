@@ -17,12 +17,20 @@ cherrytree-docmodel (1.7.3+docmodel20-1) plucky; urgency=low
   * The timeline is stored next to the document (<document>.timeline, or
     timeline.db inside a multi-file folder); it is not kept for encrypted
     documents
+  * Timeline: undo and redo steps are listed as "Undo: ..." and "Redo: ..."
+    and replay correctly; replaying an older entry no longer shows text
+    the node never had
+  * Timeline: entries keep their place in the node when text before them
+    is deleted, and the replay centres on the change as it was then
   * Fixed the OCR startup walk blocking node switches after opening a
     document
+  * The OCR startup walk loads only the nodes with images not scanned yet
+    (SQLite documents), instead of every node: much less memory used after
+    opening a large document
   * Tests: GUI tests for replay of text, rich table cells, drawings, image
     edits, scrolling, highlight, node switching and autosave
 
- -- Giuseppe Penone <giuspen@gmail.com>  Sat, 21 Nov 2026 12:30:22 +0000
+ -- Giuseppe Penone <giuspen@gmail.com>  Sat, 21 Nov 2026 14:45:24 +0000
 
 cherrytree-docmodel (1.7.3+docmodel19-1) plucky; urgency=low
 
