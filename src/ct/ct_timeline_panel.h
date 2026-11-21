@@ -67,11 +67,22 @@ private:
     void _replayEntry(const CtTimelineEntry& entry);
     void _stopReplay();
     void _restoreBufferModified();
+    void _restartEditSession(gint64 nodeId);
+    // Show one state of a model replay, drawn only once its layout is settled
+    void _show_replay_content(const CtNodeContent& content);
 
-    // Centre the text view on what an entry changed; each returns the new scroll value
+    // Bring what an entry changed into view, scrolling only when it is not already
+    // visible; each returns the new scroll value
     double _scroll_to_span(double top, double height);
     double _center_view_on_offset(int offset, int length);
-    double _center_view_on_canvas(const CtDrawingCanvas& canvas);
+    double _center_view_on_canvas(const CtDrawingCanvas& canvas, const CtDrawingCanvas* pOtherCanvas = nullptr);
+    // Run pending events so GTK lays out the buffer, ignoring timeline clicks meanwhile
+    void _settle_layout();
+    void _settle_layout_until_stable();
+    // No painting of the text view between the click and the view in place
+    // returns false when the view was already frozen (or cannot be)
+    bool _freeze_text_view();
+    void _thaw_text_view();
 
     void _set_row(const Gtk::TreeModel::Row& row, const CtTimelineEntry& entry);
     CtTimelineEntry _get_row(const Gtk::TreeModel::Row& row) const;
@@ -121,6 +132,7 @@ private:
     Gtk::ScrolledWindow          _scrolledWindow;
     bool                         _updatingList{false};
     bool                         _centeringView{false};
+    Glib::RefPtr<Gdk::Window>    _rFrozenWindow;
 
     void _replayViaModel(const CtTimelineEntry& entry);
     void _replayViaDrawingModel(const CtTimelineEntry& entry);

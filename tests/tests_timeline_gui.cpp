@@ -1497,3 +1497,253 @@ TEST(TimelineGUI, ReplayAfterNodeSwitchDuringReplayKeepsContent)
     TestTimelineNodeSwitchApp app;
     app.run(0, nullptr);
 }
+
+// Scroll values of the frames actually drawn by the text view (none while it is frozen)
+struct DrawnScrollValues
+{
+    Glib::RefPtr<Gtk::Adjustment> vAdj;
+    std::vector<int> values; // a value is added when it differs from the previous frame
+    bool recording{false};
+    static gboolean on_draw(GtkWidget*, cairo_t*, gpointer data)
+    {
+        auto* p = static_cast<DrawnScrollValues*>(data);
+        const int value = static_cast<int>(p->vAdj->get_value());
+        if (p->recording and (p->values.empty() or p->values.back() != value)) p->values.push_back(value);
+        return FALSE;
+    }
+};
+
+// Replay scrolls as little as possible: a change already in view keeps the view where it
+// is, and at the bottom of a node a shorter "before" state does not move the view on
+// every cycle. Needs a mapped window so the text view has a real layout and draws.
+class TestTimelineMinimalScrollApp : public CtApp
+{
+public:
+    TestTimelineMinimalScrollApp() : CtApp{"_test_timeline_minimal_scroll", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
+
+private:
+    void on_activate() final;
+};
+
+void TestTimelineMinimalScrollApp::on_activate()
+{
+    _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
+
+    CtMainWin* pWin = _create_window(true/*no_gui*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_документ.ctb";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+    auto on_scope_exit = scope_guard([&](void*) {
+        pWin->force_exit() = true;
+        remove_window(*pWin);
+    });
+
+    auto drainEvents = [](){
+        while (gtk_events_pending()) gtk_main_iteration_do(false);
+    };
+    pWin->resize(800, 600);
+    pWin->show_all();
+    drainEvents();
+
+    auto* pBridge = pWin->get_command_bridge();
+    auto* pActions = pWin->get_ct_actions();
+    auto* panel = pWin->get_timeline_panel();
+    pWin->get_ct_config()->timelineEnabled = true;
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("b");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    drainEvents();
+
+    auto buffer = pWin->curr_buffer();
+    ASSERT_TRUE(buffer);
+    Glib::ustring lines;
+    for (int i = 0; i < 300; ++i) lines += "scroll test line " + std::to_string(i) + "\n";
+    buffer->place_cursor(buffer->end());
+    buffer->insert_at_cursor(lines);
+    drainEvents();
+    pBridge->onCursorMoved();
+    drainEvents();
+
+    Gtk::TextView& textView = pWin->get_text_view().mm();
+    DrawnScrollValues drawn;
+    drawn.vAdj = pWin->getScrolledwindowText().get_vadjustment();
+    g_signal_connect_after(GTK_WIDGET(textView.gobj()), "draw", G_CALLBACK(DrawnScrollValues::on_draw), &drawn);
+
+    auto& tv = panel->getTreeView();
+    auto store = tv.get_model();
+    auto f_replay_top_entry = [&]() {
+        drawn.values.clear();
+        drawn.recording = true;
+        tv.row_activated(store->get_path(store->children().begin()), *tv.get_column(0));
+        bool sawReplay{false};
+        const gint64 deadline = g_get_monotonic_time() + 10 * G_USEC_PER_SEC;
+        while (g_get_monotonic_time() < deadline) {
+            gtk_main_iteration_do(false);
+            if (panel->isReplaying()) sawReplay = true;
+            else if (sawReplay) break;
+            g_usleep(1000);
+        }
+        drainEvents();
+        drawn.recording = false;
+        EXPECT_TRUE(sawReplay);
+    };
+
+    // --- a change in view: no scrolling
+    {
+        drawn.vAdj->set_value(std::floor((drawn.vAdj->get_upper() - drawn.vAdj->get_page_size()) / 2));
+        drainEvents();
+        const double scrollBefore = drawn.vAdj->get_value();
+        Gdk::Rectangle visible;
+        textView.get_visible_rect(visible);
+        Gtk::TextIter lineIter;
+        int lineTop{0};
+        textView.get_line_at_y(lineIter, visible.get_y() + visible.get_height() / 2, lineTop);
+        auto wordEnd = lineIter;
+        wordEnd.forward_chars(6);
+        panel->clear();
+        buffer->select_range(lineIter, wordEnd);
+        pActions->apply_tag_bold();
+        drainEvents();
+
+        f_replay_top_entry();
+        ASSERT_FALSE(drawn.values.empty());
+        EXPECT_EQ(drawn.values.size(), 1u) << "the view moved during the replay";
+        EXPECT_NEAR(drawn.values.front(), scrollBefore, 1.0) << "a change already in view should not scroll";
+    }
+
+    // --- lines added at the bottom, view at the bottom: the shorter "before" state
+    // must not move the view on every cycle
+    {
+        panel->clear();
+        buffer->place_cursor(buffer->end());
+        Glib::ustring added;
+        for (int i = 0; i < 30; ++i) added += "added at the bottom " + std::to_string(i) + "\n";
+        buffer->insert_at_cursor(added);
+        drainEvents();
+        pBridge->onCursorMoved();
+        drainEvents();
+        ASSERT_FALSE(panel->get_all_entries().empty());
+        drawn.vAdj->set_value(drawn.vAdj->get_upper() - drawn.vAdj->get_page_size());
+        drainEvents();
+
+        f_replay_top_entry();
+        ASSERT_FALSE(drawn.values.empty());
+        EXPECT_EQ(drawn.values.size(), 1u) << "the view moved during the replay";
+    }
+
+    panel->clear();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    drainEvents();
+}
+
+TEST(TimelineGUI, ReplayScrollsAsLittleAsPossible)
+{
+    TestTimelineMinimalScrollApp app;
+    app.run(0, nullptr);
+}
+
+// Positions in the frames actually drawn by the text view while replaying
+struct DrawnBelowTable
+{
+    Gtk::TextView* pTextView{nullptr};
+    std::vector<int> endY; // screen y of the buffer end, added when it differs from the previous frame
+    bool recording{false};
+    static gboolean on_draw(GtkWidget*, cairo_t*, gpointer data)
+    {
+        auto* p = static_cast<DrawnBelowTable*>(data);
+        if (not p->recording) return FALSE;
+        Gdk::Rectangle visible, end;
+        p->pTextView->get_visible_rect(visible);
+        p->pTextView->get_iter_location(p->pTextView->get_buffer()->end(), end);
+        const int y = end.get_y() - visible.get_y();
+        if (p->endY.empty() or p->endY.back() != y) p->endY.push_back(y);
+        return FALSE;
+    }
+};
+
+// Each replay state rebuilds the node's widgets; a rebuilt rich table takes a few layout
+// passes to reach its size and must not be drawn before, or what is below it jumps
+class TestTimelineRebuiltTableApp : public CtApp
+{
+public:
+    TestTimelineRebuiltTableApp() : CtApp{"_test_timeline_rebuilt_table", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
+
+private:
+    void on_activate() final;
+};
+
+void TestTimelineRebuiltTableApp::on_activate()
+{
+    _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
+
+    CtMainWin* pWin = _create_window(true/*no_gui*/);
+    const fs::path test_file = fs::path(UT::unitTestsDataDir) / "test_rich_table.ctdx";
+    ASSERT_TRUE(pWin->file_open(test_file, ""/*node*/, ""/*anchor*/, UT::testPassword));
+    auto on_scope_exit = scope_guard([&](void*) {
+        pWin->force_exit() = true;
+        remove_window(*pWin);
+    });
+
+    auto drainEvents = [](){
+        while (gtk_events_pending()) gtk_main_iteration_do(false);
+    };
+    pWin->resize(800, 1000);
+    pWin->show_all();
+    drainEvents();
+
+    auto* pBridge = pWin->get_command_bridge();
+    auto* pActions = pWin->get_ct_actions();
+    auto* panel = pWin->get_timeline_panel();
+    pWin->get_ct_config()->timelineEnabled = true;
+
+    auto ctIter = pWin->get_tree_store().get_node_from_node_name("rich_table_test");
+    ASSERT_TRUE(ctIter);
+    pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(ctIter));
+    drainEvents();
+    bool hasRichTable{false};
+    for (auto* pWidget : ctIter.get_anchored_widgets_fast()) {
+        hasRichTable = hasRichTable or pWidget->get_type() == CtAnchWidgType::TableRich;
+    }
+    ASSERT_TRUE(hasRichTable);
+
+    // bold the text above the table
+    auto buffer = pWin->curr_buffer();
+    panel->clear();
+    buffer->select_range(buffer->begin(), buffer->get_iter_at_offset(4));
+    pActions->apply_tag_bold();
+    drainEvents();
+    ASSERT_FALSE(panel->get_all_entries().empty());
+
+    DrawnBelowTable drawn;
+    drawn.pTextView = &pWin->get_text_view().mm();
+    g_signal_connect_after(GTK_WIDGET(drawn.pTextView->gobj()), "draw", G_CALLBACK(DrawnBelowTable::on_draw), &drawn);
+    drawn.recording = true;
+    auto& tv = panel->getTreeView();
+    auto store = tv.get_model();
+    tv.row_activated(store->get_path(store->children().begin()), *tv.get_column(0));
+    bool sawReplay{false};
+    const gint64 deadline = g_get_monotonic_time() + 10 * G_USEC_PER_SEC;
+    while (g_get_monotonic_time() < deadline) {
+        gtk_main_iteration_do(false);
+        if (panel->isReplaying()) sawReplay = true;
+        else if (sawReplay) break;
+        g_usleep(1000);
+    }
+    drainEvents();
+    drawn.recording = false;
+    EXPECT_TRUE(sawReplay);
+    ASSERT_FALSE(drawn.endY.empty());
+    EXPECT_EQ(drawn.endY.size(), 1u) << "what is below the rich table moved during the replay";
+
+    panel->clear();
+    while (pBridge->canUndo()) pActions->requested_step_back();
+    drainEvents();
+}
+
+TEST(TimelineGUI, ReplayDrawsRebuiltWidgetsSettled)
+{
+    TestTimelineRebuiltTableApp app;
+    app.run(0, nullptr);
+}
