@@ -241,11 +241,16 @@ void CtTimelinePanel::adjustOffsetsForNode(gint64 nodeId, const std::vector<CtCo
 
 void CtTimelinePanel::_on_row_activated(const Gtk::TreeModel::Path& path, Gtk::TreeViewColumn* /*column*/)
 {
-    if (_updatingList or _centeringView) return;
+    if (_updatingList) return;
     auto iter = _rTreeStore->get_iter(path);
     if (!iter) return;
 
     const CtTimelineEntry entry = _get_row(*iter);
+    if (_replayBusy) {
+        _pendingEntry = entry;
+        _replayCancelled = true;
+        return;
+    }
     // A running replay is stopped once the node switch is done (_replayEntry): rebuilding
     // the buffer still on display right before switching the view away hangs GTK. Leaving
     // that buffer flagged modified by the replay would mark the document as needing a save.
@@ -274,8 +279,16 @@ void CtTimelinePanel::_navigate_to_entry(const CtTimelineEntry& entry)
     _pCtMainWin->get_tree_view().set_cursor_safe(ctIter);
     _pCtMainWin->get_tree_view().scroll_to_row(store->get_path(ctIter), 0.5);
 
+    // another node selected before the replay starts: no replay, and the view unfrozen
+    auto f_switched_away = [this](const gint64 nodeId) {
+        CtTreeIter currIter = _pCtMainWin->curr_tree_iter();
+        if (currIter and currIter.get_node_id() == nodeId) return false;
+        _thaw_text_view();
+        return true;
+    };
     CtTimelineEntry entryCopy = entry;
-    Glib::signal_idle().connect_once([this, entryCopy]() {
+    Glib::signal_idle().connect_once([this, entryCopy, f_switched_away]() {
+        if (f_switched_away(entryCopy.nodeId)) return;
         auto rBuffer = _pCtMainWin->curr_buffer();
         if (rBuffer) {
             // the replay centres the view on the change; entries without a place in the
@@ -294,7 +307,8 @@ void CtTimelinePanel::_navigate_to_entry(const CtTimelineEntry& entry)
             }
         }
 
-        Glib::signal_idle().connect_once([this, entryCopy]() {
+        Glib::signal_idle().connect_once([this, entryCopy, f_switched_away]() {
+            if (f_switched_away(entryCopy.nodeId)) return;
             _replayEntry(entryCopy);
         });
     });
@@ -302,9 +316,14 @@ void CtTimelinePanel::_navigate_to_entry(const CtTimelineEntry& entry)
 
 void CtTimelinePanel::_replayEntry(const CtTimelineEntry& entry)
 {
-    // the view is in place once the replay has started
-    auto on_scope_exit = scope_guard([this](void*) { _thaw_text_view(); });
     _stopReplay();
+    _replayBusy = true;
+    _replayCancelled = false;
+    auto on_scope_exit = scope_guard([this](void*) {
+        _replayBusy = false;
+        if (_replayCancelled) _finish_cancelled_replay();
+        else _thaw_text_view(); // the view is in place once the replay has started
+    });
 
     std::string actionType = entry.actionType;
 
@@ -443,6 +462,7 @@ void CtTimelinePanel::_replayViaModel(const CtTimelineEntry& entry)
     double maxBothStates = std::numeric_limits<double>::max();
     for (const CtNodeContent* pState : {&_replayState.afterContent, &_replayState.beforeContent}) {
         _show_replay_content(*pState, pState == &_replayState.afterContent ? &_replayState.beforeContent : &_replayState.afterContent);
+        if (_replayCancelled) return;
         if (vAdj) {
             maxBothStates = std::min(maxBothStates, std::max(vAdj->get_lower(), vAdj->get_upper() - vAdj->get_page_size()));
         }
@@ -453,6 +473,7 @@ void CtTimelinePanel::_replayViaModel(const CtTimelineEntry& entry)
     const double centred = change.start >= 0
         ? _center_view_on_offset(change.start, std::max(change.endAfter - change.start, 1))
         : _center_view_on_offset(entry.regionOffset, entry.regionLength);
+    if (_replayCancelled) return;
     _replayState.scrollPos = std::min(centred, maxBothStates);
     if (vAdj) {
         vAdj->set_value(_replayState.scrollPos);
@@ -461,44 +482,59 @@ void CtTimelinePanel::_replayViaModel(const CtTimelineEntry& entry)
 
     constexpr int kCycleMs = 700;
     _replayState.timeout = Glib::signal_timeout().connect([this]() -> bool {
-        auto* br = _pCtMainWin->get_command_bridge();
-        auto dm = br->getDocumentModel();
-        CtTreeIter currIter = _pCtMainWin->curr_tree_iter();
-        if (!dm || !dm->getNodeById(_replayState.replayNodeId) ||
-            !currIter || currIter.get_node_id() != _replayState.replayNodeId) {
-            _stopReplay();
+        _replayBusy = true;
+        const bool keepGoing = _replay_model_tick();
+        _replayBusy = false;
+        if (_replayCancelled) {
+            _finish_cancelled_replay();
             return false;
         }
-
-        // the state just shown ended up shorter than measured: keep the position it
-        // allowed for the rest of the replay
-        auto vAdj = _pCtMainWin->getScrolledwindowText().get_vadjustment();
-        if (vAdj and vAdj->get_value() < _replayState.scrollPos) {
-            _replayState.scrollPos = vAdj->get_value();
-        }
-
-        if (_replayState.showingBefore) {
-            // Switch to "after"
-            _show_replay_content(_replayState.afterContent, &_replayState.beforeContent);
-            _replayState.showingBefore = false;
-        } else {
-            // Switch to "before" and increment cycle
-            _replayState.cycleCount++;
-            if (_replayState.cycleCount >= _replayState.maxCycles) {
-                // Done cycling — restore original
-                _show_replay_content(_replayState.restoreContent, nullptr);
-                br->endReplay();
-                _restoreBufferModified();
-                _restartEditSession(_replayState.replayNodeId);
-                _replayState.replayNodeId = -1;
-                _replayState.timeout.disconnect();
-                return false;
-            }
-            _show_replay_content(_replayState.beforeContent, &_replayState.afterContent);
-            _replayState.showingBefore = true;
-        }
-        return true;
+        return keepGoing;
     }, kCycleMs);
+}
+
+// One switch between the states of a text replay; false once the replay is over
+bool CtTimelinePanel::_replay_model_tick()
+{
+    auto* br = _pCtMainWin->get_command_bridge();
+    auto dm = br->getDocumentModel();
+    CtTreeIter currIter = _pCtMainWin->curr_tree_iter();
+    if (!dm || !dm->getNodeById(_replayState.replayNodeId) ||
+        !currIter || currIter.get_node_id() != _replayState.replayNodeId) {
+        _stopReplay();
+        return false;
+    }
+
+    // the state just shown ended up shorter than measured: keep the position it
+    // allowed for the rest of the replay
+    auto vAdj = _pCtMainWin->getScrolledwindowText().get_vadjustment();
+    if (vAdj and vAdj->get_value() < _replayState.scrollPos) {
+        _replayState.scrollPos = vAdj->get_value();
+    }
+
+    if (_replayState.showingBefore) {
+        // Switch to "after"
+        _show_replay_content(_replayState.afterContent, &_replayState.beforeContent);
+        if (_replayCancelled) return false;
+        _replayState.showingBefore = false;
+    } else {
+        // Switch to "before" and increment cycle
+        _replayState.cycleCount++;
+        if (_replayState.cycleCount >= _replayState.maxCycles) {
+            // Done cycling — restore original
+            _show_replay_content(_replayState.restoreContent, nullptr);
+            br->endReplay();
+            _restoreBufferModified();
+            _restartEditSession(_replayState.replayNodeId);
+            _replayState.replayNodeId = -1;
+            _replayState.timeout.disconnect();
+            return false;
+        }
+        _show_replay_content(_replayState.beforeContent, &_replayState.afterContent);
+        if (_replayCancelled) return false;
+        _replayState.showingBefore = true;
+    }
+    return true;
 }
 
 void CtTimelinePanel::_replayViaDrawingModel(const CtTimelineEntry& entry)
@@ -658,9 +694,6 @@ double CtTimelinePanel::_center_view_on_offset(int offset, int length)
     if (not vAdj) return -1.0;
     if (offset < 0) return vAdj->get_value();
 
-    _centeringView = true;
-    auto on_scope_exit = scope_guard([this](void*) { _centeringView = false; });
-
     Gtk::TextView& textView = _pCtMainWin->get_text_view().mm();
     auto rBuffer = textView.get_buffer();
     // Lines not laid out yet have estimated heights: measure again once scrolling
@@ -677,6 +710,7 @@ double CtTimelinePanel::_center_view_on_offset(int offset, int length)
         value = _scroll_to_span(top, bottom - top);
         if (pass > 0 and std::abs(value - previous) < 1.0) break;
         _settle_layout();
+        if (_replayCancelled) break;
     }
     return value;
 }
@@ -695,10 +729,7 @@ double CtTimelinePanel::_center_view_on_canvas(const CtDrawingCanvas& canvas, co
 
 void CtTimelinePanel::_settle_layout()
 {
-    const bool wasCentering = _centeringView;
-    _centeringView = true;
     while (gtk_events_pending()) gtk_main_iteration_do(false);
-    _centeringView = wasCentering;
 }
 
 void CtTimelinePanel::_settle_layout_until_stable()
@@ -710,7 +741,7 @@ void CtTimelinePanel::_settle_layout_until_stable()
     const gint64 deadline = g_get_monotonic_time() + 400000;
     double lastUpper{-1};
     int stableChecks{0};
-    while (g_get_monotonic_time() < deadline and stableChecks < 3) {
+    while (g_get_monotonic_time() < deadline and stableChecks < 3 and not _replayCancelled) {
         _settle_layout();
         const double upper = vAdj->get_upper();
         if (upper == lastUpper) {
@@ -734,6 +765,11 @@ void CtTimelinePanel::_show_replay_content(const CtNodeContent& content, const C
     bridge->setPendingScrollPos(_replayState.scrollPos);
     bridge->getDocumentModel()->setNodeContent(_replayState.replayNodeId, content, true);
     _settle_layout_until_stable();
+    if (_replayCancelled) {
+        // another node is on display now: nothing to scroll or highlight
+        if (frozeNow) _thaw_text_view();
+        return;
+    }
     if (auto vAdj = _pCtMainWin->getScrolledwindowText().get_vadjustment()) {
         vAdj->set_value(_replayState.scrollPos);
     }
@@ -1096,8 +1132,25 @@ void CtTimelinePanel::on_node_leaving()
     }
 }
 
+void CtTimelinePanel::_finish_cancelled_replay()
+{
+    _replayCancelled = false;
+    _stopReplay();
+    _thaw_text_view();
+    if (_pendingEntry) {
+        const CtTimelineEntry entry = *_pendingEntry;
+        _pendingEntry.reset();
+        _navigate_to_entry(entry);
+    }
+}
+
 void CtTimelinePanel::on_node_switched()
 {
+    // replay code running the event loop stops itself once that returns
+    if (_replayBusy) {
+        _replayCancelled = true;
+        return;
+    }
     // the node replayed is no longer on display, so it is not rebuilt in view
     if (isReplaying()) {
         _stopReplay();

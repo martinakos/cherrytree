@@ -2621,3 +2621,155 @@ TEST(TimelineGUI, ReplayAutosaveWaits)
     TestTimelineAutosaveWaitsApp app;
     app.run(0, nullptr);
 }
+
+// A click while a replay is being set up (its nodes laid out, the view frozen) is
+// handled inside the replay's own event loop: it must take effect at once, the tree
+// one switching node and stopping the replay, the timeline one replaying its entry.
+class TestTimelineClickDuringSetupApp : public CtApp
+{
+public:
+    TestTimelineClickDuringSetupApp() : CtApp{"_test_timeline_click_during_setup", Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
+
+private:
+    void on_activate() final;
+};
+
+void TestTimelineClickDuringSetupApp::on_activate()
+{
+    _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
+
+    CtMainWin* pWin = _create_window(true/*no_gui*/);
+    ASSERT_TRUE(pWin->file_open(fs::path(UT::unitTestsDataDir) / "test_документ.ctb", ""/*node*/, ""/*anchor*/, UT::testPassword));
+    auto on_scope_exit = scope_guard([&](void*) {
+        pWin->force_exit() = true;
+        remove_window(*pWin);
+    });
+
+    auto drainEvents = [](){
+        while (gtk_events_pending()) gtk_main_iteration_do(false);
+    };
+    auto f_iterate = [](gint64 usec) {
+        const gint64 until = g_get_monotonic_time() + usec;
+        while (g_get_monotonic_time() < until) {
+            gtk_main_iteration_do(false);
+            g_usleep(500);
+        }
+    };
+    pWin->resize(1200, 800);
+    pWin->show_all();
+    drainEvents();
+
+    auto* panel = pWin->get_timeline_panel();
+    auto* pOverlay = pWin->get_drawing_overlay();
+    pWin->get_ct_config()->timelineEnabled = true;
+    auto& treeStore = pWin->get_tree_store();
+    auto f_select = [&](gint64 nodeId) {
+        pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(treeStore.get_node_from_node_id(nodeId)));
+    };
+    auto f_make_bold = [&](gint64 nodeId) {
+        f_select(nodeId);
+        drainEvents();
+        auto rBuffer = pWin->curr_buffer();
+        rBuffer->select_range(rBuffer->get_iter_at_offset(0), rBuffer->get_iter_at_offset(4));
+        pWin->get_ct_actions()->apply_tag_bold();
+        drainEvents();
+    };
+
+    // a real mouse click, queued like one from the window system
+    auto f_click_row = [](Gtk::TreeView& treeView, const Gtk::TreePath& path) {
+        Gdk::Rectangle rect;
+        treeView.get_background_area(path, *treeView.get_column(0), rect);
+        GdkDevice* pDevice = gdk_seat_get_pointer(gdk_display_get_default_seat(gdk_display_get_default()));
+        for (GdkEventType type : {GDK_BUTTON_PRESS, GDK_BUTTON_RELEASE}) {
+            GdkEvent* pEvent = gdk_event_new(type);
+            pEvent->button.window = GDK_WINDOW(g_object_ref(treeView.get_bin_window()->gobj()));
+            pEvent->button.send_event = TRUE;
+            pEvent->button.time = static_cast<guint32>(g_get_monotonic_time() / 1000);
+            pEvent->button.x = rect.get_x() + rect.get_width() / 2.0;
+            pEvent->button.y = rect.get_y() + rect.get_height() / 2.0;
+            pEvent->button.button = 1;
+            gdk_event_set_device(pEvent, pDevice);
+            gdk_display_put_event(gdk_display_get_default(), pEvent);
+            gdk_event_free(pEvent);
+        }
+    };
+
+    panel->clear();
+    f_make_bold(2);
+    f_make_bold(5);
+    // newest on top: row 0 is node 5, row 1 is node 2
+    ASSERT_EQ(panel->get_all_entries().size(), 2u);
+    ASSERT_EQ(panel->get_all_entries().at(1).nodeId, 2);
+    CtTreeIter iter2 = treeStore.get_node_from_node_id(2);
+    const Glib::ustring text2 = iter2.get_node_text_buffer()->get_text();
+
+    auto& timelineView = panel->getTreeView();
+    auto store = timelineView.get_model();
+    auto& treeView = pWin->get_tree_view();
+    const Gtk::TreePath pathNode1 = treeStore.get_path(treeStore.get_node_from_node_id(1)); // a top-level row
+
+    // --- the tree: switch node at once, the replay never cycles ---
+    int clicksDuringSetup{0};
+    for (int delayMs : {0, 5, 20, 50}) {
+        f_select(4);
+        f_iterate(300000);
+        bool clicked{false}, replayingAtClick{false}, replayedAfterClick{false};
+        timelineView.row_activated(store->get_path(store->children()[1]), *timelineView.get_column(0));
+        Glib::signal_timeout().connect_once([&]() {
+            clicked = true;
+            replayingAtClick = panel->isReplaying();
+            f_click_row(treeView, pathNode1);
+        }, delayMs);
+        const gint64 deadline = g_get_monotonic_time() + 1500000;
+        while (g_get_monotonic_time() < deadline) {
+            gtk_main_iteration_do(false);
+            if (clicked and panel->isReplaying()) replayedAfterClick = true;
+            g_usleep(500);
+        }
+        ASSERT_TRUE(clicked);
+        EXPECT_EQ(pWin->curr_tree_iter().get_node_id(), 1) << "click " << delayMs << " ms after the timeline click";
+        EXPECT_FALSE(panel->isReplaying());
+        EXPECT_FALSE(pOverlay->hasSnapshot()) << "the view must not stay frozen on the replayed node";
+        if (not replayingAtClick) {
+            ++clicksDuringSetup;
+            EXPECT_FALSE(replayedAfterClick) << "a click during the set-up must stop the replay before it cycles";
+        }
+        EXPECT_EQ(iter2.get_node_text_buffer()->get_text(), text2) << "the replayed node should be back as it was";
+        EXPECT_FALSE(iter2.get_node_text_buffer()->get_modified());
+    }
+    EXPECT_GT(clicksDuringSetup, 0) << "no click landed during the set-up of a replay";
+
+    // --- the timeline: another entry clicked during the set-up replays at once ---
+    f_select(4);
+    f_iterate(300000);
+    bool clicked{false};
+    timelineView.row_activated(store->get_path(store->children()[1]), *timelineView.get_column(0));
+    // activated as GTK does on a click (single-click activation does not react to
+    // synthesized events), from a timer so it lands inside the set-up
+    Glib::signal_timeout().connect_once([&]() {
+        clicked = true;
+        timelineView.row_activated(store->get_path(store->children()[0]), *timelineView.get_column(0));
+    }, 5);
+    bool replayedNode5{false};
+    const gint64 deadline = g_get_monotonic_time() + 2 * G_USEC_PER_SEC;
+    while (g_get_monotonic_time() < deadline and not replayedNode5) {
+        gtk_main_iteration_do(false);
+        replayedNode5 = clicked and panel->isReplaying() and pWin->curr_tree_iter().get_node_id() == 5;
+        g_usleep(500);
+    }
+    EXPECT_TRUE(replayedNode5) << "the timeline entry clicked during the set-up should replay";
+    f_iterate(6 * G_USEC_PER_SEC);
+    EXPECT_FALSE(panel->isReplaying());
+    EXPECT_EQ(iter2.get_node_text_buffer()->get_text(), text2);
+
+    panel->clear();
+    while (pWin->get_command_bridge()->canUndo()) pWin->get_ct_actions()->requested_step_back();
+    drainEvents();
+}
+
+TEST(TimelineGUI, ClickDuringReplaySetupTakesEffect)
+{
+    TestTimelineClickDuringSetupApp app;
+    app.run(0, nullptr);
+}

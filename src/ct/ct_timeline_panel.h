@@ -29,6 +29,7 @@
 #include "ct_node_content.h"
 #include "ct_drawing.h"
 #include <unordered_set>
+#include <optional>
 
 class CtMainWin;
 class CtAnchoredWidget;
@@ -71,6 +72,8 @@ private:
     void _navigate_to_entry(const CtTimelineEntry& entry);
     void _replayEntry(const CtTimelineEntry& entry);
     void _stopReplay();
+    void _finish_cancelled_replay();
+    bool _replay_model_tick();
     void _restoreBufferModified();
     void _restartEditSession(gint64 nodeId);
     // Show one state of a model replay, drawn only once its layout is settled, with
@@ -148,7 +151,12 @@ private:
     Gtk::TreeView                _treeView;
     Gtk::ScrolledWindow          _scrolledWindow;
     bool                         _updatingList{false};
-    bool                         _centeringView{false};
+    // Replay code is running and may run the event loop (laying out a state): a node
+    // switch or a timeline click meanwhile only cancels the replay, which stops itself
+    // as soon as the step it is in returns, then goes to the entry clicked if any
+    bool                         _replayBusy{false};
+    bool                         _replayCancelled{false};
+    std::optional<CtTimelineEntry> _pendingEntry;
 
     void _replayViaModel(const CtTimelineEntry& entry);
     void _replayViaDrawingModel(const CtTimelineEntry& entry);
