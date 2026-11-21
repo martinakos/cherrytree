@@ -16,6 +16,8 @@
 #include "ct_actions.h"
 #include "ct_codebox.h"
 #include "ct_table.h"
+#include "ct_image.h"
+#include "ct_drawing_commands.h"
 #include <gtest/gtest.h>
 #include <set>
 #include <functional>
@@ -1868,12 +1870,13 @@ static bool timeline_rects_contain(const std::vector<Gdk::Rectangle>& rects, int
     return false;
 }
 
-// Replays the top timeline entry, calling f_sample on every settled iteration of the replay
-static bool timeline_replay_top_entry(CtTimelinePanel* panel, const std::function<void()>& f_sample)
+// Replays a timeline entry (the top one by default), calling f_sample on every settled
+// iteration of the replay
+static bool timeline_replay_top_entry(CtTimelinePanel* panel, const std::function<void()>& f_sample, size_t rowIdx = 0)
 {
     auto& tv = panel->getTreeView();
     auto store = tv.get_model();
-    tv.row_activated(store->get_path(store->children().begin()), *tv.get_column(0));
+    tv.row_activated(store->get_path(store->children()[rowIdx]), *tv.get_column(0));
     bool sawReplay{false};
     const gint64 deadline = g_get_monotonic_time() + 10 * G_USEC_PER_SEC;
     while (g_get_monotonic_time() < deadline) {
@@ -2121,5 +2124,437 @@ void TestTimelineHighlightCellApp::on_activate()
 TEST(TimelineGUI, ReplayHighlightsRichCellChange)
 {
     TestTimelineHighlightCellApp app;
+    app.run(0, nullptr);
+}
+
+// The window the replay tests below run in: a test document opened in a mapped window,
+// so the text view has a real layout and draws
+class TestTimelineReplayAppBase : public CtApp
+{
+public:
+    explicit TestTimelineReplayAppBase(const Glib::ustring& appId) : CtApp{appId, Gio::APPLICATION_NON_UNIQUE} { _no_gui = true; }
+
+protected:
+    static void drainEvents() { while (gtk_events_pending()) gtk_main_iteration_do(false); }
+    CtMainWin* _open_window(const fs::path& filepath)
+    {
+        CtMainWin* pWin = _create_window(true/*no_gui*/);
+        if (not pWin->file_open(filepath, ""/*node*/, ""/*anchor*/, UT::testPassword)) return nullptr;
+        pWin->resize(800, 600);
+        pWin->show_all();
+        drainEvents();
+        pWin->get_ct_config()->timelineEnabled = true;
+        return pWin;
+    }
+    static void _select_node(CtMainWin* pWin, gint64 nodeId)
+    {
+        pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(pWin->get_tree_store().get_node_from_node_id(nodeId)));
+        drainEvents();
+    }
+};
+
+// A stroke drawn on a canvas: the replay shows the canvas without the stroke and with it,
+// highlights the stroke and not the whole canvas, and puts the canvas back at the end.
+// An added canvas highlights the whole canvas.
+class TestTimelineDrawingReplayApp : public TestTimelineReplayAppBase
+{
+public:
+    TestTimelineDrawingReplayApp() : TestTimelineReplayAppBase{"_test_timeline_drawing_replay"} {}
+
+private:
+    void on_activate() final;
+};
+
+void TestTimelineDrawingReplayApp::on_activate()
+{
+    _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
+
+    CtMainWin* pWin = _open_window(fs::path(UT::unitTestsDataDir) / "test_документ.ctb");
+    ASSERT_TRUE(pWin);
+    auto on_scope_exit = scope_guard([&](void*) {
+        pWin->force_exit() = true;
+        remove_window(*pWin);
+    });
+
+    auto* pBridge = pWin->get_command_bridge();
+    auto* panel = pWin->get_timeline_panel();
+    auto* pOverlay = pWin->get_drawing_overlay();
+    _select_node(pWin, 1);
+    const gint64 nodeId = 1;
+    auto pNode = pBridge->getDocumentModel()->getNodeById(nodeId);
+    ASSERT_TRUE(pNode);
+    const size_t canvasIdx = pNode->getDrawingCanvases().size();
+
+    panel->clear();
+    CtDrawingCanvas canvas;
+    canvas.x = 40;
+    canvas.y = 40;
+    canvas.width = 300;
+    canvas.height = 250;
+    pBridge->executeCommand(std::make_unique<AddCanvasCommand>(pBridge->getDocumentModel(), nodeId, canvas));
+    drainEvents();
+    CtDrawingStroke stroke;
+    stroke.type = CtDrawingElementType::Line;
+    stroke.points = {{50, 50}, {120, 90}};
+    pBridge->executeCommand(std::make_unique<DrawStrokeCommand>(pBridge->getDocumentModel(), nodeId, canvasIdx, stroke));
+    drainEvents();
+    const auto entries = panel->get_all_entries();
+    ASSERT_EQ(entries.size(), 2u);
+    ASSERT_EQ(entries[0].actionType, "DSt");
+    ASSERT_EQ(entries[1].actionType, "ACv");
+
+    const double zoom = pWin->get_rt_zoom_scale_factor();
+    const int strokeCentreX = static_cast<int>((canvas.x + 85) * zoom);
+    const int strokeCentreY = static_cast<int>((canvas.y + 70) * zoom);
+    const int canvasArea = static_cast<int>(canvas.width * zoom * canvas.height * zoom);
+    auto f_area = [](const std::vector<Gdk::Rectangle>& rects) {
+        int area{0};
+        for (const auto& r : rects) area += r.get_width() * r.get_height();
+        return area;
+    };
+
+    // --- the stroke
+    {
+        std::set<size_t> strokeCounts;
+        size_t samples{0}, onStroke{0}, smallerThanCanvas{0};
+        ASSERT_TRUE(timeline_replay_top_entry(panel, [&]() {
+            const auto& canvases = pNode->getDrawingCanvases();
+            if (canvasIdx < canvases.size()) strokeCounts.insert(canvases[canvasIdx].strokes.size());
+            const auto& region = pOverlay->getHighlightRegion();
+            if (region.empty()) return;
+            ++samples;
+            if (timeline_rects_contain(region, strokeCentreX, strokeCentreY)) ++onStroke;
+            if (f_area(region) < canvasArea / 2) ++smallerThanCanvas;
+        }));
+        EXPECT_EQ(strokeCounts, (std::set<size_t>{0u, 1u})) << "the replay should show the canvas without and with the stroke";
+        EXPECT_GT(samples, 0u) << "nothing was highlighted during the replay";
+        EXPECT_EQ(onStroke, samples) << "the highlight should cover the stroke";
+        EXPECT_EQ(smallerThanCanvas, samples) << "the highlight should cover the stroke, not the whole canvas";
+        ASSERT_GT(pNode->getDrawingCanvases().size(), canvasIdx);
+        EXPECT_EQ(pNode->getDrawingCanvases()[canvasIdx].strokes.size(), 1u) << "the canvas should be back as it was";
+        EXPECT_TRUE(pOverlay->getHighlightRegion().empty()) << "the highlight should be removed after the replay";
+    }
+
+    // --- the added canvas
+    {
+        std::set<size_t> canvasCounts;
+        size_t samples{0}, wholeCanvas{0};
+        ASSERT_TRUE(timeline_replay_top_entry(panel, [&]() {
+            canvasCounts.insert(pNode->getDrawingCanvases().size());
+            const auto& region = pOverlay->getHighlightRegion();
+            if (region.empty()) return;
+            ++samples;
+            const int left = static_cast<int>(canvas.x * zoom) + 2, top = static_cast<int>(canvas.y * zoom) + 2;
+            const int right = static_cast<int>((canvas.x + canvas.width) * zoom) - 2;
+            const int bottom = static_cast<int>((canvas.y + canvas.height) * zoom) - 2;
+            if (timeline_rects_contain(region, left, top) and timeline_rects_contain(region, right, bottom)) ++wholeCanvas;
+        }, 1/*rowIdx*/));
+        EXPECT_EQ(canvasCounts, (std::set<size_t>{canvasIdx, canvasIdx + 1})) << "the replay should show the node without and with the canvas";
+        EXPECT_GT(samples, 0u);
+        EXPECT_EQ(wholeCanvas, samples) << "an added canvas should be highlighted whole";
+        EXPECT_EQ(pNode->getDrawingCanvases().size(), canvasIdx + 1) << "the canvas should be back after the replay";
+        EXPECT_TRUE(pOverlay->getHighlightRegion().empty());
+    }
+
+    panel->clear();
+    while (pBridge->canUndo()) pWin->get_ct_actions()->requested_step_back();
+    drainEvents();
+}
+
+TEST(TimelineGUI, ReplayDrawingChange)
+{
+    TestTimelineDrawingReplayApp app;
+    app.run(0, nullptr);
+}
+
+// An edited image: the replay switches between the old and the new image, with the image
+// always there (it was once replaced by nothing), and ends on the new image
+class TestTimelineImageReplayApp : public TestTimelineReplayAppBase
+{
+public:
+    TestTimelineImageReplayApp() : TestTimelineReplayAppBase{"_test_timeline_image_replay"} {}
+
+private:
+    void on_activate() final;
+};
+
+void TestTimelineImageReplayApp::on_activate()
+{
+    _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
+
+    CtMainWin* pWin = _open_window(fs::path(UT::unitTestsDataDir) / "test_документ.ctb");
+    ASSERT_TRUE(pWin);
+    auto on_scope_exit = scope_guard([&](void*) {
+        pWin->force_exit() = true;
+        remove_window(*pWin);
+    });
+
+    auto* pBridge = pWin->get_command_bridge();
+    auto* panel = pWin->get_timeline_panel();
+    _select_node(pWin, 1);
+    CtTreeIter ctIter = pWin->curr_tree_iter();
+    const gint64 nodeId = ctIter.get_node_id();
+    auto buffer = pWin->curr_buffer();
+    Gtk::TextView& textView = pWin->get_text_view().mm();
+
+    auto f_pixbuf = [](int width, int height, guint32 rgba) {
+        auto rPixbuf = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB, false/*alpha*/, 8, width, height);
+        rPixbuf->fill(rgba);
+        return rPixbuf;
+    };
+    auto f_images = [&]() {
+        std::vector<CtImagePng*> images;
+        for (auto* pWidget : ctIter.get_anchored_widgets_fast()) {
+            if (pWidget->get_type() == CtAnchWidgType::ImagePng) images.push_back(static_cast<CtImagePng*>(pWidget));
+        }
+        return images;
+    };
+    const size_t imagesBefore = f_images().size();
+
+    // an image added at the end of the node, then edited the way the image edit dialog does it
+    panel->clear();
+    buffer->insert(buffer->end(), "\n");
+    pWin->get_ct_actions()->image_insert_png(buffer->end(), f_pixbuf(40, 20, 0xff000000), ""/*link*/, ""/*justification*/);
+    drainEvents();
+    ASSERT_EQ(f_images().size(), imagesBefore + 1);
+    CtImagePng* pOldImage{nullptr};
+    for (auto* pImage : f_images()) {
+        if (pImage->get_pixbuf()->get_width() == 40) pOldImage = pImage;
+    }
+    ASSERT_TRUE(pOldImage);
+    const int imageOffset = pOldImage->getOffset();
+    {
+        pBridge->endTextEditSession();
+        Gtk::TextIter iterStart = buffer->get_iter_at_child_anchor(pOldImage->getTextChildAnchor());
+        Gtk::TextIter iterEnd = iterStart;
+        iterEnd.forward_char();
+        const CtWidgetDesc oldDesc = pBridge->getDocumentModel()->getNodeById(nodeId)->getContent().getWidgetDescAt(imageOffset);
+        buffer->erase(iterStart, iterEnd);
+        auto* pNewImage = new CtImagePng{pWin, f_pixbuf(80, 30, 0x0000ff00), ""/*link*/, imageOffset, ""/*justification*/};
+        pNewImage->insertInTextBuffer(buffer);
+        pWin->get_tree_store().addAnchoredWidgets(ctIter, {pNewImage}, &textView);
+        const CtWidgetDesc newDesc = extractWidgetDesc(pNewImage, imageOffset);
+        pBridge->commitWidgetModification(nodeId, imageOffset, oldDesc, newDesc, "Edit image");
+    }
+    drainEvents();
+    const auto entries = panel->get_all_entries();
+    ASSERT_FALSE(entries.empty());
+    ASSERT_EQ(entries[0].actionType, "WMod");
+
+    std::set<int> widthsShown;
+    size_t samples{0}, imageMissing{0};
+    ASSERT_TRUE(timeline_replay_top_entry(panel, [&]() {
+        ++samples;
+        CtImagePng* pShown{nullptr};
+        for (auto* pImage : f_images()) {
+            if (pImage->getOffset() == imageOffset) pShown = pImage;
+        }
+        if (not pShown or f_images().size() != imagesBefore + 1) {
+            ++imageMissing;
+            return;
+        }
+        widthsShown.insert(pShown->get_pixbuf()->get_width());
+    }));
+    EXPECT_GT(samples, 0u);
+    EXPECT_EQ(imageMissing, 0u) << "the edited image should be there in every state of the replay";
+    EXPECT_EQ(widthsShown, (std::set<int>{40, 80})) << "the replay should show the old and the new image";
+    int widthAfter{0};
+    for (auto* pImage : f_images()) {
+        if (pImage->getOffset() == imageOffset) widthAfter = pImage->get_pixbuf()->get_width();
+    }
+    EXPECT_EQ(widthAfter, 80) << "the replay should end on the new image";
+    EXPECT_EQ(f_images().size(), imagesBefore + 1);
+
+    panel->clear();
+    while (pBridge->canUndo()) pWin->get_ct_actions()->requested_step_back();
+    drainEvents();
+}
+
+TEST(TimelineGUI, ReplayImageEdit)
+{
+    TestTimelineImageReplayApp app;
+    app.run(0, nullptr);
+}
+
+// An entry without the data to replay it (from an older timeline file) highlights its
+// place in the node for a moment, leaving the node as it is
+class TestTimelineFallbackHighlightApp : public TestTimelineReplayAppBase
+{
+public:
+    TestTimelineFallbackHighlightApp() : TestTimelineReplayAppBase{"_test_timeline_fallback_highlight"} {}
+
+private:
+    void on_activate() final;
+};
+
+void TestTimelineFallbackHighlightApp::on_activate()
+{
+    _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
+
+    CtMainWin* pWin = _open_window(fs::path(UT::unitTestsDataDir) / "test_документ.ctb");
+    ASSERT_TRUE(pWin);
+    auto on_scope_exit = scope_guard([&](void*) {
+        pWin->force_exit() = true;
+        remove_window(*pWin);
+    });
+
+    auto* panel = pWin->get_timeline_panel();
+    auto* pOverlay = pWin->get_drawing_overlay();
+    pWin->get_ct_config()->timelineHighlightColor = "#00ff00";
+    _select_node(pWin, 1);
+    _select_node(pWin, 2);
+    auto buffer = pWin->curr_buffer();
+    Gtk::TextView& textView = pWin->get_text_view().mm();
+    ASSERT_GT(buffer->get_char_count(), 4);
+    const Glib::ustring textBefore = buffer->get_text();
+    ASSERT_FALSE(buffer->get_modified());
+
+    CtTimelineEntry entry;
+    entry.nodeId = 2;
+    entry.timestamp = 1000;
+    entry.useDay = pWin->get_ct_config()->timelineUseDay;
+    entry.actionType = "INS";
+    entry.actionDescription = "Insert text";
+    entry.regionOffset = 0;
+    entry.regionLength = 4;
+    entry.deltaData = "";
+    panel->load_entries({entry});
+    drainEvents();
+
+    size_t samples{0}, covering{0}, textChanged{0};
+    std::string color;
+    const gint64 start = g_get_monotonic_time();
+    ASSERT_TRUE(timeline_replay_top_entry(panel, [&]() {
+        if (buffer->get_text() != textBefore) ++textChanged;
+        const auto& region = pOverlay->getHighlightRegion();
+        if (region.empty()) return;
+        ++samples;
+        color = pOverlay->getHighlightColor();
+        Gdk::Rectangle first, last;
+        textView.get_iter_location(buffer->get_iter_at_offset(0), first);
+        textView.get_iter_location(buffer->get_iter_at_offset(3), last);
+        const auto pageFirst = timeline_page_rect(pWin, textView, first);
+        const auto pageLast = timeline_page_rect(pWin, textView, last);
+        if (timeline_rects_contain(region, pageFirst.get_x() + 1, pageFirst.get_y() + pageFirst.get_height() / 2) and
+            timeline_rects_contain(region, pageLast.get_x() + pageLast.get_width() - 1, pageLast.get_y() + pageLast.get_height() / 2))
+        {
+            ++covering;
+        }
+    }));
+    const double seconds = static_cast<double>(g_get_monotonic_time() - start) / G_USEC_PER_SEC;
+    EXPECT_GT(samples, 0u) << "nothing was highlighted";
+    EXPECT_EQ(covering, samples) << "the highlight should cover the place of the entry";
+    EXPECT_EQ(color, "#00ff00") << "the highlight should use the colour of the preferences";
+    EXPECT_GT(seconds, 1.5) << "the highlight should stay for a moment";
+    EXPECT_LT(seconds, 5.0);
+    EXPECT_TRUE(pOverlay->getHighlightRegion().empty()) << "the highlight should be removed afterwards";
+    EXPECT_EQ(textChanged, 0u) << "the node should not change";
+    EXPECT_EQ(buffer->get_text(), textBefore);
+    EXPECT_FALSE(buffer->get_modified());
+    EXPECT_FALSE(pWin->get_file_save_needed());
+}
+
+TEST(TimelineGUI, ReplayFallbackHighlight)
+{
+    TestTimelineFallbackHighlightApp app;
+    app.run(0, nullptr);
+}
+
+// An autosave due while an entry replays waits for the replay to finish, so that the
+// past state on display is not what gets saved
+class TestTimelineAutosaveWaitsApp : public TestTimelineReplayAppBase
+{
+public:
+    TestTimelineAutosaveWaitsApp() : TestTimelineReplayAppBase{"_test_timeline_autosave_waits"} {}
+
+private:
+    void on_activate() final;
+};
+
+void TestTimelineAutosaveWaitsApp::on_activate()
+{
+    _on_startup();
+    auto _quitGuard = scope_guard([this](void*) { quit(); });
+
+    // work on a copy, as the test saves
+    fs::path tmpFilepath;
+    {
+        CtMainWin* pWin = _open_window(fs::path(UT::unitTestsDataDir) / "test_документ.ctb");
+        ASSERT_TRUE(pWin);
+        tmpFilepath = pWin->get_ct_tmp()->getHiddenDirPath("UT") / "test_timeline_autosave.ctb";
+        pWin->file_save_as(tmpFilepath.string(), CtDocType::SQLite, ""/*password*/);
+        pWin->force_exit() = true;
+        remove_window(*pWin);
+    }
+    CtMainWin* pWin = _open_window(tmpFilepath);
+    ASSERT_TRUE(pWin);
+    auto on_scope_exit = scope_guard([&](void*) {
+        pWin->force_exit() = true;
+        remove_window(*pWin);
+    });
+
+    auto* panel = pWin->get_timeline_panel();
+    auto f_bold_at = [](Glib::RefPtr<Gtk::TextBuffer> rBuffer, int offset) {
+        for (auto& tag : rBuffer->get_iter_at_offset(offset).get_tags()) {
+            if (tag->property_name() == "weight_heavy") return true;
+        }
+        return false;
+    };
+
+    // a word of node 2 made bold, not saved yet
+    _select_node(pWin, 2);
+    panel->clear();
+    auto buffer2 = pWin->curr_buffer();
+    ASSERT_FALSE(f_bold_at(buffer2, 1));
+    buffer2->select_range(buffer2->get_iter_at_offset(0), buffer2->get_iter_at_offset(4));
+    pWin->get_ct_actions()->apply_tag_bold();
+    drainEvents();
+    ASSERT_TRUE(f_bold_at(buffer2, 1));
+    ASSERT_TRUE(pWin->get_file_save_needed());
+
+    // the autosave falls due while the "before" state, not bold, is on display
+    auto& tv = panel->getTreeView();
+    auto store = tv.get_model();
+    tv.row_activated(store->get_path(store->children().begin()), *tv.get_column(0));
+    bool sawNotBold{false}, autosaveDue{false}, savedDuringReplay{false};
+    const gint64 deadline = g_get_monotonic_time() + 15 * G_USEC_PER_SEC;
+    while (g_get_monotonic_time() < deadline) {
+        gtk_main_iteration_do(false);
+        if (panel->isReplaying()) {
+            if (not f_bold_at(buffer2, 1)) sawNotBold = true;
+            if (sawNotBold and not autosaveDue) {
+                pWin->file_autosave_due();
+                autosaveDue = true;
+            }
+            if (autosaveDue and not pWin->get_file_save_needed()) savedDuringReplay = true;
+        }
+        else if (autosaveDue and not pWin->get_file_save_needed()) break;
+        g_usleep(1000);
+    }
+    drainEvents();
+    ASSERT_TRUE(autosaveDue) << "the replay did not show the state before the change";
+    EXPECT_FALSE(savedDuringReplay) << "the autosave should wait for the replay to finish";
+    EXPECT_FALSE(pWin->get_file_save_needed()) << "the autosave should happen once the replay has finished";
+
+    // what was saved is the node as edited, not the state the replay showed
+    pWin->force_exit() = true;
+    remove_window(*pWin);
+    on_scope_exit.release();
+    CtMainWin* pWin2 = _open_window(tmpFilepath);
+    ASSERT_TRUE(pWin2);
+    auto on_scope_exit2 = scope_guard([&](void*) {
+        pWin2->force_exit() = true;
+        remove_window(*pWin2);
+    });
+    EXPECT_TRUE(f_bold_at(pWin2->get_tree_store().get_node_from_node_id(2).get_node_text_buffer(), 1))
+        << "the saved node should have the change, not the replayed state before it";
+}
+
+TEST(TimelineGUI, ReplayAutosaveWaits)
+{
+    TestTimelineAutosaveWaitsApp app;
     app.run(0, nullptr);
 }

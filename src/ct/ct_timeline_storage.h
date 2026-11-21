@@ -38,7 +38,6 @@ public:
 
     void writeEntries(const std::vector<CtTimelineEntry>& entries);
     std::vector<CtTimelineEntry> readEntries();
-    void migrateFrom(const std::vector<CtTimelineEntry>& oldEntries);
     void close();
 
 private:

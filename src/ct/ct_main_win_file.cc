@@ -494,32 +494,37 @@ void CtMainWin::file_autosave_restart()
     _autosave_timout_connection = Glib::signal_timeout().connect_seconds([this]() {
         if (++_autoSaveCounter >= _pCtConfig->autosaveMinutes) {
             resetAutoSaveCounter();
-            auto f_autosave = [this]() {
-                if (get_file_save_needed()) {
-                    spdlog::debug("autosave needed");
-                    _uCtActions->file_save();
-                }
-                else {
-                    spdlog::debug("autosave no need");
-                }
-            };
-            if (_uCtTimelinePanel->isReplaying()) {
-                // a timeline replay shows past content in the node; saving now would store it
-                spdlog::debug("autosave waiting for timeline replay to finish");
-                _autosave_after_replay_connection.disconnect();
-                _autosave_after_replay_connection = Glib::signal_timeout().connect([this, f_autosave]() {
-                    if (_uCtTimelinePanel->isReplaying()) return true;
-                    f_autosave();
-                    return false;
-                }, 500);
-            }
-            else {
-                f_autosave();
-            }
+            file_autosave_due();
         }
         else spdlog::debug("autosave {}/{}", _autoSaveCounter, _pCtConfig->autosaveMinutes);
         return true;
     }, 60/*1 min iter*/);
+}
+
+void CtMainWin::file_autosave_due()
+{
+    auto f_autosave = [this]() {
+        if (get_file_save_needed()) {
+            spdlog::debug("autosave needed");
+            _uCtActions->file_save();
+        }
+        else {
+            spdlog::debug("autosave no need");
+        }
+    };
+    if (_uCtTimelinePanel->isReplaying()) {
+        // a timeline replay shows past content in the node; saving now would store it
+        spdlog::debug("autosave waiting for timeline replay to finish");
+        _autosave_after_replay_connection.disconnect();
+        _autosave_after_replay_connection = Glib::signal_timeout().connect([this, f_autosave]() {
+            if (_uCtTimelinePanel->isReplaying()) return true;
+            f_autosave();
+            return false;
+        }, 500);
+    }
+    else {
+        f_autosave();
+    }
 }
 
 void CtMainWin::mod_time_sentinel_restart()

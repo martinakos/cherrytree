@@ -22,7 +22,6 @@
  */
 
 #include "ct_storage_multifile.h"
-#include "ct_timeline_storage.h"
 #include "ct_storage_xml.h"
 #include "ct_storage_control.h"
 #include "ct_main_win.h"
@@ -33,7 +32,6 @@
 
 /*static*/const std::string CtStorageMultiFile::SUBNODES_LST{"subnodes.lst"};
 /*static*/const std::string CtStorageMultiFile::BOOKMARKS_LST{"bookmarks.lst"};
-/*static*/const std::string CtStorageMultiFile::LEGACY_TIMELINE_LST{"history.lst"};
 /*static*/const std::string CtStorageMultiFile::NODE_XML{"node.xml"};
 /*static*/const std::string CtStorageMultiFile::BEFORE_SAVE{".before"};
 
@@ -326,45 +324,6 @@ void CtStorageMultiFile::_write_bookmarks_to_disk(const std::list<gint64>& bookm
         Glib::file_set_contents(bookmarks_filepath.string(),
                                 str::join_numbers(bookmarks_list, ","));
     }
-}
-
-std::vector<CtTimelineEntry> CtStorageMultiFile::_read_legacy_timeline_entries_from_disk()
-{
-    std::vector<CtTimelineEntry> entries;
-    const fs::path legacy_filepath = _dir_path / LEGACY_TIMELINE_LST;
-    if (!fs::is_regular_file(legacy_filepath)) return entries;
-    std::string content = Glib::file_get_contents(legacy_filepath.string());
-    if (content.empty()) return entries;
-    std::istringstream iss(content);
-    std::string line;
-    while (std::getline(iss, line)) {
-        if (line.empty()) continue;
-        std::vector<std::string> parts;
-        size_t s = 0;
-        while (s < line.size()) {
-            auto p = line.find(',', s);
-            if (p == std::string::npos) { parts.push_back(line.substr(s)); break; }
-            parts.push_back(line.substr(s, p - s));
-            s = p + 1;
-        }
-        if (parts.size() < 10) continue;
-        CtTimelineEntry e;
-        try {
-            e.nodeId = std::stoll(parts[0]);
-            e.timestamp = std::stoll(parts[1]);
-            e.useDay = std::stoi(parts[2]);
-            e.cursorPos = std::stoi(parts[3]);
-            e.scrollPos = std::stoi(parts[4]);
-            e.actionType = parts[5];
-            e.regionOffset = std::stoi(parts[6]);
-            e.regionLength = std::stoi(parts[7]);
-            e.canvasIdx = std::stoi(parts[8]);
-            e.actionDescription = Glib::Base64::decode(parts[9]);
-        }
-        catch (...) { continue; }
-        entries.push_back(e);
-    }
-    return entries;
 }
 
 void CtStorageMultiFile::_hier_try_move_existing_node_to_path(const fs::path& dir_path_to)
@@ -714,20 +673,6 @@ bool CtStorageMultiFile::populate_treestore(const fs::path& dir_path, Glib::ustr
             CtNodeData nodeData{};
             ct_tree_store.get_node_data(ctTreeIter, nodeData, false/*loadTextBuffer*/);
             ct_tree_store.update_node_data(ctTreeIter, nodeData);
-        }
-        // migrate the timeline from the old CSV format (local history) to its separate SQLite DB
-        if (not _isDryRun and _pCtMainWin->get_ct_config()->timelineEnabled) {
-            fs::path histDb = CtTimelineStorage::get_timeline_file_path(_dir_path, CtDocType::MultiFile);
-            if (!fs::is_regular_file(histDb)) {
-                auto oldEntries = _read_legacy_timeline_entries_from_disk();
-                if (!oldEntries.empty()) {
-                    auto histStorage = CtTimelineStorage::open(_dir_path, CtDocType::MultiFile);
-                    if (histStorage) {
-                        histStorage->migrateFrom(oldEntries);
-                    }
-                    (void)fs::remove(_dir_path / LEGACY_TIMELINE_LST);
-                }
-            }
         }
         return true;
     }

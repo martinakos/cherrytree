@@ -22,7 +22,6 @@
  */
 
 #include "ct_storage_xml.h"
-#include "ct_timeline_storage.h"
 #include "ct_const.h"
 #include "ct_misc_utils.h"
 #include <type_traits>
@@ -109,41 +108,6 @@ bool CtStorageXml::populate_treestore(const fs::path& file_path, Glib::ustring& 
             CtNodeData nodeData{};
             ct_tree_store.get_node_data(ctTreeIter, nodeData, false/*loadTextBuffer*/);
             ct_tree_store.update_node_data(ctTreeIter, nodeData);
-        }
-        // migrate the timeline embedded by older versions (as local history) to its separate storage
-        if (not _isDryRun and _pCtMainWin->get_ct_config()->timelineEnabled) {
-            fs::path histFile = CtTimelineStorage::get_timeline_file_path(file_path, CtDocType::XML);
-            if (!fs::is_regular_file(histFile)) {
-                std::vector<CtTimelineEntry> histEntries;
-                for (xmlpp::Node* xml_node : parser->get_document()->get_root_node()->get_children("local_history_entry")) {
-                    auto* el = static_cast<xmlpp::Element*>(xml_node);
-                    CtTimelineEntry e;
-                    try {
-                        e.nodeId = std::stoll(el->get_attribute_value("node_id"));
-                        e.timestamp = std::stoll(el->get_attribute_value("timestamp"));
-                        auto ud = el->get_attribute_value("use_day");
-                        e.useDay = ud.empty() ? 0 : std::stoi(ud);
-                        e.cursorPos = std::stoi(el->get_attribute_value("cursor_pos"));
-                        e.scrollPos = std::stoi(el->get_attribute_value("scroll_pos"));
-                        e.actionDescription = el->get_attribute_value("action_desc");
-                        e.actionType = el->get_attribute_value("action_type");
-                        auto ro = el->get_attribute_value("region_offset");
-                        e.regionOffset = ro.empty() ? -1 : std::stoi(ro);
-                        auto rl = el->get_attribute_value("region_length");
-                        e.regionLength = rl.empty() ? 0 : std::stoi(rl);
-                        auto ci = el->get_attribute_value("canvas_idx");
-                        e.canvasIdx = ci.empty() ? -1 : std::stoi(ci);
-                    }
-                    catch (...) { continue; }
-                    histEntries.push_back(e);
-                }
-                if (!histEntries.empty()) {
-                    auto histStorage = CtTimelineStorage::open(file_path, CtDocType::XML);
-                    if (histStorage) {
-                        histStorage->migrateFrom(histEntries);
-                    }
-                }
-            }
         }
         return true;
     }

@@ -65,25 +65,10 @@ static const char TABLE_SELECT[]{
     return fs::path{docPath.string() + ".timeline"};
 }
 
-// The timeline was called local history and was stored under these names
-static fs::path get_legacy_file_path(const fs::path& docPath, CtDocType type)
-{
-    if (CtDocType::MultiFile == type) {
-        return docPath / "history.db";
-    }
-    return fs::path{docPath.string() + ".history"};
-}
-
 /*static*/std::unique_ptr<CtTimelineStorage> CtTimelineStorage::open(const fs::path& docPath, CtDocType type)
 {
     auto storage = std::unique_ptr<CtTimelineStorage>(new CtTimelineStorage());
     fs::path dbPath = get_timeline_file_path(docPath, type);
-    const fs::path legacyPath = get_legacy_file_path(docPath, type);
-    if (not fs::exists(dbPath) and fs::is_regular_file(legacyPath)) {
-        if (fs::move_file(legacyPath, dbPath)) {
-            spdlog::info("CtTimelineStorage: renamed {} to {}", legacyPath.string(), dbPath.string());
-        }
-    }
     if (!storage->_open_db(dbPath)) {
         return nullptr;
     }
@@ -113,34 +98,11 @@ void CtTimelineStorage::_create_table()
 {
     if (!_pDb) return;
     char* errMsg = nullptr;
-    // table of a file written when the timeline was called local history
-    sqlite3_stmt* legacyStmt = nullptr;
-    if (sqlite3_prepare_v2(_pDb, "SELECT 1 FROM local_history LIMIT 0", -1, &legacyStmt, nullptr) == SQLITE_OK) {
-        sqlite3_finalize(legacyStmt);
-        legacyStmt = nullptr;
-        sqlite3_exec(_pDb, "ALTER TABLE local_history RENAME TO timeline", nullptr, nullptr, &errMsg);
-        if (errMsg) {
-            spdlog::error("CtTimelineStorage: rename table failed: {}", errMsg);
-            sqlite3_free(errMsg);
-            errMsg = nullptr;
-        }
-    }
-    if (legacyStmt) sqlite3_finalize(legacyStmt);
     int rc = sqlite3_exec(_pDb, TABLE_CREATE, nullptr, nullptr, &errMsg);
     if (rc != SQLITE_OK) {
         spdlog::error("CtTimelineStorage: create table failed: {}", errMsg ? errMsg : "unknown");
         if (errMsg) sqlite3_free(errMsg);
     }
-
-    // Add delta_data column if missing (upgrade from an older timeline DB)
-    sqlite3_stmt* stmt = nullptr;
-    rc = sqlite3_prepare_v2(_pDb, "SELECT delta_data FROM timeline LIMIT 0", -1, &stmt, nullptr);
-    if (rc != SQLITE_OK) {
-        char* err2 = nullptr;
-        sqlite3_exec(_pDb, "ALTER TABLE timeline ADD COLUMN delta_data BLOB", nullptr, nullptr, &err2);
-        if (err2) sqlite3_free(err2);
-    }
-    if (stmt) sqlite3_finalize(stmt);
 }
 
 void CtTimelineStorage::writeEntries(const std::vector<CtTimelineEntry>& entries)
@@ -225,12 +187,6 @@ std::vector<CtTimelineEntry> CtTimelineStorage::readEntries()
     }
     sqlite3_finalize(stmt);
     return entries;
-}
-
-void CtTimelineStorage::migrateFrom(const std::vector<CtTimelineEntry>& oldEntries)
-{
-    if (oldEntries.empty()) return;
-    writeEntries(oldEntries);
 }
 
 void CtTimelineStorage::close()

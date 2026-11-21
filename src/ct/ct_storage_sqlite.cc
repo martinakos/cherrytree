@@ -22,7 +22,6 @@
  */
 
 #include "ct_storage_sqlite.h"
-#include "ct_timeline_storage.h"
 #include "ct_storage_xml.h"
 #include "ct_storage_control.h"
 #include "ct_main_win.h"
@@ -355,21 +354,6 @@ bool CtStorageSqlite::populate_treestore(const fs::path& file_path, Glib::ustrin
             std::vector<gint64> staleAreaIds;
             auto areaRecords = read_protected_areas(&staleAreaIds);
             _pCtMainWin->get_protected_areas().load_records(std::move(areaRecords), staleAreaIds);
-        }
-
-        // migrate the timeline embedded by older versions (as local history) to its separate storage
-        if (not _isDryRun and _pCtMainWin->get_ct_config()->timelineEnabled) {
-            fs::path histFile = CtTimelineStorage::get_timeline_file_path(file_path, CtDocType::SQLite);
-            if (!fs::is_regular_file(histFile)) {
-                auto oldEntries = _read_legacy_timeline_entries_from_db();
-                if (!oldEntries.empty()) {
-                    auto histStorage = CtTimelineStorage::open(file_path, CtDocType::SQLite);
-                    if (histStorage) {
-                        histStorage->migrateFrom(oldEntries);
-                    }
-                    _exec_no_callback("DROP TABLE IF EXISTS local_history");
-                }
-            }
         }
 
         // keep db open for lazy node buffer loading
@@ -933,34 +917,6 @@ void CtStorageSqlite::_write_bookmarks_to_db(const std::list<gint64>& bookmarks)
             throw std::runtime_error(ERR_SQLITE_STEP + sqlite3_errmsg(_pDb));
         sqlite3_reset(stmt);
     }
-}
-
-std::vector<CtTimelineEntry> CtStorageSqlite::_read_legacy_timeline_entries_from_db()
-{
-    std::vector<CtTimelineEntry> entries;
-
-    Sqlite3StmtAuto stmt{_pDb, "SELECT node_id, timestamp, use_day, cursor_pos, scroll_pos, action_description, action_type, region_offset, region_length, canvas_idx FROM local_history ORDER BY id ASC"};
-    if (stmt.is_bad()) {
-        return entries;
-    }
-
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        CtTimelineEntry e;
-        e.nodeId = sqlite3_column_int64(stmt, 0);
-        e.timestamp = sqlite3_column_int64(stmt, 1);
-        e.useDay = sqlite3_column_int(stmt, 2);
-        e.cursorPos = sqlite3_column_int(stmt, 3);
-        e.scrollPos = sqlite3_column_int(stmt, 4);
-        auto col5 = sqlite3_column_text(stmt, 5);
-        if (col5) e.actionDescription = reinterpret_cast<const char*>(col5);
-        auto col6 = sqlite3_column_text(stmt, 6);
-        if (col6) e.actionType = reinterpret_cast<const char*>(col6);
-        e.regionOffset = sqlite3_column_int(stmt, 7);
-        e.regionLength = sqlite3_column_int(stmt, 8);
-        e.canvasIdx = sqlite3_column_int(stmt, 9);
-        entries.push_back(e);
-    }
-    return entries;
 }
 
 void CtStorageSqlite::_write_node_to_db(const CtTreeIter* ct_tree_iter,

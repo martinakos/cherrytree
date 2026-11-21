@@ -155,6 +155,8 @@ public:
     bool file_save(const bool need_vacuum);
     void file_save_as(const std::string& new_filepath, const CtDocType doc_type, const Glib::ustring& password);
     void file_autosave_restart();
+    // the autosave interval has passed: save now, or once a timeline replay has finished
+    void file_autosave_due();
     void mod_time_sentinel_restart();
     bool file_insert_plain_text(const fs::path& filepath);
 

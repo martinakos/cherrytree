@@ -620,10 +620,7 @@ void CtConfig::_populate_data_from_keyfile()
     _populate_bool_from_keyfile("tree_visible", &treeVisible);
     _populate_bool_from_keyfile("vte_visible", &vteVisible);
     _populate_bool_from_keyfile("menubar_visible", &menubarVisible);
-    // the timeline was called local history; its keys are read when the new ones are missing
-    if (not _populate_bool_from_keyfile("timeline_panel_visible", &timelinePanelVisible)) {
-        _populate_bool_from_keyfile("history_panel_visible", &timelinePanelVisible);
-    }
+    _populate_bool_from_keyfile("timeline_panel_visible", &timelinePanelVisible);
     _populate_int_from_keyfile("hpaned_right_pos", &hpanedRightPos);
     if (savedFromPyGtk) {
         CtRecentDocRestore recentDocRestore;
@@ -653,22 +650,12 @@ void CtConfig::_populate_data_from_keyfile()
     _populate_bool_from_keyfile("nodes_on_node_name_header_auto_size", &nodesOnNodeNameHeaderAutoSize);
     _populate_bool_from_keyfile("nodes_on_node_name_header_fifo", &nodesOnNodeNameHeaderFIFO);
     _populate_bool_from_keyfile("node_name_header_full_width", &nodeNameHeaderFullWidth);
-    if (not _populate_bool_from_keyfile("timeline_enabled", &timelineEnabled)) {
-        _populate_bool_from_keyfile("local_history_enabled", &timelineEnabled);
-    }
-    if (not _populate_int_from_keyfile("timeline_max_use_days", &timelineMaxUseDays)) {
-        _populate_int_from_keyfile("local_history_max_use_days", &timelineMaxUseDays);
-    }
-    if (not _populate_int_from_keyfile("timeline_replay_cycles", &timelineReplayCycles)) {
-        _populate_int_from_keyfile("local_history_replay_cycles", &timelineReplayCycles);
-    }
+    _populate_bool_from_keyfile("timeline_enabled", &timelineEnabled);
+    _populate_int_from_keyfile("timeline_max_use_days", &timelineMaxUseDays);
+    _populate_int_from_keyfile("timeline_replay_cycles", &timelineReplayCycles);
     _populate_string_from_keyfile("timeline_highlight_color", &timelineHighlightColor);
-    if (not _populate_int_from_keyfile("timeline_use_day", &timelineUseDay)) {
-        _populate_int_from_keyfile("local_history_use_day", &timelineUseDay);
-    }
-    if (not _populate_string_from_keyfile("timeline_last_open_date", &timelineLastOpenDate)) {
-        _populate_string_from_keyfile("local_history_last_open_date", &timelineLastOpenDate);
-    }
+    _populate_int_from_keyfile("timeline_use_day", &timelineUseDay);
+    _populate_string_from_keyfile("timeline_last_open_date", &timelineLastOpenDate);
     _populate_int_from_keyfile("max_matches_in_page", &maxMatchesInPage);
     _populate_int_from_keyfile("toolbar_icon_size", &toolbarIconSize);
     _populate_int_from_keyfile("search_multi_words", &multipleWordsSearchType);
@@ -901,10 +888,6 @@ void CtConfig::_populate_data_from_keyfile()
             toolbarUiList.insert(pos, "act_undo,act_redo,separator,");
         }
     }
-    // the timeline panel toggle was named toggle_show_history_panel
-    static const std::string oldTimelineToggle{"toggle_show_history_panel"};
-    static const std::string newTimelineToggle{"toggle_show_timeline_panel"};
-    toolbarUiList = str::replace(toolbarUiList, oldTimelineToggle, newTimelineToggle);
     if (toolbarUiList.find("toggle_show_timeline_panel") == std::string::npos) {
         toolbarUiList += ",separator,toggle_show_timeline_panel";
     }
@@ -924,12 +907,6 @@ void CtConfig::_populate_data_from_keyfile()
     _populate_string_from_keyfile("menubar_search_ui_list", &menubarSearchUiList);
     _populate_string_from_keyfile("menubar_view_ui_list", &menubarViewUiList);
     _populate_string_from_keyfile("menubar_help_ui_list", &menubarHelpUiList);
-    for (std::string* pList : {&menubarFileUiList, &menubarEditUiList, &menubarInsertUiList, &menubarFormatUiList,
-                               &menubarToolsUiList, &menubarTreeUiList, &menubarSearchUiList, &menubarViewUiList,
-                               &menubarHelpUiList})
-    {
-        *pList = str::replace(*pList, oldTimelineToggle, newTimelineToggle);
-    }
     _populate_string_from_keyfile("popup_text_ui_list", &popupTextUiList);
     _populate_string_from_keyfile("popup_code_ui_list", &popupCodeUiList);
     _populate_string_from_keyfile("popup_image_ui_list", &popupImageUiList);
