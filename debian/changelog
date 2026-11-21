@@ -1,3 +1,29 @@
+cherrytree-docmodel (1.7.3+docmodel20-1) plucky; urgency=low
+
+  * New Timeline panel (View > Show/Hide Timeline Panel, Shift+F9):
+    - every edit is listed, newest on top, with the node, time and action;
+      a node edited again appears again
+    - clicking an entry opens its node and replays the change, switching
+      between the state before and after it a few times
+    - the changed area is highlighted while it replays, shaped like the
+      change (text lines, the text inside a table cell, drawing strokes or
+      a canvas), in a colour set in Preferences
+    - the view stays still and centred on the change during the replay
+    - selecting another node stops a running replay at once
+    - autosave waits for a replay to finish, so the replayed state is
+      never saved
+  * Preferences > Timeline: enable (off by default), retention in days of
+    use, number of replay cycles, highlight colour, clear the timeline
+  * The timeline is stored next to the document (<document>.timeline, or
+    timeline.db inside a multi-file folder); it is not kept for encrypted
+    documents
+  * Fixed the OCR startup walk blocking node switches after opening a
+    document
+  * Tests: GUI tests for replay of text, rich table cells, drawings, image
+    edits, scrolling, highlight, node switching and autosave
+
+ -- Giuseppe Penone <giuspen@gmail.com>  Sat, 21 Nov 2026 12:30:22 +0000
+
 cherrytree-docmodel (1.7.3+docmodel19-1) plucky; urgency=low
 
   * Rebase docmodel branch on upstream v1.7.3, bringing in:
