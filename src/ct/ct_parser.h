@@ -219,16 +219,19 @@ class CtMDParser : public CtDocBuildingParser
 {
 public:
     explicit CtMDParser(CtConfig* config);
-    CtMDParser(CtConfig* config, std::shared_ptr<CtTextParser> parser) : CtDocBuildingParser{config} , _text_parser{std::move(parser)}{}
+    CtMDParser(CtConfig* config, std::shared_ptr<CtTextParser> parser) : CtDocBuildingParser{config}, _pCtConfig{config}, _text_parser{std::move(parser)}{}
 
     void feed(const Glib::ustring& stream) override;
 
     virtual ~CtMDParser() = default;
 
     std::shared_ptr<CtTextParser> text_parser() const { return _text_parser; }
+    /// Why the last feed() stopped early, empty if it parsed everything
+    const std::string& last_error() const { return _lastError; }
 
 private:
-    void _place_free_text();
+    /// Add one line of text with its inline formatting; scaleLevel > 0 makes it a heading
+    void _add_spans(const std::string& text, const int scaleLevel);
     void _add_scale_to_last(int level);
     void _add_table_cell(const std::string& text);
     /// Add the current table row to the table
@@ -242,8 +245,8 @@ private:
     TableRow _current_table_row;
     TableMatrix _current_table;
 
-    const CtTextParser::token_schema* _last_encountered_token = nullptr;
-    Glib::ustring _free_text;
+    CtConfig* const _pCtConfig;
+    std::string _lastError;
 
     uint8_t _list_level = 0;
     std::shared_ptr<CtTextParser> _text_parser;

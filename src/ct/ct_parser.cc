@@ -144,7 +144,7 @@ void CtDocumentBuilder::add_strikethrough_tag(std::optional<std::string> data)
 void CtDocumentBuilder::add_text(std::string text, bool close_tag /* = true */)
 {
     if (!text.empty()) {
-        _currOffset += text.size();
+        _currOffset += static_cast<int>(g_utf8_strlen(text.c_str(), static_cast<gssize>(text.size())));
         //spdlog::debug("_currOffset {} '{}'", _currOffset, text);
         if (close_tag) close_current_tag();
 
