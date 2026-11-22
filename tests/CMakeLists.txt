@@ -109,8 +109,10 @@ package_add_test(run_tests_with_x_2
   tests_command_gui_simulation.cpp
   tests_all_command_descriptions.cpp
   tests_timeline_gui.cpp
+  tests_agent_server.cpp
   ../src/ct/icons.gresource.cc
 )
+target_include_directories(run_tests_with_x_2 SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/src/json)
 
 if(AUTO_RUN_TESTING)
   add_custom_command(TARGET run_tests_no_x POST_BUILD

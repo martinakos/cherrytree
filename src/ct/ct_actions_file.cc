@@ -24,6 +24,7 @@
 #include <sigc++/sigc++.h>
 #include <sigc++/signal.h>
 #include "ct_actions.h"
+#include "ct_agent_server.h"
 #include "ct_storage_control.h"
 #include "ct_pref_dlg.h"
 #include "ct_clipboard.h"
@@ -455,4 +456,27 @@ void CtActions::command_palette()
     std::string id = CtDialogs::dialog_palette(_pCtMainWin);
     if (CtMenuAction* action = _pCtMainWin->get_ct_menu().find_action(id))
         action->run_action();
+}
+
+void CtActions::toggle_agent_access()
+{
+    CtAgentServer& agentServer = CtAgentServer::instance();
+    if (agentServer.is_running()) {
+        agentServer.stop();
+        _pCtConfig->agentAccessEnabled = false;
+        _pCtMainWin->get_status_bar().update_status(_("AI Agent Access Denied"));
+        return;
+    }
+    std::string error;
+    if (not agentServer.start(error)) {
+        CtDialogs::error_dialog(str::xml_escape(error), *_pCtMainWin);
+        return;
+    }
+    _pCtConfig->agentAccessEnabled = true;
+    _pCtMainWin->get_status_bar().update_status(_("AI Agent Access Allowed"));
+    CtDialogs::info_dialog_with_copy(Glib::ustring{"<b>"} + _("AI agents can now read and change the open document.") + "</b>\n\n" +
+                                         _("To connect Claude Code, run this once in a terminal:"),
+                                     "claude mcp add cherrytree -- " + CtAgentServer::relay_command(),
+                                     _("Every change an agent makes can be undone with Undo."),
+                                     *_pCtMainWin);
 }

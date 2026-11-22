@@ -141,6 +141,13 @@ bool question_dialog(const Glib::ustring& message,
 void info_dialog(const Glib::ustring& message,
                  Gtk::Window& parent);
 
+// The Info dialog with a line of text to copy (shown selectable, with a Copy button)
+// between the message and the message after
+void info_dialog_with_copy(const Glib::ustring& message,
+                           const Glib::ustring& textToCopy,
+                           const Glib::ustring& messageAfter,
+                           Gtk::Window& parent);
+
 // The Warning dialog
 void warning_dialog(const Glib::ustring& message,
                     Gtk::Window& parent);

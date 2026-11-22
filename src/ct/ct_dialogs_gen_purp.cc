@@ -676,6 +676,54 @@ void CtDialogs::info_dialog(const Glib::ustring& message,
 #endif
 }
 
+void CtDialogs::info_dialog_with_copy(const Glib::ustring& message,
+                                      const Glib::ustring& textToCopy,
+                                      const Glib::ustring& messageAfter,
+                                      Gtk::Window& parent)
+{
+    auto pEntry = Gtk::manage(new Gtk::Entry{});
+    pEntry->set_text(textToCopy);
+    pEntry->set_editable(false);
+    pEntry->set_width_chars(std::min(80, static_cast<int>(textToCopy.size())));
+    auto pButtonCopy = Gtk::manage(new Gtk::Button{_("Copy")});
+    pButtonCopy->signal_clicked().connect([pButtonCopy, textToCopy](){
+#if GTK_MAJOR_VERSION < 4
+        Gtk::Clipboard::get()->set_text(textToCopy);
+#else
+        Gdk::Display::get_default()->get_clipboard()->set_text(textToCopy);
+#endif
+        pButtonCopy->set_label(_("Copied"));
+    });
+    auto pLabelAfter = Gtk::manage(new Gtk::Label{});
+    pLabelAfter->set_markup(messageAfter);
+#if GTK_MAJOR_VERSION < 4
+    auto pHBox = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 6/*spacing*/});
+    pHBox->pack_start(*pEntry, true, true);
+    pHBox->pack_start(*pButtonCopy, false, false);
+    Gtk::MessageDialog dialog{parent, message, true/*use_markup*/, Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK, true/*modal*/};
+    dialog.set_title(_("Info"));
+    dialog.set_position(Gtk::WindowPosition::WIN_POS_CENTER_ON_PARENT);
+    dialog.property_destroy_with_parent() = true;
+    dialog.get_message_area()->pack_start(*pHBox, false, false);
+    dialog.get_message_area()->pack_start(*pLabelAfter, false, false);
+    dialog.get_message_area()->show_all();
+    auto* pBtnOkInfo = static_cast<Gtk::Button*>(dialog.get_widget_for_response(Gtk::RESPONSE_OK));
+    pBtnOkInfo->set_image_from_icon_name("ct_done", Gtk::ICON_SIZE_BUTTON);
+    pBtnOkInfo->set_always_show_image(true);
+    dialog.run();
+#else
+    pEntry->set_hexpand(true);
+    auto pHBox = Gtk::manage(new Gtk::Box{Gtk::Orientation::HORIZONTAL, 6/*spacing*/});
+    pHBox->append(*pEntry);
+    pHBox->append(*pButtonCopy);
+    Gtk::MessageDialog dialog{parent, message, true/*use_markup*/, Gtk::MessageType::INFO, Gtk::ButtonsType::OK, true/*modal*/};
+    dialog.set_title(_("Info"));
+    dialog.get_message_area()->append(*pHBox);
+    dialog.get_message_area()->append(*pLabelAfter);
+    (void)_run_dialog_blocking(dialog);
+#endif
+}
+
 void CtDialogs::warning_dialog(const Glib::ustring& message,
                                Gtk::Window& parent)
 {

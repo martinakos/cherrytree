@@ -112,6 +112,7 @@ public:
     std::string                                 timelineHighlightColor{"#ffff00"};
     int                                         timelineUseDay{0};
     std::string                                 timelineLastOpenDate;
+    bool                                        agentAccessEnabled{false};
     int                                         maxMatchesInPage{500};
     int                                         toolbarIconSize{1};
     int                                         multipleWordsSearchType{0}; // 0: exact match, 1: disregard order (AND), 2: match any (OR)

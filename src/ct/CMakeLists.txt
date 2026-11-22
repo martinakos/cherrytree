@@ -28,6 +28,7 @@ set(CT_SHARED_FILES
   ct_actions_view.cc
   ct_actions_help.cc
   ct_actions_draw.cc
+  ct_agent_server.cc
   ct_drawing.cc
   ct_timeline_panel.cc
   ct_delta_engine.cc
@@ -104,6 +105,8 @@ add_library(cherrytree_shared STATIC ${CT_SHARED_FILES})
 
 # AES-256 and SHA-256 primitives used by ct_crypto.cc come from the bundled 7-Zip C sources
 target_include_directories(cherrytree_shared SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/src/7za/C)
+# nlohmann/json, used by the AI agent (MCP) server
+target_include_directories(cherrytree_shared SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/src/json)
 target_link_libraries(cherrytree_shared
   ${GTKMM_LIBRARIES}
   ${GTKSV_LIBRARIES}

@@ -22,6 +22,7 @@
  */
 
 #include "ct_app.h"
+#include "ct_agent_server.h"
 #include "ct_misc_utils.h"
 #include "config.h"
 #include "ct_logging.h"
@@ -54,6 +55,12 @@ void glib_log_handler(const gchar*/*log_domain*/, GLogLevelFlags log_level, cons
 
 int main(int argc, char *argv[])
 {
+    // relay between an AI agent harness and the running app: stdout carries the MCP
+    // protocol, so this must run before any GTK start-up or logging to the console
+    if (argc > 1 and 0 == strcmp("--mcp-stdio", argv[1])) {
+        return CtAgentServer::run_stdio_relay(argc, argv);
+    }
+
 #if GTKMM_MAJOR_VERSION >= 4
     // On some X11/EGL stacks (notably when DRI3 is unavailable), opening GTK4 popovers/menus
     // can corrupt EGL dispatch teardown at process exit. If the user did not choose a renderer,

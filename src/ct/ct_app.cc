@@ -23,6 +23,7 @@
 
 #include <glib/gstdio.h>
 #include "ct_app.h"
+#include "ct_agent_server.h"
 #if GTKMM_MAJOR_VERSION >= 4 && defined(_WIN32)
 #include <windows.h>
 #include <gdk/win32/gdkwin32.h>
@@ -164,6 +165,7 @@ CtApp::CtApp(const Glib::ustring application_id_postfix, Gio::ApplicationFlags f
 
 CtApp::~CtApp()
 {
+    CtAgentServer::instance().stop();
 }
 
 /*static*/Glib::RefPtr<CtApp> CtApp::create(const Glib::ustring application_id_postfix)
@@ -253,6 +255,13 @@ void CtApp::_on_startup()
         signal(SIGHUP, kill_callback_handler);  // user’s terminal disconnected
 #endif // not _WIN32
         // SIGKILL cannot be handled or ignored, and is therefore always fatal
+
+        if (_pCtConfig->agentAccessEnabled) {
+            std::string error;
+            if (not CtAgentServer::instance().start(error)) {
+                spdlog::warn("AI agent access not available: {}", error);
+            }
+        }
     }
 }
 
@@ -593,16 +602,24 @@ void CtApp::close_all_windows(const bool fromKillCallback)
         pProcessingWin->present();
         return;
     }
+    // before the windows go, so that the socket does not outlive the app
+    CtAgentServer::instance().stop();
+    bool quitCancelled{false};
     for (Gtk::Window* pWin : get_windows()) {
         if (CtMainWin* win = dynamic_cast<CtMainWin*>(pWin)) {
             win->force_exit() = true;
             pProcessingWin = win;
             if (not _quit_or_hide_window(win, false/*fromDelete*/, fromKillCallback)) {
+                quitCancelled = true;
                 break;
             }
         }
     }
     pProcessingWin = nullptr;
+    if (quitCancelled and _pCtConfig->agentAccessEnabled) {
+        std::string error;
+        (void)CtAgentServer::instance().start(error);
+    }
 }
 
 void CtApp::_add_main_option_entries()

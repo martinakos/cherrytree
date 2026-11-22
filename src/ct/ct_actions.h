@@ -33,6 +33,7 @@
 #include <optional>
 
 class CtMainWin;
+class CtCommand;
 class CtImporterInterface;
 struct CtImportedNode;
 struct TocEntry;
@@ -176,6 +177,7 @@ public:
     void node_edit();
     void node_inherit_syntax();
     void node_delete();
+    std::unique_ptr<CtCommand> node_delete_build_command(CtTreeIter topCtIter);
     void node_toggle_read_only();
     bool _protected_areas_allow_doc_type(const CtDocType targetDocType);
     bool _protected_areas_warn_before_export();
@@ -306,6 +308,7 @@ public:
     void toggle_show_hide_tree_lines();
     void toggle_show_hide_node_name_header();
     void toggle_show_hide_timeline_panel();
+    void toggle_agent_access();
     void toggle_focus_tree_text();
     void toggle_focus_vte_text();
     void nodes_expand_all();

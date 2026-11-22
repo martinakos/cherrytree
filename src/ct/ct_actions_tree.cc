@@ -913,118 +913,7 @@ void CtActions::node_delete()
     auto* pModel = (pBridge && pBridge->isActive()) ? pBridge->getDocumentModel().get() : nullptr;
 
     if (pModel) {
-        CtTreeIter topCtIter = _pCtMainWin->curr_tree_iter();
-
-        // Build snapshot directly from GTK tree so we capture any unsaved buffer edits
-        SubtreeSnapshot snap;
-        gint64 snapParentId = 0;
-        {
-            auto gtkParent = static_cast<Gtk::TreeModel::iterator>(topCtIter)->parent();
-            if (gtkParent) {
-                CtTreeIter pt = ctTreeStore.to_ct_tree_iter(gtkParent);
-                if (pt) snapParentId = pt.get_node_id();
-            }
-        }
-        std::function<void(CtTreeIter, gint64)> walkGtk;
-        walkGtk = [&](CtTreeIter iter, gint64 parentId) {
-            SubtreeSnapshot::Entry e;
-            e.nodeId         = iter.get_node_id();
-            e.parentId       = parentId;
-            e.sharedMasterId = iter.get_node_shared_master_id();
-            e.sequence       = iter.get_node_sequence();
-            e.position       = gtkIterPos(static_cast<Gtk::TreeModel::iterator>(iter));
-            e.props          = nodePropsFromIter(iter);
-            if (e.sharedMasterId == 0) {
-                auto buf = iter.get_node_text_buffer();
-                if (buf) e.content = buildContentFromBuffer(buf, iter.get_anchored_widgets());
-            }
-            e.drawingCanvases = iter.get_drawing_canvases();
-            gint64 thisId = e.nodeId; // capture before move
-            snap.entries.push_back(std::move(e));
-            #if GTKMM_MAJOR_VERSION >= 4
-            for (auto ci = static_cast<Gtk::TreeModel::iterator>(iter)->children().begin(); ci; ++ci)
-                walkGtk(ctTreeStore.to_ct_tree_iter(ci), thisId);
-            #else
-            for (Gtk::TreeModel::iterator child : static_cast<Gtk::TreeModel::iterator>(iter)->children())
-                walkGtk(ctTreeStore.to_ct_tree_iter(child), thisId);
-            #endif
-        };
-        walkGtk(topCtIter, snapParentId);
-
-        // Sync snapshot content into model so execute() works correctly
-        for (const auto& e : snap.entries) {
-            auto node = pModel->getNodeById(e.nodeId);
-            if (node && e.sharedMasterId == 0) {
-                node->setContent(e.content);
-            }
-        }
-
-        // Build shared-master promotions
-        std::vector<SharedGroupPromotion> promotions;
-        CtSharedNodesMap sharedMap;
-        if (ctTreeStore.populate_shared_nodes_map(sharedMap) > 0u) {
-            for (const auto& currPair : sharedMap) {
-                if (vec::exists(nodeIdsToRemove, currPair.first)) {
-                    // Old master is being deleted — find a surviving non-master to promote
-                    CtTreeIter oldMasterIter = ctTreeStore.get_node_from_node_id(currPair.first);
-                    if (!oldMasterIter) continue;
-                    for (const gint64 newMasterId : currPair.second) {
-                        if (vec::exists(nodeIdsToRemove, newMasterId)) continue;
-                        CtTreeIter newMasterIter = ctTreeStore.get_node_from_node_id(newMasterId);
-                        if (!newMasterIter) continue;
-                        SharedGroupPromotion promo;
-                        promo.oldMasterId        = currPair.first;
-                        promo.newMasterId        = newMasterId;
-                        promo.oldMasterProps     = nodePropsFromIter(oldMasterIter);
-                        // Capture old master content from snapshot
-                        for (const auto& se : snap.entries) {
-                            if (se.nodeId == currPair.first) { promo.oldMasterContent = se.content; break; }
-                        }
-                        promo.newMasterPriorProps   = nodePropsFromIter(newMasterIter);
-                        {
-                            auto buf = newMasterIter.get_node_text_buffer();
-                            if (buf) promo.newMasterPriorContent = buildContentFromBuffer(buf, newMasterIter.get_anchored_widgets());
-                        }
-                        // Record members that will be re-pointed to new master
-                        for (const gint64 memberId : currPair.second) {
-                            if (memberId != newMasterId && !vec::exists(nodeIdsToRemove, memberId)) {
-                                promo.rePointed.push_back({memberId, currPair.first});
-                            }
-                        }
-                        promotions.push_back(std::move(promo));
-                        break;
-                    }
-                }
-            }
-        }
-
-        // Bookmarks snapshot (for undo)
-        std::vector<gint64> bookmarkedIds;
-        for (gint64 nid : nodeIdsToRemove) {
-            if (ctTreeStore.is_node_bookmarked(nid)) bookmarkedIds.push_back(nid);
-        }
-
-        // Nav history snapshot (for undo)
-        std::vector<gint64> visitedSnapshot(_pCtMainWin->_visitedNodes.begin(),
-                                             _pCtMainWin->_visitedNodes.end());
-        size_t visitedIdx = _pCtMainWin->_visitedNodesIdx;
-
-        // Determine next-selected node (for re-selection after deletion)
-        gint64 nextSelectedId = -1;
-        {
-            Gtk::TreeModel::iterator ni = --_pCtMainWin->curr_tree_iter();
-            if (not ni) ni = ++_pCtMainWin->curr_tree_iter();
-            if (not ni) ni = _pCtMainWin->curr_tree_iter().parent();
-            if (ni) {
-                CtTreeIter nit = ctTreeStore.to_ct_tree_iter(ni);
-                if (nit) nextSelectedId = nit.get_node_id();
-            }
-        }
-
-        pBridge->pushNodeCommand(std::make_unique<DeleteNodeCommand>(
-            pModel, _pCtMainWin, snap, std::move(promotions),
-            std::move(bookmarkedIds), std::move(visitedSnapshot), visitedIdx,
-            nextSelectedId));
+        pBridge->pushNodeCommand(node_delete_build_command(_pCtMainWin->curr_tree_iter()));
 
         // Update bookmark menu if needed (execute already removed bookmarks via observer)
         _pCtMainWin->menu_set_bookmark_menu_items();
@@ -1093,6 +982,143 @@ void CtActions::node_delete()
             _pCtMainWin->update_window_save_needed(CtSaveNeededUpdType::book);
         }
     }
+}
+
+// Builds the command that deletes topCtIter and its subtree, capturing what undo needs
+// (snapshot, shared-master promotions, bookmarks, navigation history). Used by node_delete()
+// after the confirmation, and by the agent server which asks no questions.
+std::unique_ptr<CtCommand> CtActions::node_delete_build_command(CtTreeIter topCtIter)
+{
+    CtTreeStore& ctTreeStore = _pCtMainWin->get_tree_store();
+    CtDocumentModel* pModel = _pCtMainWin->get_command_bridge()->getDocumentModel().get();
+
+    std::list<gint64> nodeIdsToRemove;
+    std::function<void(Gtk::TreeModel::iterator)> f_collect;
+    f_collect = [&](Gtk::TreeModel::iterator iter) {
+        nodeIdsToRemove.push_back(ctTreeStore.to_ct_tree_iter(iter).get_node_id());
+        #if GTKMM_MAJOR_VERSION >= 4
+        for (auto ci = iter->children().begin(); ci; ++ci) f_collect(ci);
+        #else
+        for (Gtk::TreeModel::iterator child : iter->children()) f_collect(child);
+        #endif
+    };
+    f_collect(topCtIter);
+
+    // Build snapshot directly from GTK tree so we capture any unsaved buffer edits
+    SubtreeSnapshot snap;
+    gint64 snapParentId = 0;
+    {
+        auto gtkParent = static_cast<Gtk::TreeModel::iterator>(topCtIter)->parent();
+        if (gtkParent) {
+            CtTreeIter pt = ctTreeStore.to_ct_tree_iter(gtkParent);
+            if (pt) snapParentId = pt.get_node_id();
+        }
+    }
+    std::function<void(CtTreeIter, gint64)> walkGtk;
+    walkGtk = [&](CtTreeIter iter, gint64 parentId) {
+        SubtreeSnapshot::Entry e;
+        e.nodeId         = iter.get_node_id();
+        e.parentId       = parentId;
+        e.sharedMasterId = iter.get_node_shared_master_id();
+        e.sequence       = iter.get_node_sequence();
+        e.position       = gtkIterPos(static_cast<Gtk::TreeModel::iterator>(iter));
+        e.props          = nodePropsFromIter(iter);
+        if (e.sharedMasterId == 0) {
+            auto buf = iter.get_node_text_buffer();
+            if (buf) e.content = buildContentFromBuffer(buf, iter.get_anchored_widgets());
+        }
+        e.drawingCanvases = iter.get_drawing_canvases();
+        gint64 thisId = e.nodeId; // capture before move
+        snap.entries.push_back(std::move(e));
+        #if GTKMM_MAJOR_VERSION >= 4
+        for (auto ci = static_cast<Gtk::TreeModel::iterator>(iter)->children().begin(); ci; ++ci)
+            walkGtk(ctTreeStore.to_ct_tree_iter(ci), thisId);
+        #else
+        for (Gtk::TreeModel::iterator child : static_cast<Gtk::TreeModel::iterator>(iter)->children())
+            walkGtk(ctTreeStore.to_ct_tree_iter(child), thisId);
+        #endif
+    };
+    walkGtk(topCtIter, snapParentId);
+
+    // Sync snapshot content into model so execute() works correctly
+    for (const auto& e : snap.entries) {
+        auto node = pModel->getNodeById(e.nodeId);
+        if (node && e.sharedMasterId == 0) {
+            node->setContent(e.content);
+        }
+    }
+
+    // Build shared-master promotions
+    std::vector<SharedGroupPromotion> promotions;
+    CtSharedNodesMap sharedMap;
+    if (ctTreeStore.populate_shared_nodes_map(sharedMap) > 0u) {
+        for (const auto& currPair : sharedMap) {
+            if (vec::exists(nodeIdsToRemove, currPair.first)) {
+                // Old master is being deleted — find a surviving non-master to promote
+                CtTreeIter oldMasterIter = ctTreeStore.get_node_from_node_id(currPair.first);
+                if (!oldMasterIter) continue;
+                for (const gint64 newMasterId : currPair.second) {
+                    if (vec::exists(nodeIdsToRemove, newMasterId)) continue;
+                    CtTreeIter newMasterIter = ctTreeStore.get_node_from_node_id(newMasterId);
+                    if (!newMasterIter) continue;
+                    SharedGroupPromotion promo;
+                    promo.oldMasterId        = currPair.first;
+                    promo.newMasterId        = newMasterId;
+                    promo.oldMasterProps     = nodePropsFromIter(oldMasterIter);
+                    // Capture old master content from snapshot
+                    for (const auto& se : snap.entries) {
+                        if (se.nodeId == currPair.first) { promo.oldMasterContent = se.content; break; }
+                    }
+                    promo.newMasterPriorProps   = nodePropsFromIter(newMasterIter);
+                    {
+                        auto buf = newMasterIter.get_node_text_buffer();
+                        if (buf) promo.newMasterPriorContent = buildContentFromBuffer(buf, newMasterIter.get_anchored_widgets());
+                    }
+                    // Record members that will be re-pointed to new master
+                    for (const gint64 memberId : currPair.second) {
+                        if (memberId != newMasterId && !vec::exists(nodeIdsToRemove, memberId)) {
+                            promo.rePointed.push_back({memberId, currPair.first});
+                        }
+                    }
+                    promotions.push_back(std::move(promo));
+                    break;
+                }
+            }
+        }
+    }
+
+    // Bookmarks snapshot (for undo)
+    std::vector<gint64> bookmarkedIds;
+    for (gint64 nid : nodeIdsToRemove) {
+        if (ctTreeStore.is_node_bookmarked(nid)) bookmarkedIds.push_back(nid);
+    }
+
+    // Nav history snapshot (for undo)
+    std::vector<gint64> visitedSnapshot(_pCtMainWin->_visitedNodes.begin(),
+                                         _pCtMainWin->_visitedNodes.end());
+    size_t visitedIdx = _pCtMainWin->_visitedNodesIdx;
+
+    // Determine next-selected node (for re-selection after deletion): a neighbour of the
+    // deleted node when the selection is inside the deleted subtree, otherwise keep it
+    gint64 nextSelectedId = -1;
+    CtTreeIter currIter = _pCtMainWin->curr_tree_iter();
+    if (currIter and not vec::exists(nodeIdsToRemove, currIter.get_node_id())) {
+        nextSelectedId = currIter.get_node_id();
+    }
+    else {
+        Gtk::TreeModel::iterator ni = --CtTreeIter{topCtIter};
+        if (not ni) ni = ++CtTreeIter{topCtIter};
+        if (not ni) ni = topCtIter.parent();
+        if (ni) {
+            CtTreeIter nit = ctTreeStore.to_ct_tree_iter(ni);
+            if (nit) nextSelectedId = nit.get_node_id();
+        }
+    }
+
+    return std::make_unique<DeleteNodeCommand>(
+        pModel, _pCtMainWin, snap, std::move(promotions),
+        std::move(bookmarkedIds), std::move(visitedSnapshot), visitedIdx,
+        nextSelectedId);
 }
 
 void CtActions::node_toggle_read_only()

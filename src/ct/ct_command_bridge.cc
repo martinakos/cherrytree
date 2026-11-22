@@ -2332,10 +2332,8 @@ void CtCommandBridge::BridgeObserver::onNodeChanged(gint64 nodeId)
         return;
     }
 
+    // No node selected is fine: the changed node is then simply not the one on screen
     auto curr_iter = _bridge->_pMainWin->curr_tree_iter();
-    if (!curr_iter) {
-        return;
-    }
 
     // Get the updated content from the model
     auto node = _bridge->_docModel->getNodeById(nodeId);
@@ -2358,7 +2356,7 @@ void CtCommandBridge::BridgeObserver::onNodeChanged(gint64 nodeId)
         return;
     }
 
-    bool isCurrentNode = (curr_iter.get_node_id() == nodeId);
+    bool isCurrentNode = curr_iter and (curr_iter.get_node_id() == nodeId);
 
     // Rebuild buffer from structured model content (handles both text-only and widget nodes)
     try {

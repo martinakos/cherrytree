@@ -325,7 +325,7 @@ const inline static gchar* MENUBAR_FORMAT_DEFAULT {
 };
 const inline static gchar* MENUBAR_TOOLS_DEFAULT {
     "spellcheck_toggle,separator,exec_code_los,exec_code_all,"
-    "strip_trail_spaces,repl_tabs_spaces,separator,command_palette,"
+    "strip_trail_spaces,repl_tabs_spaces,separator,command_palette,toggle_agent_access,"
     "separator,ocr_all_images,reocr_all_images,separator,toggle_show_timeline_panel"
 };
 const inline static gchar* MENUBAR_TREE_DEFAULT {

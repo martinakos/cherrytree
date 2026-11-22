@@ -335,6 +335,8 @@ void CtMenu::init_actions(CtActions* pActions)
             _("Replace Tabs with Spaces"), sigc::mem_fun(*pActions, &CtActions::replace_tabs_with_spaces)});
         _actions.push_back(CtMenuAction{tools_cat, "command_palette", "ct_execute", _("_Command Palette..."), KB_CONTROL+KB_SHIFT+"p",
             _("Command Palette"), sigc::mem_fun(*pActions, &CtActions::command_palette)});
+        _actions.push_back(CtMenuAction{tools_cat, "toggle_agent_access", "ct_network", _("Allow/Deny _AI Agent Access"), None,
+            _("Toggle Allow/Deny AI Agent (MCP) Access to the Open Document"), sigc::mem_fun(*pActions, &CtActions::toggle_agent_access)});
 #ifdef HAVE_NCNN
         _actions.push_back(CtMenuAction{tools_cat, "ocr_all_images", "ct_find", _("OCR All _Images"), None,
             _("Run OCR on All Images Without OCR Text"), sigc::mem_fun(*pActions, &CtActions::ocr_all_images)});
