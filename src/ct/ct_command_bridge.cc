@@ -2116,6 +2116,8 @@ void CtCommandBridge::registerNewNode(gint64 nodeId, gint64 parentId)
     nodeModel->setExcludedFromSearch(treeIter.get_node_is_excluded_from_search());
     nodeModel->setChildrenExcludedFromSearch(treeIter.get_node_children_are_excluded_from_search());
     nodeModel->setLineWrap(treeIter.get_node_line_wrap());
+    nodeModel->setHiddenFromAgent(treeIter.get_node_is_hidden_from_agent());
+    nodeModel->setChildrenHiddenFromAgent(treeIter.get_node_children_are_hidden_from_agent());
     nodeModel->setCreationTime(treeIter.get_node_creating_time());
     nodeModel->setLastSaveTime(treeIter.get_node_modification_time());
     nodeModel->setSharedMasterId(treeIter.get_node_shared_master_id());
@@ -2899,6 +2901,8 @@ void CtCommandBridge::BridgeObserver::onTreeStructureChanged()
         d.excludeMeFromSearch       = node->isExcludedFromSearch();
         d.excludeChildrenFromSearch = node->areChildrenExcludedFromSearch();
         d.lineWrap            = node->isLineWrap();
+        d.hideMeFromAgent       = node->isHiddenFromAgent();
+        d.hideChildrenFromAgent = node->areChildrenHiddenFromAgent();
         d.tsCreation          = node->getCreationTime();
         d.tsLastSave          = node->getLastSaveTime();
         auto gtkIter = treeStore.append_node(&d, parentGtk);
@@ -2960,6 +2964,8 @@ void CtCommandBridge::BridgeObserver::onNodePropertiesChanged(
     gtkIter->set_value(cols.colNodeIsExcludedFromSearch, newProps.excludeMeFromSearch);
     gtkIter->set_value(cols.colNodeChildrenAreExcludedFromSearch, newProps.excludeChildrenFromSearch);
     gtkIter->set_value(cols.colNodeLineWrap, newProps.lineWrap);
+    gtkIter->set_value(cols.colNodeIsHiddenFromAgent, newProps.hideMeFromAgent);
+    gtkIter->set_value(cols.colNodeChildrenAreHiddenFromAgent, newProps.hideChildrenFromAgent);
     gtkIter->set_value(cols.colCustomIconId, static_cast<guint16>(newProps.customIconId));
     gtkIter->set_value(cols.colForeground, newProps.foregroundRgb24);
     gtkIter->set_value(cols.colWeight,

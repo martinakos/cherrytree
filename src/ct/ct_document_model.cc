@@ -110,6 +110,8 @@ CtNodeProps CtNodeModel::captureProps() const
     p.excludeMeFromSearch      = _excludeMeFromSearch;
     p.excludeChildrenFromSearch = _excludeChildrenFromSearch;
     p.lineWrap                 = _lineWrap;
+    p.hideMeFromAgent          = _hideMeFromAgent;
+    p.hideChildrenFromAgent    = _hideChildrenFromAgent;
     p.tsCreation               = _tsCreation;
     p.tsLastSave               = _tsLastSave;
     return p;
@@ -127,6 +129,8 @@ void CtNodeModel::applyProps(const CtNodeProps& p)
     _excludeMeFromSearch      = p.excludeMeFromSearch;
     _excludeChildrenFromSearch = p.excludeChildrenFromSearch;
     _lineWrap                 = p.lineWrap;
+    _hideMeFromAgent          = p.hideMeFromAgent;
+    _hideChildrenFromAgent    = p.hideChildrenFromAgent;
     _tsCreation               = p.tsCreation;
     _tsLastSave               = p.tsLastSave;
 }

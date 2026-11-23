@@ -125,6 +125,7 @@ Gtk::Widget* CtPrefDlg::build_tab_misc()
     auto checkbutton_start_dialog = Gtk::manage(new Gtk::CheckButton{_("Show Start Dialog When No Document Is Loaded")});
     auto checkbutton_mod_time_sentinel = Gtk::manage(new Gtk::CheckButton{_("Reload After External Update to CT* File")});
     auto checkbutton_debug_log = Gtk::manage(new Gtk::CheckButton{_("Enable Debug Log")});
+    auto checkbutton_agent_confirm = Gtk::manage(new Gtk::CheckButton{_("Ask Before AI Agents Delete")});
 #if GTKMM_MAJOR_VERSION < 4
     auto file_chooser_button_debug_log_dir = Gtk::manage(new Gtk::FileChooserButton{_("Debug Log Directory"),
                                                                                     Gtk::FileChooserAction::FILE_CHOOSER_ACTION_SELECT_FOLDER});
@@ -160,6 +161,7 @@ Gtk::Widget* CtPrefDlg::build_tab_misc()
     vbox_misc_misc->pack_start(*checkbutton_reload_doc_last, false, false);
     vbox_misc_misc->pack_start(*checkbutton_start_dialog, false, false);
     vbox_misc_misc->pack_start(*checkbutton_mod_time_sentinel, false, false);
+    vbox_misc_misc->pack_start(*checkbutton_agent_confirm, false, false);
     vbox_misc_misc->pack_start(*hbox_debug_log, false, false);
 #else
     hbox_debug_log->append(*checkbutton_debug_log);
@@ -167,6 +169,7 @@ Gtk::Widget* CtPrefDlg::build_tab_misc()
     vbox_misc_misc->append(*checkbutton_newer_version);
     vbox_misc_misc->append(*checkbutton_reload_doc_last);
     vbox_misc_misc->append(*checkbutton_mod_time_sentinel);
+    vbox_misc_misc->append(*checkbutton_agent_confirm);
     vbox_misc_misc->append(*hbox_debug_log);
 #endif
 
@@ -174,6 +177,7 @@ Gtk::Widget* CtPrefDlg::build_tab_misc()
     checkbutton_reload_doc_last->set_active(_pConfig->reloadDocLast);
     checkbutton_start_dialog->set_active(_pConfig->showStartDialog);
     checkbutton_mod_time_sentinel->set_active(_pConfig->modTimeSentinel);
+    checkbutton_agent_confirm->set_active(_pConfig->agentConfirmDeletions);
 
     Gtk::Frame* frame_misc_misc = new_managed_frame_with_align(_("Miscellaneous"), vbox_misc_misc);
 
@@ -425,6 +429,9 @@ Gtk::Widget* CtPrefDlg::build_tab_misc()
     checkbutton_mod_time_sentinel->signal_toggled().connect([this, pCheckbutton_mod_time_sentinel=checkbutton_mod_time_sentinel](){
         _pConfig->modTimeSentinel = pCheckbutton_mod_time_sentinel->get_active();
         _pCtMainWin->mod_time_sentinel_restart();
+    });
+    checkbutton_agent_confirm->signal_toggled().connect([this, pCheckbutton_agent_confirm=checkbutton_agent_confirm](){
+        _pConfig->agentConfirmDeletions = pCheckbutton_agent_confirm->get_active();
     });
     checkbutton_start_dialog->signal_toggled().connect([this, pCheckbutton_start_dialog=checkbutton_start_dialog](){
         _pConfig->showStartDialog = pCheckbutton_start_dialog->get_active();

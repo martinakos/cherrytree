@@ -27,6 +27,7 @@
 #include "ct_drawing.h"
 #include "ct_command_bridge.h"
 #include "tests_common.h"
+#include "ct_codebox.h"
 #include "ct_actions.h"
 #include "ct_image.h"
 
@@ -955,6 +956,94 @@ TEST(LineWrapRoundTrip, SqliteSaveAndReload)
 TEST(LineWrapRoundTrip, XmlSaveAndReload)
 {
     LineWrapRoundTripApp app{CtDocType::XML, ".ctd"};
+    app.run(0, nullptr);
+}
+
+// "Hide from AI agents" node flags and the per code box fit setting survive save and reload
+class AgentPropsRoundTripApp : public CtApp
+{
+public:
+    AgentPropsRoundTripApp(CtDocType docType, const char* ext)
+     : CtApp{"_test_agentprops_rt", Gio::APPLICATION_NON_UNIQUE}, _docType{docType}, _ext{ext} { _no_gui = true; }
+private:
+    void on_activate() override;
+    CtDocType   _docType;
+    const char* _ext;
+};
+
+static CtCodebox* first_codebox(CtTreeIter treeIter)
+{
+    (void)treeIter.get_node_text_buffer(); // loads the widgets
+    for (CtAnchoredWidget* pWidget : treeIter.get_anchored_widgets()) {
+        if (auto pCodebox = dynamic_cast<CtCodebox*>(pWidget)) return pCodebox;
+    }
+    return nullptr;
+}
+
+void AgentPropsRoundTripApp::on_activate()
+{
+    _on_startup();
+    auto quitGuard = scope_guard([this](void*) { quit(); });
+
+    // Phase 1: the test doc (a .ctb without the code box fit columns) loads with the fit unset
+    CtMainWin* pWin1 = _create_window(true/*start_hidden*/);
+    ASSERT_TRUE(pWin1->file_open(UT::testCtbDocPath, ""/*node*/, ""/*anchor*/));
+    CtTreeStore& store1 = pWin1->get_tree_store();
+    CtTreeIter iterB = store1.get_node_from_node_name("b");
+    CtTreeIter iterD = store1.get_node_from_node_name("d");
+    CtTreeIter iterE = store1.get_node_from_node_name("e");
+    ASSERT_TRUE(iterB and iterD and iterE);
+    EXPECT_FALSE(iterB.get_node_is_hidden_from_agent());
+    CtCodebox* pCodebox1 = first_codebox(iterE);
+    ASSERT_TRUE(pCodebox1);
+    EXPECT_FALSE(pCodebox1->get_auto_resize_h_opt().has_value());
+
+    iterB.set_node_is_hidden_from_agent(true);
+    iterD.set_node_children_are_hidden_from_agent(true);
+    pCodebox1->set_auto_resize(true, false);
+    pWin1->update_window_save_needed(CtSaveNeededUpdType::npro, false/*new_machine_state*/, &iterB);
+    pWin1->update_window_save_needed(CtSaveNeededUpdType::npro, false/*new_machine_state*/, &iterD);
+    pWin1->update_window_save_needed(CtSaveNeededUpdType::nbuf, false/*new_machine_state*/, &iterE);
+
+    fs::path tmpDir = pWin1->get_ct_tmp()->getHiddenDirPath("UT_AGENT");
+    fs::path tmpDoc = tmpDir / (std::string{"agentprops_test"} + _ext);
+    pWin1->file_save_as(tmpDoc.string(), _docType, "");
+    pWin1->force_exit() = true;
+    remove_window(*pWin1);
+
+    // Phase 2: reopen
+    CtMainWin* pWin2 = _create_window(true/*start_hidden*/);
+    ASSERT_TRUE(pWin2->file_open(tmpDoc, ""/*node*/, ""/*anchor*/));
+    CtTreeStore& store2 = pWin2->get_tree_store();
+    CtTreeIter iterB2 = store2.get_node_from_node_name("b");
+    CtTreeIter iterD2 = store2.get_node_from_node_name("d");
+    CtTreeIter iterE2 = store2.get_node_from_node_name("e");
+    ASSERT_TRUE(iterB2 and iterD2 and iterE2);
+    EXPECT_TRUE(iterB2.get_node_is_hidden_from_agent()) << _ext;
+    EXPECT_FALSE(iterB2.get_node_children_are_hidden_from_agent()) << _ext;
+    EXPECT_FALSE(iterD2.get_node_is_hidden_from_agent()) << _ext;
+    EXPECT_TRUE(iterD2.get_node_children_are_hidden_from_agent()) << _ext;
+    auto* bridge2 = pWin2->get_command_bridge();
+    ASSERT_TRUE(bridge2 and bridge2->isActive());
+    EXPECT_TRUE(bridge2->getDocumentModel()->getNodeById(iterB2.get_node_id())->isHiddenFromAgent());
+    CtCodebox* pCodebox2 = first_codebox(iterE2);
+    ASSERT_TRUE(pCodebox2);
+    EXPECT_EQ(std::optional<bool>{true}, pCodebox2->get_auto_resize_h_opt()) << _ext;
+    EXPECT_EQ(std::optional<bool>{false}, pCodebox2->get_auto_resize_w_opt()) << _ext;
+
+    pWin2->force_exit() = true;
+    remove_window(*pWin2);
+}
+
+TEST(AgentPropsRoundTrip, SqliteSaveAndReload)
+{
+    AgentPropsRoundTripApp app{CtDocType::SQLite, ".ctb"};
+    app.run(0, nullptr);
+}
+
+TEST(AgentPropsRoundTrip, XmlSaveAndReload)
+{
+    AgentPropsRoundTripApp app{CtDocType::XML, ".ctd"};
     app.run(0, nullptr);
 }
 

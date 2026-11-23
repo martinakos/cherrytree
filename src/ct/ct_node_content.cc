@@ -1010,6 +1010,18 @@ CtNodeContent CtNodeContent::fromXml(const Glib::ustring& xml, CtMainWin* /*pCtM
                 for (const auto& attr : element->get_attributes()) {
                     widget.setProperty(attr->get_name(), attr->get_value());
                 }
+                // anchors, LaTeX and embedded files are written as encoded_png too
+                if (widget.type == CtAnchWidgType::ImagePng) {
+                    if (!widget.getProperty("anchor").empty()) {
+                        widget.type = CtAnchWidgType::ImageAnchor;
+                    } else if (widget.getProperty("filename") == "__ct_special.tex") { // CtImageLatex::LatexSpecialFilename
+                        widget.type = CtAnchWidgType::ImageLatex;
+                    } else if (widget.getProperty("filename") == "__ct_horiz_line") { // CtHorizLine::SpecialFilename
+                        widget.type = CtAnchWidgType::HorizLine;
+                    } else if (!widget.getProperty("filename").empty()) {
+                        widget.type = CtAnchWidgType::ImageEmbFile;
+                    }
+                }
 
                 // Extract content based on widget type
                 if (nodeName == "table") {
@@ -1225,7 +1237,8 @@ Glib::ustring CtWidgetDesc::toXml(int charOffset) const
     if (type == CtAnchWidgType::ImagePng ||
         type == CtAnchWidgType::ImageAnchor ||
         type == CtAnchWidgType::ImageLatex ||
-        type == CtAnchWidgType::ImageEmbFile) {
+        type == CtAnchWidgType::ImageEmbFile ||
+        type == CtAnchWidgType::HorizLine) {
         xml += "<encoded_png";
         for (const auto& prop : properties) {
             if (prop.first != "_content") emitProp(prop);

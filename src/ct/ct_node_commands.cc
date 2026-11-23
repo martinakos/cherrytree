@@ -41,6 +41,8 @@ CtNodeProps nodePropsFromIter(const CtTreeIter& iter)
     p.excludeMeFromSearch      = iter.get_node_is_excluded_from_search();
     p.excludeChildrenFromSearch = iter.get_node_children_are_excluded_from_search();
     p.lineWrap                 = iter.get_node_line_wrap();
+    p.hideMeFromAgent          = iter.get_node_is_hidden_from_agent();
+    p.hideChildrenFromAgent    = iter.get_node_children_are_hidden_from_agent();
     p.tsCreation               = iter.get_node_creating_time();
     p.tsLastSave               = iter.get_node_modification_time();
     return p;
@@ -59,6 +61,8 @@ CtNodeProps nodePropsFromData(const CtNodeData& d)
     p.excludeMeFromSearch      = d.excludeMeFromSearch;
     p.excludeChildrenFromSearch = d.excludeChildrenFromSearch;
     p.lineWrap                 = d.lineWrap;
+    p.hideMeFromAgent          = d.hideMeFromAgent;
+    p.hideChildrenFromAgent    = d.hideChildrenFromAgent;
     p.tsCreation               = d.tsCreation;
     p.tsLastSave               = d.tsLastSave;
     return p;
@@ -79,6 +83,8 @@ void nodeDataFromModel(const CtNodeModel& node, CtNodeData& d)
     d.excludeMeFromSearch       = node.isExcludedFromSearch();
     d.excludeChildrenFromSearch = node.areChildrenExcludedFromSearch();
     d.lineWrap            = node.isLineWrap();
+    d.hideMeFromAgent       = node.isHiddenFromAgent();
+    d.hideChildrenFromAgent = node.areChildrenHiddenFromAgent();
     d.tsCreation          = node.getCreationTime();
     d.tsLastSave          = node.getLastSaveTime();
     d.drawingCanvases     = node.getDrawingCanvases();

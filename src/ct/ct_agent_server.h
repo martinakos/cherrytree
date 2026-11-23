@@ -24,8 +24,10 @@
 #pragma once
 
 #include <glib.h>
+#include <functional>
 #include <map>
 #include <string>
+#include <vector>
 
 class CtMainWin;
 
@@ -48,8 +50,9 @@ public:
 
     // Socket path for the application id postfix ("" for the main session, "_2" for -S)
     static std::string socket_path(const std::string& appIdPostfix);
-    // The command an MCP client runs to reach the main session
+    // The command an MCP client runs to reach the main session, and its program alone
     static std::string relay_command();
+    static std::string relay_exe_path();
 
     // Handles one JSON-RPC message, returns the reply (empty for a notification)
     std::string handle_message(const std::string& message);
@@ -63,6 +66,15 @@ public:
 
     // Body of "cherrytree --mcp-stdio [-S]": pipes stdin/stdout to the socket, returns the exit code
     static int run_stdio_relay(int argc, char* argv[]);
+
+    // Tests: answers the confirmation dialog instead of the user (0 deny, 1 allow,
+    // 2 allow deletions for 10 minutes), and replaces the monotonic clock (microseconds)
+    using ConfirmHook = std::function<int(const std::string& summary, const std::vector<std::string>& details)>;
+    static void set_confirm_hook(ConfirmHook hook);
+    static void set_clock_hook(std::function<gint64()> hook);
+    // Forgets the deletions allowance, the count of removed text and the backups made:
+    // done when access is denied, and by tests
+    static void reset_session();
 
 private:
     CtAgentServer() = default;

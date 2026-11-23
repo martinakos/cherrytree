@@ -10,6 +10,8 @@
 #include "ct_agent_server.h"
 #include "ct_command_bridge.h"
 #include "ct_node_commands.h"
+#include "ct_codebox.h"
+#include "ct_storage_control.h"
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 #include <sys/socket.h>
@@ -81,9 +83,21 @@ static int sibling_position_for_test(CtTreeStore& store, const gint64 nodeId)
     return pos;
 }
 
+// Text inside the <note_content> marker that tools put around document text
+static std::string unwrap_note(const std::string& text)
+{
+    const size_t open = text.find('>');
+    const size_t close = text.rfind("</");
+    if (0 != text.rfind("<note_content", 0) or std::string::npos == open or std::string::npos == close or close < open) {
+        ADD_FAILURE() << "not inside a note_content marker: " << text;
+        return text;
+    }
+    return text.substr(open + 1, close - open - 1);
+}
+
 static std::string node_text(CtMainWin* pWin, const gint64 nodeId)
 {
-    return call_ok(pWin, "read_node", {{"id", nodeId}}).value("text", "");
+    return unwrap_note(call_ok(pWin, "read_node", {{"id", nodeId}}).value("text", ""));
 }
 
 void TestAgentServerApp::_run_tests(CtMainWin* pWin)
@@ -92,6 +106,31 @@ void TestAgentServerApp::_run_tests(CtMainWin* pWin)
     ASSERT_TRUE(pBridge and pBridge->isActive());
     CtTreeStore& store = pWin->get_tree_store();
     CtAgentServer& server = CtAgentServer::instance();
+
+    // the backup before the first agent change goes to a temporary folder, not next to the test document
+    gchar* pBackupDir = g_dir_make_tmp("ct_agent_test_XXXXXX", nullptr);
+    ASSERT_TRUE(pBackupDir);
+    const std::string backupDir{pBackupDir};
+    g_free(pBackupDir);
+    CtConfig* pConfig = pWin->get_ct_config();
+    pConfig->customBackupDirOn = true;
+    pConfig->customBackupDir = backupDir;
+    // the confirmation dialog is answered here, and the clock is ours
+    int answer{1};
+    std::vector<std::string> asked;
+    CtAgentServer::set_confirm_hook([&answer, &asked](const std::string& summary, const std::vector<std::string>& details) {
+        asked.push_back(summary + (details.empty() ? "" : " | " + details.front()));
+        return answer;
+    });
+    gint64 fakeNow = g_get_monotonic_time();
+    CtAgentServer::set_clock_hook([&fakeNow]() { return fakeNow; });
+    CtAgentServer::reset_session();
+    auto scopeGuard = scope_guard([&backupDir](void*) {
+        CtAgentServer::set_confirm_hook(nullptr);
+        CtAgentServer::set_clock_hook(nullptr);
+        CtAgentServer::reset_session();
+        fs::remove_all(backupDir);
+    });
 
     // --- MCP protocol ---
     {
@@ -107,7 +146,7 @@ void TestAgentServerApp::_run_tests(CtMainWin* pWin)
 
         const json list = json::parse(server.handle_message(R"({"jsonrpc":"2.0","id":"a","method":"tools/list"})"));
         EXPECT_EQ("a", list["id"]);
-        ASSERT_EQ(12u, list["result"]["tools"].size());
+        ASSERT_EQ(24u, list["result"]["tools"].size());
         for (const json& tool : list["result"]["tools"]) {
             EXPECT_EQ("object", tool["inputSchema"]["type"]) << tool["name"];
             EXPECT_FALSE(tool.value("description", "").empty()) << tool["name"];
@@ -161,7 +200,7 @@ void TestAgentServerApp::_run_tests(CtMainWin* pWin)
         const gint64 mdId = call_ok(pWin, "add_node", {{"name", "Md"}, {"content", "An _italic_ word\n```python\nprint(2)\n```\n"}})["id"];
         const std::string text = node_text(pWin, mdId);
         EXPECT_NE(std::string::npos, text.find("An italic word")) << text;
-        EXPECT_NE(std::string::npos, text.find("\u27e6codebox python\u27e7")) << text;
+        EXPECT_NE(std::string::npos, text.find("\u27e6#0 codebox python ")) << text;
         EXPECT_NE(std::string::npos, text.find("print(2)")) << text;
         CtTreeIter iter = store.get_node_from_node_id(mdId);
         bool hasItalic{false};
@@ -199,6 +238,10 @@ void TestAgentServerApp::_run_tests(CtMainWin* pWin)
             "Last ***words*** and ~~gone~~\n";
         const gint64 mdId = call_ok(pWin, "add_node", {{"name", "Md2"}, {"content", markdown}})["id"];
         const std::string text = node_text(pWin, mdId);
+        // code boxes from Markdown take the default size of new code boxes and fit their height
+        const CtConfig* pConfig = pWin->get_ct_config();
+        const std::string codeboxSize = fmt::format("{}{}x{}", static_cast<int>(pConfig->codeboxWidth),
+                                                    pConfig->codeboxWidthPixels ? "" : "%", static_cast<int>(pConfig->codeboxHeight));
         const std::string expected =
             "How it works\n"
             "1. The agent (Claude Code). It starts.\n"
@@ -206,12 +249,12 @@ void TestAgentServerApp::_run_tests(CtMainWin* pWin)
             "\t◇ under /run/user/<id>/ (usually) and snake_case_name\n"
             "☐ a task with a link and https://example.org\n"
             "\n"
-            "⟦table⟧\nTool | What it does\nlist_tree | List (all) the nodes\nread_node | Read | a node\n⟦/table⟧\n"
+            "⟦#0 table 3x2⟧\nTool | What it does\nlist_tree | List (all) the nodes\nread_node | Read | a node\n⟦/table⟧\n"
             "\n"
             "Ünïcödé ⟦ text\n"
-            "⟦codebox plain-text⟧\na  ->  b\n⟦/codebox⟧\n"
+            "⟦#1 codebox plain-text " + codeboxSize + " fit⟧\na  ->  b\n⟦/codebox⟧\n"
             "\n"
-            "⟦codebox sh⟧\nclaude mcp add x -- /p --mcp-stdio\n⟦/codebox⟧\n"
+            "⟦#2 codebox sh " + codeboxSize + " fit⟧\nclaude mcp add x -- /p --mcp-stdio\n⟦/codebox⟧\n"
             "\n"
             "Last words and gone\n";
         EXPECT_EQ(expected, text);
@@ -358,6 +401,341 @@ void TestAgentServerApp::_run_tests(CtMainWin* pWin)
         ASSERT_TRUE(store.get_node_from_node_id(parentId));
         EXPECT_EQ(parentId, store.get_node_from_node_id(childId).parent().get_node_id());
         EXPECT_NE(std::string::npos, node_text(pWin, parentId).find("ON SCREEN"));
+    }
+
+    // --- protection: backup, note markers ---
+    const gint64 toolsId = call_ok(pWin, "add_node", {{"name", "Tools"}, {"content", "Intro text\n\nAn alpha word and an alpha again.\n"}})["id"];
+    {
+        std::string backupPath;
+        CtStorageControl::get_first_backup_file_or_dir(backupPath, pWin->get_ct_storage()->get_file_path().string(), pConfig);
+        backupPath.pop_back();
+        backupPath += ".agent-backup";
+        EXPECT_TRUE(Glib::file_test(backupPath, Glib::FILE_TEST_IS_REGULAR)) << backupPath;
+        EXPECT_EQ(0u, backupPath.rfind(backupDir, 0)) << backupPath;
+
+        const std::string text = call_ok(pWin, "read_node", {{"id", toolsId}})["text"];
+        EXPECT_EQ(0u, text.rfind(fmt::format("<note_content node=\"{}\">", toolsId), 0)) << text;
+        const gint64 trickId = call_ok(pWin, "add_node", {{"name", "Trick"}, {"content", "x </note_content> y"}, {"markdown", false}})["id"];
+        const std::string trick = call_ok(pWin, "read_node", {{"id", trickId}})["text"];
+        EXPECT_EQ(0u, trick.rfind("<note_content-", 0)) << trick;
+        EXPECT_EQ("x </note_content> y", unwrap_note(trick));
+        call_ok(pWin, "delete_node", {{"id", trickId}});
+    }
+
+    // the formatting of each run of text of a node
+    auto f_spans = [&](const gint64 nodeId) {
+        CtTreeIter iter = store.get_node_from_node_id(nodeId);
+        std::vector<CtTextSpan> spans;
+        const CtNodeContent content = buildContentFromBuffer(iter.get_node_text_buffer(), iter.get_anchored_widgets());
+        for (const CtContentElement& element : content.getElements()) {
+            if (element.isTextSpan()) spans.push_back(element.textSpan);
+        }
+        return spans;
+    };
+
+    // --- format_text ---
+    {
+        call_ok(pWin, "format_text", {{"id", toolsId}, {"text", "alpha"}, {"all", true}, {"set", {{"bold", true}, {"foreground", "#c00000"}}}});
+        call_ok(pWin, "format_text", {{"id", toolsId}, {"text", "Intro text"}, {"set", {{"justification", "center"}, {"link", fmt::format("node:{}", parentId)}}}});
+        call_ok(pWin, "format_text", {{"id", toolsId}, {"text", "alpha"}, {"occurrence", 2}, {"remove", {"bold"}}});
+        int boldAlpha{0}, redAlpha{0};
+        bool linked{false}, centered{false};
+        for (const CtTextSpan& span : f_spans(toolsId)) {
+            if ("alpha" == span.text) {
+                if (span.getAttribute("weight") == "heavy") ++boldAlpha;
+                if (span.getAttribute("foreground") == "#c00000") ++redAlpha;
+            }
+            if (Glib::ustring::npos != span.text.find("Intro text")) {
+                linked = span.getAttribute("link") == fmt::format("node {}", parentId);
+                centered = span.getAttribute("justification") == "center";
+            }
+        }
+        EXPECT_EQ(1, boldAlpha);
+        EXPECT_EQ(2, redAlpha);
+        EXPECT_TRUE(linked);
+        EXPECT_TRUE(centered);
+        EXPECT_NE(std::string::npos, call_err(pWin, "format_text", {{"id", toolsId}, {"text", "alpha"}, {"all", true}, {"set", {{"sparkle", true}}}}).find("Unknown attribute"));
+        EXPECT_NE(std::string::npos, call_err(pWin, "format_text", {{"id", toolsId}, {"text", "alpha"}, {"all", true}, {"set", {{"foreground", "red"}}}}).find("color"));
+        EXPECT_NE(std::string::npos, call_err(pWin, "format_text", {{"id", toolsId}, {"text", "alpha"}, {"occurrence", 5}, {"set", {{"bold", true}}}}).find("occurs 2 times"));
+    }
+
+    // --- code boxes ---
+    {
+        const json inserted = call_ok(pWin, "insert_object", {{"id", toolsId}, {"kind", "codebox"}, {"properties", {{"language", "sh"}}}, {"content", "ls -l\necho hi"}});
+        EXPECT_EQ(0, inserted["object_index"]);
+        EXPECT_EQ("fit", inserted["objects"][0]["fit_height"]);
+        EXPECT_EQ(2, inserted["objects"][0]["lines"]);
+        EXPECT_NE(std::string::npos, node_text(pWin, toolsId).find("⟦#0 codebox sh "));
+        bool fits{false};
+        for (CtAnchoredWidget* pWidget : store.get_node_from_node_id(toolsId).get_anchored_widgets()) {
+            if (auto pCodebox = dynamic_cast<CtCodebox*>(pWidget)) fits = pCodebox->get_auto_resize_h_opt().value_or(false);
+        }
+        EXPECT_TRUE(fits);
+        const json updated = call_ok(pWin, "update_object", {{"id", toolsId}, {"object_index", 0}, {"expect_kind", "codebox"}, {"properties", {{"height", 80}}}});
+        EXPECT_EQ("fixed", updated["objects"][0]["fit_height"]);
+        EXPECT_EQ(80, updated["objects"][0]["height"]);
+        EXPECT_NE(std::string::npos, call_err(pWin, "update_object", {{"id", toolsId}, {"object_index", 0}, {"expect_kind", "table"}}).find("is a codebox, not a table"));
+        EXPECT_NE(std::string::npos, call_err(pWin, "update_object", {{"id", toolsId}, {"object_index", 5}, {"expect_kind", "codebox"}}).find("must be 0 to 0"));
+        EXPECT_NE(std::string::npos, call_err(pWin, "insert_object", {{"id", toolsId}, {"kind", "codebox"}, {"properties", {{"language", "no-such-lang"}}}}).find("Unknown language"));
+    }
+
+    // --- tables ---
+    {
+        const json inserted = call_ok(pWin, "insert_object", {{"id", toolsId}, {"kind", "table"}, {"properties", {{"rows", json::array({json::array({"A", "B"}), json::array({"1", "2"})})}}}});
+        ASSERT_EQ(1, inserted["object_index"]);
+        auto f_edit = [&](const json& operations) {
+            return call_ok(pWin, "edit_table", {{"id", toolsId}, {"object_index", 1}, {"expect_kind", "table"}, {"operations", operations}});
+        };
+        json table = f_edit({{{"op", "insert_row"}, {"row", 2}, {"cells", {"3", "4"}}},
+                             {{"op", "set_cell"}, {"row", 1}, {"col", 1}, {"text", "22"}},
+                             {{"op", "style_cell"}, {"row", 2}, {"col", 0}, {"background", "#fff2cc"}}})["object"];
+        EXPECT_EQ(3, table["rows"]);
+        EXPECT_EQ("2,0:#fff2cc", table["style"]["cell_bg_colors"]);
+        EXPECT_NE(std::string::npos, node_text(pWin, toolsId).find("1 | 22\n3 | 4"));
+        answer = 0;
+        EXPECT_NE(std::string::npos, call_err(pWin, "edit_table", {{"id", toolsId}, {"object_index", 1}, {"expect_kind", "table"},
+                                                                  {"operations", {{{"op", "delete_row"}, {"row", 1}}}}}).find("denied"));
+        answer = 1;
+        table = f_edit({{{"op", "delete_row"}, {"row", 1}}})["object"];
+        EXPECT_EQ(2, table["rows"]);
+        // the style follows its cell
+        EXPECT_EQ("1,0:#fff2cc", table["style"]["cell_bg_colors"]);
+        EXPECT_NE(std::string::npos, asked.back().find("row 1: 1 | 22")) << asked.back();
+
+        const json rich = call_ok(pWin, "insert_object", {{"id", toolsId}, {"kind", "rich_table"}, {"properties", {{"rows", json::array({json::array({"**Head**", "x"})})}}}});
+        const CtNodeContent content = buildContentFromBuffer(store.get_node_from_node_id(toolsId).get_node_text_buffer(),
+                                                             store.get_node_from_node_id(toolsId).get_anchored_widgets());
+        bool boldCell{false};
+        for (const CtContentElement& element : content.getElements()) {
+            if (element.isWidget() and element.widget.hasRichTableData()) {
+                for (const CtTextSpan& span : element.widget.richTableData[0][0].textSpans) {
+                    if ("Head" == span.text and span.getAttribute("weight") == "heavy") boldCell = true;
+                }
+            }
+        }
+        EXPECT_TRUE(boldCell);
+        answer = 1;
+        call_ok(pWin, "delete_object", {{"id", toolsId}, {"object_index", rich["object_index"]}, {"expect_kind", "rich_table"}});
+    }
+
+    // --- images and file paths ---
+    // files to insert, apart from the backups, which agents may never insert
+    gchar* pFilesDir = g_dir_make_tmp("ct_agent_files_XXXXXX", nullptr);
+    ASSERT_TRUE(pFilesDir);
+    const std::string filesDir{pFilesDir};
+    g_free(pFilesDir);
+    auto filesGuard = scope_guard([&filesDir](void*) { fs::remove_all(filesDir); });
+    const std::string pngPath = Glib::build_filename(filesDir, "four_by_three.png");
+    {
+        auto pixbuf = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB, false, 8, 4, 3);
+        pixbuf->fill(0xff0000ff);
+        pixbuf->save(pngPath, "png");
+        const size_t numAsked = asked.size();
+        const json inserted = call_ok(pWin, "insert_object", {{"id", toolsId}, {"kind", "image"}, {"properties", {{"path", pngPath}}}});
+        const int imageIdx = inserted["object_index"];
+        EXPECT_EQ(4, inserted["objects"][imageIdx]["width"]);
+        EXPECT_EQ(3, inserted["objects"][imageIdx]["height"]);
+        // the temporary folder is outside the home folder (unless TMPDIR says otherwise)
+        if (0 != filesDir.rfind(g_get_home_dir(), 0)) {
+            ASSERT_GT(asked.size(), numAsked);
+            EXPECT_NE(std::string::npos, asked.back().find("outside your home folder"));
+        }
+        const json resized = call_ok(pWin, "update_object", {{"id", toolsId}, {"object_index", imageIdx}, {"expect_kind", "image"}, {"properties", {{"width", 8}}}});
+        EXPECT_EQ(8, resized["objects"][imageIdx]["display_width"]);
+        EXPECT_EQ(6, resized["objects"][imageIdx]["display_height"]);
+
+        EXPECT_NE(std::string::npos, call_err(pWin, "insert_object", {{"id", toolsId}, {"kind", "image"}, {"properties", {{"path", "https://example.com/a.png"}}}}).find("URLs"));
+        const std::string keyPath = Glib::build_filename(filesDir, "id_test");
+        const std::string backupFilePath = Glib::build_filename(backupDir, "in_backups.png");
+        pixbuf->save(backupFilePath, "png");
+        EXPECT_NE(std::string::npos, call_err(pWin, "insert_object", {{"id", toolsId}, {"kind", "image"}, {"properties", {{"path", backupFilePath}}}}).find("never put"));
+        Glib::file_set_contents(keyPath, "-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n");
+        EXPECT_NE(std::string::npos, call_err(pWin, "insert_object", {{"id", toolsId}, {"kind", "file"}, {"properties", {{"path", keyPath}}}}).find("private key"));
+        EXPECT_NE(std::string::npos, call_err(pWin, "insert_object", {{"id", toolsId}, {"kind", "file"}, {"properties", {{"path", "relative/path"}}}}).find("absolute"));
+    }
+
+    // --- XML ---
+    {
+        const json read = call_ok(pWin, "read_node", {{"id", toolsId}, {"format", "xml"}});
+        const std::string xml = unwrap_note(read["xml"]);
+        EXPECT_NE(std::string::npos, xml.find("<codebox")) << xml;
+        EXPECT_NE(std::string::npos, xml.find("keep=\"")) << xml;
+        std::string changed = xml;
+        changed.replace(changed.find("Intro text"), 10, "Intro TEXT");
+        const size_t numObjects = read["objects"].size();
+        call_ok(pWin, "set_node_content", {{"id", toolsId}, {"format", "xml"}, {"content", changed}});
+        const json after = call_ok(pWin, "read_node", {{"id", toolsId}});
+        EXPECT_NE(std::string::npos, unwrap_note(after["text"]).find("Intro TEXT"));
+        ASSERT_EQ(numObjects, after["objects"].size());
+        bool imageKept{false};
+        for (const json& object : after["objects"]) if ("image" == object["kind"] and 4 == object["width"]) imageKept = true;
+        EXPECT_TRUE(imageKept);
+        EXPECT_NE(std::string::npos, call_err(pWin, "set_node_content", {{"id", toolsId}, {"format", "xml"}, {"content", "<rich_text>open"}}).find("not well formed"));
+        EXPECT_NE(std::string::npos, call_err(pWin, "set_node_content", {{"id", toolsId}, {"format", "xml"},
+                                                                         {"content", "<encoded_png char_offset=\"0\" keep=\"9\"/>"}}).find("keep"));
+    }
+
+    // --- text removed: a total for the session ---
+    {
+        CtAgentServer::reset_session();
+        const gint64 longId = call_ok(pWin, "add_node", {{"name", "Long"}, {"content", std::string(1500, 'a') + "\n" + std::string(1500, 'b')}, {"markdown", false}})["id"];
+        asked.clear();
+        call_ok(pWin, "replace_text", {{"id", longId}, {"old_text", std::string(1000, 'a')}, {"new_text", ""}});
+        EXPECT_TRUE(asked.empty());
+        call_ok(pWin, "replace_text", {{"id", longId}, {"old_text", std::string(1200, 'b')}, {"new_text", "B"}});
+        ASSERT_EQ(1u, asked.size());
+        EXPECT_NE(std::string::npos, asked.back().find("2200 characters removed")) << asked.back();
+        // allowed: the count starts again
+        call_ok(pWin, "replace_text", {{"id", longId}, {"old_text", std::string(300, 'b')}, {"new_text", ""}});
+        EXPECT_EQ(1u, asked.size());
+        call_ok(pWin, "delete_node", {{"id", longId}});
+    }
+
+    // --- deletions allowed for 10 minutes ---
+    {
+        std::vector<gint64> leaves;
+        for (int i = 0; i < 3; ++i) leaves.push_back(call_ok(pWin, "add_node", {{"name", fmt::format("Leaf {}", i)}})["id"]);
+        asked.clear();
+        answer = 2;
+        call_ok(pWin, "delete_node", {{"id", leaves[0]}});
+        EXPECT_EQ(1u, asked.size());
+        answer = 0;
+        call_ok(pWin, "delete_node", {{"id", leaves[1]}});
+        EXPECT_EQ(1u, asked.size());
+        fakeNow += 11 * 60 * G_USEC_PER_SEC;
+        EXPECT_NE(std::string::npos, call_err(pWin, "delete_node", {{"id", leaves[2]}}).find("denied"));
+        EXPECT_TRUE(store.get_node_from_node_id(leaves[2]));
+        answer = 1;
+        call_ok(pWin, "delete_node", {{"id", leaves[2]}});
+    }
+
+    // --- nodes hidden from agents ---
+    {
+        const gint64 hiddenParentId = call_ok(pWin, "add_node", {{"name", "Private"}})["id"];
+        const gint64 hiddenChildId = call_ok(pWin, "add_node", {{"name", "Secret"}, {"parent_id", hiddenParentId}, {"content", "zebracorn"}})["id"];
+        CtTreeIter iter = store.get_node_from_node_id(hiddenParentId);
+        const CtNodeProps oldProps = nodePropsFromIter(iter);
+        CtNodeProps newProps = oldProps;
+        newProps.hideChildrenFromAgent = true;
+        pBridge->pushNodeCommand(std::make_unique<EditNodePropertiesCommand>(pBridge->getDocumentModel().get(), hiddenParentId, oldProps, newProps));
+        drain_events();
+        EXPECT_TRUE(store.get_node_from_node_id(hiddenChildId).get_node_is_hidden_from_agent() == false);
+        EXPECT_TRUE(store.get_node_from_node_id(hiddenParentId).get_node_children_are_hidden_from_agent());
+        const std::string tree = call_ok(pWin, "list_tree", json::object()).dump();
+        EXPECT_EQ(std::string::npos, tree.find("Secret"));
+        EXPECT_NE(std::string::npos, tree.find("Private"));
+        EXPECT_NE(std::string::npos, call_err(pWin, "read_node", {{"id", hiddenChildId}}).find("hidden from AI agents"));
+        EXPECT_EQ(0u, call_ok(pWin, "search", {{"query", "zebracorn"}})["results"].size());
+        EXPECT_EQ(0u, call_ok(pWin, "read_node", {{"id", hiddenParentId}})["children"].size());
+        EXPECT_NE(std::string::npos, call_err(pWin, "delete_node", {{"id", hiddenParentId}}).find("hidden from AI agents"));
+        EXPECT_NE(std::string::npos, call_err(pWin, "add_node", {{"name", "X"}, {"parent_id", hiddenChildId}}).find("hidden from AI agents"));
+        pBridge->undo();
+        drain_events();
+        EXPECT_EQ(1u, call_ok(pWin, "search", {{"query", "zebracorn"}})["results"].size());
+    }
+
+    // --- drawing canvases ---
+    {
+        const json canvas = call_ok(pWin, "add_canvas", {{"id", toolsId}, {"x", 10}, {"y", 10}, {"width", 300}, {"height", 150}, {"name", "Flow"}});
+        EXPECT_EQ(0, canvas["index"]);
+        auto f_edit = [&](const json& operations) {
+            return call_ok(pWin, "edit_canvas", {{"id", toolsId}, {"canvas_index", 0}, {"operations", operations}});
+        };
+        json edited = f_edit({{{"op", "add"}, {"type", "rounded_rectangle"}, {"x", 20}, {"y", 40}, {"width", 100}, {"height", 40}, {"fill_color", "#dae8fc"}},
+                              {{"op", "add"}, {"type", "text"}, {"x", 30}, {"y", 50}, {"text", "Start"}},
+                              {{"op", "add"}, {"type", "line"}, {"from", {120, 60}}, {"to", {200, 60}}, {"arrow_head", "end"}}});
+        ASSERT_EQ(3u, edited["stroke_list"].size());
+        EXPECT_EQ("rounded_rectangle", edited["stroke_list"][0]["type"]);
+        EXPECT_EQ("end", edited["stroke_list"][2]["arrow_head"]);
+        EXPECT_NE(std::string::npos, call_err(pWin, "edit_canvas", {{"id", toolsId}, {"canvas_index", 0},
+            {"operations", {{{"op", "add"}, {"type", "rectangle"}, {"x", 280}, {"y", 10}, {"width", 50}, {"height", 10}}}}}).find("outside the canvas"));
+        f_edit({{{"op", "update"}, {"index", 0}, {"color", "#ff0000"}}});
+        const json read = call_ok(pWin, "read_node", {{"id", toolsId}, {"include_strokes", true}});
+        ASSERT_EQ(1u, read["canvases"].size());
+        EXPECT_EQ("#ff0000", read["canvases"][0]["stroke_list"][0]["color"]);
+        EXPECT_EQ("Start", unwrap_note(read["canvases"][0]["stroke_list"][1]["text"]));
+
+        answer = 0;
+        EXPECT_NE(std::string::npos, call_err(pWin, "edit_canvas", {{"id", toolsId}, {"canvas_index", 0}, {"operations", {{{"op", "delete"}, {"index", 2}}}}}).find("denied"));
+        answer = 1;
+        EXPECT_EQ(2u, f_edit({{{"op", "delete"}, {"index", 2}}})["stroke_list"].size());
+
+        const json rendered = call_ok(pWin, "render_canvas", {{"id", toolsId}, {"canvas_index", 0}});
+        ASSERT_EQ(2u, rendered["_content"].size());
+        EXPECT_EQ("image", rendered["_content"][1]["type"]);
+        const std::string png = Glib::Base64::decode(rendered["_content"][1]["data"].get<std::string>());
+        ASSERT_GT(png.size(), 24u);
+        const auto f_be32 = [&png](const size_t pos) {
+            return (static_cast<unsigned char>(png[pos]) << 24) | (static_cast<unsigned char>(png[pos + 1]) << 16) |
+                   (static_cast<unsigned char>(png[pos + 2]) << 8) | static_cast<unsigned char>(png[pos + 3]);
+        };
+        EXPECT_EQ(300, f_be32(16));
+        EXPECT_EQ(150, f_be32(20));
+        // through the protocol, the image is MCP content
+        const json call = json::parse(server.handle_message(fmt::format(
+            R"({{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{{"name":"render_canvas","arguments":{{"id":{},"canvas_index":0}}}}}})", toolsId)));
+        EXPECT_EQ("image", call["result"]["content"][1]["type"]);
+
+        EXPECT_NE(std::string::npos, call_err(pWin, "update_canvas", {{"id", toolsId}, {"canvas_index", 0}, {"width", 100}}).find("outside the canvas"));
+        EXPECT_EQ(400, call_ok(pWin, "update_canvas", {{"id", toolsId}, {"canvas_index", 0}, {"width", 400}, {"name", "Flow 2"}})["width"]);
+
+        // each edit is one undo step
+        pBridge->undo(); // update_canvas
+        pBridge->undo(); // delete stroke
+        drain_events();
+        EXPECT_EQ(3u, call_ok(pWin, "read_node", {{"id", toolsId}})["canvases"][0]["strokes"]);
+        pBridge->undo(); // update stroke
+        pBridge->undo(); // the three strokes added
+        drain_events();
+        EXPECT_EQ(0u, call_ok(pWin, "read_node", {{"id", toolsId}})["canvases"][0]["strokes"]);
+
+        // while the user answers, other requests wait
+        {
+            std::string nested;
+            CtAgentServer::set_confirm_hook([&](const std::string&, const std::vector<std::string>&) {
+                bool isError{false};
+                nested = CtAgentServer::call_tool(pWin, "list_tree", "{}", isError);
+                EXPECT_TRUE(isError);
+                return 0;
+            });
+            EXPECT_NE(std::string::npos, call_err(pWin, "delete_node", {{"id", toolsId}}).find("denied"));
+            EXPECT_NE(std::string::npos, nested.find("waiting for the user")) << nested;
+            CtAgentServer::set_confirm_hook([&answer, &asked](const std::string& summary, const std::vector<std::string>& details) {
+                asked.push_back(summary + (details.empty() ? "" : " | " + details.front()));
+                return answer;
+            });
+            call_ok(pWin, "list_tree", json::object());
+        }
+
+        // deleting the node names what goes with it
+        answer = 0;
+        asked.clear();
+        EXPECT_NE(std::string::npos, call_err(pWin, "delete_node", {{"id", toolsId}}).find("denied"));
+        ASSERT_EQ(1u, asked.size());
+        EXPECT_NE(std::string::npos, asked.back().find("drawing canvas")) << asked.back();
+        EXPECT_NE(std::string::npos, asked.back().find("embedded objects")) << asked.back();
+        answer = 1;
+
+        asked.clear();
+        call_ok(pWin, "delete_canvas", {{"id", toolsId}, {"canvas_index", 0}});
+        ASSERT_EQ(1u, asked.size());
+        EXPECT_NE(std::string::npos, asked.back().find("Delete drawing canvas \"Flow\""));
+        EXPECT_FALSE(call_ok(pWin, "read_node", {{"id", toolsId}}).contains("canvases"));
+    }
+
+    // --- preferences and guide ---
+    {
+        const std::string prefs = call_ok(pWin, "get_preferences", json::object()).dump();
+        EXPECT_NE(std::string::npos, prefs.find("codebox"));
+        EXPECT_EQ(std::string::npos, prefs.find("proxy"));
+        EXPECT_EQ(std::string::npos, prefs.find("password"));
+        EXPECT_EQ(1u, call_ok(pWin, "get_preferences", {{"section", "fonts"}}).size());
+        EXPECT_NE(std::string::npos, call_err(pWin, "get_preferences", {{"section", "proxy"}}).find("Unknown section"));
+        const json guide = call_ok(pWin, "get_guide", json::object());
+        EXPECT_EQ("overview", guide["topic"]);
+        EXPECT_NE(std::string::npos, guide["text"].get<std::string>().find("note_content"));
+        EXPECT_NE(guide["topics"].end(), std::find(guide["topics"].begin(), guide["topics"].end(), "canvases"));
+        EXPECT_NE(std::string::npos, call_err(pWin, "get_guide", {{"topic", "nope"}}).find("Unknown guide topic"));
     }
 
     // --- missing and wrongly typed arguments ---

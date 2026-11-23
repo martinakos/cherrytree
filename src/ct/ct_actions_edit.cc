@@ -348,6 +348,8 @@ void CtActions::codebox_insert()
         _curr_buffer()->get_selection_bounds(iter_sel_start, iter_sel_end);
         textContent = iter_sel_start.get_text(iter_sel_end);
     }
+    _pCtConfig->codeboxDlgAutoResizeH = -1;
+    _pCtConfig->codeboxDlgAutoResizeW = -1;
     if (not CtDialogs::codeboxhandle_dialog(_pCtMainWin, _("Insert a CodeBox"))) {
         return;
     }
@@ -371,6 +373,8 @@ void CtActions::codebox_insert()
                                               _pCtConfig->codeboxWidthPixels,
                                               _pCtConfig->codeboxMatchBra,
                                               _pCtConfig->codeboxLineNum};
+        pCtCodebox->set_auto_resize(CtCodebox::auto_resize_from_int(_pCtConfig->codeboxDlgAutoResizeH),
+                                    CtCodebox::auto_resize_from_int(_pCtConfig->codeboxDlgAutoResizeW));
         pCtCodebox->insertInTextBuffer(_curr_buffer());
         _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),
                                                          {pCtCodebox},
@@ -398,6 +402,8 @@ void CtActions::codebox_insert()
                                               _pCtConfig->codeboxWidthPixels,
                                               _pCtConfig->codeboxMatchBra,
                                               _pCtConfig->codeboxLineNum};
+        pCtCodebox->set_auto_resize(CtCodebox::auto_resize_from_int(_pCtConfig->codeboxDlgAutoResizeH),
+                                    CtCodebox::auto_resize_from_int(_pCtConfig->codeboxDlgAutoResizeW));
         pCtCodebox->insertInTextBuffer(_curr_buffer());
 
         _pCtMainWin->get_tree_store().addAnchoredWidgets(_pCtMainWin->curr_tree_iter(),

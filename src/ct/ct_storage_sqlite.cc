@@ -72,10 +72,12 @@ const char CtStorageSqlite::TABLE_CODEBOX_CREATE[]{"CREATE TABLE codebox ("
 "do_highl_bra INTEGER,"
 "do_show_linenum INTEGER,"
 "ts_creation INTEGER,"
-"ts_lastsave INTEGER"
+"ts_lastsave INTEGER,"
+"auto_resize_h INTEGER,"   /* -1 or NULL: follow the preferences */
+"auto_resize_w INTEGER"
 ")"
 };
-const char CtStorageSqlite::TABLE_CODEBOX_INSERT[]{"INSERT INTO codebox VALUES(?,?,?,?,?,?,?,?,?,?,?,?)"};
+const char CtStorageSqlite::TABLE_CODEBOX_INSERT[]{"INSERT INTO codebox VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)"};
 const char CtStorageSqlite::TABLE_CODEBOX_DELETE[]{"DELETE FROM codebox WHERE node_id=?"};
 
 const char CtStorageSqlite::TABLE_TABLE_CREATE[]{"CREATE TABLE grid ("
@@ -575,6 +577,8 @@ Gtk::TreeModel::iterator CtStorageSqlite::_node_from_db(const gint64 node_id,
     nodeData.excludeMeFromSearch = exclude_from_search & 0x01;
     nodeData.excludeChildrenFromSearch = exclude_from_search & 0x02;
     nodeData.lineWrap = exclude_from_search & 0x04;
+    nodeData.hideMeFromAgent = exclude_from_search & 0x10;
+    nodeData.hideChildrenFromAgent = exclude_from_search & 0x20;
     nodeData.tsCreation = sqlite3_column_int64(*uStmt, 6);
     nodeData.tsLastSave = sqlite3_column_int64(*uStmt, 7);
 
@@ -741,6 +745,15 @@ void CtStorageSqlite::_codebox_from_db(const gint64& nodeId ,std::list<CtAnchore
         const bool showLineNumbers = sqlite3_column_int64(stmt, 9);
         const gint64 tsCreation = sqlite3_column_int64(stmt, 10);
         const gint64 tsLastSave = sqlite3_column_int64(stmt, 11);
+        // a .ctb file written before these columns has 12 of them
+        auto f_autoResize = [&stmt](const int iCol)->std::optional<bool>{
+            if (sqlite3_column_count(stmt) <= iCol or SQLITE_NULL == sqlite3_column_type(stmt, iCol)) return std::nullopt;
+            const gint64 val = sqlite3_column_int64(stmt, iCol);
+            if (val < 0) return std::nullopt;
+            return val != 0;
+        };
+        const std::optional<bool> autoResizeH = f_autoResize(12);
+        const std::optional<bool> autoResizeW = f_autoResize(13);
 
         auto* pCodebox = new CtCodebox(_pCtMainWin,
                                        textContent,
@@ -754,6 +767,7 @@ void CtStorageSqlite::_codebox_from_db(const gint64& nodeId ,std::list<CtAnchore
                                        showLineNumbers);
         pCodebox->setTsCreation(tsCreation);
         pCodebox->setTsLastSave(tsLastSave);
+        if (autoResizeH.has_value() or autoResizeW.has_value()) pCodebox->set_auto_resize(autoResizeH, autoResizeW);
         anchoredWidgets.push_back(pCodebox);
     }
 }
@@ -1008,7 +1022,7 @@ void CtStorageSqlite::_write_node_to_db(const CtTreeIter* ct_tree_iter,
     // protected are deleted below.
     const bool isProtectedRoot = _pCtMainWin->get_protected_areas().is_protected_root(node_id);
 
-    /* level is bitfield [ ... | is_protected_root | line_wrap | exclude_child_from_search | exclude_me_from_search ] */
+    /* level is bitfield [ ... | hide_child_from_agent | hide_me_from_agent | is_protected_root | line_wrap | exclude_child_from_search | exclude_me_from_search ] */
     gint64 exclude_from_search = ct_tree_iter->get_node_is_excluded_from_search();
     if (ct_tree_iter->get_node_children_are_excluded_from_search()) {
         exclude_from_search |= 0x02;
@@ -1021,6 +1035,12 @@ void CtStorageSqlite::_write_node_to_db(const CtTreeIter* ct_tree_iter,
     // leaves this layer: nothing above the storage reads it.
     if (isProtectedRoot) {
         exclude_from_search |= 0x08;
+    }
+    if (ct_tree_iter->get_node_is_hidden_from_agent()) {
+        exclude_from_search |= 0x10;
+    }
+    if (ct_tree_iter->get_node_children_are_hidden_from_agent()) {
+        exclude_from_search |= 0x20;
     }
 
     // write widgets
@@ -1290,7 +1310,7 @@ void CtStorageSqlite::_fix_db_tables()
     const static std::vector<std::vector<std::string>> tables = {
         {"node", "ts_creation", "INTEGER", "ts_lastsave", "INTEGER"},
         {"image", "filename", "TEXT", "link", "TEXT", "time", "TEXT", "display_width", "INTEGER", "display_height", "INTEGER", "ts_creation", "INTEGER", "ts_lastsave", "INTEGER", "ocr_text", "TEXT", "ocr_boxes", "TEXT"},
-        {"codebox", "ts_creation", "INTEGER", "ts_lastsave", "INTEGER"},
+        {"codebox", "ts_creation", "INTEGER", "ts_lastsave", "INTEGER", "auto_resize_h", "INTEGER", "auto_resize_w", "INTEGER"},
         {"grid", "ts_creation", "INTEGER", "ts_lastsave", "INTEGER"},
         {"children", "master_id", "INTEGER"},
     };

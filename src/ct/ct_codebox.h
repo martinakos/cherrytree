@@ -138,6 +138,19 @@ public:
     bool get_highlight_brackets() const { return _highlightBrackets; }
     bool get_show_line_numbers() const { return _showLineNumbers; }
 
+    // Whether the box fits its content in height/width: unset follows the preferences
+    void set_auto_resize(const std::optional<bool> autoResizeH, const std::optional<bool> autoResizeW);
+    std::optional<bool> get_auto_resize_h_opt() const { return _autoResizeH; }
+    std::optional<bool> get_auto_resize_w_opt() const { return _autoResizeW; }
+    bool auto_resize_h() const;
+    bool auto_resize_w() const;
+    // "" for unset, else "1" or "0", as stored
+    static std::string auto_resize_to_str(const std::optional<bool> autoResize);
+    static std::optional<bool> auto_resize_from_str(const std::string& str);
+    // -1 for unset, else 1 or 0, as the CodeBox dialog uses it
+    static int auto_resize_to_int(const std::optional<bool> autoResize) { return autoResize.has_value() ? static_cast<int>(autoResize.value()) : -1; }
+    static std::optional<bool> auto_resize_from_int(const int val) { if (val < 0) return std::nullopt; return val != 0; }
+
 private:
 #if GTKMM_MAJOR_VERSION < 4 && !defined(GTKMM_DISABLE_DEPRECATED)
     bool _on_key_press_event(GdkEventKey* event);
@@ -155,6 +168,8 @@ private:
     Glib::RefPtr<Gtk::CssProvider> _rCssProviderScrollbarZoom;
     bool _highlightBrackets{true};
     bool _showLineNumbers{false};
+    std::optional<bool> _autoResizeH;
+    std::optional<bool> _autoResizeW;
     Gtk::ScrolledWindow _scrolledwindow;
 #if GTKMM_MAJOR_VERSION >= 4
     Gtk::Box _hbox{Gtk::Orientation::HORIZONTAL};

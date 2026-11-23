@@ -677,34 +677,45 @@ void CtDialogs::info_dialog(const Glib::ustring& message,
 }
 
 void CtDialogs::info_dialog_with_copy(const Glib::ustring& message,
-                                      const Glib::ustring& textToCopy,
+                                      const std::vector<std::pair<Glib::ustring, Glib::ustring>>& itemsToCopy,
                                       const Glib::ustring& messageAfter,
                                       Gtk::Window& parent)
 {
-    auto pEntry = Gtk::manage(new Gtk::Entry{});
-    pEntry->set_text(textToCopy);
-    pEntry->set_editable(false);
-    pEntry->set_width_chars(std::min(80, static_cast<int>(textToCopy.size())));
-    auto pButtonCopy = Gtk::manage(new Gtk::Button{_("Copy")});
-    pButtonCopy->signal_clicked().connect([pButtonCopy, textToCopy](){
+    auto pGrid = Gtk::manage(new Gtk::Grid{});
+    pGrid->set_row_spacing(4);
+    pGrid->set_column_spacing(6);
+    int row{0};
+    for (const auto& item : itemsToCopy) {
+        const Glib::ustring textToCopy = item.second;
+        auto pLabel = Gtk::manage(new Gtk::Label{});
+        pLabel->set_markup(item.first);
+        pLabel->set_xalign(0.0);
+        auto pEntry = Gtk::manage(new Gtk::Entry{});
+        pEntry->set_text(textToCopy);
+        pEntry->set_editable(false);
+        pEntry->set_width_chars(std::min(70, static_cast<int>(textToCopy.size())));
+        pEntry->set_hexpand(true);
+        auto pButtonCopy = Gtk::manage(new Gtk::Button{_("Copy")});
+        pButtonCopy->signal_clicked().connect([pButtonCopy, textToCopy](){
 #if GTK_MAJOR_VERSION < 4
-        Gtk::Clipboard::get()->set_text(textToCopy);
+            Gtk::Clipboard::get()->set_text(textToCopy);
 #else
-        Gdk::Display::get_default()->get_clipboard()->set_text(textToCopy);
+            Gdk::Display::get_default()->get_clipboard()->set_text(textToCopy);
 #endif
-        pButtonCopy->set_label(_("Copied"));
-    });
+            pButtonCopy->set_label(_("Copied"));
+        });
+        pGrid->attach(*pLabel, 0, row++, 2, 1);
+        pGrid->attach(*pEntry, 0, row);
+        pGrid->attach(*pButtonCopy, 1, row++);
+    }
     auto pLabelAfter = Gtk::manage(new Gtk::Label{});
     pLabelAfter->set_markup(messageAfter);
 #if GTK_MAJOR_VERSION < 4
-    auto pHBox = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 6/*spacing*/});
-    pHBox->pack_start(*pEntry, true, true);
-    pHBox->pack_start(*pButtonCopy, false, false);
     Gtk::MessageDialog dialog{parent, message, true/*use_markup*/, Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK, true/*modal*/};
     dialog.set_title(_("Info"));
     dialog.set_position(Gtk::WindowPosition::WIN_POS_CENTER_ON_PARENT);
     dialog.property_destroy_with_parent() = true;
-    dialog.get_message_area()->pack_start(*pHBox, false, false);
+    dialog.get_message_area()->pack_start(*pGrid, false, false);
     dialog.get_message_area()->pack_start(*pLabelAfter, false, false);
     dialog.get_message_area()->show_all();
     auto* pBtnOkInfo = static_cast<Gtk::Button*>(dialog.get_widget_for_response(Gtk::RESPONSE_OK));
@@ -712,16 +723,82 @@ void CtDialogs::info_dialog_with_copy(const Glib::ustring& message,
     pBtnOkInfo->set_always_show_image(true);
     dialog.run();
 #else
-    pEntry->set_hexpand(true);
-    auto pHBox = Gtk::manage(new Gtk::Box{Gtk::Orientation::HORIZONTAL, 6/*spacing*/});
-    pHBox->append(*pEntry);
-    pHBox->append(*pButtonCopy);
     Gtk::MessageDialog dialog{parent, message, true/*use_markup*/, Gtk::MessageType::INFO, Gtk::ButtonsType::OK, true/*modal*/};
     dialog.set_title(_("Info"));
-    dialog.get_message_area()->append(*pHBox);
+    dialog.get_message_area()->append(*pGrid);
     dialog.get_message_area()->append(*pLabelAfter);
     (void)_run_dialog_blocking(dialog);
 #endif
+}
+
+CtDialogs::CtAgentConfirm CtDialogs::agent_confirm_dialog(Gtk::Window& parent,
+                                                          const Glib::ustring& summary,
+                                                          const std::vector<Glib::ustring>& details,
+                                                          Glib::RefPtr<Gdk::Pixbuf> preview,
+                                                          const bool offerTimed)
+{
+    enum { RESPONSE_ALLOW = 1, RESPONSE_ALLOW_TIMED = 2 };
+    Glib::ustring detailsText;
+    for (const Glib::ustring& line : details) {
+        if (not detailsText.empty()) detailsText += "\n";
+        detailsText += line;
+    }
+#if GTKMM_MAJOR_VERSION < 4
+    Gtk::Dialog dialog{_("AI Agent"), parent, true/*modal*/};
+    dialog.set_position(Gtk::WindowPosition::WIN_POS_CENTER_ON_PARENT);
+    dialog.property_destroy_with_parent() = true;
+    auto pLabelSummary = Gtk::manage(new Gtk::Label{});
+    pLabelSummary->set_markup("<b>" + str::xml_escape(summary) + "</b>");
+    pLabelSummary->set_line_wrap(true);
+    pLabelSummary->set_max_width_chars(80);
+    pLabelSummary->set_xalign(0.0);
+    auto pLabelDetails = Gtk::manage(new Gtk::Label{detailsText});
+    pLabelDetails->set_line_wrap(true);
+    pLabelDetails->set_max_width_chars(80);
+    pLabelDetails->set_selectable(true);
+    pLabelDetails->set_xalign(0.0);
+    Gtk::Box* pContentArea = dialog.get_content_area();
+    pContentArea->set_spacing(8);
+    pContentArea->set_border_width(8);
+    pContentArea->pack_start(*pLabelSummary, false, false);
+    if (not detailsText.empty()) pContentArea->pack_start(*pLabelDetails, false, false);
+    if (preview) pContentArea->pack_start(*Gtk::manage(new Gtk::Image{preview}), false, false);
+    (void)CtMiscUtil::dialog_add_button(&dialog, _("Deny"), Gtk::RESPONSE_REJECT, "ct_cancel", true/*isDefault*/);
+    if (offerTimed) {
+        dialog.add_button(_("Allow Deletions for 10 Minutes"), RESPONSE_ALLOW_TIMED);
+    }
+    dialog.add_button(_("Allow"), RESPONSE_ALLOW);
+    pContentArea->show_all();
+    const int response = dialog.run();
+#else
+    Gtk::Dialog dialog{_("AI Agent"), parent, true/*modal*/};
+    dialog.set_transient_for(parent);
+    auto pLabelSummary = Gtk::manage(new Gtk::Label{});
+    pLabelSummary->set_markup("<b>" + str::xml_escape(summary) + "</b>");
+    pLabelSummary->set_wrap(true);
+    pLabelSummary->set_max_width_chars(80);
+    pLabelSummary->set_xalign(0.0);
+    auto pLabelDetails = Gtk::manage(new Gtk::Label{detailsText});
+    pLabelDetails->set_wrap(true);
+    pLabelDetails->set_max_width_chars(80);
+    pLabelDetails->set_selectable(true);
+    pLabelDetails->set_xalign(0.0);
+    Gtk::Box* pContentArea = dialog.get_content_area();
+    pContentArea->set_spacing(8);
+    pContentArea->append(*pLabelSummary);
+    if (not detailsText.empty()) pContentArea->append(*pLabelDetails);
+    if (preview) pContentArea->append(*Gtk::manage(new Gtk::Picture{preview}));
+    dialog.add_button(_("Deny"), Gtk::ResponseType::REJECT);
+    if (offerTimed) {
+        dialog.add_button(_("Allow Deletions for 10 Minutes"), RESPONSE_ALLOW_TIMED);
+    }
+    dialog.add_button(_("Allow"), RESPONSE_ALLOW);
+    dialog.set_default_response(Gtk::ResponseType::REJECT);
+    const int response = _run_dialog_blocking(dialog);
+#endif
+    if (RESPONSE_ALLOW == response) return CtAgentConfirm::Allow;
+    if (RESPONSE_ALLOW_TIMED == response and offerTimed) return CtAgentConfirm::AllowTimed;
+    return CtAgentConfirm::Deny;
 }
 
 void CtDialogs::warning_dialog(const Glib::ustring& message,

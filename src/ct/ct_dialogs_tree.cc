@@ -257,6 +257,17 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
     excl_hbox->append(*excl_me_checkbutton);
     excl_hbox->append(*excl_ch_checkbutton);
 
+    auto agent_label = Gtk::manage(new Gtk::Label{_("Hide from AI Agents")});
+    auto agent_hbox = Gtk::manage(new Gtk::Box{Gtk::Orientation::HORIZONTAL, 2});
+    agent_hbox->set_margin_start(5);
+    auto agent_me_checkbutton = Gtk::manage(new Gtk::CheckButton{_("This Node")});
+    agent_me_checkbutton->set_active(nodeData.hideMeFromAgent);
+    auto agent_ch_checkbutton = Gtk::manage(new Gtk::CheckButton{_("The Subnodes")});
+    agent_ch_checkbutton->set_active(nodeData.hideChildrenFromAgent);
+    agent_hbox->append(*agent_label);
+    agent_hbox->append(*agent_me_checkbutton);
+    agent_hbox->append(*agent_ch_checkbutton);
+
     auto ro_checkbutton = Gtk::manage(new Gtk::CheckButton{_("Read Only")});
     ro_checkbutton->set_active(nodeData.isReadOnly);
 
@@ -284,6 +295,7 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
     pContentArea->append(*type_frame);
     pContentArea->append(*tags_frame);
     pContentArea->append(*excl_hbox);
+    pContentArea->append(*agent_hbox);
     pContentArea->append(*ro_checkbutton);
     pContentArea->append(*id_label);
     name_entry->grab_focus();
@@ -393,6 +405,8 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
     nodeData.isReadOnly = ro_checkbutton->get_active();
     nodeData.excludeMeFromSearch = excl_me_checkbutton->get_active();
     nodeData.excludeChildrenFromSearch = excl_ch_checkbutton->get_active();
+    nodeData.hideMeFromAgent = agent_me_checkbutton->get_active();
+    nodeData.hideChildrenFromAgent = agent_ch_checkbutton->get_active();
     if (c_icon_checkbutton->get_active()) {
         pCtConfig->lastIconSel = nodeData.customIconId;
     }
@@ -521,6 +535,17 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
     excl_hbox->pack_start(*excl_me_checkbutton);
     excl_hbox->pack_start(*excl_ch_checkbutton);
 
+    auto agent_label = Gtk::manage(new Gtk::Label{_("Hide from AI Agents")});
+    auto agent_hbox = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 2/*spacing*/});
+    agent_hbox->set_margin_start(5);
+    auto agent_me_checkbutton = Gtk::manage(new Gtk::CheckButton{_("This Node")});
+    agent_me_checkbutton->set_active(nodeData.hideMeFromAgent);
+    auto agent_ch_checkbutton = Gtk::manage(new Gtk::CheckButton{_("The Subnodes")});
+    agent_ch_checkbutton->set_active(nodeData.hideChildrenFromAgent);
+    agent_hbox->pack_start(*agent_label);
+    agent_hbox->pack_start(*agent_me_checkbutton);
+    agent_hbox->pack_start(*agent_ch_checkbutton);
+
     auto ro_wrap_hbox = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_HORIZONTAL, 5});
     auto ro_checkbutton = Gtk::manage(new Gtk::CheckButton{_("Read Only")});
     ro_checkbutton->set_active(nodeData.isReadOnly);
@@ -587,6 +612,7 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
     pContentArea->pack_start(*type_frame);
     pContentArea->pack_start(*tags_frame);
     pContentArea->pack_start(*excl_hbox);
+    pContentArea->pack_start(*agent_hbox);
     pContentArea->pack_start(*ro_wrap_hbox);
     pContentArea->pack_start(*id_label);
     pContentArea->show_all();
@@ -767,6 +793,8 @@ bool CtDialogs::node_prop_dialog(const Glib::ustring &title,
     nodeData.lineWrap = wrap_checkbutton->get_active();
     nodeData.excludeMeFromSearch = excl_me_checkbutton->get_active();
     nodeData.excludeChildrenFromSearch = excl_ch_checkbutton->get_active();
+    nodeData.hideMeFromAgent = agent_me_checkbutton->get_active();
+    nodeData.hideChildrenFromAgent = agent_ch_checkbutton->get_active();
     if (c_icon_checkbutton->get_active()) {
         pCtConfig->lastIconSel = nodeData.customIconId;
     }

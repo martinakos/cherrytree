@@ -399,6 +399,8 @@ xmlpp::Element* CtStorageXmlHelper::node_to_xml(const CtTreeIter* ct_tree_iter,
         p_node_node->set_attribute("nosearch_me", std::to_string(ct_tree_iter->get_node_is_excluded_from_search()));
         p_node_node->set_attribute("nosearch_ch", std::to_string(ct_tree_iter->get_node_children_are_excluded_from_search()));
         p_node_node->set_attribute("line_wrap", std::to_string(ct_tree_iter->get_node_line_wrap()));
+        if (ct_tree_iter->get_node_is_hidden_from_agent()) p_node_node->set_attribute("hide_agent_me", "1");
+        if (ct_tree_iter->get_node_children_are_hidden_from_agent()) p_node_node->set_attribute("hide_agent_ch", "1");
         p_node_node->set_attribute("custom_icon_id", std::to_string(ct_tree_iter->get_node_custom_icon_id()));
         p_node_node->set_attribute("is_bold", std::to_string(ct_tree_iter->get_node_is_bold()));
         p_node_node->set_attribute("foreground", ct_tree_iter->get_node_foreground());
@@ -456,6 +458,8 @@ Gtk::TreeModel::iterator CtStorageXmlHelper::node_from_xml(CT_XML_CONST xmlpp::E
         node_data.excludeMeFromSearch = CtStrUtil::is_str_true(xml_element->get_attribute_value("nosearch_me"));
         node_data.excludeChildrenFromSearch = CtStrUtil::is_str_true(xml_element->get_attribute_value("nosearch_ch"));
         node_data.lineWrap = CtStrUtil::is_str_true(xml_element->get_attribute_value("line_wrap"));
+        node_data.hideMeFromAgent = CtStrUtil::is_str_true(xml_element->get_attribute_value("hide_agent_me"));
+        node_data.hideChildrenFromAgent = CtStrUtil::is_str_true(xml_element->get_attribute_value("hide_agent_ch"));
         node_data.customIconId = (guint32)CtStrUtil::gint64_from_gstring(xml_element->get_attribute_value("custom_icon_id").c_str());
         node_data.isBold = CtStrUtil::is_str_true(xml_element->get_attribute_value("is_bold"));
         node_data.foregroundRgb24 = xml_element->get_attribute_value("foreground");
@@ -808,16 +812,20 @@ CtAnchoredWidget* CtStorageXmlHelper::_create_codebox_from_xml(xmlpp::Element* x
     const bool highlightBrackets = CtStrUtil::is_str_true(xml_element->get_attribute_value("highlight_brackets"));
     const bool showLineNumbers = CtStrUtil::is_str_true(xml_element->get_attribute_value("show_line_numbers"));
 
-    return new CtCodebox{_pCtMainWin,
-                         textContent,
-                         syntaxHighlighting,
-                         frameWidth,
-                         frameHeight,
-                         charOffset,
-                         justification,
-                         widthInPixels,
-                         highlightBrackets,
-                         showLineNumbers};
+    auto pCodebox = new CtCodebox{_pCtMainWin,
+                                  textContent,
+                                  syntaxHighlighting,
+                                  frameWidth,
+                                  frameHeight,
+                                  charOffset,
+                                  justification,
+                                  widthInPixels,
+                                  highlightBrackets,
+                                  showLineNumbers};
+    const std::optional<bool> autoResizeH = CtCodebox::auto_resize_from_str(xml_element->get_attribute_value("auto_resize_h"));
+    const std::optional<bool> autoResizeW = CtCodebox::auto_resize_from_str(xml_element->get_attribute_value("auto_resize_w"));
+    if (autoResizeH.has_value() or autoResizeW.has_value()) pCodebox->set_auto_resize(autoResizeH, autoResizeW);
+    return pCodebox;
 }
 
 static CtTableStyle _parseTableStyle(xmlpp::Element* xml_element)

@@ -295,6 +295,7 @@ void CtConfig::_populate_keyfile_from_data()
     _uKeyFile->set_integer(_currentGroup, "timeline_use_day", timelineUseDay);
     _uKeyFile->set_string(_currentGroup, "timeline_last_open_date", timelineLastOpenDate);
     _uKeyFile->set_boolean(_currentGroup, "agent_access_enabled", agentAccessEnabled);
+    _uKeyFile->set_boolean(_currentGroup, "agent_confirm_deletions", agentConfirmDeletions);
     _uKeyFile->set_integer(_currentGroup, "max_matches_in_page", maxMatchesInPage);
     _uKeyFile->set_integer(_currentGroup, "toolbar_icon_size", toolbarIconSize);
     _uKeyFile->set_integer(_currentGroup, "search_multi_words", multipleWordsSearchType);
@@ -658,6 +659,7 @@ void CtConfig::_populate_data_from_keyfile()
     _populate_int_from_keyfile("timeline_use_day", &timelineUseDay);
     _populate_string_from_keyfile("timeline_last_open_date", &timelineLastOpenDate);
     _populate_bool_from_keyfile("agent_access_enabled", &agentAccessEnabled);
+    _populate_bool_from_keyfile("agent_confirm_deletions", &agentConfirmDeletions);
     _populate_int_from_keyfile("max_matches_in_page", &maxMatchesInPage);
     _populate_int_from_keyfile("toolbar_icon_size", &toolbarIconSize);
     _populate_int_from_keyfile("search_multi_words", &multipleWordsSearchType);

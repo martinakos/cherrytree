@@ -335,6 +335,82 @@ void CtTreeIter::set_node_line_wrap(const bool val)
     }
 }
 
+bool CtTreeIter::get_node_is_hidden_from_agent() const
+{
+    if (*this) {
+        const gint64 masterId = (*this)->get_value(_pColumns->colSharedNodesMasterId);
+        if (masterId > 0) {
+            CtTreeIter masterIter = _pCtMainWin->get_tree_store().get_node_from_node_id(masterId);
+            if (masterIter) {
+                return masterIter.get_node_is_hidden_from_agent();
+            }
+            spdlog::error("!! {} master {}", __FUNCTION__, masterId);
+            (*this)->set_value(_pColumns->colSharedNodesMasterId, static_cast<gint64>(0));
+        }
+        return (*this)->get_value(_pColumns->colNodeIsHiddenFromAgent);
+    }
+    spdlog::error("!! {}", __FUNCTION__);
+    return false;
+}
+
+void CtTreeIter::set_node_is_hidden_from_agent(const bool val)
+{
+    if (*this) {
+        const gint64 masterId = (*this)->get_value(_pColumns->colSharedNodesMasterId);
+        if (masterId > 0) {
+            CtTreeIter masterIter = _pCtMainWin->get_tree_store().get_node_from_node_id(masterId);
+            if (masterIter) {
+                masterIter.set_node_is_hidden_from_agent(val);
+                return;
+            }
+            spdlog::error("!! {} master {}", __FUNCTION__, masterId);
+            (*this)->set_value(_pColumns->colSharedNodesMasterId, static_cast<gint64>(0));
+        }
+        (*this)->set_value(_pColumns->colNodeIsHiddenFromAgent, val);
+    }
+    else {
+        spdlog::error("!! {}", __FUNCTION__);
+    }
+}
+
+bool CtTreeIter::get_node_children_are_hidden_from_agent() const
+{
+    if (*this) {
+        const gint64 masterId = (*this)->get_value(_pColumns->colSharedNodesMasterId);
+        if (masterId > 0) {
+            CtTreeIter masterIter = _pCtMainWin->get_tree_store().get_node_from_node_id(masterId);
+            if (masterIter) {
+                return masterIter.get_node_children_are_hidden_from_agent();
+            }
+            spdlog::error("!! {} master {}", __FUNCTION__, masterId);
+            (*this)->set_value(_pColumns->colSharedNodesMasterId, static_cast<gint64>(0));
+        }
+        return (*this)->get_value(_pColumns->colNodeChildrenAreHiddenFromAgent);
+    }
+    spdlog::error("!! {}", __FUNCTION__);
+    return false;
+}
+
+void CtTreeIter::set_node_children_are_hidden_from_agent(const bool val)
+{
+    if (*this) {
+        const gint64 masterId = (*this)->get_value(_pColumns->colSharedNodesMasterId);
+        if (masterId > 0) {
+            CtTreeIter masterIter = _pCtMainWin->get_tree_store().get_node_from_node_id(masterId);
+            if (masterIter) {
+                masterIter.set_node_children_are_hidden_from_agent(val);
+                return;
+            }
+            spdlog::error("!! {} master {}", __FUNCTION__, masterId);
+            (*this)->set_value(_pColumns->colSharedNodesMasterId, static_cast<gint64>(0));
+        }
+        (*this)->set_value(_pColumns->colNodeChildrenAreHiddenFromAgent, val);
+    }
+    else {
+        spdlog::error("!! {}", __FUNCTION__);
+    }
+}
+
 Glib::RefPtr<Gdk::Pixbuf> CtTreeIter::get_node_icon() const
 {
     if (*this) {
@@ -1229,6 +1305,8 @@ void CtTreeStore::get_node_data(const Gtk::TreeModel::iterator& treeIter, CtNode
     nodeData.excludeMeFromSearch = row[_columns.colNodeIsExcludedFromSearch];
     nodeData.excludeChildrenFromSearch = row[_columns.colNodeChildrenAreExcludedFromSearch];
     nodeData.lineWrap = row[_columns.colNodeLineWrap];
+    nodeData.hideMeFromAgent = row[_columns.colNodeIsHiddenFromAgent];
+    nodeData.hideChildrenFromAgent = row[_columns.colNodeChildrenAreHiddenFromAgent];
     nodeData.customIconId = row[_columns.colCustomIconId];
     nodeData.isBold = CtTreeIter::get_is_bold_from_pango_weight(row[_columns.colWeight]);
     nodeData.foregroundRgb24 = row[_columns.colForeground];
@@ -1254,6 +1332,8 @@ void CtTreeStore::update_node_data(const Gtk::TreeModel::iterator& treeIter, con
     row[_columns.colNodeIsExcludedFromSearch] = nodeData.excludeMeFromSearch;
     row[_columns.colNodeChildrenAreExcludedFromSearch] = nodeData.excludeChildrenFromSearch;
     row[_columns.colNodeLineWrap] = nodeData.lineWrap;
+    row[_columns.colNodeIsHiddenFromAgent] = nodeData.hideMeFromAgent;
+    row[_columns.colNodeChildrenAreHiddenFromAgent] = nodeData.hideChildrenFromAgent;
     row[_columns.colCustomIconId] = (guint16)nodeData.customIconId;
     row[_columns.colWeight] = CtTreeIter::get_pango_weight_from_is_bold(nodeData.isBold);
     row[_columns.colForeground] = nodeData.foregroundRgb24;

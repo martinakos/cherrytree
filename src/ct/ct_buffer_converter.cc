@@ -125,9 +125,13 @@ std::list<CtAnchoredWidget*> buildBufferFromContent(
                     const bool highlightBrackets = widgetDesc.isHighlightBrackets();
                     const bool showLineNumbers = widgetDesc.isShowLineNumbers();
 
-                    widget = new CtCodebox{pCtMainWin, textContent, syntaxHighlighting,
-                                          frameWidth, frameHeight, charOffset, justification,
-                                          widthInPixels, highlightBrackets, showLineNumbers};
+                    auto pCodebox = new CtCodebox{pCtMainWin, textContent, syntaxHighlighting,
+                                                  frameWidth, frameHeight, charOffset, justification,
+                                                  widthInPixels, highlightBrackets, showLineNumbers};
+                    const std::optional<bool> autoResizeH = CtCodebox::auto_resize_from_str(widgetDesc.getProperty("auto_resize_h"));
+                    const std::optional<bool> autoResizeW = CtCodebox::auto_resize_from_str(widgetDesc.getProperty("auto_resize_w"));
+                    if (autoResizeH.has_value() or autoResizeW.has_value()) pCodebox->set_auto_resize(autoResizeH, autoResizeW);
+                    widget = pCodebox;
                 }
                 else if (widgetDesc.type == CtAnchWidgType::TableLight ||
                          widgetDesc.type == CtAnchWidgType::TableHeavy ||

@@ -679,9 +679,27 @@ bool CtDialogs::codeboxhandle_dialog(CtMainWin* pCtMainWin,
     Gtk::Box hbox_height{Gtk::ORIENTATION_HORIZONTAL, 5/*spacing*/};
     hbox_height.pack_start(label_height, false, false);
     hbox_height.pack_start(spinbutton_height, false, false);
+    auto f_fitCombo = [](Gtk::ComboBoxText& combo, const int value) {
+        combo.append("-1", _("Follow Preferences"));
+        combo.append("1", _("Fit Content"));
+        combo.append("0", _("Fixed"));
+        combo.set_active_id(std::to_string(value < 0 ? -1 : (value > 0 ? 1 : 0)));
+    };
+    Gtk::Label label_fit_height{_("Height")};
+    Gtk::ComboBoxText combo_fit_height;
+    f_fitCombo(combo_fit_height, pConfig->codeboxDlgAutoResizeH);
+    Gtk::Label label_fit_width{_("Width")};
+    Gtk::ComboBoxText combo_fit_width;
+    f_fitCombo(combo_fit_width, pConfig->codeboxDlgAutoResizeW);
+    Gtk::Box hbox_fit{Gtk::ORIENTATION_HORIZONTAL, 5/*spacing*/};
+    hbox_fit.pack_start(label_fit_height, false, false);
+    hbox_fit.pack_start(combo_fit_height, false, false);
+    hbox_fit.pack_start(label_fit_width, false, false);
+    hbox_fit.pack_start(combo_fit_width, false, false);
     Gtk::Box vbox_size{Gtk::ORIENTATION_VERTICAL};
     vbox_size.pack_start(hbox_width);
     vbox_size.pack_start(hbox_height);
+    vbox_size.pack_start(hbox_fit);
     CtMiscUtil::set_widget_margins(vbox_size, 0, 6, 6, 6);
 
     Gtk::Frame size_frame{Glib::ustring("<b>")+_("Size")+"</b>"};
@@ -785,6 +803,8 @@ bool CtDialogs::codeboxhandle_dialog(CtMainWin* pCtMainWin,
         pConfig->codeboxHeight = spinbutton_height.get_value();
         pConfig->codeboxLineNum = checkbutton_codebox_linenumbers.get_active();
         pConfig->codeboxMatchBra = checkbutton_codebox_matchbrackets.get_active();
+        pConfig->codeboxDlgAutoResizeH = std::stoi(combo_fit_height.get_active_id().raw());
+        pConfig->codeboxDlgAutoResizeW = std::stoi(combo_fit_width.get_active_id().raw());
         if (radiobutton_plain_text.get_active()) {
             pConfig->codeboxSynHighl = CtConst::PLAIN_TEXT_ID;
         }

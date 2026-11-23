@@ -336,7 +336,7 @@ CtCodebox::CtCodebox(CtMainWin* pCtMainWin,
     auto vAdj = _scrolledwindow.get_vadjustment();
     if (vAdj) {
         vAdj->signal_value_changed().connect([this, vAdj](){
-            if (_pCtConfig->codeboxAutoResizeH) {
+            if (auto_resize_h()) {
                 vAdj->set_value(0);
             }
         });
@@ -344,19 +344,19 @@ CtCodebox::CtCodebox(CtMainWin* pCtMainWin,
     auto hAdj = _scrolledwindow.get_hadjustment();
     if (hAdj) {
         hAdj->signal_value_changed().connect([this, hAdj](){
-            if (_pCtConfig->codeboxAutoResizeW) {
+            if (auto_resize_w()) {
                 hAdj->set_value(0);
             }
         });
     }
 #else
     _scrolledwindow.get_vscrollbar()->signal_value_changed().connect([this](){
-        if (_pCtConfig->codeboxAutoResizeH) {
+        if (auto_resize_h()) {
             _scrolledwindow.get_vscrollbar()->set_value(0);
         }
     });
     _scrolledwindow.get_hscrollbar()->signal_value_changed().connect([this](){
-        if (_pCtConfig->codeboxAutoResizeW) {
+        if (auto_resize_w()) {
             _scrolledwindow.get_hscrollbar()->set_value(0);
         }
     });
@@ -401,15 +401,15 @@ void CtCodebox::_set_scrollbars_policies()
 {
     // Scroll policies and wrap mode differ between GTK3 and GTK4
 #if GTKMM_MAJOR_VERSION >= 4
-    const Gtk::PolicyType hscrollbar_policy = _pCtConfig->codeboxAutoResizeW ? Gtk::PolicyType::NEVER : Gtk::PolicyType::AUTOMATIC;
-    const Gtk::PolicyType vscrollbar_policy = _pCtConfig->codeboxAutoResizeH ? Gtk::PolicyType::NEVER : Gtk::PolicyType::AUTOMATIC;
+    const Gtk::PolicyType hscrollbar_policy = auto_resize_w() ? Gtk::PolicyType::NEVER : Gtk::PolicyType::AUTOMATIC;
+    const Gtk::PolicyType vscrollbar_policy = auto_resize_h() ? Gtk::PolicyType::NEVER : Gtk::PolicyType::AUTOMATIC;
     _scrolledwindow.set_policy(hscrollbar_policy, vscrollbar_policy);
-    const Gtk::WrapMode wrap_mode = (_pCtConfig->codeboxAutoResizeW || ! _pCtConfig->lineWrapping) ? Gtk::WrapMode::NONE : Gtk::WrapMode::WORD_CHAR;
+    const Gtk::WrapMode wrap_mode = (auto_resize_w() || ! _pCtConfig->lineWrapping) ? Gtk::WrapMode::NONE : Gtk::WrapMode::WORD_CHAR;
 #else
-    const Gtk::PolicyType hscrollbar_policy = _pCtConfig->codeboxAutoResizeW ? Gtk::POLICY_NEVER : Gtk::POLICY_AUTOMATIC;
-    const Gtk::PolicyType vscrollbar_policy = _pCtConfig->codeboxAutoResizeH ? Gtk::POLICY_NEVER : (_frameHeight < MIN_SCROLL_HEIGHT ? Gtk::POLICY_EXTERNAL : Gtk::POLICY_AUTOMATIC);
+    const Gtk::PolicyType hscrollbar_policy = auto_resize_w() ? Gtk::POLICY_NEVER : Gtk::POLICY_AUTOMATIC;
+    const Gtk::PolicyType vscrollbar_policy = auto_resize_h() ? Gtk::POLICY_NEVER : (_frameHeight < MIN_SCROLL_HEIGHT ? Gtk::POLICY_EXTERNAL : Gtk::POLICY_AUTOMATIC);
     _scrolledwindow.set_policy(hscrollbar_policy, vscrollbar_policy);
-    const Gtk::WrapMode wrap_mode = _pCtConfig->codeboxAutoResizeW or not _pCtConfig->lineWrapping ? Gtk::WrapMode::WRAP_NONE : Gtk::WrapMode::WRAP_WORD_CHAR;
+    const Gtk::WrapMode wrap_mode = auto_resize_w() or not _pCtConfig->lineWrapping ? Gtk::WrapMode::WRAP_NONE : Gtk::WrapMode::WRAP_WORD_CHAR;
 #endif
     _ctTextview.mm().set_wrap_mode(wrap_mode);
 }
@@ -444,9 +444,41 @@ void CtCodebox::update_toolbar_buttons()
 void CtCodebox::apply_width_height(const int parentTextWidth)
 {
     int frameWidth = _widthInPixels ? _frameWidth : (parentTextWidth*_frameWidth)/100;
+    // a box set to fit its content has no minimum size in that direction
     _scrolledwindow.set_size_request(
-        static_cast<int>(frameWidth * _zoomFactor),
-        static_cast<int>(_frameHeight * _zoomFactor));
+        _autoResizeW.value_or(false) ? -1 : static_cast<int>(frameWidth * _zoomFactor),
+        _autoResizeH.value_or(false) ? -1 : static_cast<int>(_frameHeight * _zoomFactor));
+}
+
+void CtCodebox::set_auto_resize(const std::optional<bool> autoResizeH, const std::optional<bool> autoResizeW)
+{
+    _autoResizeH = autoResizeH;
+    _autoResizeW = autoResizeW;
+    _set_scrollbars_policies();
+    apply_width_height(_pCtMainWin->get_text_view().mm().get_allocation().get_width());
+}
+
+bool CtCodebox::auto_resize_h() const
+{
+    return _autoResizeH.value_or(_pCtConfig->codeboxAutoResizeH);
+}
+
+bool CtCodebox::auto_resize_w() const
+{
+    return _autoResizeW.value_or(_pCtConfig->codeboxAutoResizeW);
+}
+
+/*static*/std::string CtCodebox::auto_resize_to_str(const std::optional<bool> autoResize)
+{
+    if (not autoResize.has_value()) return "";
+    return autoResize.value() ? "1" : "0";
+}
+
+/*static*/std::optional<bool> CtCodebox::auto_resize_from_str(const std::string& str)
+{
+    if ("1" == str or "true" == str) return true;
+    if ("0" == str or "false" == str) return false;
+    return std::nullopt;
 }
 
 void CtCodebox::apply_zoom(const double scaleFactor)
@@ -535,6 +567,8 @@ void CtCodebox::to_xml(xmlpp::Element* p_node_parent, const int offset_adjustmen
     p_codebox_node->set_attribute("show_line_numbers", std::to_string(_showLineNumbers));
     if (_tsCreation != 0) p_codebox_node->set_attribute("ts_creation", std::to_string(_tsCreation));
     if (_tsLastSave != 0) p_codebox_node->set_attribute("ts_lastsave", std::to_string(_tsLastSave));
+    if (_autoResizeH.has_value()) p_codebox_node->set_attribute("auto_resize_h", auto_resize_to_str(_autoResizeH));
+    if (_autoResizeW.has_value()) p_codebox_node->set_attribute("auto_resize_w", auto_resize_to_str(_autoResizeW));
     p_codebox_node->add_child_text(get_text_content());
 }
 
@@ -551,6 +585,8 @@ CtWidgetDesc CtCodebox::to_widget_desc(int charOffset)
     desc.setProperty("show_line_numbers", std::to_string(_showLineNumbers));
     desc.setProperty("ts_creation", std::to_string(_tsCreation));
     desc.setProperty("ts_lastsave", std::to_string(_tsLastSave));
+    if (_autoResizeH.has_value()) desc.setProperty("auto_resize_h", auto_resize_to_str(_autoResizeH));
+    if (_autoResizeW.has_value()) desc.setProperty("auto_resize_w", auto_resize_to_str(_autoResizeW));
     const Glib::ustring textContent = get_text_content();
     desc.contentData = textContent.raw();
     desc.setProperty("_content", desc.contentData);
@@ -579,6 +615,8 @@ bool CtCodebox::to_sqlite(sqlite3* pDb, const gint64 node_id, const int offset_a
         sqlite3_bind_int64(p_stmt, 10, _showLineNumbers);
         sqlite3_bind_int64(p_stmt, 11, _tsCreation);
         sqlite3_bind_int64(p_stmt, 12, _tsLastSave);
+        sqlite3_bind_int64(p_stmt, 13, _autoResizeH.has_value() ? static_cast<int>(_autoResizeH.value()) : -1);
+        sqlite3_bind_int64(p_stmt, 14, _autoResizeW.has_value() ? static_cast<int>(_autoResizeW.value()) : -1);
         if (sqlite3_step(p_stmt) != SQLITE_DONE) {
             spdlog::error("{}: {}", CtStorageSqlite::ERR_SQLITE_STEP, sqlite3_errmsg(pDb));
             retVal = false;
@@ -607,7 +645,7 @@ void CtCodebox::set_width_height(int newWidth, int newHeight)
     }
     if (newHeight) {
         _frameHeight = newHeight;
-        if (not _pCtConfig->codeboxAutoResizeH) {
+        if (not auto_resize_h()) {
             _set_scrollbars_policies();
         }
     }

@@ -48,6 +48,8 @@ struct CtNodeData
     bool           excludeMeFromSearch{false};
     bool           excludeChildrenFromSearch{false};
     bool           lineWrap{false};
+    bool           hideMeFromAgent{false};
+    bool           hideChildrenFromAgent{false};
     std::string    foregroundRgb24;
     gint64         tsCreation{0};
     gint64         tsLastSave{0};
@@ -62,6 +64,7 @@ struct CtTreeModelColumns : public Gtk::TreeModelColumnRecord
         add(rColPixbuf); add(colNodeName); add(rColTextBuffer); add(colNodeUniqueId); add(colSharedNodesMasterId);
         add(colSyntaxHighlighting); add(colNodeSequence); add(colNodeTags); add(colNodeIsReadOnly);
         add(colNodeIsExcludedFromSearch); add(colNodeChildrenAreExcludedFromSearch); add(colNodeLineWrap);
+        add(colNodeIsHiddenFromAgent); add(colNodeChildrenAreHiddenFromAgent);
         add(rColPixbufAux); add(colCustomIconId); add(colWeight); add(colForeground);
         add(colTsCreation); add(colTsLastSave); add(colAnchoredWidgets); add(colDrawingCanvases);
     }
@@ -77,6 +80,8 @@ struct CtTreeModelColumns : public Gtk::TreeModelColumnRecord
     Gtk::TreeModelColumn<bool>                         colNodeIsExcludedFromSearch;
     Gtk::TreeModelColumn<bool>                         colNodeChildrenAreExcludedFromSearch;
     Gtk::TreeModelColumn<bool>                         colNodeLineWrap;
+    Gtk::TreeModelColumn<bool>                         colNodeIsHiddenFromAgent;
+    Gtk::TreeModelColumn<bool>                         colNodeChildrenAreHiddenFromAgent;
     Gtk::TreeModelColumn<Glib::RefPtr<Gdk::Pixbuf>>    rColPixbufAux;
     Gtk::TreeModelColumn<guint16>                      colCustomIconId;
     Gtk::TreeModelColumn<int>                          colWeight;
@@ -104,6 +109,10 @@ public:
     void          set_node_children_are_excluded_from_search(const bool val);
     bool          get_node_line_wrap() const;
     void          set_node_line_wrap(const bool val);
+    bool          get_node_is_hidden_from_agent() const;
+    void          set_node_is_hidden_from_agent(const bool val);
+    bool          get_node_children_are_hidden_from_agent() const;
+    void          set_node_children_are_hidden_from_agent(const bool val);
     bool          get_node_is_bold() const;
     bool          get_node_read_only() const;
     void          set_node_read_only(const bool val);

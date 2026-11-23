@@ -903,6 +903,8 @@ void CtActions::codebox_change_properties()
     _pCtConfig->codeboxLineNum = curr_codebox_anchor->get_show_line_numbers();
     _pCtConfig->codeboxMatchBra = curr_codebox_anchor->get_highlight_brackets();
     _pCtConfig->codeboxSynHighl = curr_codebox_anchor->get_syntax_highlighting();
+    _pCtConfig->codeboxDlgAutoResizeH = CtCodebox::auto_resize_to_int(curr_codebox_anchor->get_auto_resize_h_opt());
+    _pCtConfig->codeboxDlgAutoResizeW = CtCodebox::auto_resize_to_int(curr_codebox_anchor->get_auto_resize_w_opt());
 
     if (not CtDialogs::codeboxhandle_dialog(_pCtMainWin, _("Edit CodeBox"),
             curr_codebox_anchor->getTsCreation(), curr_codebox_anchor->getTsLastSave())) return;
@@ -923,6 +925,8 @@ void CtActions::codebox_change_properties()
     curr_codebox_anchor->set_width_height((int)_pCtConfig->codeboxWidth, (int)_pCtConfig->codeboxHeight);
     curr_codebox_anchor->set_show_line_numbers(_pCtConfig->codeboxLineNum);
     curr_codebox_anchor->set_highlight_brackets(_pCtConfig->codeboxMatchBra);
+    curr_codebox_anchor->set_auto_resize(CtCodebox::auto_resize_from_int(_pCtConfig->codeboxDlgAutoResizeH),
+                                         CtCodebox::auto_resize_from_int(_pCtConfig->codeboxDlgAutoResizeW));
     curr_codebox_anchor->setTsLastSave(std::time(nullptr));
 
     if (pBridge && pBridge->isActive()) {

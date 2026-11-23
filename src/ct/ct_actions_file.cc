@@ -474,9 +474,17 @@ void CtActions::toggle_agent_access()
     }
     _pCtConfig->agentAccessEnabled = true;
     _pCtMainWin->get_status_bar().update_status(_("AI Agent Access Allowed"));
+    // the JSON entry of the server, for the agents configured by a file
+    std::string exePathJson = CtAgentServer::relay_exe_path();
+    exePathJson = str::replace(exePathJson, "\\", "\\\\");
+    exePathJson = str::replace(exePathJson, "\"", "\\\"");
+    const std::string jsonEntry = "\"cherrytree\": {\"command\": \"" + exePathJson + "\", \"args\": [\"--mcp-stdio\"]}";
     CtDialogs::info_dialog_with_copy(Glib::ustring{"<b>"} + _("AI agents can now read and change the open document.") + "</b>\n\n" +
-                                         _("To connect Claude Code, run this once in a terminal:"),
-                                     "claude mcp add cherrytree -- " + CtAgentServer::relay_command(),
-                                     _("Every change an agent makes can be undone with Undo."),
+                                         _("To connect an agent, do this once:"),
+                                     {{_("<b>Claude Code</b>, in a terminal:"), "claude mcp add cherrytree -- " + CtAgentServer::relay_command()},
+                                      {_("<b>Codex CLI</b>, in a terminal:"), "codex mcp add cherrytree -- " + CtAgentServer::relay_command()},
+                                      {_("<b>Gemini CLI</b>, in ~/.gemini/settings.json under \"mcpServers\":"), jsonEntry},
+                                      {_("<b>GitHub Copilot</b>, in ~/.copilot/mcp-config.json under \"mcpServers\":"), jsonEntry}},
+                                     _("Deletions by an agent ask you first, and every change an agent makes can be undone with Undo."),
                                      *_pCtMainWin);
 }

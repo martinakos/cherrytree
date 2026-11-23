@@ -141,12 +141,22 @@ bool question_dialog(const Glib::ustring& message,
 void info_dialog(const Glib::ustring& message,
                  Gtk::Window& parent);
 
-// The Info dialog with a line of text to copy (shown selectable, with a Copy button)
-// between the message and the message after
+// The Info dialog with lines of text to copy between the message and the message after:
+// each item is a label and its text, shown selectable with a Copy button
 void info_dialog_with_copy(const Glib::ustring& message,
-                           const Glib::ustring& textToCopy,
+                           const std::vector<std::pair<Glib::ustring, Glib::ustring>>& itemsToCopy,
                            const Glib::ustring& messageAfter,
                            Gtk::Window& parent);
+
+// Asks the user whether an AI agent may make a change; details are shown one per line
+// and preview, when set, is a picture of what goes. offerTimed adds a button that allows
+// such changes for the next minutes, without asking.
+enum class CtAgentConfirm { Deny, Allow, AllowTimed };
+CtAgentConfirm agent_confirm_dialog(Gtk::Window& parent,
+                                    const Glib::ustring& summary,
+                                    const std::vector<Glib::ustring>& details,
+                                    Glib::RefPtr<Gdk::Pixbuf> preview,
+                                    const bool offerTimed);
 
 // The Warning dialog
 void warning_dialog(const Glib::ustring& message,

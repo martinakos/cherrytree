@@ -113,6 +113,7 @@ public:
     int                                         timelineUseDay{0};
     std::string                                 timelineLastOpenDate;
     bool                                        agentAccessEnabled{false};
+    bool                                        agentConfirmDeletions{true};
     int                                         maxMatchesInPage{500};
     int                                         toolbarIconSize{1};
     int                                         multipleWordsSearchType{0}; // 0: exact match, 1: disregard order (AND), 2: match any (OR)
@@ -226,6 +227,9 @@ public:
     std::string                                 codeboxSynHighl{CtConst::PLAIN_TEXT_ID};
     bool                                        codeboxAutoResizeH{true};
     bool                                        codeboxAutoResizeW{false};
+    // not saved: the fit choices of the CodeBox dialog, -1 follow the preferences, 0 fixed, 1 fit content
+    int                                         codeboxDlgAutoResizeH{-1};
+    int                                         codeboxDlgAutoResizeW{-1};
     bool                                        codeboxWithToolbar{true};
 
     // [table]

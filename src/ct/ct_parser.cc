@@ -82,6 +82,8 @@ void CtDocumentBuilder::add_codebox(const std::string& language, const std::stri
 {
     close_current_tag();
     xmlpp::Element* p_codebox_node = CtXML::codebox_to_xml(_current_element->get_parent(), CtConst::TAG_PROP_VAL_LEFT, _currOffset, _pCtConfig->codeboxWidth, _pCtConfig->codeboxHeight, true, language, false, false);
+    // the height fits the code, whatever the default height of new code boxes
+    p_codebox_node->set_attribute("auto_resize_h", "1");
     p_codebox_node->add_child_text(text);
     close_current_tag();
     ++_currOffset;

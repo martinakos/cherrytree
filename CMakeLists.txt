@@ -329,6 +329,9 @@ if(${CMAKE_SYSTEM_NAME} MATCHES Linux|.*BSD|DragonFly|Darwin)
           "${CMAKE_SOURCE_DIR}/data/styles5.css"
           "${CMAKE_SOURCE_DIR}/data/user-style.xml"
           DESTINATION "${CHERRYTREE_SHARE_INSTALL}/data")
+  # share/cherrytree data/agent: the guide the AI agent tools serve
+  install(DIRECTORY ${CMAKE_SOURCE_DIR}/data/agent
+          DESTINATION "${CHERRYTREE_SHARE_INSTALL}/data")
   # share/cherrytree ocr_models
   if(USE_NCNN)
     install(DIRECTORY ${CMAKE_SOURCE_DIR}/data/ocr_models
