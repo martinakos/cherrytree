@@ -171,6 +171,29 @@ void TestAgentServerApp::_run_tests(CtMainWin* pWin)
     ASSERT_GT(tree["count"].get<int>(), 0);
     EXPECT_EQ(0, tree["nodes"][0]["depth"]);
     EXPECT_EQ(1u, call_ok(pWin, "list_tree", {{"root_id", tree["nodes"][0]["id"]}, {"max_depth", 0}})["count"].get<size_t>());
+    EXPECT_TRUE(tree["nodes"][0].contains("created"));
+    EXPECT_TRUE(tree["nodes"][0].contains("modified"));
+    {
+        // sort_by modified: the two nodes changed last come first, newest first
+        ASSERT_GE(tree["count"].get<int>(), 2);
+        const gint64 olderId = tree["nodes"][0]["id"];
+        const gint64 newerId = tree["nodes"][1]["id"];
+        store.get_node_from_node_id(olderId).set_node_modification_time(4102444700);
+        store.get_node_from_node_id(newerId).set_node_modification_time(4102444800);
+        const json byModified = call_ok(pWin, "list_tree", {{"sort_by", "modified"}});
+        EXPECT_EQ(tree["count"], byModified["count"]);
+        EXPECT_EQ(newerId, byModified["nodes"][0]["id"].get<gint64>());
+        EXPECT_EQ(olderId, byModified["nodes"][1]["id"].get<gint64>());
+
+        // sort_by created: newest first
+        const json byCreated = call_ok(pWin, "list_tree", {{"sort_by", "created"}});
+        EXPECT_EQ(tree["count"], byCreated["count"]);
+        for (size_t i = 1; i < byCreated["nodes"].size(); ++i) {
+            EXPECT_GE(store.get_node_from_node_id(byCreated["nodes"][i - 1]["id"]).get_node_creating_time(),
+                      store.get_node_from_node_id(byCreated["nodes"][i]["id"]).get_node_creating_time());
+        }
+        EXPECT_NE(std::string::npos, call_err(pWin, "list_tree", {{"sort_by", "name"}}).find("sort_by must be"));
+    }
 
     // --- add_node with Markdown ---
     const json added = call_ok(pWin, "add_node", {{"name", "Agent Test"}, {"content", "# Title\n\nSome **bold** text\n"}});
@@ -465,6 +488,8 @@ void TestAgentServerApp::_run_tests(CtMainWin* pWin)
         EXPECT_EQ(0, inserted["object_index"]);
         EXPECT_EQ("fit", inserted["objects"][0]["fit_height"]);
         EXPECT_EQ(2, inserted["objects"][0]["lines"]);
+        EXPECT_FALSE(inserted["objects"][0].value("created", "").empty());
+        EXPECT_FALSE(inserted["objects"][0].value("modified", "").empty());
         EXPECT_NE(std::string::npos, node_text(pWin, toolsId).find("⟦#0 codebox sh "));
         bool fits{false};
         for (CtAnchoredWidget* pWidget : store.get_node_from_node_id(toolsId).get_anchored_widgets()) {
@@ -638,6 +663,8 @@ void TestAgentServerApp::_run_tests(CtMainWin* pWin)
     {
         const json canvas = call_ok(pWin, "add_canvas", {{"id", toolsId}, {"x", 10}, {"y", 10}, {"width", 300}, {"height", 150}, {"name", "Flow"}});
         EXPECT_EQ(0, canvas["index"]);
+        EXPECT_FALSE(canvas.value("created", "").empty());
+        EXPECT_FALSE(canvas.value("modified", "").empty());
         auto f_edit = [&](const json& operations) {
             return call_ok(pWin, "edit_canvas", {{"id", toolsId}, {"canvas_index", 0}, {"operations", operations}});
         };

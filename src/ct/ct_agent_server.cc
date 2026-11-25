@@ -51,6 +51,7 @@
 #include <glib/gstdio.h>
 #include <cerrno>
 #include <csignal>
+#include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
 #include <poll.h>
@@ -597,10 +598,18 @@ const std::vector<const char*> TABLE_STYLE_PROPS{"border_width", "border_color",
     "halign_default", "valign_default", "wrap_default", "cell_bg_colors", "cell_border_widths", "cell_border_colors",
     "cell_halign", "cell_valign", "cell_wrap", "row_heights"};
 
+// A time stored in an object property as a unix time, formatted as format_time does
+std::string format_prop_time(const CtWidgetDesc& widget, const char* key)
+{
+    const std::string val = widget.getProperty(key);
+    return format_time(val.empty() ? 0 : std::strtoll(val.c_str(), nullptr, 10));
+}
+
 // All the properties of an object, as tools return them, without image or file data
 json object_json(const int index, const CtWidgetDesc& widget)
 {
-    json obj{{"index", index}, {"kind", object_kind(widget)}, {"justification", widget.getJustification()}};
+    json obj{{"index", index}, {"kind", object_kind(widget)}, {"justification", widget.getJustification()},
+             {"created", format_prop_time(widget, "ts_creation")}, {"modified", format_prop_time(widget, "ts_lastsave")}};
     switch (widget.type) {
         case CtAnchWidgType::CodeBox: {
             const std::string text = widget.getContent();
@@ -766,7 +775,8 @@ json canvas_json(const size_t index, const CtDrawingCanvas& canvas)
     return json{{"index", index}, {"name", canvas.name}, {"x", canvas.x}, {"y", canvas.y},
                 {"width", canvas.width}, {"height", canvas.height}, {"bg_color", canvas.bgColor},
                 {"bg_opacity", canvas.bgOpacity}, {"corner_radius", canvas.cornerRadius},
-                {"show_border", canvas.showBorderWhenInactive}, {"strokes", canvas.strokes.size()}};
+                {"show_border", canvas.showBorderWhenInactive}, {"strokes", canvas.strokes.size()},
+                {"created", format_time(canvas.tsCreation)}, {"modified", format_time(canvas.tsLastSave)}};
 }
 
 json stroke_json(const gint64 nodeId, const size_t index, const CtDrawingStroke& stroke, const bool withPoints, const size_t maxPoints)
@@ -1135,7 +1145,12 @@ json tool_list_tree(CtAgentCtx& ctx, const json& args)
 {
     const gint64 rootId = arg_opt<gint64>(args, "root_id", 0);
     const int maxDepth = arg_opt<int>(args, "max_depth", -1);
-    json nodes = json::array();
+    const std::string sortBy = arg_opt<std::string>(args, "sort_by", "tree");
+    if ("tree" != sortBy and "created" != sortBy and "modified" != sortBy) {
+        throw CtAgentError{"sort_by must be tree, created or modified"};
+    }
+    // each node with the time it is sorted by
+    std::vector<std::pair<gint64, json>> timedNodes;
     std::function<void(CtTreeIter, int, bool)> f_add;
     f_add = [&](CtTreeIter iter, const int depth, const bool withSiblings) {
         for (; iter; ++iter) {
@@ -1143,7 +1158,10 @@ json tool_list_tree(CtAgentCtx& ctx, const json& args)
                 json node = node_summary(ctx, iter);
                 node["depth"] = depth;
                 node["parent_id"] = parent_id(iter);
-                nodes.push_back(std::move(node));
+                node["created"] = format_time(iter.get_node_creating_time());
+                node["modified"] = format_time(iter.get_node_modification_time());
+                const gint64 sortTime = "created" == sortBy ? iter.get_node_creating_time() : iter.get_node_modification_time();
+                timedNodes.emplace_back(sortTime, std::move(node));
             }
             if (maxDepth < 0 or depth < maxDepth) {
                 f_add(iter.first_child(), depth + 1, true);
@@ -1153,6 +1171,13 @@ json tool_list_tree(CtAgentCtx& ctx, const json& args)
     };
     if (0 == rootId) f_add(ctx.store.get_ct_iter_first(), 0, true);
     else f_add(node_iter(ctx, rootId), 0, false);
+    if ("tree" != sortBy) {
+        // newest first; the tree order stays among equal times
+        std::stable_sort(timedNodes.begin(), timedNodes.end(),
+                         [](const auto& a, const auto& b) { return a.first > b.first; });
+    }
+    json nodes = json::array();
+    for (auto& timedNode : timedNodes) nodes.push_back(std::move(timedNode.second));
     const size_t count = nodes.size();
     return json{{"nodes", std::move(nodes)}, {"count", count}};
 }
@@ -2706,11 +2731,13 @@ const std::vector<CtAgentTool>& agent_tools()
          R"({"type":"object","properties":{}})",
          &tool_get_current_node},
         {"list_tree",
-         "Read only: list the nodes of the tree in order, depth first. Each node has id, name, type, depth, parent_id "
-         "and, when present, tags, read_only, locked (a locked password protected area) and children (count).",
+         "Read only: list the nodes of the tree in order, depth first, or by date. Each node has id, name, type, depth, "
+         "parent_id, created, modified and, when present, tags, read_only, locked (a locked password protected area) "
+         "and children (count).",
          R"({"type":"object","properties":{
             "root_id":{"type":"integer","description":"List only this node and its subtree. Default 0: the whole tree."},
-            "max_depth":{"type":"integer","description":"Deepest level to list, 0 for the top level only. Default: all levels."}}})",
+            "max_depth":{"type":"integer","description":"Deepest level to list, 0 for the top level only. Default: all levels."},
+            "sort_by":{"type":"string","enum":["tree","created","modified"],"description":"tree: the tree order (default); created or modified: newest first."}}})",
          &tool_list_tree},
         {"read_node",
          "Read only: a node's properties, children, text, embedded objects (objects, with object_index) and "
