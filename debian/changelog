@@ -1,3 +1,39 @@
+cherrytree-docmodel (1.7.3+docmodel21-1) plucky; urgency=low
+
+  * AI agents can work on the open document through MCP: Tools >
+    Allow/Deny AI Agent Access starts a server on a Unix socket only the
+    current user can open; an MCP client such as Claude Code connects by
+    running "cherrytree --mcp-stdio"
+  * 24 agent tools: list, read, search and select nodes; add, move,
+    rename and delete them; insert, replace and format text (Markdown in
+    rich text nodes); insert, change and delete code boxes, tables,
+    images, LaTeX, anchors and files; edit table cells, rows, columns and
+    styles; draw on canvases; read preferences; and a usage guide
+  * Every agent change is one undo step labelled "Agent: ..." and shows
+    in the timeline; read-only, shared and locked nodes are refused
+  * Deletions by an agent ask the user first, showing what would be lost,
+    with an option to allow deletions for 10 minutes (Preferences >
+    Miscellaneous > Ask Before AI Agents Delete)
+  * Node Properties: Hide from AI Agents, for the node or its subnodes
+  * Before an agent's first change in a session, a copy of the saved
+    document is written next to its backups, ending in .agent-backup
+  * Agents see the created and modified dates of nodes, embedded objects
+    and canvases; list_tree can list nodes newest first
+  * Code boxes: height and width can each fit the content, be fixed, or
+    follow the preferences, saved per code box
+  * Markdown import reads the text line by line with CommonMark emphasis
+    rules: bold text with ")" or ">", "| --- |" tables and links with
+    brackets now import correctly, and a failed parse no longer cuts the
+    rest of the text
+  * Fixed code boxes and tables placed at the wrong position after
+    non-ASCII text in imported Markdown
+  * Fixed code box text unreadable with a dark style scheme: code boxes
+    keep their style scheme background (#1402, #2132)
+  * Tests: the MCP protocol, every agent tool on a real document, undo of
+    agent edits, deletion prompts and a round trip through the socket
+
+ -- Giuseppe Penone <giuspen@gmail.com>  Wed, 25 Nov 2026 08:00:02 +0000
+
 cherrytree-docmodel (1.7.3+docmodel20-1) plucky; urgency=low
 
   * New Timeline panel (View > Show/Hide Timeline Panel, Shift+F9):
