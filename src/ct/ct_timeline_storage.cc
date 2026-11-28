@@ -23,6 +23,7 @@
 
 #include "ct_timeline_storage.h"
 #include "ct_logging.h"
+#include <set>
 
 static const char TABLE_CREATE[]{
     "CREATE TABLE IF NOT EXISTS timeline ("
@@ -37,15 +38,23 @@ static const char TABLE_CREATE[]{
     "region_offset INTEGER DEFAULT -1,"
     "region_length INTEGER DEFAULT 0,"
     "canvas_idx INTEGER DEFAULT -1,"
-    "delta_data BLOB"
+    "delta_data BLOB,"
+    "node_name TEXT DEFAULT '',"
+    "node_path TEXT DEFAULT ''"
     ")"
+};
+
+// columns added after the first version, for files written before them
+static const std::vector<std::pair<const char*, const char*>> ADDED_COLUMNS{
+    {"node_name", "ALTER TABLE timeline ADD COLUMN node_name TEXT DEFAULT ''"},
+    {"node_path", "ALTER TABLE timeline ADD COLUMN node_path TEXT DEFAULT ''"},
 };
 
 static const char TABLE_INSERT[]{
     "INSERT INTO timeline("
     "node_id,timestamp,use_day,cursor_pos,scroll_pos,"
     "action_description,action_type,region_offset,region_length,"
-    "canvas_idx,delta_data) VALUES(?,?,?,?,?,?,?,?,?,?,?)"
+    "canvas_idx,delta_data,node_name,node_path) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)"
 };
 
 static const char TABLE_DELETE[]{"DELETE FROM timeline"};
@@ -53,7 +62,7 @@ static const char TABLE_DELETE[]{"DELETE FROM timeline"};
 static const char TABLE_SELECT[]{
     "SELECT node_id, timestamp, use_day, cursor_pos, scroll_pos,"
     " action_description, action_type, region_offset, region_length,"
-    " canvas_idx, delta_data"
+    " canvas_idx, delta_data, node_name, node_path"
     " FROM timeline ORDER BY id ASC"
 };
 
@@ -102,6 +111,22 @@ void CtTimelineStorage::_create_table()
     if (rc != SQLITE_OK) {
         spdlog::error("CtTimelineStorage: create table failed: {}", errMsg ? errMsg : "unknown");
         if (errMsg) sqlite3_free(errMsg);
+        return;
+    }
+    std::set<std::string> columns;
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(_pDb, "PRAGMA table_info(timeline)", -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            if (auto pName = sqlite3_column_text(stmt, 1)) columns.insert(reinterpret_cast<const char*>(pName));
+        }
+    }
+    sqlite3_finalize(stmt);
+    for (const auto& column : ADDED_COLUMNS) {
+        if (columns.count(column.first)) continue;
+        if (sqlite3_exec(_pDb, column.second, nullptr, nullptr, &errMsg) != SQLITE_OK) {
+            spdlog::error("CtTimelineStorage: add column {} failed: {}", column.first, errMsg ? errMsg : "unknown");
+            if (errMsg) { sqlite3_free(errMsg); errMsg = nullptr; }
+        }
     }
 }
 
@@ -141,6 +166,8 @@ void CtTimelineStorage::writeEntries(const std::vector<CtTimelineEntry>& entries
         else {
             sqlite3_bind_null(stmt, 11);
         }
+        sqlite3_bind_text(stmt, 12, e.nodeName.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 13, e.nodePath.c_str(), -1, SQLITE_TRANSIENT);
         if (sqlite3_step(stmt) != SQLITE_DONE) {
             spdlog::error("CtTimelineStorage: insert step failed: {}", sqlite3_errmsg(_pDb));
         }
@@ -183,6 +210,8 @@ std::vector<CtTimelineEntry> CtTimelineStorage::readEntries()
         if (blob && blobSize > 0) {
             e.deltaData.assign(static_cast<const char*>(blob), blobSize);
         }
+        if (auto col11 = sqlite3_column_text(stmt, 11)) e.nodeName = reinterpret_cast<const char*>(col11);
+        if (auto col12 = sqlite3_column_text(stmt, 12)) e.nodePath = reinterpret_cast<const char*>(col12);
         entries.push_back(std::move(e));
     }
     sqlite3_finalize(stmt);

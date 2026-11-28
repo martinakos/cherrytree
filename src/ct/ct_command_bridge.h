@@ -149,8 +149,10 @@ public:
 
     // What a timeline entry records: a command run, or a command undone or redone
     enum class TimelineStep { Run, Undo, Redo };
-    // Create a timeline entry from a command and apply offset shifts to older entries
-    void createTimelineEntry(CtCommand* cmd, gint64 nodeId, TimelineStep step = TimelineStep::Run);
+    // Create a timeline entry from a command and apply offset shifts to older entries;
+    // nameBefore/pathBefore name the node when the command removed it
+    void createTimelineEntry(CtCommand* cmd, gint64 nodeId, TimelineStep step = TimelineStep::Run,
+                             const std::string& nameBefore = "", const std::string& pathBefore = "");
 
     // Execute a node-structure command (add/delete/move/properties).
     // Flushes any active text/widget session first, then executes the command

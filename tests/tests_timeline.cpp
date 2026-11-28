@@ -17,6 +17,7 @@
 #include <gtest/gtest.h>
 #include <vector>
 #include <algorithm>
+#include <unistd.h>
 
 static int applyShifts(int offset, const std::vector<CtCommand::OffsetShift>& shifts)
 {
@@ -364,3 +365,73 @@ TEST(TimelineEntry, FieldAssignment)
     EXPECT_EQ(e.canvasIdx, -1);
 }
 
+
+// ─── CtTimelineStorage Tests ─────────────────────────────────────────────────
+
+// A document path in the temporary folder; its timeline file is removed before and after
+struct TimelineTmpDoc {
+    explicit TimelineTmpDoc(const char* name)
+     : docPath{fs::path{g_get_tmp_dir()} / (std::string{name} + "_" + std::to_string(getpid()) + ".ctb")}
+    {
+        fs::remove(timelinePath());
+    }
+    ~TimelineTmpDoc() { fs::remove(timelinePath()); }
+    fs::path timelinePath() const { return CtTimelineStorage::get_timeline_file_path(docPath, CtDocType::SQLite); }
+    fs::path docPath;
+};
+
+TEST(TimelineStorage, NodeNameAndPathRoundTrip)
+{
+    TimelineTmpDoc doc{"ct_timeline_names"};
+    CtTimelineEntry e;
+    e.nodeId = 7;
+    e.timestamp = 1000;
+    e.actionDescription = "Delete node";
+    e.actionType = "NDe";
+    e.nodeName = "Medical";
+    e.nodePath = "Health / Medical";
+    {
+        auto storage = CtTimelineStorage::open(doc.docPath, CtDocType::SQLite);
+        ASSERT_TRUE(storage);
+        storage->writeEntries({e});
+    }
+    auto storage = CtTimelineStorage::open(doc.docPath, CtDocType::SQLite);
+    ASSERT_TRUE(storage);
+    const auto entries = storage->readEntries();
+    ASSERT_EQ(1u, entries.size());
+    EXPECT_EQ("Medical", entries[0].nodeName);
+    EXPECT_EQ("Health / Medical", entries[0].nodePath);
+    EXPECT_EQ("NDe", entries[0].actionType);
+}
+
+TEST(TimelineStorage, FileWithoutNodeNamesGetsTheColumns)
+{
+    TimelineTmpDoc doc{"ct_timeline_old"};
+    {
+        // a timeline file written before node names were stored
+        sqlite3* pDb{nullptr};
+        ASSERT_EQ(SQLITE_OK, sqlite3_open(doc.timelinePath().string().c_str(), &pDb));
+        ASSERT_EQ(SQLITE_OK, sqlite3_exec(pDb,
+            "CREATE TABLE timeline (id INTEGER PRIMARY KEY AUTOINCREMENT, node_id INTEGER NOT NULL,"
+            " timestamp INTEGER NOT NULL, use_day INTEGER DEFAULT 0, cursor_pos INTEGER DEFAULT 0,"
+            " scroll_pos INTEGER DEFAULT 0, action_description TEXT DEFAULT '', action_type TEXT DEFAULT '',"
+            " region_offset INTEGER DEFAULT -1, region_length INTEGER DEFAULT 0, canvas_idx INTEGER DEFAULT -1,"
+            " delta_data BLOB);"
+            "INSERT INTO timeline(node_id, timestamp, action_description, action_type)"
+            " VALUES(3, 500, 'Insert 4 chars', 'INS');", nullptr, nullptr, nullptr));
+        sqlite3_close(pDb);
+    }
+    auto storage = CtTimelineStorage::open(doc.docPath, CtDocType::SQLite);
+    ASSERT_TRUE(storage);
+    auto entries = storage->readEntries();
+    ASSERT_EQ(1u, entries.size());
+    EXPECT_EQ(3, entries[0].nodeId);
+    EXPECT_EQ("Insert 4 chars", entries[0].actionDescription);
+    EXPECT_TRUE(entries[0].nodeName.empty());
+
+    entries[0].nodeName = "Notes";
+    storage->writeEntries(entries);
+    entries = storage->readEntries();
+    ASSERT_EQ(1u, entries.size());
+    EXPECT_EQ("Notes", entries[0].nodeName);
+}

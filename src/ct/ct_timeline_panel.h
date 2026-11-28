@@ -28,11 +28,13 @@
 #include "ct_command.h"
 #include "ct_node_content.h"
 #include "ct_drawing.h"
+#include <functional>
 #include <unordered_set>
 #include <optional>
 
 class CtMainWin;
 class CtAnchoredWidget;
+class CtTreeIter;
 
 class CtTimelinePanel
 {
@@ -42,6 +44,11 @@ public:
     Gtk::ScrolledWindow& get_widget() { return _scrolledWindow; }
 
     void add_entry(const CtTimelineEntry& entry);
+    // The user opened a node: an entry for it on top, when visits are shown and the
+    // newest entry is on another node
+    void add_visit(const CtTreeIter& treeIter);
+    // Action type of the saved entry that records a visit
+    static constexpr const char* VISIT_ACTION_TYPE{"VIS"};
     void remove_entries_for_node(gint64 nodeId);
     void clear();
 
@@ -49,6 +56,10 @@ public:
     void load_entries(const std::vector<CtTimelineEntry>& entries);
 
     void refresh_names();
+    // Shows or hides the node icons, as the preferences say
+    void update_show_icons();
+    // The name and path stored with the newest action on the node; false when none
+    bool find_node_name(gint64 nodeId, std::string& name, std::string& path) const;
 
     bool isReplaying() const { return _replayState.timeout.connected(); }
     bool isReplayingCanvas() const { return _replayState.replayingCanvas; }
@@ -106,6 +117,23 @@ private:
 
     void _set_row(const Gtk::TreeModel::Row& row, const CtTimelineEntry& entry);
     CtTimelineEntry _get_row(const Gtk::TreeModel::Row& row) const;
+    // Entry rows group the consecutive actions on one node: the node name and icon on the
+    // entry, the actions as its children, newest first
+    void _set_group_row(const Gtk::TreeModel::Row& row, gint64 nodeId);
+    void _set_group_name(const Gtk::TreeModel::Row& row);
+    void _update_group_summary(const Gtk::TreeModel::Row& row);
+    // Fills the list from actions newest first, the newest entry unfolded
+    void _fill_groups(const std::vector<CtTimelineEntry>& entries);
+    // Every action row, newest first; stops when func returns false
+    void _for_each_action(const std::function<bool(const Gtk::TreeModel::Row&)>& func) const;
+    void _on_group_activated(const Gtk::TreeModel::Path& path, gint64 nodeId);
+    void _on_row_expanded(const Gtk::TreeModel::iterator& iter, const Gtk::TreeModel::Path& path);
+    void _fold_other_entries(const Gtk::TreeModel::iterator& iter);
+    // An entry row starting with a visit: the visit as a saved entry
+    void _set_group_visit(const Gtk::TreeModel::Row& row, const CtTimelineEntry& visit);
+    CtTimelineEntry _get_group_visit(const Gtk::TreeModel::Row& row) const;
+    // Selects the node in the tree, without a replay
+    void _select_node(gint64 nodeId);
     // Entries of a node with one of the given action types, newest first
     std::vector<CtTimelineEntry> _collect_node_entries(gint64 nodeId, const std::unordered_set<std::string>& actionTypes) const;
     static int _find_entry(const std::vector<CtTimelineEntry>& entries, const CtTimelineEntry& entry);
@@ -129,6 +157,12 @@ private:
             add(colCanvasIdx);
             add(colUseDay);
             add(colDeltaData);
+            add(colIsGroup);
+            add(colNodeName);
+            add(colNodePath);
+            add(colTooltip);
+            add(colNameMarkup);
+            add(colVisitTime);
         }
         Gtk::TreeModelColumn<Glib::RefPtr<Gdk::Pixbuf>> colIcon;
         Gtk::TreeModelColumn<Glib::ustring>              colName;
@@ -144,19 +178,30 @@ private:
         Gtk::TreeModelColumn<int>                        colCanvasIdx;
         Gtk::TreeModelColumn<int>                        colUseDay;
         Gtk::TreeModelColumn<std::string>                colDeltaData;
+        Gtk::TreeModelColumn<bool>                       colIsGroup;
+        Gtk::TreeModelColumn<std::string>                colNodeName; // as stored with the action
+        Gtk::TreeModelColumn<std::string>                colNodePath; // as stored with the action
+        Gtk::TreeModelColumn<Glib::ustring>              colTooltip;  // markup: the node path
+        Gtk::TreeModelColumn<Glib::ustring>              colNameMarkup; // the name as shown: bold, "(deleted)" after it
+        Gtk::TreeModelColumn<gint64>                     colVisitTime;  // entry rows started by a visit: its time, else 0
     };
 
     ColumnsTimeline               _columns;
     Glib::RefPtr<Gtk::TreeStore> _rTreeStore;
     Gtk::TreeView                _treeView;
+    Gtk::TreeViewColumn*         _pIconColumn{nullptr};
     Gtk::ScrolledWindow          _scrolledWindow;
     bool                         _updatingList{false};
+    // the timeline itself is opening a node: not a visit
+    bool                         _selectingNode{false};
     // Replay code is running and may run the event loop (laying out a state): a node
     // switch or a timeline click meanwhile only cancels the replay, which stops itself
     // as soon as the step it is in returns, then goes to the entry clicked if any
     bool                         _replayBusy{false};
     bool                         _replayCancelled{false};
     std::optional<CtTimelineEntry> _pendingEntry;
+    // the node of an entry clicked meanwhile, opened without a replay
+    std::optional<gint64>          _pendingNodeId;
 
     void _replayViaModel(const CtTimelineEntry& entry);
     void _replayViaDrawingModel(const CtTimelineEntry& entry);

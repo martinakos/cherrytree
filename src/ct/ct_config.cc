@@ -292,6 +292,8 @@ void CtConfig::_populate_keyfile_from_data()
     _uKeyFile->set_integer(_currentGroup, "timeline_max_use_days", timelineMaxUseDays);
     _uKeyFile->set_integer(_currentGroup, "timeline_replay_cycles", timelineReplayCycles);
     _uKeyFile->set_string(_currentGroup, "timeline_highlight_color", timelineHighlightColor);
+    _uKeyFile->set_boolean(_currentGroup, "timeline_show_icons", timelineShowIcons);
+    _uKeyFile->set_boolean(_currentGroup, "timeline_show_visits", timelineShowVisits);
     _uKeyFile->set_integer(_currentGroup, "timeline_use_day", timelineUseDay);
     _uKeyFile->set_string(_currentGroup, "timeline_last_open_date", timelineLastOpenDate);
     _uKeyFile->set_boolean(_currentGroup, "agent_access_enabled", agentAccessEnabled);
@@ -656,6 +658,8 @@ void CtConfig::_populate_data_from_keyfile()
     _populate_int_from_keyfile("timeline_max_use_days", &timelineMaxUseDays);
     _populate_int_from_keyfile("timeline_replay_cycles", &timelineReplayCycles);
     _populate_string_from_keyfile("timeline_highlight_color", &timelineHighlightColor);
+    _populate_bool_from_keyfile("timeline_show_icons", &timelineShowIcons);
+    _populate_bool_from_keyfile("timeline_show_visits", &timelineShowVisits);
     _populate_int_from_keyfile("timeline_use_day", &timelineUseDay);
     _populate_string_from_keyfile("timeline_last_open_date", &timelineLastOpenDate);
     _populate_bool_from_keyfile("agent_access_enabled", &agentAccessEnabled);

@@ -316,11 +316,17 @@ void CtCommandBridge::pushNodeCommand(std::unique_ptr<CtCommand> cmd)
         endWidgetEdit();
     }
 
+    // the node's name and path before a delete removes it
+    std::string nameBefore, pathBefore;
+    if (CtTreeIter nodeIter = _pMainWin->get_tree_store().get_node_from_node_id(cmd->getNodeId())) {
+        nameBefore = nodeIter.get_node_name().raw();
+        pathBefore = CtMiscUtil::get_node_hierarchical_name(nodeIter, " / ", false/*for_filename*/);
+    }
     _currentOp = BridgeOp::ExecutingNodeOp;
     CtCommand* rawCmd = cmd.get();
     _commandManager.executeCommand(std::move(cmd));
     _currentOp = BridgeOp::None;
-    createTimelineEntry(rawCmd, rawCmd->getNodeId());
+    createTimelineEntry(rawCmd, rawCmd->getNodeId(), TimelineStep::Run, nameBefore, pathBefore);
 
     // Restart an edit session so subsequent keystrokes are captured.
     // Without this, characters typed before the next cursor-change or
@@ -3035,7 +3041,8 @@ void CtCommandBridge::BridgeObserver::onNodeDrawingChanged(gint64 nodeId)
     }
 }
 
-void CtCommandBridge::createTimelineEntry(CtCommand* cmd, gint64 nodeId, TimelineStep step)
+void CtCommandBridge::createTimelineEntry(CtCommand* cmd, gint64 nodeId, TimelineStep step,
+                                          const std::string& nameBefore, const std::string& pathBefore)
 {
     const bool isUndo = step == TimelineStep::Undo;
     if (!_pMainWin) return;
@@ -3068,6 +3075,19 @@ void CtCommandBridge::createTimelineEntry(CtCommand* cmd, gint64 nodeId, Timelin
     entry.regionOffset = cmd->getRegionOffset();
     entry.regionLength = cmd->getRegionLength();
     entry.canvasIdx = cmd->getCanvasIndex();
+
+    // The node's name and path, so that the entry still names the node once it is deleted
+    if (CtTreeIter nodeIter = _pMainWin->get_tree_store().get_node_from_node_id(nodeId)) {
+        entry.nodeName = nodeIter.get_node_name().raw();
+        entry.nodePath = CtMiscUtil::get_node_hierarchical_name(nodeIter, " / ", false/*for_filename*/);
+    }
+    else if (not nameBefore.empty()) {
+        entry.nodeName = nameBefore;
+        entry.nodePath = pathBefore;
+    }
+    else {
+        panel->find_node_name(nodeId, entry.nodeName, entry.nodePath);
+    }
 
     // Serialize delta data for replay
     entry.deltaData = cmd->serializeDelta();

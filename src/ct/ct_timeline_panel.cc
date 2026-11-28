@@ -31,6 +31,7 @@
 #include "ct_drawing.h"
 #include "ct_widgets.h"
 #include <algorithm>
+#include <ctime>
 #include <limits>
 #include <unordered_set>
 #include <spdlog/spdlog.h>
@@ -43,13 +44,21 @@ CtTimelinePanel::CtTimelinePanel(CtMainWin* pCtMainWin)
     _treeView.set_model(_rTreeStore);
     _treeView.set_headers_visible(true);
     _treeView.set_enable_search(false);
+    // no fold arrows: a click on an entry unfolds it
+    _treeView.set_show_expanders(false);
+    _treeView.set_tooltip_column(_columns.colTooltip.index());
 
     auto colIdx = _treeView.append_column("", _columns.colIcon);
-    _treeView.get_column(colIdx - 1)->set_sizing(Gtk::TREE_VIEW_COLUMN_FIXED);
-    _treeView.get_column(colIdx - 1)->set_fixed_width(40);
+    _pIconColumn = _treeView.get_column(colIdx - 1);
+    _pIconColumn->set_sizing(Gtk::TREE_VIEW_COLUMN_FIXED);
+    _pIconColumn->set_fixed_width(40);
+    update_show_icons();
 
-    colIdx = _treeView.append_column(_("Node"), _columns.colName);
-    auto* pNameCol = _treeView.get_column(colIdx - 1);
+    auto* pNameRenderer = Gtk::manage(new Gtk::CellRendererText{});
+    auto* pNameCol = Gtk::manage(new Gtk::TreeViewColumn{_("Node")});
+    pNameCol->pack_start(*pNameRenderer, true/*expand*/);
+    pNameCol->add_attribute(pNameRenderer->property_markup(), _columns.colNameMarkup);
+    _treeView.append_column(*pNameCol);
     pNameCol->set_resizable(true);
     pNameCol->set_expand(true);
     pNameCol->set_sizing(Gtk::TREE_VIEW_COLUMN_FIXED);
@@ -71,6 +80,8 @@ CtTimelinePanel::CtTimelinePanel(CtMainWin* pCtMainWin)
     _treeView.set_activate_on_single_click(true);
     _treeView.signal_row_activated().connect(
         sigc::mem_fun(*this, &CtTimelinePanel::_on_row_activated));
+    _treeView.signal_row_expanded().connect(
+        sigc::mem_fun(*this, &CtTimelinePanel::_on_row_expanded));
 
     _scrolledWindow.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
 #if GTKMM_MAJOR_VERSION >= 4
@@ -83,6 +94,7 @@ CtTimelinePanel::CtTimelinePanel(CtMainWin* pCtMainWin)
 
 void CtTimelinePanel::_set_row(const Gtk::TreeModel::Row& row, const CtTimelineEntry& entry)
 {
+    row[_columns.colIsGroup]      = false;
     row[_columns.colNodeId]       = entry.nodeId;
     row[_columns.colOperation]    = Glib::ustring(entry.actionDescription);
     row[_columns.colTimestamp]    = str::time_format(_pCtMainWin->get_ct_config()->timestampFormat,
@@ -96,15 +108,8 @@ void CtTimelinePanel::_set_row(const Gtk::TreeModel::Row& row, const CtTimelineE
     row[_columns.colCanvasIdx]    = entry.canvasIdx;
     row[_columns.colUseDay]       = entry.useDay;
     row[_columns.colDeltaData]    = entry.deltaData;
-
-    CtTreeIter ctIter = _pCtMainWin->get_tree_store().get_node_from_node_id(entry.nodeId);
-    if (ctIter) {
-        row[_columns.colName] = ctIter.get_node_name();
-        row[_columns.colIcon] = ctIter.get_node_icon();
-    }
-    else {
-        row[_columns.colName] = Glib::ustring("(") + _("deleted") + ")";
-    }
+    row[_columns.colNodeName]     = entry.nodeName;
+    row[_columns.colNodePath]     = entry.nodePath;
 }
 
 CtTimelineEntry CtTimelinePanel::_get_row(const Gtk::TreeModel::Row& row) const
@@ -121,7 +126,68 @@ CtTimelineEntry CtTimelinePanel::_get_row(const Gtk::TreeModel::Row& row) const
     e.canvasIdx = row[_columns.colCanvasIdx];
     e.useDay = row[_columns.colUseDay];
     e.deltaData = static_cast<std::string>(row[_columns.colDeltaData]);
+    e.nodeName = static_cast<std::string>(row[_columns.colNodeName]);
+    e.nodePath = static_cast<std::string>(row[_columns.colNodePath]);
     return e;
+}
+
+void CtTimelinePanel::_set_group_row(const Gtk::TreeModel::Row& row, const gint64 nodeId)
+{
+    row[_columns.colIsGroup] = true;
+    row[_columns.colNodeId] = nodeId;
+}
+
+void CtTimelinePanel::_set_group_name(const Gtk::TreeModel::Row& row)
+{
+    CtTreeIter ctIter = _pCtMainWin->get_tree_store().get_node_from_node_id(row[_columns.colNodeId]);
+    if (ctIter) {
+        row[_columns.colName] = ctIter.get_node_name();
+        row[_columns.colIcon] = ctIter.get_node_icon();
+        row[_columns.colNameMarkup] = "<b>" + str::xml_escape(ctIter.get_node_name()) + "</b>";
+        row[_columns.colTooltip] = str::xml_escape(
+            CtMiscUtil::get_node_hierarchical_name(ctIter, " / ", false/*for_filename*/));
+        return;
+    }
+    // a deleted node: the name and path stored with its newest action that has them
+    std::string name, path;
+    find_node_name(row[_columns.colNodeId], name, path);
+    row[_columns.colName] = Glib::ustring{name};
+    const Glib::ustring deleted = Glib::ustring("(") + _("deleted") + ")";
+    row[_columns.colNameMarkup] = name.empty() ? str::xml_escape(deleted)
+                                               : "<b>" + str::xml_escape(name) + "</b> " + str::xml_escape(deleted);
+    row[_columns.colIcon] = Glib::RefPtr<Gdk::Pixbuf>{};
+    row[_columns.colTooltip] = path.empty() ? Glib::ustring{} : Glib::ustring{str::xml_escape(path)};
+}
+
+void CtTimelinePanel::_update_group_summary(const Gtk::TreeModel::Row& row)
+{
+    _set_group_name(row);
+    const size_t numActions = row.children().size();
+    const gint64 visitTime = row[_columns.colVisitTime];
+    if (0u == numActions and visitTime > 0) {
+        row[_columns.colOperation] = Glib::ustring{_("Visited")};
+        row[_columns.colTimestamp] = str::time_format(_pCtMainWin->get_ct_config()->timestampFormat,
+                                                      static_cast<time_t>(visitTime));
+        row[_columns.colTimestampRaw] = visitTime;
+        return;
+    }
+    row[_columns.colOperation] = 1u == numActions ? Glib::ustring{_("1 action")}
+                                                  : Glib::ustring{str::format(_("%s actions"), std::to_string(numActions))};
+    if (numActions > 0) {
+        // the time of the newest action
+        const Gtk::TreeModel::Row newest = *row.children().begin();
+        row[_columns.colTimestamp] = static_cast<Glib::ustring>(newest[_columns.colTimestamp]);
+        row[_columns.colTimestampRaw] = static_cast<gint64>(newest[_columns.colTimestampRaw]);
+    }
+}
+
+void CtTimelinePanel::_for_each_action(const std::function<bool(const Gtk::TreeModel::Row&)>& func) const
+{
+    for (const auto& group : _rTreeStore->children()) {
+        for (const auto& row : group.children()) {
+            if (not func(row)) return;
+        }
+    }
 }
 
 void CtTimelinePanel::add_entry(const CtTimelineEntry& entry)
@@ -129,39 +195,102 @@ void CtTimelinePanel::add_entry(const CtTimelineEntry& entry)
     _updatingList = true;
     auto on_scope_exit = scope_guard([this](void*) { _updatingList = false; });
 
-    // newest entry on top; a node gets a row for each of its changes
-    _set_row(*_rTreeStore->prepend(), entry);
+    // newest on top; the action joins the newest entry when that is on the same node,
+    // otherwise it starts a new entry, unfolded (the others fold)
+    auto topRows = _rTreeStore->children();
+    Gtk::TreeModel::iterator groupIter;
+    if (not topRows.empty() and (*topRows.begin())[_columns.colNodeId] == entry.nodeId) {
+        groupIter = topRows.begin();
+    }
+    const bool newGroup = not groupIter;
+    if (newGroup) {
+        groupIter = _rTreeStore->prepend();
+        _set_group_row(*groupIter, entry.nodeId);
+    }
+    const bool firstAction = groupIter->children().empty();
+    _set_row(*_rTreeStore->prepend(groupIter->children()), entry);
+    _update_group_summary(*groupIter);
+    if (firstAction) {
+        // also an entry started by a visit, which had nothing to unfold
+        _treeView.expand_row(_rTreeStore->get_path(groupIter), false/*open_all*/);
+    }
 
     if (auto* pStorage = _pCtMainWin->get_ct_storage()) {
         pStorage->pending_edit_db_timeline();
     }
 }
 
+void CtTimelinePanel::add_visit(const CtTreeIter& treeIter)
+{
+    const CtConfig* pConfig = _pCtMainWin->get_ct_config();
+    if (not pConfig->timelineEnabled or not pConfig->timelineShowVisits or _selectingNode or not treeIter) return;
+    auto topRows = _rTreeStore->children();
+    if (not topRows.empty() and (*topRows.begin())[_columns.colNodeId] == treeIter.get_node_id()) return;
+
+    _updatingList = true;
+    auto on_scope_exit = scope_guard([this](void*) { _updatingList = false; });
+    CtTimelineEntry visit;
+    visit.nodeId = treeIter.get_node_id();
+    visit.timestamp = std::time(nullptr);
+    visit.useDay = pConfig->timelineUseDay;
+    visit.nodeName = treeIter.get_node_name().raw();
+    visit.nodePath = CtMiscUtil::get_node_hierarchical_name(treeIter, " / ", false/*for_filename*/);
+    auto groupIter = _rTreeStore->prepend();
+    _set_group_row(*groupIter, visit.nodeId);
+    _set_group_visit(*groupIter, visit);
+    _update_group_summary(*groupIter);
+    // nothing to unfold yet: the others fold as when an entry unfolds
+    _fold_other_entries(groupIter);
+
+    if (auto* pStorage = _pCtMainWin->get_ct_storage()) {
+        pStorage->pending_edit_db_timeline();
+    }
+}
+
+void CtTimelinePanel::_set_group_visit(const Gtk::TreeModel::Row& row, const CtTimelineEntry& visit)
+{
+    row[_columns.colVisitTime] = visit.timestamp;
+    row[_columns.colUseDay] = visit.useDay;
+    row[_columns.colNodeName] = visit.nodeName;
+    row[_columns.colNodePath] = visit.nodePath;
+}
+
+CtTimelineEntry CtTimelinePanel::_get_group_visit(const Gtk::TreeModel::Row& row) const
+{
+    CtTimelineEntry visit;
+    visit.nodeId = row[_columns.colNodeId];
+    visit.timestamp = row[_columns.colVisitTime];
+    visit.useDay = row[_columns.colUseDay];
+    visit.actionType = VISIT_ACTION_TYPE;
+    visit.actionDescription = _("Visited");
+    visit.nodeName = static_cast<std::string>(row[_columns.colNodeName]);
+    visit.nodePath = static_cast<std::string>(row[_columns.colNodePath]);
+    return visit;
+}
+
 void CtTimelinePanel::updateCursorScroll(gint64 nodeId, int cursorPos, int scrollPos)
 {
     // the newest entry of the node is the one navigation returns to
-    for (const auto& row : _rTreeStore->children()) {
-        if (row[_columns.colNodeId] == nodeId) {
-            row[_columns.colCursorPos] = cursorPos;
-            row[_columns.colScrollPos] = scrollPos;
-            break;
-        }
-    }
+    _for_each_action([&](const Gtk::TreeModel::Row& row) {
+        if (row[_columns.colNodeId] != nodeId) return true;
+        row[_columns.colCursorPos] = cursorPos;
+        row[_columns.colScrollPos] = scrollPos;
+        return false;
+    });
 }
 
 void CtTimelinePanel::remove_entries_for_node(gint64 nodeId)
 {
+    std::vector<CtTimelineEntry> kept;
     bool removed = false;
-    for (auto it = _rTreeStore->children().begin(); it != _rTreeStore->children().end(); ) {
-        if ((*it)[_columns.colNodeId] == nodeId) {
-            it = _rTreeStore->erase(it);
-            removed = true;
-        }
-        else {
-            ++it;
-        }
+    for (const CtTimelineEntry& entry : get_all_entries()) {
+        if (entry.nodeId == nodeId) removed = true;
+        else kept.push_back(entry);
     }
     if (removed) {
+        // built again, so that the entries before and after the ones removed join
+        // when they are on the same node
+        _fill_groups(kept);
         if (auto* pStorage = _pCtMainWin->get_ct_storage()) {
             pStorage->pending_edit_db_timeline();
         }
@@ -181,18 +310,21 @@ void CtTimelinePanel::clear()
 
 std::vector<CtTimelineEntry> CtTimelinePanel::get_all_entries() const
 {
+    // newest first: the actions of each entry, then the visit that started it
     std::vector<CtTimelineEntry> entries;
-    for (const auto& row : _rTreeStore->children()) {
-        entries.push_back(_get_row(row));
+    for (const auto& group : _rTreeStore->children()) {
+        for (const auto& row : group.children()) {
+            entries.push_back(_get_row(row));
+        }
+        if (group[_columns.colVisitTime] > 0) {
+            entries.push_back(_get_group_visit(group));
+        }
     }
     return entries;
 }
 
 void CtTimelinePanel::load_entries(const std::vector<CtTimelineEntry>& entries)
 {
-    _updatingList = true;
-    _rTreeStore->clear();
-
     // Prune by use-day if configured
     int currentUseDay = _pCtMainWin->get_ct_config()->timelineUseDay;
     int maxUseDays = _pCtMainWin->get_ct_config()->timelineMaxUseDays;
@@ -202,41 +334,104 @@ void CtTimelinePanel::load_entries(const std::vector<CtTimelineEntry>& entries)
     std::stable_sort(sorted.begin(), sorted.end(), [](const CtTimelineEntry& a, const CtTimelineEntry& b) {
         return a.timestamp > b.timestamp;
     });
+    std::vector<CtTimelineEntry> kept;
     for (const auto& entry : sorted) {
         if (maxUseDays > 0 && currentUseDay - entry.useDay > maxUseDays) {
             continue;
         }
-        _set_row(*_rTreeStore->append(), entry);
+        kept.push_back(entry);
     }
+    _fill_groups(kept);
+}
 
-    _updatingList = false;
+void CtTimelinePanel::_fill_groups(const std::vector<CtTimelineEntry>& entries)
+{
+    _updatingList = true;
+    auto on_scope_exit = scope_guard([this](void*) { _updatingList = false; });
+    _rTreeStore->clear();
+
+    // newest first, so the visit that started an entry comes after its actions
+    Gtk::TreeModel::iterator groupIter;
+    bool groupStarted{false}; // by a visit: older entries go in another entry
+    for (const auto& entry : entries) {
+        if (not groupIter or groupStarted or (*groupIter)[_columns.colNodeId] != entry.nodeId) {
+            if (groupIter) _update_group_summary(*groupIter);
+            groupIter = _rTreeStore->append();
+            _set_group_row(*groupIter, entry.nodeId);
+            groupStarted = false;
+        }
+        if (VISIT_ACTION_TYPE == entry.actionType) {
+            _set_group_visit(*groupIter, entry);
+            groupStarted = true;
+        }
+        else {
+            _set_row(*_rTreeStore->append(groupIter->children()), entry);
+        }
+    }
+    if (groupIter) _update_group_summary(*groupIter);
+
+    auto topRows = _rTreeStore->children();
+    if (not topRows.empty()) {
+        _treeView.expand_row(_rTreeStore->get_path(topRows.begin()), false/*open_all*/);
+    }
 }
 
 void CtTimelinePanel::refresh_names()
 {
-    for (auto it = _rTreeStore->children().begin(); it != _rTreeStore->children().end(); ) {
-        gint64 nodeId = (*it)[_columns.colNodeId];
-        CtTreeIter ctIter = _pCtMainWin->get_tree_store().get_node_from_node_id(nodeId);
-        if (ctIter) {
-            (*it)[_columns.colName] = ctIter.get_node_name();
-            (*it)[_columns.colIcon] = ctIter.get_node_icon();
-            ++it;
+    for (const auto& row : _rTreeStore->children()) {
+        // the actions of a node still there keep its current name and path, which then
+        // show if it is deleted
+        if (CtTreeIter ctIter = _pCtMainWin->get_tree_store().get_node_from_node_id(row[_columns.colNodeId])) {
+            const std::string name = ctIter.get_node_name().raw();
+            const std::string path = CtMiscUtil::get_node_hierarchical_name(ctIter, " / ", false/*for_filename*/);
+            for (const auto& child : row.children()) {
+                child[_columns.colNodeName] = name;
+                child[_columns.colNodePath] = path;
+            }
+            if (row[_columns.colVisitTime] > 0) {
+                row[_columns.colNodeName] = name;
+                row[_columns.colNodePath] = path;
+            }
         }
-        else {
-            (*it)[_columns.colName] = Glib::ustring("(") + _("deleted") + ")";
-            ++it;
-        }
+        _set_group_name(row);
     }
+}
+
+void CtTimelinePanel::update_show_icons()
+{
+    _pIconColumn->set_visible(_pCtMainWin->get_ct_config()->timelineShowIcons);
+}
+
+bool CtTimelinePanel::find_node_name(const gint64 nodeId, std::string& name, std::string& path) const
+{
+    // the actions, and the visits on entry rows, newest first
+    auto f_found = [&](const Gtk::TreeModel::Row& row) {
+        if (row[_columns.colNodeId] != nodeId) return false;
+        const std::string rowName = static_cast<std::string>(row[_columns.colNodeName]);
+        if (rowName.empty()) return false;
+        name = rowName;
+        path = static_cast<std::string>(row[_columns.colNodePath]);
+        return true;
+    };
+    for (const auto& group : _rTreeStore->children()) {
+        for (const auto& row : group.children()) {
+            if (f_found(row)) return true;
+        }
+        if (group[_columns.colVisitTime] > 0 and f_found(group)) return true;
+    }
+    return false;
 }
 
 void CtTimelinePanel::adjustOffsetsForNode(gint64 nodeId, const std::vector<CtCommand::OffsetShift>& shifts)
 {
     if (shifts.empty()) return;
 
-    for (const auto& row : _rTreeStore->children()) {
-        if (row[_columns.colNodeId] != nodeId) continue;
-        row[_columns.colRegionOffset] = CtCommand::applyOffsetShifts(row[_columns.colRegionOffset], shifts);
-    }
+    _for_each_action([&](const Gtk::TreeModel::Row& row) {
+        if (row[_columns.colNodeId] == nodeId) {
+            row[_columns.colRegionOffset] = CtCommand::applyOffsetShifts(row[_columns.colRegionOffset], shifts);
+        }
+        return true;
+    });
 }
 
 void CtTimelinePanel::_on_row_activated(const Gtk::TreeModel::Path& path, Gtk::TreeViewColumn* /*column*/)
@@ -245,9 +440,14 @@ void CtTimelinePanel::_on_row_activated(const Gtk::TreeModel::Path& path, Gtk::T
     auto iter = _rTreeStore->get_iter(path);
     if (!iter) return;
 
+    if ((*iter)[_columns.colIsGroup]) {
+        _on_group_activated(path, (*iter)[_columns.colNodeId]);
+        return;
+    }
     const CtTimelineEntry entry = _get_row(*iter);
     if (_replayBusy) {
         _pendingEntry = entry;
+        _pendingNodeId.reset();
         _replayCancelled = true;
         return;
     }
@@ -258,6 +458,63 @@ void CtTimelinePanel::_on_row_activated(const Gtk::TreeModel::Path& path, Gtk::T
         _replayState.displayBuffer->set_modified(_replayState.displayBufferWasModified);
     }
     _navigate_to_entry(entry);
+}
+
+void CtTimelinePanel::_on_row_expanded(const Gtk::TreeModel::iterator& iter, const Gtk::TreeModel::Path& path)
+{
+    // one entry at a time shows its actions
+    if (path.size() != 1) return;
+    _fold_other_entries(iter);
+}
+
+void CtTimelinePanel::_fold_other_entries(const Gtk::TreeModel::iterator& iter)
+{
+    for (const auto& row : _rTreeStore->children()) {
+        if (row == *iter) continue;
+        const Gtk::TreeModel::Path rowPath = _rTreeStore->get_path(row);
+        if (_treeView.row_expanded(rowPath)) {
+            _treeView.collapse_row(rowPath);
+        }
+    }
+}
+
+void CtTimelinePanel::_on_group_activated(const Gtk::TreeModel::Path& path, const gint64 nodeId)
+{
+    // a click on an entry unfolds or folds its actions and opens its node; only a click
+    // on an action replays
+    if (_treeView.row_expanded(path)) _treeView.collapse_row(path);
+    else _treeView.expand_row(path, false/*open_all*/);
+    if (_replayBusy) {
+        _pendingEntry.reset();
+        _pendingNodeId = nodeId;
+        _replayCancelled = true;
+        return;
+    }
+    CtTreeIter currIter = _pCtMainWin->curr_tree_iter();
+    if (currIter and currIter.get_node_id() == nodeId) {
+        // no node switch to stop a replay running on this node
+        if (isReplaying()) _stopReplay();
+        return;
+    }
+    // as for an action, a running replay is stopped by the node switch
+    if (_replayState.displayBuffer) {
+        _replayState.displayBuffer->set_modified(_replayState.displayBufferWasModified);
+    }
+    _select_node(nodeId);
+}
+
+void CtTimelinePanel::_select_node(const gint64 nodeId)
+{
+    CtTreeIter ctIter = _pCtMainWin->get_tree_store().get_node_from_node_id(nodeId);
+    if (!ctIter) {
+        spdlog::warn("Timeline: node {} not found", nodeId);
+        return;
+    }
+    _pCtMainWin->_navigatingHistory = true;
+    _selectingNode = true;
+    auto on_scope_exit = scope_guard([this](void*) { _pCtMainWin->_navigatingHistory = false; _selectingNode = false; });
+    _pCtMainWin->get_tree_view().set_cursor_safe(ctIter);
+    _pCtMainWin->get_tree_view().scroll_to_row(_pCtMainWin->get_tree_store().get_store()->get_path(ctIter), 0.5);
 }
 
 void CtTimelinePanel::_navigate_to_entry(const CtTimelineEntry& entry)
@@ -273,7 +530,8 @@ void CtTimelinePanel::_navigate_to_entry(const CtTimelineEntry& entry)
     }
 
     _pCtMainWin->_navigatingHistory = true;
-    auto on_scope_exit = scope_guard([this](void*) { _pCtMainWin->_navigatingHistory = false; });
+    _selectingNode = true;
+    auto on_scope_exit = scope_guard([this](void*) { _pCtMainWin->_navigatingHistory = false; _selectingNode = false; });
 
     auto store = _pCtMainWin->get_tree_store().get_store();
     _pCtMainWin->get_tree_view().set_cursor_safe(ctIter);
@@ -350,13 +608,15 @@ std::vector<CtTimelineEntry> CtTimelinePanel::_collect_node_entries(gint64 nodeI
                                                                   const std::unordered_set<std::string>& actionTypes) const
 {
     std::vector<CtTimelineEntry> entries;
-    for (const auto& row : _rTreeStore->children()) {
-        if (row[_columns.colNodeId] != nodeId) continue;
-        const std::string actionType = static_cast<Glib::ustring>(row[_columns.colActionType]);
-        if (actionTypes.count(actionType)) {
-            entries.push_back(_get_row(row));
+    _for_each_action([&](const Gtk::TreeModel::Row& row) {
+        if (row[_columns.colNodeId] == nodeId) {
+            const std::string actionType = static_cast<Glib::ustring>(row[_columns.colActionType]);
+            if (actionTypes.count(actionType)) {
+                entries.push_back(_get_row(row));
+            }
         }
-    }
+        return true;
+    });
     return entries;
 }
 
@@ -1141,6 +1401,11 @@ void CtTimelinePanel::_finish_cancelled_replay()
         const CtTimelineEntry entry = *_pendingEntry;
         _pendingEntry.reset();
         _navigate_to_entry(entry);
+    }
+    else if (_pendingNodeId) {
+        const gint64 nodeId = *_pendingNodeId;
+        _pendingNodeId.reset();
+        _select_node(nodeId);
     }
 }
 

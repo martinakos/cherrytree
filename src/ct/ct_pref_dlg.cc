@@ -719,6 +719,22 @@ Gtk::Widget* CtPrefDlg::build_tab_timeline()
 #endif
     Gtk::Frame* frame_replay = new_managed_frame_with_align(_("Replay"), vbox_replay);
 
+    // --- Display frame ---
+    auto vbox_display = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_VERTICAL, 4});
+    auto checkbutton_show_icons = Gtk::manage(new Gtk::CheckButton{_("Show Node Icons")});
+    checkbutton_show_icons->set_active(_pConfig->timelineShowIcons);
+    auto checkbutton_show_visits = Gtk::manage(new Gtk::CheckButton{_("Show Visited Nodes")});
+    checkbutton_show_visits->set_active(_pConfig->timelineShowVisits);
+    checkbutton_show_visits->set_tooltip_text(_("Opening a node adds it to the timeline, so that the timeline lists the nodes visited as well as the ones changed."));
+#if GTKMM_MAJOR_VERSION >= 4
+    vbox_display->append(*checkbutton_show_icons);
+    vbox_display->append(*checkbutton_show_visits);
+#else
+    vbox_display->pack_start(*checkbutton_show_icons, false, false);
+    vbox_display->pack_start(*checkbutton_show_visits, false, false);
+#endif
+    Gtk::Frame* frame_display = new_managed_frame_with_align(_("Display"), vbox_display);
+
     // --- Actions frame ---
     auto vbox_actions = Gtk::manage(new Gtk::Box{Gtk::ORIENTATION_VERTICAL, 4});
     auto button_clear_timeline = Gtk::manage(new Gtk::Button{_("Clear Timeline")});
@@ -744,24 +760,28 @@ Gtk::Widget* CtPrefDlg::build_tab_timeline()
     pMainBox->append(*checkbutton_enable);
     pMainBox->append(*frame_retention);
     pMainBox->append(*frame_replay);
+    pMainBox->append(*frame_display);
     pMainBox->append(*frame_actions);
 #else
     pMainBox->pack_start(*checkbutton_enable, false, false);
     pMainBox->pack_start(*frame_retention, false, false);
     pMainBox->pack_start(*frame_replay, false, false);
+    pMainBox->pack_start(*frame_display, false, false);
     pMainBox->pack_start(*frame_actions, false, false);
 #endif
 
     // Initial sensitivity based on enabled state
     frame_retention->set_sensitive(_pConfig->timelineEnabled);
     frame_replay->set_sensitive(_pConfig->timelineEnabled);
+    frame_display->set_sensitive(_pConfig->timelineEnabled);
     frame_actions->set_sensitive(_pConfig->timelineEnabled);
 
     // --- Signal handlers ---
-    checkbutton_enable->signal_toggled().connect([this, checkbutton_enable, frame_retention, frame_replay, frame_actions](){
+    checkbutton_enable->signal_toggled().connect([this, checkbutton_enable, frame_retention, frame_replay, frame_display, frame_actions](){
         _pConfig->timelineEnabled = checkbutton_enable->get_active();
         frame_retention->set_sensitive(_pConfig->timelineEnabled);
         frame_replay->set_sensitive(_pConfig->timelineEnabled);
+        frame_display->set_sensitive(_pConfig->timelineEnabled);
         frame_actions->set_sensitive(_pConfig->timelineEnabled);
         apply_for_each_window([this](CtMainWin* win) {
             if (!_pConfig->timelineEnabled) {
@@ -779,6 +799,13 @@ Gtk::Widget* CtPrefDlg::build_tab_timeline()
     });
     colorbutton_highlight->signal_color_set().connect([this, colorbutton_highlight](){
         _pConfig->timelineHighlightColor = CtRgbUtil::rgb_to_string_24(colorbutton_highlight->get_rgba());
+    });
+    checkbutton_show_icons->signal_toggled().connect([this, checkbutton_show_icons](){
+        _pConfig->timelineShowIcons = checkbutton_show_icons->get_active();
+        apply_for_each_window([](CtMainWin* win) { win->get_timeline_panel()->update_show_icons(); });
+    });
+    checkbutton_show_visits->signal_toggled().connect([this, checkbutton_show_visits](){
+        _pConfig->timelineShowVisits = checkbutton_show_visits->get_active();
     });
     button_clear_timeline->signal_clicked().connect([this](){
         apply_for_each_window([](CtMainWin* win) { win->get_timeline_panel()->clear(); });

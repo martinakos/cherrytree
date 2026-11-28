@@ -18,9 +18,25 @@
 #include "ct_table.h"
 #include "ct_image.h"
 #include "ct_drawing_commands.h"
+#include "ct_misc_utils.h"
 #include <gtest/gtest.h>
 #include <set>
+#include <tuple>
 #include <functional>
+
+// The path of an action row in the timeline: the actions of all the entries counted
+// newest first, as get_all_entries() lists them
+static Gtk::TreePath timeline_action_path(CtTimelinePanel* panel, const size_t actionIdx)
+{
+    auto store = panel->getTreeView().get_model();
+    size_t idx{0};
+    for (const auto& group : store->children()) {
+        for (const auto& row : group.children()) {
+            if (idx++ == actionIdx) return store->get_path(row);
+        }
+    }
+    return Gtk::TreePath{};
+}
 
 class TestTimelineApp : public CtApp
 {
@@ -138,10 +154,11 @@ void TestTimelineApp::_run_tests(CtMainWin* pWin)
         EXPECT_EQ(entries[1].actionDescription, "B");
         EXPECT_EQ(entries[2].actionDescription, "A first");
 
+        // going back to a node starts a new entry: three entries of one action each
         auto store = panel->getTreeView().get_model();
-        EXPECT_EQ(store->children().size(), 3u) << "every entry is its own row";
+        EXPECT_EQ(store->children().size(), 3u) << "an entry for each run of actions on one node";
         for (const auto& row : store->children()) {
-            EXPECT_TRUE(row.children().empty()) << "entries must not be nested under a node";
+            EXPECT_EQ(row.children().size(), 1u);
         }
 
         panel->clear();
@@ -371,6 +388,270 @@ void TestTimelineApp::_run_tests(CtMainWin* pWin)
         drainEvents();
     }
 
+    // --- Grouping: the actions in a row on one node are one entry ---
+    {
+        spdlog::info("Grouping_ConsecutiveActionsOneEntry");
+        auto f_entry = [](gint64 nodeId, gint64 ts, const char* desc) {
+            CtTimelineEntry e;
+            e.nodeId = nodeId;
+            e.timestamp = ts;
+            e.actionDescription = desc;
+            e.actionType = "INS";
+            e.useDay = 1;
+            return e;
+        };
+        auto& tv = panel->getTreeView();
+        auto store = tv.get_model();
+        // the entries newest first: their node, number of actions, and whether unfolded
+        auto f_check = [&](const std::vector<std::tuple<gint64, size_t, bool>>& expected) {
+            ASSERT_EQ(store->children().size(), expected.size());
+            size_t i{0};
+            for (const auto& row : store->children()) {
+                gint64 nodeId{0};
+                row.get_value(4/*the node id column*/, nodeId);
+                EXPECT_EQ(nodeId, std::get<0>(expected[i])) << "entry " << i;
+                EXPECT_EQ(row.children().size(), std::get<1>(expected[i])) << "entry " << i;
+                EXPECT_EQ(tv.row_expanded(store->get_path(row)), std::get<2>(expected[i])) << "entry " << i;
+                ++i;
+            }
+        };
+
+        // A, A, B, A: going back to A starts a new entry, and only the newest is unfolded
+        panel->clear();
+        panel->add_entry(f_entry(111, 1000, "A1"));
+        panel->add_entry(f_entry(111, 1001, "A2"));
+        f_check({{111, 2u, true}});
+        panel->add_entry(f_entry(222, 2000, "B1"));
+        f_check({{222, 1u, true}, {111, 2u, false}});
+        panel->add_entry(f_entry(111, 3000, "A3"));
+        f_check({{111, 1u, true}, {222, 1u, false}, {111, 2u, false}});
+        auto entries = panel->get_all_entries();
+        ASSERT_EQ(entries.size(), 4u);
+        EXPECT_EQ(entries[0].actionDescription, "A3");
+        EXPECT_EQ(entries[1].actionDescription, "B1");
+        EXPECT_EQ(entries[2].actionDescription, "A2");
+        EXPECT_EQ(entries[3].actionDescription, "A1");
+
+        // unfolding an older entry folds the others
+        tv.expand_row(store->get_path(store->children()[2]), false/*open_all*/);
+        f_check({{111, 1u, false}, {222, 1u, false}, {111, 2u, true}});
+        tv.expand_row(store->get_path(store->children()[1]), false/*open_all*/);
+        f_check({{111, 1u, false}, {222, 1u, true}, {111, 2u, false}});
+        // a new entry is unfolded, also when an older one was
+        panel->add_entry(f_entry(333, 4000, "C1"));
+        f_check({{333, 1u, true}, {111, 1u, false}, {222, 1u, false}, {111, 2u, false}});
+        panel->remove_entries_for_node(333);
+        entries = panel->get_all_entries();
+
+        // the same entries from a saved timeline
+        panel->load_entries(entries);
+        f_check({{111, 1u, true}, {222, 1u, false}, {111, 2u, false}});
+        EXPECT_EQ(panel->get_all_entries().size(), 4u);
+
+        // without B in between, the two entries of A become one
+        panel->remove_entries_for_node(222);
+        f_check({{111, 3u, true}});
+        entries = panel->get_all_entries();
+        ASSERT_EQ(entries.size(), 3u);
+        EXPECT_EQ(entries[0].actionDescription, "A3");
+        EXPECT_EQ(entries[2].actionDescription, "A1");
+
+        panel->clear();
+        drainEvents();
+    }
+
+    // --- The node icons show only when the preferences say so ---
+    {
+        spdlog::info("ShowIcons_Preference");
+        auto* pIconColumn = panel->getTreeView().get_column(0);
+        ASSERT_TRUE(pIconColumn);
+        const bool showIcons = pWin->get_ct_config()->timelineShowIcons;
+        EXPECT_EQ(pIconColumn->get_visible(), showIcons);
+        pWin->get_ct_config()->timelineShowIcons = true;
+        panel->update_show_icons();
+        EXPECT_TRUE(pIconColumn->get_visible());
+        pWin->get_ct_config()->timelineShowIcons = false;
+        panel->update_show_icons();
+        EXPECT_FALSE(pIconColumn->get_visible());
+        pWin->get_ct_config()->timelineShowIcons = showIcons;
+        panel->update_show_icons();
+    }
+
+    // --- Visits: opening a node adds an entry, when the preferences say so ---
+    {
+        spdlog::info("Visits_OpeningNodesAddsEntries");
+        panel->clear();
+        drainEvents();
+        CtTreeIter iterB = pWin->get_tree_store().get_node_from_node_name("b");
+        ASSERT_TRUE(iterB);
+        CtTreeIter iterOther = pWin->get_tree_store().get_ct_iter_first();
+        ASSERT_TRUE(iterOther);
+        ASSERT_NE(iterOther.get_node_id(), iterB.get_node_id());
+        auto f_select = [&](CtTreeIter iter) {
+            pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(iter));
+            drainEvents();
+        };
+        auto& tv = panel->getTreeView();
+        auto store = tv.get_model();
+        auto f_operation = [&](size_t idx) {
+            Glib::ustring operation;
+            store->children()[idx]->get_value(2/*the operation column*/, operation);
+            return operation;
+        };
+        auto f_node_id = [&](size_t idx) {
+            gint64 nodeId{0};
+            store->children()[idx]->get_value(4/*the node id column*/, nodeId);
+            return nodeId;
+        };
+        CtConfig* pConfig = pWin->get_ct_config();
+        const bool showVisits = pConfig->timelineShowVisits;
+
+        pConfig->timelineShowVisits = false;
+        f_select(iterOther);
+        f_select(iterB);
+        EXPECT_EQ(store->children().size(), 0u) << "no visits unless the preferences say so";
+
+        pConfig->timelineShowVisits = true;
+        f_select(iterOther);
+        f_select(iterB);
+        f_select(iterOther);
+        ASSERT_EQ(store->children().size(), 3u);
+        for (size_t i = 0; i < 3; ++i) EXPECT_EQ(f_operation(i), "Visited") << "entry " << i;
+        EXPECT_EQ(f_node_id(0), iterOther.get_node_id());
+        EXPECT_EQ(f_node_id(1), iterB.get_node_id());
+        EXPECT_EQ(f_node_id(2), iterOther.get_node_id());
+
+        // an action on the node visited joins its entry, which unfolds
+        CtTimelineEntry e;
+        e.nodeId = iterOther.get_node_id();
+        e.timestamp = std::time(nullptr);
+        e.actionDescription = "Insert 1 chars";
+        e.actionType = "INS";
+        e.useDay = pConfig->timelineUseDay;
+        panel->add_entry(e);
+        ASSERT_EQ(store->children().size(), 3u);
+        EXPECT_EQ(f_operation(0), "1 action");
+        EXPECT_TRUE(tv.row_expanded(store->get_path(store->children()[0])));
+
+        // saved and loaded again: the same entries
+        auto entries = panel->get_all_entries();
+        ASSERT_EQ(entries.size(), 4u);
+        EXPECT_EQ(entries[0].actionType, "INS");
+        EXPECT_EQ(entries[1].actionType, CtTimelinePanel::VISIT_ACTION_TYPE);
+        EXPECT_EQ(entries[1].nodeName, iterOther.get_node_name().raw());
+        panel->load_entries(entries);
+        ASSERT_EQ(store->children().size(), 3u);
+        EXPECT_EQ(f_operation(0), "1 action");
+        EXPECT_EQ(f_operation(1), "Visited");
+        EXPECT_EQ(f_operation(2), "Visited");
+        EXPECT_EQ(panel->get_all_entries().size(), 4u);
+
+        // opening a node from the timeline is not a visit
+        tv.row_activated(store->get_path(store->children()[1]), *tv.get_column(0));
+        drainEvents();
+        drainEvents();
+        EXPECT_EQ(pWin->curr_tree_iter().get_node_id(), iterB.get_node_id());
+        EXPECT_EQ(store->children().size(), 3u);
+
+        pConfig->timelineShowVisits = showVisits;
+        f_select(iterB);
+        panel->clear();
+        drainEvents();
+    }
+
+    // --- Grouping: an entry of a deleted node shows the name stored with its actions ---
+    {
+        spdlog::info("Grouping_DeletedNodeName");
+        panel->clear();
+        CtTimelineEntry e;
+        e.nodeId = 99999999; // no such node
+        e.timestamp = 1000;
+        e.actionDescription = "Delete node";
+        e.actionType = "NDe";
+        e.useDay = 1;
+        e.nodeName = "Medical";
+        e.nodePath = "Health & Care / Medical";
+        panel->add_entry(e);
+        auto store = panel->getTreeView().get_model();
+        ASSERT_EQ(store->children().size(), 1u);
+        Glib::ustring name, tooltip;
+        store->children().begin()->get_value(1/*the name column*/, name);
+        store->children().begin()->get_value(17/*the tooltip column*/, tooltip);
+        EXPECT_EQ(name, "Medical");
+        Glib::ustring markup;
+        store->children().begin()->get_value(18/*the name markup column*/, markup);
+        EXPECT_EQ(markup, "<b>Medical</b> (deleted)");
+        EXPECT_EQ(tooltip, "Health &amp; Care / Medical");
+        std::string storedName, storedPath;
+        ASSERT_TRUE(panel->find_node_name(99999999, storedName, storedPath));
+        EXPECT_EQ(storedPath, "Health & Care / Medical");
+
+        // without a stored name
+        panel->clear();
+        e.nodeName.clear();
+        e.nodePath.clear();
+        panel->add_entry(e);
+        store->children().begin()->get_value(18/*the name markup column*/, name);
+        EXPECT_EQ(name, "(deleted)");
+        panel->clear();
+        drainEvents();
+    }
+
+    // --- Grouping: a click on an entry opens its node and unfolds it, without a replay ---
+    {
+        spdlog::info("Grouping_EntryClickOpensNode");
+        panel->clear();
+        drainEvents();
+        CtTreeIter iterB = pWin->get_tree_store().get_node_from_node_name("b");
+        ASSERT_TRUE(iterB);
+        CtTreeIter iterOther = pWin->get_tree_store().get_ct_iter_first();
+        ASSERT_TRUE(iterOther);
+        ASSERT_NE(iterOther.get_node_id(), iterB.get_node_id());
+        CtTimelineEntry e;
+        e.timestamp = 1000;
+        e.actionDescription = "Other";
+        e.actionType = "INS";
+        e.regionOffset = 0;
+        e.regionLength = 1;
+        e.useDay = 1;
+        e.nodeId = iterOther.get_node_id();
+        panel->add_entry(e);
+        e.timestamp = 2000;
+        e.actionDescription = "B";
+        e.nodeId = iterB.get_node_id();
+        panel->add_entry(e);
+        pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(iterB));
+        drainEvents();
+
+        auto& tv = panel->getTreeView();
+        auto store = tv.get_model();
+        ASSERT_EQ(store->children().size(), 2u);
+        const Gtk::TreePath pathOther = store->get_path(store->children()[1]);
+        Glib::ustring markup;
+        store->children()[1]->get_value(18/*the name markup column*/, markup);
+        EXPECT_EQ(markup, "<b>" + str::xml_escape(iterOther.get_node_name()) + "</b>");
+        store->children()[1]->children().begin()->get_value(18/*the name markup column*/, markup);
+        EXPECT_EQ(markup, "") << "the actions have no name";
+        EXPECT_FALSE(tv.row_expanded(pathOther));
+        tv.row_activated(pathOther, *tv.get_column(0));
+        drainEvents();
+        drainEvents();
+        EXPECT_EQ(pWin->curr_tree_iter().get_node_id(), iterOther.get_node_id());
+        EXPECT_TRUE(tv.row_expanded(pathOther));
+        EXPECT_FALSE(tv.row_expanded(store->get_path(store->children()[0]))) << "only one entry unfolded at a time";
+        // clicking it again folds it, and the node stays open
+        tv.row_activated(pathOther, *tv.get_column(0));
+        drainEvents();
+        EXPECT_FALSE(tv.row_expanded(pathOther));
+        EXPECT_EQ(pWin->curr_tree_iter().get_node_id(), iterOther.get_node_id());
+        EXPECT_FALSE(panel->isReplaying());
+        EXPECT_FALSE(panel->isReplaying()) << "a click on an entry must not replay";
+
+        pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(iterB));
+        panel->clear();
+        drainEvents();
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // Cross-comparison tests: every undoable operation creates a matching
     // timeline entry with correct actionType/regionOffset, and clicking
@@ -382,17 +663,8 @@ void TestTimelineApp::_run_tests(CtMainWin* pWin)
     // Helper: simulate clicking a timeline panel row and drain idle callbacks
     auto activateFirstEntry = [&](CtTimelinePanel* p) {
         auto& tv = p->getTreeView();
-        auto store = tv.get_model();
-        auto topIter = store->children().begin();
-        if (!topIter) return;
-        auto children = topIter->children();
-        Gtk::TreePath path;
-        if (children.empty()) {
-            // Only one entry — data is on the parent row
-            path = store->get_path(topIter);
-        } else {
-            path = store->get_path(children.begin());
-        }
+        const Gtk::TreePath path = timeline_action_path(p, 0);
+        if (path.empty()) return;
         tv.row_activated(path, *tv.get_column(0));
         drainEvents();
         drainEvents();
@@ -618,8 +890,7 @@ void TestTimelineApp::_run_tests(CtMainWin* pWin)
 
         // replaying the format must show this text, only bold or not
         auto& tv = panel->getTreeView();
-        auto store = tv.get_model();
-        tv.row_activated(store->get_path(store->children()[fmtRow]), *tv.get_column(0));
+        tv.row_activated(timeline_action_path(panel, fmtRow), *tv.get_column(0));
         bool sawReplay{false};
         int wrongText{0};
         const gint64 deadline = g_get_monotonic_time() + 10 * G_USEC_PER_SEC;
@@ -827,6 +1098,53 @@ void TestTimelineApp::_run_tests(CtMainWin* pWin)
             EXPECT_TRUE(panel->isReplaying())
                 << "Flash should fire for node actionType=" << aType;
         }
+        panel->clear();
+        drainEvents();
+    }
+
+    // --- A deleted node: its entry keeps the node's name and path ---
+    {
+        spdlog::info("CrossCompare: DeleteNodeKeepsName");
+        panel->clear();
+        drainEvents();
+        // a leaf node other than the one the tests work in
+        const gint64 workNodeId = pWin->curr_tree_iter().get_node_id();
+        CtTreeIter leafIter;
+        std::function<void(CtTreeIter)> f_find_leaf = [&](CtTreeIter iter) {
+            for (; iter and not leafIter; ++iter) {
+                if (not iter.first_child() and iter.get_node_id() != workNodeId and not iter.get_node_read_only()) {
+                    leafIter = iter;
+                }
+                else f_find_leaf(iter.first_child());
+            }
+        };
+        f_find_leaf(pWin->get_tree_store().get_ct_iter_first());
+        ASSERT_TRUE(leafIter);
+        const gint64 leafId = leafIter.get_node_id();
+        const std::string leafName = leafIter.get_node_name().raw();
+        const std::string leafPath = CtMiscUtil::get_node_hierarchical_name(leafIter, " / ", false/*for_filename*/);
+
+        pBridge->pushNodeCommand(pActions->node_delete_build_command(leafIter));
+        drainEvents();
+        ASSERT_FALSE(pWin->get_tree_store().get_node_from_node_id(leafId)) << "the node should be deleted";
+        auto entries = panel->get_all_entries();
+        ASSERT_FALSE(entries.empty());
+        EXPECT_EQ(entries[0].actionType, "NDe");
+        EXPECT_EQ(entries[0].nodeId, leafId);
+        EXPECT_EQ(entries[0].nodeName, leafName);
+        EXPECT_EQ(entries[0].nodePath, leafPath);
+        Glib::ustring shownName;
+        panel->getTreeView().get_model()->children().begin()->get_value(1/*the name column*/, shownName);
+        EXPECT_EQ(shownName, leafName);
+        Glib::ustring shownMarkup;
+        panel->getTreeView().get_model()->children().begin()->get_value(18/*the name markup column*/, shownMarkup);
+        EXPECT_EQ(shownMarkup, "<b>" + str::xml_escape(leafName) + "</b> (deleted)");
+
+        pActions->requested_step_back(); // the node back
+        drainEvents();
+        EXPECT_TRUE(pWin->get_tree_store().get_node_from_node_id(leafId));
+        pWin->get_tree_view().set_cursor_safe(static_cast<Gtk::TreeModel::iterator>(
+            pWin->get_tree_store().get_node_from_node_id(workNodeId)));
         panel->clear();
         drainEvents();
     }
@@ -1408,8 +1726,7 @@ void TestTimelineScrollApp::on_activate()
     EXPECT_EQ(entries[0].regionOffset, changeOffset);
 
     auto& tv = panel->getTreeView();
-    auto store = tv.get_model();
-    tv.row_activated(store->get_path(store->children().begin()), *tv.get_column(0));
+    tv.row_activated(timeline_action_path(panel, 0), *tv.get_column(0));
 
     // sample the frames GTK would draw (nothing left to process) through the whole replay
     double scrollFirst{-1}, maxScrollMove{0}, maxOffCentre{0};
@@ -1528,10 +1845,10 @@ void TestTimelineNodeSwitchApp::on_activate()
 
     auto& tv = panel->getTreeView();
     auto store = tv.get_model();
-    // load_entries keeps the given order: row 0 is node 2, row 1 is node 5
+    // load_entries keeps the given order: an entry for node 2, then one for node 5
     ASSERT_EQ(store->children().size(), 2u);
     auto f_activate = [&](int rowIdx) {
-        tv.row_activated(store->get_path(store->children()[rowIdx]), *tv.get_column(0));
+        tv.row_activated(timeline_action_path(panel, rowIdx), *tv.get_column(0));
     };
 
     f_activate(0);
@@ -1625,8 +1942,7 @@ void TestTimelineStopOnNodeSwitchApp::on_activate()
     ASSERT_FALSE(rBuffer2->get_modified());
 
     auto& tv = panel->getTreeView();
-    auto store = tv.get_model();
-    tv.row_activated(store->get_path(store->children().begin()), *tv.get_column(0));
+    tv.row_activated(timeline_action_path(panel, 0), *tv.get_column(0));
     const gint64 deadline = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
     while (g_get_monotonic_time() < deadline and (not panel->isReplaying() or pOverlay->getHighlightRegion().empty())) {
         gtk_main_iteration_do(false);
@@ -1734,11 +2050,10 @@ void TestTimelineMinimalScrollApp::on_activate()
     g_signal_connect_after(GTK_WIDGET(textView.gobj()), "draw", G_CALLBACK(DrawnScrollValues::on_draw), &drawn);
 
     auto& tv = panel->getTreeView();
-    auto store = tv.get_model();
     auto f_replay_top_entry = [&]() {
         drawn.values.clear();
         drawn.recording = true;
-        tv.row_activated(store->get_path(store->children().begin()), *tv.get_column(0));
+        tv.row_activated(timeline_action_path(panel, 0), *tv.get_column(0));
         bool sawReplay{false};
         const gint64 deadline = g_get_monotonic_time() + 10 * G_USEC_PER_SEC;
         while (g_get_monotonic_time() < deadline) {
@@ -1887,8 +2202,7 @@ void TestTimelineRebuiltTableApp::on_activate()
     g_signal_connect_after(GTK_WIDGET(drawn.pTextView->gobj()), "draw", G_CALLBACK(DrawnBelowTable::on_draw), &drawn);
     drawn.recording = true;
     auto& tv = panel->getTreeView();
-    auto store = tv.get_model();
-    tv.row_activated(store->get_path(store->children().begin()), *tv.get_column(0));
+    tv.row_activated(timeline_action_path(panel, 0), *tv.get_column(0));
     bool sawReplay{false};
     const gint64 deadline = g_get_monotonic_time() + 10 * G_USEC_PER_SEC;
     while (g_get_monotonic_time() < deadline) {
@@ -1938,8 +2252,7 @@ static bool timeline_rects_contain(const std::vector<Gdk::Rectangle>& rects, int
 static bool timeline_replay_top_entry(CtTimelinePanel* panel, const std::function<void()>& f_sample, size_t rowIdx = 0)
 {
     auto& tv = panel->getTreeView();
-    auto store = tv.get_model();
-    tv.row_activated(store->get_path(store->children()[rowIdx]), *tv.get_column(0));
+    tv.row_activated(timeline_action_path(panel, rowIdx), *tv.get_column(0));
     bool sawReplay{false};
     const gint64 deadline = g_get_monotonic_time() + 10 * G_USEC_PER_SEC;
     while (g_get_monotonic_time() < deadline) {
@@ -2580,8 +2893,7 @@ void TestTimelineAutosaveWaitsApp::on_activate()
 
     // the autosave falls due while the "before" state, not bold, is on display
     auto& tv = panel->getTreeView();
-    auto store = tv.get_model();
-    tv.row_activated(store->get_path(store->children().begin()), *tv.get_column(0));
+    tv.row_activated(timeline_action_path(panel, 0), *tv.get_column(0));
     bool sawNotBold{false}, autosaveDue{false}, savedDuringReplay{false};
     const gint64 deadline = g_get_monotonic_time() + 15 * G_USEC_PER_SEC;
     while (g_get_monotonic_time() < deadline) {
@@ -2698,14 +3010,13 @@ void TestTimelineClickDuringSetupApp::on_activate()
     panel->clear();
     f_make_bold(2);
     f_make_bold(5);
-    // newest on top: row 0 is node 5, row 1 is node 2
+    // newest on top: action 0 is on node 5, action 1 on node 2
     ASSERT_EQ(panel->get_all_entries().size(), 2u);
     ASSERT_EQ(panel->get_all_entries().at(1).nodeId, 2);
     CtTreeIter iter2 = treeStore.get_node_from_node_id(2);
     const Glib::ustring text2 = iter2.get_node_text_buffer()->get_text();
 
     auto& timelineView = panel->getTreeView();
-    auto store = timelineView.get_model();
     auto& treeView = pWin->get_tree_view();
     const Gtk::TreePath pathNode1 = treeStore.get_path(treeStore.get_node_from_node_id(1)); // a top-level row
 
@@ -2715,7 +3026,7 @@ void TestTimelineClickDuringSetupApp::on_activate()
         f_select(4);
         f_iterate(300000);
         bool clicked{false}, replayingAtClick{false}, replayedAfterClick{false};
-        timelineView.row_activated(store->get_path(store->children()[1]), *timelineView.get_column(0));
+        timelineView.row_activated(timeline_action_path(panel, 1), *timelineView.get_column(0));
         Glib::signal_timeout().connect_once([&]() {
             clicked = true;
             replayingAtClick = panel->isReplaying();
@@ -2744,12 +3055,12 @@ void TestTimelineClickDuringSetupApp::on_activate()
     f_select(4);
     f_iterate(300000);
     bool clicked{false};
-    timelineView.row_activated(store->get_path(store->children()[1]), *timelineView.get_column(0));
+    timelineView.row_activated(timeline_action_path(panel, 1), *timelineView.get_column(0));
     // activated as GTK does on a click (single-click activation does not react to
     // synthesized events), from a timer so it lands inside the set-up
     Glib::signal_timeout().connect_once([&]() {
         clicked = true;
-        timelineView.row_activated(store->get_path(store->children()[0]), *timelineView.get_column(0));
+        timelineView.row_activated(timeline_action_path(panel, 0), *timelineView.get_column(0));
     }, 5);
     bool replayedNode5{false};
     const gint64 deadline = g_get_monotonic_time() + 2 * G_USEC_PER_SEC;

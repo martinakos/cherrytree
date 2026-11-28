@@ -120,6 +120,8 @@ void CtMainWin::_on_treeview_cursor_changed()
             text_view_apply_cursor_position(treeIter, 0, 0);
         }
 
+        _uCtTimelinePanel->add_visit(treeIter);
+
         const bool is_bookmarked = _uCtTreestore->is_node_bookmarked(nodeId);
         menu_update_bookmark_menu_item(is_bookmarked);
         update_selected_node_statusbar_info();

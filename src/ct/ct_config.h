@@ -110,6 +110,8 @@ public:
     int                                         timelineMaxUseDays{30};
     int                                         timelineReplayCycles{3};
     std::string                                 timelineHighlightColor{"#ffff00"};
+    bool                                        timelineShowIcons{false};
+    bool                                        timelineShowVisits{false};
     int                                         timelineUseDay{0};
     std::string                                 timelineLastOpenDate;
     bool                                        agentAccessEnabled{false};

@@ -150,6 +150,10 @@ struct CtTimelineEntry
     int         regionLength{0};
     int         canvasIdx{-1};
     std::string deltaData;
+    // the node's name and path ("Parent / Node") when the entry was made, shown once
+    // the node is deleted
+    std::string nodeName;
+    std::string nodePath;
 };
 
 struct CtRecentDocRestore
